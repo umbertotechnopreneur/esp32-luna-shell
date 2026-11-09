@@ -3,8 +3,7 @@
 The approved 08 / GELATINA PERLATA concept supplies the front-facing face-free
 body. Highlights and shadows are baked paint and deform with texture alpha.
 Expressions remain vector geometry; face-follow uses the same body warp.
-The firmware finish is selectable and currently enabled by default; the host
-study is opt-in. Runtime selection/persistence for all five skins exists in screen 11.
+The textures and stable skin IDs are retained for legacy development tools. Cody boots into the Muse avatar.
 
 ## Source and generation
 
@@ -20,8 +19,6 @@ total flash bytes, excluding binding tables. Only the selected texture is sample
 
 ```powershell
 .\scripts\device.ps1 generate -Generator cody-jelly
-.\scripts\device.ps1 simulator -CloudJellyStudy
-.\scripts\device.ps1 simulator -CloudJellyStudy -OutputPath artifacts/simulator/pearl.png
 ```
 
 `generated/` contains immutable textures and named row/lobe bindings, not a

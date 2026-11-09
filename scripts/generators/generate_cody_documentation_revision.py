@@ -14,7 +14,7 @@
 #
 # VBWR E
 
-"""Preserve both Cody atlases and append the source-grounded 6 October revision."""
+"""Preserve the Cody navigation atlas and append the source-grounded 6 October revision."""
 
 import argparse
 from hashlib import sha256
@@ -40,11 +40,10 @@ from scripts.common.cody_rig_contract import apply_mouth_breathing, contour_defa
 from scripts.common.cody_rig_types import FaceChannel
 from scripts.common.cody_response import IdleSceneId, compose_response, make_response_state
 from cody_simulator import CodyRenderer
-from cody_personality import PersonalityCue
 
 OUTPUT = ROOT / "artifacts/pdf-review/cody-documentation-2026-10-06"
 MARKER = "CURRENT BEHAVIOR / 06 OCT 2026"
-NAMES = ("cody-manga-status-atlas-v1.pdf", "cody-navigation-atlas-v1.pdf")
+NAMES = ("cody-navigation-atlas-v1.pdf",)
 BLUE = "#359FE7"
 INK = "#142737"
 MUTED = "#536776"
@@ -103,21 +102,6 @@ def illustration(renderer, name, preset, breathing):
     return destination, values
 
 
-# scale: Canonical authored character size for this static illustration.
-# Raises OSError or ValueError for invalid artwork or icon authoring.
-def icon_illustration(scale):
-    renderer = CodyRenderer(jelly_study=True)
-    face = list(renderer.rig["expression_presets"]["calm"])
-    # Advance the real channel only to author a held document illustration; no audio is created.
-    for elapsed in (0, 300, 700, 1100, 1500):
-        image, _ = renderer.render("rig", face, (233, 235, scale), debug=False,
-                                   personality_cue=PersonalityCue.AFFECTION,
-                                   personality_elapsed_ms=elapsed, personality_nominal_scale=scale)
-    destination = OUTPUT / f"affection-size-{scale}.png"
-    image.save(destination)
-    return destination
-
-
 # renderer: Existing Windows renderer used only for document artwork.
 # identity: Typed idle gesture to compose at its maximum artistic weight.
 # Raises OSError or ValueError for invalid response or illustration data.
@@ -146,64 +130,6 @@ def gesture_illustration(renderer, identity):
 def picture(document, path, label, x, y, size=170):
     document.drawImage(str(path), x, H - y - size, width=size, height=size, mask="auto")
     text(document, label, x, y + size + 18, 10, INK, "BodyBold")
-
-
-# document: Destination canvas.
-# start: First absolute appendix page number.
-# poses: Host-rendered mouth and gesture illustrations.
-# audio: Original sound catalogue, including durations and descriptions.
-def manga_pages(document, start, poses, audio):
-    frame(document, "A mouth that visibly breathes", "M01 / Replaces the mouth values in the 05 October idle appendix.", start, "MANGA STATUS")
-    for index, name in enumerate(("calm-exhale", "calm-inhale", "stressed-exhale", "stressed-inhale")):
-        path, values = poses[name]
-        x = 36 + index * 195
-        picture(document, path, name.replace("-", " / ").title(), x, 128, 175)
-        text(document, f"open {values[FaceChannel.MOUTH_OPEN]:.3f}", x, 346, 10, BLUE, "Mono")
-        text(document, f"width {values[FaceChannel.MOUTH_WIDTH]:.3f}", x, 364, 10, BLUE, "Mono")
-    block(document, "Thin resting smile; stronger inhalation", "Exhalation removes 75% of the current opening. Inhalation adds 16-24% of the remaining range; a closed Stressed mouth reaches 0.24 without measured movement. Width moves 18% toward its authored minimum/maximum at the two endpoints.", 36, 402, 365)
-    block(document, "One existing rhythm", "The rest lip is thinner and the tongue follows the lower lip. The tongue remains clipped and retains its 0.28 visibility threshold. Images use current Windows rig code, not a physical-device capture. The artistic rhythm does not represent a measured respiratory rate.", 439, 402, 367)
-    document.showPage()
-
-    frame(document, "Read the emotion at a glance", "M02 / Corrects the original cue and circular-layout guidance (pages 03-04 and 14).", start + 1, "MANGA STATUS")
-    clips = audio["clips"]
-    for index, clip in enumerate(clips):
-        row, column = divmod(index, 7)
-        x, y = 36 + column * 111, 125 + row * 139
-        path = ROOT / "cody-device/assets/cody/personality-icons/generated" / (Path(clip["file"]).stem + ".png")
-        document.setFillColor(HexColor("#EEF4F8"))
-        document.roundRect(x, H - y - 83, 96, 83, 6, fill=1, stroke=0)
-        document.drawImage(str(path), x + 16, H - y - 74, width=64, height=64, mask="auto")
-        text(document, f"C{clip['id']:02d} {clip['cue']}", x, y + 102, 9, INK, "BodyBold")
-        text(document, f"SFX {clip['duration_ms']} ms", x, y + 119, 9, BLUE, "Mono")
-    block(document, "Position and size", "Main and Sleep use the same facial anchor, shifted 30 logical pixels right and 40 down. The former 3x size becomes 3.6x (+20%). Extents: Full 104 px, Greeting 94 px, Medium 76 px; smaller eligible sizes use the 43 px minimum. Micro suppresses symbols.", 36, 421, 365)
-    block(document, "Scene permission still applies", "One symbol at a time. Main/Idle and semantic Sleep permit symbols; onboarding, settings, boot and small headers do not. The complete footprint must fit the circle and avoid Back/status controls. Lack of space reports BlockedByLayout; icons are never silently shrunk or relocated.", 439, 421, 367)
-    document.showPage()
-
-    frame(document, "The same symbol at different sizes", "M03 / Actual Windows channel composition; synthetic illustrations, not device captures.", start + 2, "MANGA STATUS")
-    for index, (scale, label) in enumerate(((145, "Full / 104 px"), (105, "Medium / 76 px"), (30, "Tiny / 43 px"), (22, "Micro / hidden"))):
-        picture(document, OUTPUT / f"affection-size-{scale}.png", label, 36 + index * 195, 125, 175)
-    block(document, "Attached to Cody", "All sizes use the same evaluated nose anchor and fixed-pixel correction. Icons follow position over 360 ms and scale over 400 ms, with at most 4 px separation before raster rounding. The enlarged icon is painted above Cody's artwork and may overlap its upper body.", 36, 357, 365)
-    block(document, "Fade and admission", "Ordinary admission: stable target 300 ms -> fade in 400 ms -> full-opacity hold at least 2,500 ms -> fade out 400 ms. A new target replaces the single desired identity. Sleep owns its semantic cue; boot and excluded routes cannot display symbols.", 439, 357, 367)
-    paragraph(document, "Illustrations show the same Affection request at full opacity on the Main view. Tiny is eligible here; a small-header or settings route still suppresses it. Micro is intentionally hidden before geometry preparation.", 36, 501, W - 72, 10)
-    document.showPage()
-
-    frame(document, "Touch, fading and sound", "M04 / Current interaction contract for Idle 16 and Sleep 35A.", start + 3, "MANGA STATUS")
-    y = block(document, "Stroke Cody: Affection", "A caress is a moving contact above the eyes or below the mouth: 300-3,000 ms, bounded movement and sampling gaps. It requests four seconds of Affection, with a six-second caress cooldown. A stationary press is not a caress.", 36, 139, 365)
-    y = block(document, "Touch an eye: varied reactions", "The eye closes through its own response. Fear or Frustration supplies the manga reaction, with stress-aware selection and repeat avoidance. A reaction requests four seconds. Existing hysteresis and urgent device-symbol priorities still apply.", 36, y, 365)
-    block(document, "Every fresh tap", "A new press requests the existing 20-ms PCM impulse at gain 8. Drag and hold frames do not repeat the click. Volume, quiet hours and busy/expiry admission still apply; feedback never waits on the UI thread.", 36, y, 365)
-    y = block(document, "400 ms in / 400 ms out", "An ordinary desired cue must be stable for 300 ms. Smoothstep fade-in lasts 400 ms, full-opacity hold at least 2,500 ms, and fade-out 400 ms. Timing uses active animation time. Only one sprite is displayed; replacements do not crossfade.", 439, 139, 367)
-    y = block(document, "All fourteen cues have an SFX", "Each newly visible, successfully retired symbol requests its original 16-kHz mono PCM clip. Busy admission can retry within 400 ms; a hidden, expired or muted request cannot play later. No global sound cooldown is added. A held symbol does not replay its sound every frame.", 439, y, 367)
-    block(document, "One voice, best effort", "There is no mixer. The existing audio owner arbitrates playback and reports real errors. A tap or decorative sound can be dropped when unavailable. Logging is also best effort: a log write cannot stall rendering or touch.", 439, y, 367)
-    document.showPage()
-
-    frame(document, "Small moments during Idle", "M05 / Replaces the 05 October gesture and stressed-breathing examples; route 16 stays active.", start + 4, "MANGA STATUS")
-    labels = ("Yawn / broad opening", "Whistle / narrow mouth", "Greeting / right wink")
-    for index, name in enumerate(("yawn", "whistle", "greeting")):
-        picture(document, poses[name][0], labels[index], 48 + index * 266, 121, 220)
-    block(document, "A shuffled cycle", "Wait 20-40 eligible active seconds, play a 3.2-second gesture, then cool down for 40 seconds. A shuffled bag presents Yawn, Whistle and Greeting once each in random order and prevents repetition across bag boundaries.", 36, 392, 365)
-    block(document, "Interruptible, with a valid whistle", "Touch, held contact, motion stress, microphone activity and unrelated playback interrupt immediately. Whistle targets the rig minimum width 0.5, replacing invalid 0.42; it attempts one original 300-ms sound after a completed visible frame. Yawn and Greeting remain silent.", 439, 392, 367)
-    paragraph(document, "Windows rig illustrations of gesture peaks, not device observations. Stress, Sleep, setup, settings, pauses and current symbol/caress presentations exclude scheduled idle gestures.", 36, 516, W - 72, 9)
-    document.showPage()
 
 
 # document: Destination canvas.
@@ -338,11 +264,8 @@ def main():
         destination = OUTPUT / (name + ".png")
         image.save(destination)
         poses[name] = (destination, None)
-    audio = json.loads((ROOT / "cody-device/assets/cody/personality-icons/audio/manifest.json").read_text(encoding="utf-8"))
-    for scale in (145, 105, 30, 22):
-        icon_illustration(scale)
     manifest = {"revision_date": "2026-10-06", "source_checkpoint": "f5ae5e2", "documents": []}
-    for index, name in enumerate(NAMES):
+    for name in NAMES:
         source = ATLAS / name
         reader = originals[name]
         first = len(reader.pages) + 1
@@ -351,14 +274,9 @@ def main():
             shutil.copy2(source, backup)
         buffer = BytesIO()
         document = canvas.Canvas(buffer, pagesize=(W, H))
-        if index == 0:
-            manga_pages(document, first, poses, audio)
-            added = 6
-            kind = "MANGA STATUS"
-        else:
-            navigation_pages(document, first, poses)
-            added = 4
-            kind = "NAVIGATION"
+        navigation_pages(document, first, poses)
+        added = 4
+        kind = "NAVIGATION"
         errata(document, first + added - 1, kind, len(reader.pages))
         document.save()
         writer = PdfWriter()

@@ -39,20 +39,13 @@ function Show-DeviceHelp {
 
     Write-DeviceHelpSection -Title 'SIMULATORS AND PREVIEWS' -Icon '🖥️' -Width $width -Color Magenta
     Write-DeviceHelpSection -Title 'Interactive Cody and boot screens' -Icon '🤖' -Width $width -Color Magenta -Subsection
-    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator' -Description 'Open Cody with rig, face, contour and debug controls.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator' -Description 'Open the VibeWare startup and interactive Muse avatar preview.' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Ccp' -Description 'Open the SIMULATED CCP1 endpoint and visible pairing panel on loopback.' -Detail 'Uses a separate persistent identity. In Codex explicitly request SIMULATED discovery; the physical device remains separate.' -Width $width
-    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Ccp -ActivityPreview -AtMs 6500' -Description 'Open the shared native activity renderer with visibly synthetic project, branch and long-description metadata.' -Detail 'No pairing is required. Save one annotated native frame after AtMs (default 1000) under artifacts/simulator; the visible panel can replay phases and save more frames.' -Width $width
-    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Skin assets/characters/example.yaml' -Description 'Preview an explicitly selected character skin YAML.' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Screen boot-ready -Rotation 180' -Description 'Preview a boot stage in the selected display orientation.' -Width $width
-    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Screen greeting' -Description 'Open the greeting scene with visibly synthetic host stimuli.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Screen greeting' -Description 'Open the interactive Muse avatar preview.' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Screen question-flow -OutputPath artifacts/simulator/cody-questions.png' -Description 'Save a PNG of the synthetic question, review and PC approval routes. No pairing is required.' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1 boot-screens' -Description 'Save sleeping, waking and ready PNG previews in artifacts/simulator/.' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -OutputPath artifacts/simulator/rig.png' -Description 'Save a still preview instead of opening the interactive simulator.' -Width $width
-
-    Write-DeviceHelpSection -Title 'Cloud material studies' -Icon '☁️' -Width $width -Color Magenta -Subsection
-    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -CloudMaterialStudy -OutputPath artifacts/simulator/cloud-study.png' -Description 'Render the cloud-volume material study to a still image.' -Width $width
-    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -CloudPngMeshStudy -OutputPath artifacts/simulator/cloud-mesh.gif' -Description 'Capture the PNG mesh study as a synthetic motion loop; use .png for a still.' -Detail 'Add -MeshOverlay to show the triangle wireframe. This study requires -OutputPath and the rig screen.' -Width $width
-    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -CloudJellyStudy' -Description 'Open the interactive pearlescent scanline study.' -Detail 'Add -OutputPath artifacts/simulator/cloud-jelly.gif to export a loop, or use .png for a still. Select only one cloud study at a time.' -Width $width
 
     Write-DeviceHelpSection -Title 'Luna reference tools' -Icon '🌙' -Width $width -Color Magenta -Subsection
     Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator-luna' -Description 'Open the existing Luna reference UI simulator.' -Width $width

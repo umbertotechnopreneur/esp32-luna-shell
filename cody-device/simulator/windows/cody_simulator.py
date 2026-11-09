@@ -2278,127 +2278,83 @@ class CodyWindow:
         self.after_id = self.root.after(100, self.tick)
 
 
+# args: Validated CLI options for one static device preview.
+# Raises the original native rendering or output-path error.
+def capture_device_preview(args):
+    from cody_muse_preview import DISPLAY_SIZE, NativeMusePreview
+
+    if args.screen == "boot-vibeware":
+        image = VibeWareBoot(ROOT / "cody-device", cody_companion=True).image(args.at_ms)
+    else:
+        if args.screen == "boot-sleep":
+            time_ms = min(args.at_ms, 899)
+        elif args.screen == "boot-waking":
+            time_ms = min(1499, max(900, args.at_ms))
+        else:
+            time_ms = max(1500, args.at_ms)
+        image = Image.new("RGB", (SIZE, SIZE), "black")
+        offset = (SIZE - DISPLAY_SIZE) // 2
+        image.paste(NativeMusePreview().image(time_ms), (offset, offset))
+
+    if args.safe_guide:
+        ImageDraw.Draw(image).rectangle((73, 73, 392, 392), outline=(62, 91, 113))
+    sheet = Image.new("RGB", (SIZE, SIZE + 42), "#101820")
+    sheet.paste(orient(image, args.rotation), (0, 0))
+    ImageDraw.Draw(sheet).text((12, SIZE + 12),
+        f"{args.screen} / {args.rotation} deg / SIMULATED", fill="#C3D0D5")
+    sheet.save(args.capture)
+
+
 # argv: Explicit Cody argument list from the common Windows launcher.
-# Raises ValueError for an invalid authored rig or evaluated scene.
-# Raises OSError for a failed capture write and tk.TclError for unavailable window resources.
-# Raises AttributeError or RuntimeError if required Windows DPI setup cannot be established.
+# Raises the original native, Tk, or output-file error.
 def main(argv=None):
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--skin", default="assets/cody/cody.yaml")
-    parser.add_argument('--screen', choices=(*SCREEN_NAMES, 'question-flow'), default='rig')
-    parser.add_argument('--rotation',type=int,choices=(0,90,180,270),default=0)
-    parser.add_argument('--capture',type=Path,
-                        help = 'Output PNG; relative names use artifacts/simulator, explicit paths must stay under artifacts')
-    parser.add_argument('--safe-guide',action='store_true')
-    parser.add_argument('--ccp', action='store_true',
-                        help='Opt in to the isolated SIMULATED CCP1 loopback endpoint and visible pairing panel')
-    parser.add_argument('--activity-preview', action='store_true',
-                        help='Explicitly show synthetic activity through shared native rendering; save one annotated frame after --at-ms without pairing')
-    parser.add_argument('--cloud-material-study', action='store_true',
-                        help='Capture a host-only soft cloud material study; not firmware rendering parity')
-    parser.add_argument('--cloud-png-mesh-study', action='store_true',
-                        help='Capture the painted PNG/triangle appearance study; GIF output shows synthetic lobe motion')
-    parser.add_argument('--cloud-jelly-study', action='store_true',
-                        help='Pearlescent scanline appearance study: interactive preview, PNG or synthetic GIF')
-    parser.add_argument('--mesh-overlay', action='store_true',
-                        help='Overlay the actual triangle mesh in a PNG mesh study capture')
-    parser.add_argument('--at-ms',type=int,default=1000)
+    parser = argparse.ArgumentParser(description="Cody Studio device preview")
+    parser.add_argument("--screen", choices=(*SCREEN_NAMES, "question-flow"), default="rig")
+    parser.add_argument("--rotation", type=int, choices=(0, 90, 180, 270), default=0)
+    parser.add_argument("--capture", type=Path, help="Output PNG under artifacts/")
+    parser.add_argument("--safe-guide", action="store_true")
+    parser.add_argument("--ccp", action="store_true",
+                        help="Opt in to the isolated SIMULATED CCP1 loopback endpoint")
+    parser.add_argument("--at-ms", type=int, default=1000)
     args = parser.parse_args(argv)
-    if args.activity_preview and not args.ccp:
-        parser.error('--activity-preview requires interactive --ccp')
-    if args.ccp and (args.capture is not None or args.screen != Screen.RIG or
-                    args.cloud_material_study or args.cloud_png_mesh_study or args.cloud_jelly_study):
-        parser.error('--ccp requires interactive --screen rig without a rendering study')
-    if args.at_ms<0:
-        parser.error('--at-ms must be non-negative')
-    if args.cloud_material_study and (args.capture is None or args.screen != Screen.RIG):
-        parser.error('--cloud-material-study requires --capture and --screen rig')
-    if args.cloud_png_mesh_study and (args.capture is None or args.screen != Screen.RIG):
-        parser.error('--cloud-png-mesh-study requires --capture and --screen rig')
-    if args.cloud_jelly_study and args.screen not in ANIMATED_SCREENS:
-        parser.error('--cloud-jelly-study requires an animated screen: rig or greeting')
-    if sum((args.cloud_material_study, args.cloud_png_mesh_study, args.cloud_jelly_study)) > 1:
-        parser.error('Select only one cloud study')
-    if args.mesh_overlay and not args.cloud_png_mesh_study:
-        parser.error('--mesh-overlay requires --cloud-png-mesh-study')
-    sprite_study = args.cloud_png_mesh_study or args.cloud_jelly_study
-    if args.capture is not None and sprite_study and args.capture.suffix.lower() not in ('.png', '.gif'):
-        parser.error('Sprite studies capture PNG stills or a GIF synthetic motion loop')
-    if args.capture is not None and args.capture.suffix.lower() == '.gif':
-        if args.screen != Screen.RIG:
-            parser.error('The fixed GIF motion timeline requires --screen rig; use PNG or interactive greeting')
-        if not sprite_study:
-            parser.error('GIF motion capture requires --cloud-png-mesh-study or --cloud-jelly-study')
-        if args.safe_guide or '--at-ms' in (sys.argv[1:] if argv is None else argv):
-            parser.error('GIF motion uses its complete fixed timeline; --safe-guide and --at-ms are not supported')
+    if not 0 <= args.at_ms <= 2147483647:
+        parser.error("--at-ms must be between 0 and 2147483647")
+    if args.ccp and (args.capture is not None or args.screen != Screen.RIG):
+        parser.error("--ccp requires the interactive Cody simulator")
     if args.capture is not None:
+        if args.capture.suffix.lower() != ".png":
+            parser.error("--capture requires a PNG path")
         try:
             args.capture = resolve_runtime_output(args.capture)
         except (OSError, RuntimeError, ValueError) as error:
             parser.error(str(error))
-    if args.screen == 'question-flow':
-        if (args.capture is None or args.capture.suffix.lower() != '.png' or args.ccp or args.safe_guide or
-                args.skin != "assets/cody/cody.yaml" or args.cloud_material_study or sprite_study):
-            parser.error('question-flow requires a PNG capture without CCP, skin, guide or study options')
+
+    if args.screen == "question-flow":
+        if args.capture is None or args.safe_guide:
+            parser.error("question-flow requires a PNG capture without the layout guide")
         from cody_question_preview import capture_question_flow
 
         args.capture.parent.mkdir(parents=True, exist_ok=True)
         capture_question_flow(args.rotation, args.at_ms).save(args.capture)
         print(args.capture)
         return
-    artwork_view = (args.screen != Screen.RIG or args.skin != "assets/cody/cody.yaml"
-                    or args.activity_preview or args.cloud_material_study or sprite_study)
-    if not artwork_view and args.capture is None:
-        from cody_device_ui import DeviceStudioWindow
 
-        prepare_display()
-        root = tk.Tk()
-        root.withdraw()
-        configure_tk_scaling(root)
-        DeviceStudioWindow(root, args)
-        root.deiconify()
-        root.mainloop()
+    if args.capture is not None:
+        args.capture.parent.mkdir(parents=True, exist_ok=True)
+        capture_device_preview(args)
+        print(args.capture)
         return
-    renderer = CodyRenderer(skin_path=args.skin, jelly_study=args.cloud_jelly_study,
-        offline_study=args.cloud_material_study or args.cloud_png_mesh_study or args.cloud_jelly_study)
-    if args.capture:
-        destination = args.capture
-        if sprite_study and destination.suffix.lower() == '.gif':
-            renderer.capture_sprite_motion(destination, args.rotation, args.mesh_overlay)
-            print(destination)
-            return
-        face = renderer.scene_painter.face("greeting") if args.screen == Screen.GREETING else renderer.rig['boot_channels']['ready']
-        values = face if args.screen not in ANIMATED_SCREENS or args.screen == Screen.GREETING else renderer.animate_face(face,args.at_ms)
-        contour = (renderer.advance_shape(make_contour_state(renderer.rig),contour_defaults(renderer.rig),args.at_ms)
-                   if args.screen in ANIMATED_SCREENS else None)
-        # Captures show the same clean artwork as the device's initial view.
-        # Interactive inspection still exposes its separate debug controls.
-        placement = renderer.scene_painter.definition("greeting")["cloud"] if args.screen == Screen.GREETING else renderer.rig['default_transform']
-        image,_ = renderer.render(args.screen,values,tuple(placement[key] for key in ('x','y','scale')),
-                                debug=False,guide=args.safe_guide,rotation=args.rotation,contour=contour,
-                                material_study=args.cloud_material_study,
-                                png_mesh_study=args.cloud_png_mesh_study, mesh_overlay=args.mesh_overlay,
-                                scene_elapsed_ms=args.at_ms, personality_elapsed_ms=args.at_ms)
-        destination.parent.mkdir(parents=True,exist_ok=True)
-        renderer.capture_sheet(image,f"{args.screen} / {args.rotation} deg / HOST PREVIEW").save(destination)
-        print(destination)
-        if renderer.png_mesh is not None:
-            study = renderer.png_mesh
-            print(f'HOST ONLY: {len(study.vertices)} vertices, {len(study.triangles)} triangles; '
-                  f'texture={study.texture.size}, source crop={study.source_crop}; ESP32 unmeasured')
-        if renderer.jelly_sprite is not None:
-            study = renderer.jelly_sprite
-            print(f'HOST ONLY: {len(study.rows)} scanline supports, no triangles; '
-                  f'texture={study.texture.size}, source crop={study.source_crop}; ESP32 unmeasured')
-        return
+
+    from cody_device_ui import DeviceStudioWindow
+
     prepare_display()
     root = tk.Tk()
     root.withdraw()
     configure_tk_scaling(root)
-    CodyWindow(root,renderer,args)
+    DeviceStudioWindow(root, args)
     root.deiconify()
     root.mainloop()
 
 
-if __name__=='__main__':
+if __name__ == "__main__":
     main()

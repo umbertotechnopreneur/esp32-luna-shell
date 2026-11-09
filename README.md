@@ -8,17 +8,16 @@ or bedside table to see when a turn is ready, answer a question sent to Cody,
 and check usage without picking up a phone. The device talks to the Codex plugin
 on the same local Wi-Fi network.
 
-On first boot, the VibeWare floppy animation leads into pairing. Bluetooth
-provisioning supplies the Wi-Fi credentials when the device has no saved
-network. With Wi-Fi ready, enter the code shown on the device in the Codex
-plugin. You can configure the device's screens and options on the device itself.
+The VibeWare floppy animation hands off to the Muse character. Tap the
+character for a playful reaction with Cody's touch sound when enabled. Press
+BOOT to open Options and use Connections for Wi-Fi setup and Codex pairing.
 
 - **Codex at a glance.** The dashboard distinguishes a connected app, a linked
   PC and active discovery. Authenticated questions and turn-ready events can
   wake the display from connected standby and play a cue when sounds are enabled.
 - **Account and device screens.** Browse reset, limits, usage, credits, context
-  and About. A five-pixel perimeter shows the current weekly allowance on every
-  awake screen with a valid sample. About includes build details and a project QR.
+  and About. A five-pixel perimeter shows the current weekly allowance on the statistics
+  screens when a valid sample is available. About includes build details and a project QR.
 - **Physical controls.** PWR toggles standby, BOOT opens Options and a shake
   returns to the first enabled statistics page. Optional voice input uses the
   paired local link. The standard profile keeps the microphone pipeline disabled.

@@ -14,7 +14,7 @@
 #
 # VBWR E
 
-"""Append the VibeWare marketing/boot revision while preserving both existing atlases."""
+"""Append the VibeWare marketing/boot revision while preserving the existing navigation atlas."""
 
 import argparse
 from hashlib import sha256
@@ -37,7 +37,7 @@ from scripts.generators.generate_cody_documentation_revision import register_fon
 from vibeware_boot import VibeWareBoot
 
 OUTPUT = ROOT / "artifacts/pdf-review/vibeware-boot-2026-10-06"
-NAMES = ("cody-manga-status-atlas-v1.pdf", "cody-navigation-atlas-v1.pdf")
+NAMES = ("cody-navigation-atlas-v1.pdf",)
 MARKER = "VIBEWARE BOOT IDENTITY / 06 OCT 2026"
 MANIFESTO = "https://umbertogiacobbi.biz/vibeware/manifesto"
 INK = "#142737"
@@ -136,12 +136,8 @@ def behavior_page(document, number, kind):
 # prior_pages: Count of preserved original pages, including every earlier erratum.
 def errata_page(document, number, kind, prior_pages):
     page_frame(document, "Errata and corrections", "Revision date: 06 October 2026 / VibeWare boot identity / Every earlier page and correction is preserved.", number, kind)
-    if kind == "NAVIGATION":
-        affected = "Original page 02 (Boot and entry); page 20 / N01 (shorter boot); page 22 / N03 (Studio branding); page 23 (earlier errata). Screen IDs 01-05 and 16 remain unchanged; 35A/35B wake is unaffected."
-        corrections = "Replace the statement that startup shows only Cody with the VibeWare introduction before screens 01-03. Retain the existing 2 / 1.5 / 2-second character phases. Replace the old public GitHub manifesto reference with the user-provided website URL. Desktop-only branding is now extended to the device boot."
-    else:
-        affected = "Original page 02 (meaning before decoration); page 14 (circular layout); page 24 (earlier errata). The branding introduction precedes screens 01-03; the fourteen manga cue identities, face geometry and Idle 16 remain unchanged."
-        corrections = "Add the maker identity before the character and its cue vocabulary. Place the original floppy artwork at (105,87), size 256 x 292, wholly within the central safe square. Keep brand animation independent of device measurements, narrative cue selection and ordinary wake."
+    affected = "Original page 02 (Boot and entry); page 20 / N01 (shorter boot); page 22 / N03 (Studio branding); page 23 (earlier errata). Screen IDs 01-05 and 16 remain unchanged; 35A/35B wake is unaffected."
+    corrections = "Replace the statement that startup shows only Cody with the VibeWare introduction before screens 01-03. Retain the existing 2 / 1.5 / 2-second character phases. Replace the old public GitHub manifesto reference with the user-provided website URL. Desktop-only branding is now extended to the device boot."
     y = block(document, "Affected original pages and screens", affected, 36, 144, 365)
     y = block(document, "Corrections in this revision", corrections, 36, y + 11, 365)
     block(document, "Preservation and evidence", f"All {prior_pages} existing pages, earlier errata, bookmarks and original page content are retained. New pages B01 and B02 document the supplied artwork and implemented behavior. This final page records the revision; it does not certify firmware compilation or physical behavior.", 439, 144, 365)
@@ -171,7 +167,7 @@ def apply_reviewed(manifest):
     shutil.copy2(OUTPUT / "manifest.json", ATLAS / "source/vibeware-boot-2026-10-06-manifest.json")
 
 
-# No parameters: stage/render or apply exactly the requested two local PDF revisions.
+# No parameters: stage/render or apply exactly the requested navigation atlas revision.
 # Raises OSError, ValueError or a subprocess error for invalid sources or failed PDF rendering.
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -187,7 +183,7 @@ def main():
     register_fonts()
     artwork = VibeWareBoot(ROOT / "cody-device")
     manifest = {"revision_date": "2026-10-06", "scope": "VibeWare boot identity", "manifesto": MANIFESTO, "documents": []}
-    for index, name in enumerate(NAMES):
+    for name in NAMES:
         source = ATLAS / name
         reader = PdfReader(source)
         if any(MARKER in page.extract_text() for page in reader.pages):
@@ -198,7 +194,7 @@ def main():
             shutil.copy2(source, backup)
         buffer = BytesIO()
         document = canvas.Canvas(buffer, pagesize=(W, H))
-        kind = "MANGA STATUS" if index == 0 else "NAVIGATION"
+        kind = "NAVIGATION"
         marketing_page(document, first, kind, artwork)
         behavior_page(document, first + 1, kind)
         errata_page(document, first + 2, kind, len(reader.pages))

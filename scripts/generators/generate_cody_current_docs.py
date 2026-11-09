@@ -1,4 +1,4 @@
-"""Author the six current Cody references without accumulating revision history."""
+"""Author the five current Cody references without accumulating revision history."""
 
 import argparse
 from io import BytesIO
@@ -13,7 +13,6 @@ from PIL import Image, ImageDraw
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, A5, landscape
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib.utils import ImageReader
 from reportlab.pdfgen import canvas
 from reportlab.platypus import Paragraph
 
@@ -23,12 +22,11 @@ from cody_pdf_revision_register import RevisionRecord, register_fonts, render_re
 import generate_cody_pairing_flyer as flyer
 
 DOCS = ROOT / "docs/cody"
-ART = ROOT / "cody-device/assets/cody/docs/studio"
 REVIEW = ROOT / "artifacts/docs/current"
 MIRROR = Path("C:/Users/umber/OneDrive/Obsidian/30_Engineering/Products/Cody Companion/atlas")
 DOCUMENT_NAMES = (
     "cody-ccp-connection-atlas-v1.pdf", "cody-navigation-atlas-v1.pdf",
-    "cody-planning-atlas-v1.pdf", "cody-manga-status-atlas-v1.pdf",
+    "cody-planning-atlas-v1.pdf",
     "cody-ccp-pairing-quickstart-a5-v1.pdf", "device-navigation-map-a4.pdf",
 )
 SIZE = landscape(A4)
@@ -43,7 +41,7 @@ WHITE = colors.white
 
 CURRENT_SCOPE = (
     "Current repository source is the reference. Firmware execution, physical behavior and the private cloud service require their own verification. "
-    "The device-first image presents a dashboard. Character artwork belongs to Studio/design work. Cloud firmware integration is deferred."
+    "The VibeWare introduction hands off to the interactive Muse avatar. Cloud firmware integration is deferred."
 )
 SOURCE_NOTE = "Sources: docs/cody/navigation.md, layout.md, runtime.md; cody-desktop/plugins/cody-codex-plugin/README.md and protocol/CCP1.md."
 
@@ -215,50 +213,6 @@ def atlas(label, title, subtitle, chapters, records, security=()):
     return result
 
 
-# No parameters: retain existing embedded concept images as documentation source assets.
-# Raises ValueError when approved source artwork is absent or ambiguous.
-# Raises OSError when existing assets cannot be read or written.
-def preserve_artwork():
-    ART.mkdir(parents=True, exist_ok=True)
-    references = (
-        ("pearl-mist.png", "cody-manga-status-atlas-v1.pdf", "Pearl Mist / 01"),
-        ("aurora-veil.png", "cody-manga-status-atlas-v1.pdf", "Aurora Veil / 01"),
-        ("cosmic-stardust.png", "cody-manga-status-atlas-v1.pdf", "Cosmic Stardust / 01"),
-        ("enchanted-mosaic.png", "cody-manga-status-atlas-v1.pdf", "Enchanted Mosaic / 01"),
-        ("expressions.png", "cody-planning-atlas-v1.pdf", "Expression combinations / 01"),
-    )
-    for name, source_name, heading in references:
-        destination = ART / name
-        if destination.exists():
-            continue
-        with pymupdf.open(DOCS / source_name) as source:
-            pages = [page for page in source if heading in page.get_text().splitlines()]
-            if len(pages) != 1:
-                raise ValueError("Cannot locate approved artwork: " + heading)
-            images = pages[0].get_images()
-            if not images:
-                raise ValueError("Approved plate has no embedded image: " + heading)
-            artwork = source.extract_image(images[0][0])
-            if artwork["ext"] != "png":
-                raise ValueError("Expected existing PNG source: " + name)
-            destination.write_bytes(artwork["image"])
-
-
-# name: Maintained, unmodified concept PNG filename.
-# title: Reader-facing plate title.
-# origin: Original page/screen identity retained for provenance.
-# label: Atlas identity.
-def artwork_page(name, title, origin, label):
-    output, surface = page_start(title, "Studio concept artwork. These expressions and materials are not the device-first dashboard.", label)
-    image = ImageReader(str(ART / name))
-    iw, ih = image.getSize()
-    scale = min((W - 76) / iw, 350 / ih)
-    width, height = iw * scale, ih * scale
-    surface.drawImage(image, (W - width) / 2, H - 150 - height, width, height, mask="auto")
-    copy(surface, origin + " Existing embedded image retained without editing. Concept labels are not measurements or physical-device evidence.", 38, 520, W - 76, 9, MUTED)
-    return page_finish(output, surface)
-
-
 # label: Atlas identity.
 def cloud_map(label):
     output, surface = page_start("Cloud relay: three separate identities", "Architecture under implementation. No live service or cloud-capable firmware is claimed.", label)
@@ -314,25 +268,11 @@ def geometry_page(label):
     return page_finish(output, surface)
 
 
-# label: Atlas identity.
-def cue_page(label):
-    output, surface = page_start("Fourteen expressive cues, explicit meanings", "C01-C14 remain document labels. Runtime identities use stable typed names; artwork does not create a measurement.", label)
-    names = ["sleep", "fear", "joy", "hunger", "thirst", "heat", "cold", "low-battery", "charging", "no-wifi", "curiosity", "confusion", "affection", "frustration"]
-    for index, name in enumerate(names):
-        x = 42 + (index % 7) * 109
-        top = 160 + (index // 7) * 158
-        source = ROOT / "cody-device/assets/cody/personality-icons/source/masters-v2" / (name + ".png")
-        surface.drawImage(str(source), x, H - top - 85, 85, 85, preserveAspectRatio=True, mask="auto")
-        copy(surface, f"C{index + 1:02} / " + name.replace("-", " ").title(), x - 1, top + 94, 105, 9, TEAL, True)
-    copy(surface, "Battery, charging, Wi-Fi and temperature meanings require a valid canonical observation. Artistic hunger/thirst/emotion cues are not sensor values. The device-first image omits character presentation; these assets remain Studio/design references.", 38, 495, W - 76, 10, MUTED)
-    return page_finish(output, surface)
-
-
 # label: Atlas identity for the stable screen-reference inventory.
 def identity_page(label):
     output, surface = page_start("Original screen IDs remain stable", "Identity reference / current labels and availability follow the source owners, not these original document names.", label)
     rows = [
-        ("01-03", "Character boot", "Studio/design; current device-first boot uses VibeWare then saved state."),
+        ("01-03", "Character boot", "VibeWare hands off to the Muse avatar."),
         ("04-09 / 06-bis", "Network setup", "Installation QR, active provisioning QR, failure and valid Wi-Fi/IP."),
         ("10 / 36 / 11", "Options / Settings / Skin", "Device-first Options are current; Skin remains character design scope."),
         ("12-15", "Code / saved / searching / connected", "Local CCP pairing and current authentication are distinct states."),
@@ -496,7 +436,7 @@ def connection_chapters(label="Communication Atlas"):
 def navigation_chapters():
     label = "Navigation Atlas"
     return [
-        ("Start and connect", cards_page("Start from the saved state", "VibeWare appears on cold boot/software reset. The device-first route then uses actual network and pairing state.", [
+        ("Start and connect", cards_page("Start from the saved state", "VibeWare appears on cold boot or software reset and hands off to Muse. Open Connections for network and pairing.", [
             ("No saved Wi-Fi", "Not connected > Tap to pair > Wi-Fi setup. App download QR opens the installation page; Show pairing QR starts the Bluetooth session. Scan inside the Espressif provisioning app."),
             ("Saved Wi-Fi", "Connecting to Wi-Fi waits for valid association/IP. Recovery offers Set up Wi-Fi or Later. Later preserves saved credentials and permits background recovery."),
             ("Wi-Fi ready", "Without a retained association, prepare the Codex pairing code. With a valid saved record, search for that PC until current authentication arrives. Internet availability is a separate condition."),
@@ -508,7 +448,7 @@ def navigation_chapters():
             ("Current and saved data", "Measured counters keep their source date/time. Saved offline observations are labeled with their UTC update times. Missing daily counts remain gaps. No extrapolation, backfill or invented zeros."),
             ("About", "System shows measured CPU/uptime; Memory shows allocatable RAM/PSRAM used, free and largest free block; Firmware shows version/build context. The project QR follows these child pages and is not a carousel item."),
         ], label)),
-        ("Options", cards_page("BOOT opens Options", "Three menu pages; Home returns to the first enabled statistics screen or Device.", [
+        ("Options", cards_page("BOOT opens Options", "Three menu pages; Home returns to Muse.", [
             ("Page 1", "Connections, Codex stats, Timer. Connections opens Connect Codex and Set up Wi-Fi. Timer runs for 1-120 minutes with Bell or Chime; Back leaves it running."),
             ("Page 2", "Visible screens, Display, Behavior. Display owns brightness/rotation/orientation. Behavior owns Sounds, shake-to-wake and profile-dependent Dictation; More behavior contains the optional screensaver."),
             ("Page 3", "Restart device, Factory reset, Quick guide. Restart retains configuration. Factory reset requires confirmation and verified settings deletion. Quick guide has three pages and returns to Options."),
@@ -547,7 +487,7 @@ def planning_chapters():
             ("Network and pairing", "04-09 describe network setup; 12-15 describe local Codex pairing and presence. 40-42 retain original decision/setup/recovery references. Device-first labels and BOOT entry are current."),
             ("Work and questions", "15-20 and 18U describe connection/work/unavailable. 21-24 are read-only PR status; 25 is retired. 26/27 retain question/review identity; 31 requires recipient delivery; 32 is link loss."),
             ("Controls", "Question rows are numbered and single-line, two visible at most; the full label/detail precedes Send. Standard actions use text-only captions. Full hit bounds and actual visibility gate touch."),
-            ("Character scope", "Skin 11, Idle 16 and Sleep/Wake 35A/35B remain original design/source references. The device-first image omits character presentation. Studio's artistic channels are not new sensor or cloud capabilities."),
+            ("Character", "The Muse avatar provides the startup motion and touch reaction. Device status and controls have separate owners."),
         ], label)),
         ("Original screen ID inventory", identity_page(label)),
         ("Cloud trust model", cloud_map(label)),
@@ -559,62 +499,7 @@ def planning_chapters():
             ("Firmware", "Integrate outbound TLS, certificate/time handling, key protection, bounded polling and canonical event ownership. Budget buffers and nested stack use. Physical pairing confirmation and recovery need device evidence."),
             ("Dot and hosting", "Use documented public integration points and independently authorize the agent. Configure the mounted share, TLS, owner identity provider and Aspire dashboard access, then verify real delivery. Normal AppHost/dashboard composition requires host verification. Azure is one host option, with no provider storage API dependency."),
         ], label)),
-        ("Studio expression reference", artwork_page("expressions.png", "Studio expression reference", "Original Planning pages 18-19 / prior PDF pages 20-21; character expression artwork.", label)),
     ]
-
-
-# No parameters: current design documentation and retained evidence for character work.
-def manga_records():
-    return [
-        record("05 October 2026", "Errata", "Idle scenes and visible breathing",
-            "IS01 Breathing, IS02 Yawn, IS03 Whistle and IS04 Greeting are transient artistic accents within original Idle 16. The 20-40-second eligible wait, 3.2-second gesture and 40-second cooldown replaced a fixed yawn trigger; immediate repeats are excluded. The original 35% closing, 16-22% reopening and 4.5% width pulse were superseded by the 06 October correction.",
-            "Manga originals 03-04, 14-18; Navigation originals 02, 06, 10-12 and 19; screens 04, 16, 35A/35B, 36-38."),
-        record("06 October 2026", "Errata", "Mouth, cues, caress and whistle",
-            "Correct the artistic mouth pulse to 75% closing, 16-24% reopening and 18% width motion, with Stressed peak opening 0.24. The retained cue correction used +30 px right/+40 px down, 3.6x scale and 400-ms fades; Micro excludes cues. Moving caress, eye responses and one fresh-press click use existing owners. Whistle minimum width is 0.5, replacing invalid 0.42, with one 300-ms sound attempt. These are design/source values, not measured physiology.",
-            "Manga originals 03-04, 14-15, 19-24; Navigation original 23; Idle 16 and Sleep 35A.",
-            "The retained illustrations were Windows rig compositions. No physical visual or acoustic observation was claimed for this correction; build/check chronology is omitted."),
-        record("06 October 2026", "Errata", "VibeWare identity before device content",
-            "The owner-supplied floppy artwork becomes the cold-boot/software-reset introduction. Preserve its 42 authored frames and 80/90-ms frame dwell, totaling 3.5 seconds. Ordinary standby/deep-sleep wake is separate. The former 256 x 292/twofold composition and character phase diagram were later superseded; the approved artwork remains.",
-            "Manga originals 02, 14, 24-27; Navigation originals 02, 20, 22-23 and 26; B01/B02; screens 01-05, 16, 35A/35B.",
-            "Supplied original GIF and source integration; no physical appearance or timing measurement was established by this correction."),
-        record("10 October 2026", "Errata", "Current screens replace superseded appendices",
-            "The correction introduced the title/subtitle with 192 x 219 boot artwork at (137,164), explicit saved-state routes, code preparation and confirmed settings persistence. The current source now uses the device-first dashboard and BOOT Options, so the former character-hold setup and skin journey are design references only. Source schematics never represent device captures.",
-            "Manga original 02 and 28-31; branding 01-03, Wi-Fi 04-09/42, preferences 10/36/11, Codex 12-15/40/41."),
-        record("12 October 2026", "Change", "Navigable document identity",
-            "Retain coordinated document identity and navigable contents, preserving original artwork and screen references when pagination changes.", "All original Manga pages; prior final register.", "Document authoring and layout review only."),
-        record(DATE, "Errata", "Character assets are Studio/design material",
-            "The current device-first image omits the character renderer. Keep the four original material sheets and expression sheet without editing their embedded image bytes, and retain C01-C14 meanings. Remove superseded route appendices and code/build history from the body. Current measured device behavior belongs to the Navigation and Communication references.",
-            "Former Manga PDF pages 03-34; original cue plates 03-14; IS01-IS04 and B01/B02.",
-            "PDF authoring only. No simulator or physical character performance was executed."),
-    ]
-
-
-# No parameters: character design chapters using existing approved assets.
-def manga_chapters():
-    label = "Manga Status Atlas"
-    chapters = [
-        ("Current scope", cards_page("Character design without invented device facts", CURRENT_SCOPE, [
-            ("Keep the character vocabulary", "Preserve stable identities, original artwork and internal animation channels. C01-C14 and IS01-IS04 are documentation labels; they do not become storage indices or new screen routes."),
-            ("Device facts", "Battery, charging, Wi-Fi, clock and system metrics need valid canonical observations. Missing, failed or stale samples remain explicit. Artwork never supplies a measured value."),
-            ("Studio", "Character expression, cue and material references support native authoring/preview work. Synthetic Windows input is labeled and must not enter firmware snapshots. A preview is not a device capture."),
-            ("Current firmware", "The default device-first composition presents statistics, connection controls and Options. It excludes character presentation; its current navigation and limits are in the Navigation Atlas."),
-        ], label)),
-        ("Expressive cue identities", cue_page(label)),
-    ]
-    for filename, title, origin in [
-        ("pearl-mist.png", "Pearl Mist", "Original Manga pages 05-06 / prior PDF pages 07-08."),
-        ("aurora-veil.png", "Aurora Veil", "Original Manga pages 07-08 / prior PDF pages 09-10."),
-        ("cosmic-stardust.png", "Cosmic Stardust", "Original Manga pages 09-10 / prior PDF pages 11-12."),
-        ("enchanted-mosaic.png", "Enchanted Mosaic", "Original Manga pages 11-12 / prior PDF pages 13-14."),
-    ]:
-        chapters.append((title + " concept", artwork_page(filename, title + " / original concept", origin, label)))
-    chapters.append(("Expression and motion", cards_page("Motion remains artistic and interruptible", "Studio/source contracts; no respiratory, emotional or device measurements are inferred.", [
-        ("One composition", "Breathing, gaze, blink, mouth and artistic accents compose under their current owner. An expression does not change a route or imply a real task outcome."),
-        ("Real events", "Reply/interruption accents require matching chat/turn identity and coherent activity. Repeated frames, hidden routes and source gaps cannot manufacture a completion gesture."),
-        ("Interaction", "Caress and eye contact use acquired touch with stable identity and bounded timing. Standby, setup, question and diagnostics retain priority. Do not add consumer-side hardware reads."),
-        ("Sound", "Only admitted, actually visible semantic events request their optional cue. Busy, hidden, expired or muted events do not replay later. Device-first notification sounds have their own model and policy."),
-    ], label)))
-    return chapters
 
 
 # No parameters: a single A4 current route map, including its final correction row.
@@ -628,7 +513,7 @@ def navigation_map():
         ]),
         ("Dashboard and Options", [
             ("Carousel", "Device > Codex reset > Context > Codex limits > Today > Last 7 days > Token history > Credits > Codex account > About."),
-            ("BOOT / Options pages", "1: Connections, Codex stats, Timer. 2: Visible screens, Display, Behavior. 3: Restart device, Factory reset, Quick guide. Home returns to the first enabled statistics page or Device."),
+            ("BOOT / Options pages", "1: Connections, Codex stats, Timer. 2: Visible screens, Display, Behavior. 3: Restart device, Factory reset, Quick guide. Home returns to Muse."),
             ("About and visibility", "System > Memory > Firmware > project QR. Saved changes require confirmed storage. Arrows fade after 10 seconds; reveal before touching again."),
         ]),
         ("Events and local tools", [
@@ -710,7 +595,6 @@ def main(argv=None):
             render_document(DOCS / name, args.pdftoppm, review)
         return 0
     register_fonts()
-    preserve_artwork()
     routes = route_records()
     communication_records = routes[4:]
     communication_records.append(record("12 October 2026", "Addendum", "Operator and diagnostics boundaries",
@@ -724,7 +608,6 @@ def main(argv=None):
         "cody-ccp-connection-atlas-v1.pdf": atlas("Communication Atlas", "CCP Communication Atlas", "Local pairing, semantic events and the proposed private cloud connection.", connection_chapters(), communication_records, security_records()),
         "cody-navigation-atlas-v1.pdf": atlas("Navigation Atlas", "Navigation Atlas", "Current device-first routes, controls and recovery.", navigation_chapters(), routes, security_records(False)),
         "cody-planning-atlas-v1.pdf": atlas("Planning Atlas", "Planning Atlas", "Current responsibilities, geometry and cloud implementation boundaries.", planning_chapters(), routes, security_records()),
-        "cody-manga-status-atlas-v1.pdf": atlas("Manga Status Atlas", "Manga Status Atlas", "Preserved character artwork and current Studio/design boundaries.", manga_chapters(), manga_records()),
         "cody-ccp-pairing-quickstart-a5-v1.pdf": quickstart(),
         "device-navigation-map-a4.pdf": navigation_map(),
     }
@@ -738,7 +621,7 @@ def main(argv=None):
             raise OSError("Obsidian copy differs: " + name)
     for name in outputs:
         render_document(DOCS / name, args.pdftoppm, review)
-    print("Authored six current PDFs and identical Obsidian copies; firmware/cloud execution remains unverified.")
+    print("Authored five current PDFs and identical Obsidian copies; firmware/cloud execution remains unverified.")
     return 0
 
 

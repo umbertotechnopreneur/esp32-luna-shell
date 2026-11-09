@@ -263,14 +263,12 @@ remain explicit generators through this console:
 .\scripts\device.ps1 generate -Generator cody-current-docs -PythonExecutable '<installed-python>' -ToolArguments @('--pdftoppm', '<installed-pdftoppm>')
 ```
 
-`cody-current-docs` authors all six maintained Cody PDFs from the current
+`cody-current-docs` authors all five maintained Cody PDFs from the current
 reference content, including the one-page navigation map and four-page A5
 quickstart. It copies each final PDF byte for byte to the configured Obsidian
 atlas directory and renders pages with the selected existing Poppler executable.
 Review images stay temporarily under `artifacts/docs/current/`; remove them after
-handoff. Existing embedded concept artwork is retained as documentation source
-assets under `assets/cody/docs/studio/`. The earlier appendix/restoration and
-individual atlas generators are not the current authoring path.
+handoff. The current generator authors the maintained set directly.
 
 For an illustrated offline review of Cody navigation, run
 `./scripts/device.ps1 generate -Generator cody-navigation-review` with Pillow,

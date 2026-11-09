@@ -31,11 +31,11 @@ pwsh -NoProfile -File ./scripts/device.ps1 simulator -Ccp
 pwsh -NoProfile -File ./scripts/device.ps1 simulator -Screen rig -OutputPath artifacts/simulator/cody.png
 ```
 
-The default Cody Studio opens the device preview. The existing VibeWare floppy
-plays once, then first run opens **Connections**. A retained simulator association
-opens **Device**. **BOOT / Options** opens the device menu. **PWR / Standby** toggles
-the simulated display, and **Simulate shake** returns to the first enabled
-statistics page, with Device as the fallback.
+The default Cody Studio plays the VibeWare floppy once, then shows the Muse
+avatar on its own. A short tap on the avatar plays its original happy reaction
+and Cody's existing touch effect through the host audio driver.
+**BOOT / Options** opens the device menu, including **Connections** and
+**Codex stats**. **PWR / Standby** toggles the simulated display.
 The dashboard and Options page arrows fade after ten seconds. A touch reveals
 them again. **Options 1/3** contains **Connections**, **Codex stats** and **Timer**.
 Page 2 contains **Visible screens**, **Display** and **Behavior**. Page 3 holds
@@ -43,8 +43,7 @@ Page 2 contains **Visible screens**, **Display** and **Behavior**. Page 3 holds
 three fixed instruction pages and their lateral arrows. Restart replays the boot and preserves
 settings and the simulator association. Timer previews duration and sound selection, a running countdown
 and the finished state. Audible playback and hardware wake belong to the device.
-**Home** on any page opens Reset countdown or the first enabled statistics
-screen, with Device as the fallback. Brightness, orientation and visibility
+**Home** returns to the Muse avatar. Brightness, orientation and visibility
 choices affect this preview session. **Visible screens** groups the nine
 configurable pages into three sets of full-width rows. **About** contains
 **System**, **Memory** and **Firmware**, followed by a scannable project QR code and an explicit
@@ -78,12 +77,6 @@ Per Monitor v2 is enabled before Tk. Moving between monitors with different DPI
 still requires a dedicated Tk transition.
 
 The separate Luna desktop simulator and its packaging workflow use Windows.
-Explicit Cody artwork and material views, such as `-Screen greeting`, retain the
-legacy **Face**, **Shape**, **Inputs** and **Inspect** panels. Each tab retains
-its own scroll position. In narrow windows the inspector moves below the preview
-when vertical space permits. The artwork editor requests a 2x canvas when there
-is room and supports its own timing controls and host FPS display.
-
 The VibeWare floppy uses 42 frames and the approved GIF's 3.5-second timeline.
 Cody's native compositor centers `Cody AI Companion` above
 `A distraction-free sidekick`, then renders the complete floppy at (137,164),
@@ -100,7 +93,8 @@ The Manifesto link opens only after an explicit click.
 ```
 
 `-Ccp` opens a real UDP endpoint restricted to `127.0.0.1:42117`.
-Select **Connect Codex** on the simulated display and read the code.
+Open **BOOT / Options**, select **Connections**, then select **Connect Codex**
+and read the code.
 In Codex, explicitly request a connection to **Cody Studio SIMULATED**; discovery
 adds `include_simulator: true`, then pairing uses the visible code.
 For installation and trust, follow the [canonical CCP README](../../../cody-desktop/plugins/cody-codex-plugin/README.md).
@@ -142,11 +136,6 @@ settings and associations and leaves simulated Wi-Fi unconfigured.
 To resume, select **Toggle simulated Wi-Fi** from the host **Simulated link**
 menu and pair again. The old PC record remains separate.
 
-`-Ccp -ActivityPreview` opens the legacy artwork inspector and its **CCP** panel.
-The panel's explicitly synthetic activity, model prices, character and lower
-technical panels are artwork study inputs. They stay separate from the active
-endpoint and physical firmware.
-
 CCP also supports authenticated EVENT messages. A question follows 26 → 27 → 31:
 open it, tap a numbered reply, review its full text and press **Send reply**.
 The selection stays local and reversible until Send; Back preserves the path.
@@ -169,61 +158,6 @@ This mode exercises the protocol path and its host presentation.
 The device preview models pairing and navigation without running ESP-IDF.
 `-Ccp` is interactive and uses the default screen. Physical Cody remains an
 independent identity.
-
-## Expressions, symbols and materials
-
-The Face panel selects a manga symbol for the `rig` presentation.
-The semantic `sleep` and `sleeping` presets activate Sleep; closing the eyes with
-a slider does not mean falling asleep. A manual face change removes the preset's
-identity. Greeting, boot and Micro do not display the symbol.
-To explore automatic petting, disable the diagnostic rig and select None.
-
-The ordinary rig also uses the firmware character director for fresh pointer gaze
-and a gentle warmth tail after a recognized caress. Explicit face presets, the
-diagnostic rig, boot/setup/question routes and material studies retain their own
-poses. These contributions share the native mood owner and preserve the response's
-body motion, protective eye closure and audio mouth; pause freezes artistic time.
-
-In the existing **SIMULATED PREVIEW** controls, select **Long compaction**, let its
-face appear, then select **Refreshed / pending** to preview concentration followed
-by release. Opening the completion scenario alone does not imply an observed start.
-The authenticated simulator endpoint uses its admitted chat/sequence and source
-freshness instead. Pointer gaze and visible activity text use logical coordinates
-at the selected rotation; synthetic preview facts never enter that endpoint.
-Physical behavior and full CCP panel interaction remain pending in
-[TODO.md](../../../TODO.md).
-
-IDs, priorities, timing, gestures and mood come from `assets/cody/personality.yaml`.
-The channel waits for a stable request for 300 ms, enters over 400 ms, remains for
-at least 2,500 ms and disappears over 600 ms. Semantic Sleep skips the initial
-wait and can immediately release the competing symbol; a manually selected
-Sleep symbol retains the normal wait. Pause freezes active time.
-This does not promise that the physical panel stays on until the fade completes.
-
-The anchor follows Nose with a 360-ms window; scaling uses 400 ms.
-There are 17 fixed intervals of 25 ms, a maximum radial delay of four pixels and
-maximum deformation of two pixels. Geometry history does not queue symbols.
-Palette, coverage and opacity come from generated RGB565 assets.
-Back and the status region remain reserved: if a symbol does not fit, the result
-is `BLOCKED_BY_LAYOUT`, without unexpectedly shrinking or moving it.
-The complete contract is in [personality icons](../../../docs/cody/personality-icons.md).
-
-Three studies remain separate for the cloud's appearance:
-
-| Option | Study |
-| --- | --- |
-| `-CloudJellyStudy` | Pearl scanline approach, interactive or PNG/GIF; the face follows the body. |
-| `-CloudMaterialStudy` | Host volume study with static capture. |
-| `-CloudPngMeshStudy` | Texture and triangular mesh; `-MeshOverlay` displays the topology. |
-
-Select one material at a time. PNG is preferable for assessing colors;
-GIF follows a fixed synthetic timeline rather than sensor replay.
-
-```powershell
-.\scripts\device.ps1 simulator -CloudJellyStudy
-.\scripts\device.ps1 simulator -Screen greeting -CloudJellyStudy -AtMs 1500 -OutputPath artifacts/simulator/greeting.png
-.\scripts\device.ps1 simulator -CloudPngMeshStudy -MeshOverlay -OutputPath artifacts/simulator/cloud-mesh.gif
-```
 
 ## Luna and Leg previews
 

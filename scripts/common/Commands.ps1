@@ -28,13 +28,13 @@ function Get-DeviceActionParameters {
     $relay = @('RelayHost')
     $serial = @('Port','Baud','WaitSeconds')
     $inventory = @(if (-not $IsLinux) { $idf })
-    $preview = @('Screen','Rotation','AtMs','SafeGuide','CloudMaterialStudy','CloudPngMeshStudy','CloudJellyStudy','MeshOverlay','PythonExecutable','Skin')
+    $preview = @('Screen','Rotation','AtMs','SafeGuide','PythonExecutable')
     return @{
         menu = $idf + $serial + @('Jobs','PythonExecutable','Rotation')
         help = @(); list = @(); 'clean-artifacts' = @('BuildDir')
         preflight = @('IdfPath','ToolsPath','PythonExe')
         relay = @('RelayRoot','RelayOperation','RelayConfig','RelayRevision','BuildMode','Jobs','WaitSeconds')
-        simulator = $preview + @('OutputPath','Ccp','ActivityPreview')
+        simulator = $preview + @('OutputPath','Ccp')
         'boot-screens' = @('Rotation','AtMs','SafeGuide','PythonExecutable')
         'simulator-luna' = @('PythonExecutable','ToolArguments')
         'package-simulator' = @()
@@ -83,18 +83,13 @@ function Assert-DeviceActionParameters($RequestedAction, $BoundParameters, $Cont
         }
     }
     if ($BoundParameters.Ccp -and ($BoundParameters.OutputPath -or
-            ($BoundParameters.ContainsKey('Screen') -and $BoundParameters.Screen -ne 'rig') -or
-            $BoundParameters.CloudMaterialStudy -or $BoundParameters.CloudPngMeshStudy -or $BoundParameters.CloudJellyStudy)) {
-        throw '-Ccp requires the interactive rig simulator without an output capture or rendering study.'
+            ($BoundParameters.ContainsKey('Screen') -and $BoundParameters.Screen -ne 'rig'))) {
+        throw '-Ccp requires the interactive Cody simulator without an output capture.'
     }
     if ($BoundParameters.Screen -eq 'question-flow' -and
         (-not $BoundParameters.OutputPath -or [IO.Path]::GetExtension($BoundParameters.OutputPath) -ne '.png' -or
-            $BoundParameters.Skin -or $BoundParameters.SafeGuide -or $BoundParameters.CloudMaterialStudy -or
-            $BoundParameters.CloudPngMeshStudy -or $BoundParameters.CloudJellyStudy -or $BoundParameters.MeshOverlay)) {
-        throw '-Screen question-flow requires a PNG output and does not accept skin, guide or study options.'
-    }
-    if ($BoundParameters.ActivityPreview -and -not $BoundParameters.Ccp) {
-        throw '-ActivityPreview requires simulator -Ccp; it is an explicitly synthetic interactive view.'
+            $BoundParameters.SafeGuide)) {
+        throw '-Screen question-flow requires a PNG output and does not accept the layout guide.'
     }
     if ($BoundParameters.ActivityCapture -and -not $BoundParameters.ActivityClassifier) {
         throw '-ActivityCapture requires -ActivityClassifier.'
@@ -186,12 +181,9 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
                 -StoredLog $storedLog -Destination $Options.OutputPath -ResponseTimeoutSeconds $responseTimeout
         }
         { $_ -in @('simulator','boot-screens') } {
-            $nativeStudy = $Options.CloudMaterialStudy -or $Options.CloudPngMeshStudy -or $Options.CloudJellyStudy
-            if ($RequestedAction -eq 'boot-screens' -or -not $nativeStudy) {
-                # The native preview and VibeWare capture both need the current host graphics driver.
-                $graphicsTool = Find-DeviceTool 'generators' 'cody-simulator-graphics'
-                Invoke-HostTool $graphicsTool.Path @() $Options.PythonExecutable
-            }
+            # Both the Muse avatar and VibeWare use the current native graphics driver.
+            $graphicsTool = Find-DeviceTool 'generators' 'cody-simulator-graphics'
+            Invoke-HostTool $graphicsTool.Path @() $Options.PythonExecutable
             if ($RequestedAction -eq 'simulator' -and -not $Options.OutputPath) {
                 # Compile only the host output owner; captures never initialize or play audio.
                 $audioTool = Find-DeviceTool 'generators' 'cody-simulator-audio'
@@ -201,16 +193,10 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
                 elseif ($Options.ContainsKey('Screen')) { @($Options.Screen) } else { @('rig') }
             foreach ($screenName in $screens) {
                 $arguments = @('--screen',$screenName)
-                if ($Options.ContainsKey('Skin')) { $arguments += @('--skin',$Options.Skin) }
                 if ($Options.ContainsKey('Rotation')) { $arguments += @('--rotation',[string]$Options.Rotation) }
                 if ($Options.ContainsKey('AtMs')) { $arguments += @('--at-ms',[string]$Options.AtMs) }
                 if ($Options.SafeGuide) { $arguments += '--safe-guide' }
-                if ($Options.CloudMaterialStudy) { $arguments += '--cloud-material-study' }
-                if ($Options.CloudPngMeshStudy) { $arguments += '--cloud-png-mesh-study' }
-                if ($Options.CloudJellyStudy) { $arguments += '--cloud-jelly-study' }
-                if ($Options.MeshOverlay) { $arguments += '--mesh-overlay' }
                 if ($Options.Ccp) { $arguments += '--ccp' }
-                if ($Options.ActivityPreview) { $arguments += '--activity-preview' }
                 $capture = if ($RequestedAction -eq 'boot-screens') {
                     Resolve-ArtifactPath '' "artifacts/simulator/$screenName.png"
                 } else { $Options.OutputPath }
@@ -238,7 +224,7 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
             Invoke-HostTool $tool.Path $Options.ToolArguments $Options.PythonExecutable
             # Document regeneration must also refresh contents and the identical Obsidian copy.
             if ($name -in @('cody-connection-atlas','cody-navigation-atlas','cody-planning-atlas',
-                    'cody-idle-atlas','cody-security-atlases','cody-pdf-english','cody-pairing-flyer')) {
+                    'cody-security-atlases','cody-pdf-english','cody-pairing-flyer')) {
                 $publisher = Find-DeviceTool 'generators' 'cody-pdf-frontmatter'
                 $publicationArguments = if ($name -eq 'cody-connection-atlas') {
                     @('--file', 'cody-ccp-connection-atlas-v1.pdf')

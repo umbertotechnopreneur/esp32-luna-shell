@@ -41,25 +41,7 @@ not have that memory layout or footprint: it retains Pillow RGBA buffers.
 - Captures retain RGB565-quantized source/output colors. GIF palette reduction
   is only a sharing format; inspect PNG stills for color quality.
 
-## Reproduce through the public simulator CLI
-
-```powershell
-.\scripts\device.ps1 simulator -CloudPngMeshStudy -OutputPath artifacts/simulator/cloud-png-mesh-v1.png
-.\scripts\device.ps1 simulator -CloudPngMeshStudy -MeshOverlay -OutputPath artifacts/simulator/cloud-png-mesh-wire-v1.png
-.\scripts\device.ps1 simulator -CloudPngMeshStudy -OutputPath artifacts/simulator/cloud-png-mesh-motion-v1.gif
-```
-
-The GIF is a 32-frame, 3.2-second looping synthetic lobe sweep. Root translation
-is deliberately stationary so local deformation is visible. It uses legal
-authored contour inputs (amplitude 1, fullness +/-0.8), not recorded IMU samples
-or the production response engine. A four-phase full-color pose sheet is saved
-beside it. `-AtMs` and `-SafeGuide` are not accepted for this fixed GIF timeline.
-The opt-in appearance study currently supports capture mode only.
-
-Only authorized visual preview captures and static source review were performed.
-No automated tests, firmware configure/build/flash, live sensors or performance
-measurement ran. Native sampling/packing, device integration, CPU cost, extreme
-pose/navigation clearance and broader validation remain open.
+This legacy study is retained for shared development tools. Cody Studio opens the Muse avatar.
 
 ## Exact image-generation prompt
 

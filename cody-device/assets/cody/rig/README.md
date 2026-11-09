@@ -22,16 +22,14 @@ Local x points right, local y down; parent-relative anchors move descendants.
 
 ```powershell
 .\scripts\device.ps1 generate -Generator cody-rig
-.\scripts\device.ps1 simulator
 ```
 
-An explicit alternate authored skin can be selected with `-Skin` or generator
+An explicit alternate authored skin can be selected through the generator
 `-ToolArguments @('--skin', 'assets/path/character.yaml')`. Outputs and the
 normalized-source manifest live in `generated/`; do not hand-edit them.
 Asset preparation does not execute firmware or prove pixel/performance parity.
 
-`-CloudMaterialStudy` and `-CloudPngMeshStudy` are opt-in host-only studies;
-their visual output is not a native implementation claim. The
+The cloud studies are legacy development assets. The
 [PNG mesh study](../appearance/png-mesh/README.md) retains its own provenance.
 Current rig, response, AA, pearl and memory contracts are in
 [rendering](../../../../docs/cody/rendering.md); open evidence is in

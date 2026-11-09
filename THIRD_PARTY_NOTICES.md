@@ -97,3 +97,10 @@ and `provenance.json`; the firmware animation's provenance is in
 Use the upstream [press kit](https://github.com/umbertotechnopreneur/VibeWare/blob/main/PRESS-KIT.md)
 for identity and reuse guidance. Branding does not establish verification or
 release status for this project.
+
+## Muse Gadget SDK avatar
+
+- Upstream: <https://github.com/facebookincubator/muse-gadget-sdk>
+- Revision: d0a65abf70a99647aacea18ed8a0159a824fabe7
+- [Source provenance and local display adapter](cody-device/components/CODY_companion/third_party/muse/ORIGIN.md)
+- [Apache 2.0 license](cody-device/components/CODY_companion/third_party/muse/LICENSE)

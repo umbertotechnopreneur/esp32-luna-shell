@@ -24,7 +24,6 @@ CATALOG = {
     "cody-ccp-connection-atlas-v1.pdf": ("CCP Communication Atlas", "A visual guide to pairing, replies and voice", [(1,"System map"),(2,"Setup"),(3,"Pairing"),(4,"Everyday work"),(5,"Questions"),(6,"Recording"),(7,"Audio delivery"),(8,"Available operations"),(9,"Diagnosis"),(10,"Sources and evidence")]),
     "cody-navigation-atlas-v1.pdf": ("Navigation Atlas", "Find your way through Cody", [(1,"Overview and first setup"),(5,"Connect Codex"),(7,"Home, information and Setup"),(9,"Questions and reply delivery"),(11,"Work status"),(12,"Voice journey"),(13,"Battery, standby and recovery"),(15,"Debug views")]),
     "cody-planning-atlas-v1.pdf": ("Planning Atlas", "Screen journeys, character and visual language", [(1,"Overview and screen inventory"),(3,"Circular layout"),(4,"Boot and setup"),(8,"Codex pairing and work"),(12,"Questions and replies"),(15,"Battery and sleep"),(17,"Character studies"),(20,"Color system"),(21,"Setup and information panels"),(23,"Voice design")]),
-    "cody-manga-status-atlas-v1.pdf": ("Manga Status Atlas", "Expressions, materials and small moments", [(1,"Overview and current screens"),(3,"The fourteen expressive cues"),(5,"Pearl Mist"),(7,"Aurora Veil"),(9,"Cosmic Stardust"),(11,"Enchanted Mosaic"),(13,"Comparison, layout and decisions"),(16,"Idle moments"),(19,"Current behavior"),(25,"VibeWare boot identity"),(28,"Current screen revisions")]),
     "cody-ccp-pairing-quickstart-a5-v1.pdf": ("Get Connected", "Four practical steps to pair Cody", [(1,"Get ready"),(2,"On your PC"),(3,"Pair Cody"),(4,"Every day")]),
 }
 
@@ -34,7 +33,6 @@ ANCHORS = {
     "cody-ccp-connection-atlas-v1.pdf": ["One device, one PC, one chat", "From power-on to Setup", "Pair once, prove presence each time", "Work and link are separate", "A question waits for its real recipient", "Record, then decide to send", "Audio handoff: where proof stops", "What you can ask CCP to do", "Diagnose the right layer", "Source map and evidence"],
     "cody-navigation-atlas-v1.pdf": [None, "Connect Codex / a separate decision", "Home and companion information", "Read a question, then choose", "PR status belongs to ordinary activity", "Voice input / retained planned journey", "Battery notices at a quiet moment", "Character debug and preview boundaries"],
     "cody-planning-atlas-v1.pdf": [None, "The circle is usable space", "Cody's current cold boot", "Pair Codex, then find the retained PC", "A question deserves its own attention", "Battery notices feel like Cody", "Inspect the composed expression", "The shared palette / all 256 slots", "Setup keeps intent and routes explicit", "Planned voice: wake, capture, send"],
-    "cody-manga-status-atlas-v1.pdf": [None, "The fourteen cues / sensations", "Pearl Mist / 01", "Aurora Veil / 01", "Cosmic Stardust / 01", "Enchanted Mosaic / 01", "Compare the four materials", "Small moments while Cody waits", "A mouth that visibly breathes", "VibeWare first. Cody next.", "Addendum / boot and Wi-Fi"],
     "cody-ccp-pairing-quickstart-a5-v1.pdf": ["01 / GET READY", "02 / ON YOUR PC", "03 / PAIR CODY", "04 / EVERY DAY"],
 }
 

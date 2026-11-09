@@ -21,7 +21,7 @@ The preserved ImageGen sources and exact prompts are in `source/`. On 2026-10-07
 all fourteen symbols were redrawn individually at maximum native square
 resolution, preserving the familiar identities from the original manga atlas.
 `source/masters-v2/` contains the native transparent masters; the original atlas
-and historic skin sheets/PDFs remain preserved. Retained
+is retained as a reference for the remaining Studio and host checks. Retained
 4-connected alpha components isolate the intended symbols from detached noise.
 Intentional disconnected Z letters, question dot, hearts, rays, motion strokes
 and sparkles survive the authored area threshold. `generated/manifest.json`

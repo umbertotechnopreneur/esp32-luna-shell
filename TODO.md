@@ -1,12 +1,10 @@
 # Active work
 
-## Creamwork 3 reply gestures
+## Creamwork 3 Muse avatar
 
-- Use the [Muse speaking gestures](https://github.com/facebookincubator/muse-gadget-sdk/blob/d0a65ab/esp32/docs/speaking-animations.md)
-  as a motion reference for the Reply pose in the [animation demo](docs/cody/creamwork-3-demo.html).
-  Explore alternating gestures, short rests and a smooth transition back to
-  listening. Drive voiced replies with playback energy and give text-only
-  replies a separate visual rhythm. Keep the original Cody character.
+- Verify the VibeWare introduction hands off to the Muse avatar on the board.
+- Observe the wake and idle animation, tap reaction, and Cody cue with sound
+  enabled, muted, and in quiet hours. Check rotation and Options access.
 
 ## Creamwork 3 audio menu
 

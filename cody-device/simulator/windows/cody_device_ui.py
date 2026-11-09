@@ -20,6 +20,8 @@ from cody_device_state import (
     InfoPage, LocalTimerModel, LocalTimerPhase, ScreensaverModel, SystemInfoModel, SystemInfoObservation,
     TIMER_MAX_MINUTES, TIMER_MIN_MINUTES,
 )
+from cody_fake_audio import FakeAudioDriver
+from cody_muse_preview import DISPLAY_SIZE as MUSE_SIZE, NO_REACTION, SCREEN_OFFSETS_MS, NativeMusePreview
 from cody_preview_layout import PreviewLayout, SIZE, enlarge_framebuffer
 from cody_screensaver import render_screensaver
 from cody_ui_theme import install_theme
@@ -27,6 +29,8 @@ from vibeware_boot import VibeWareBoot
 
 
 CENTER = SIZE // 2
+MUSE_OFFSET = (SIZE - MUSE_SIZE) // 2
+MUSE_BOUNDS = (MUSE_OFFSET, MUSE_OFFSET, MUSE_OFFSET + MUSE_SIZE, MUSE_OFFSET + MUSE_SIZE)
 BACKGROUND = (8, 11, 22)
 FOREGROUND = (239, 236, 224)
 MUTED = (153, 168, 186)
@@ -324,6 +328,13 @@ class DeviceStudioWindow:
         self.endpoint = None
         self.events = None
         self.source_error = ""
+        self.audio_error = ""
+        self.audio = None
+        self.muse = None
+        self.muse_last_at = None
+        self.muse_elapsed_ms = 0.0
+        self.muse_reaction_ms = None
+        self.touch_pressed_at = 0.0
         self.route = WifiSetupRoute.OFFLINE
         self.connections_return = "widgets"
         self.guide_return = WifiSetupRoute.NOT_CONNECTED
@@ -365,7 +376,15 @@ class DeviceStudioWindow:
                 endpoint.close()
                 self.source_error = str(error)
 
+        try:
+            self.audio = FakeAudioDriver(Path(__file__).resolve().parents[3])
+        except (OSError, RuntimeError, AttributeError) as error:
+            self.audio_error = f"Host effects unavailable: {error}"
         self.start_boot()
+        phase = SCREEN_OFFSETS_MS.get(getattr(args, "screen", "rig"))
+        if phase is not None:
+            self.boot = self.boot_frame = None
+            self.muse_elapsed_ms = float(phase)
 
         colors = install_theme(root)
         root.title("Cody Studio / SIMULATED device")
@@ -415,6 +434,9 @@ class DeviceStudioWindow:
     def start_boot(self):
         self.boot = self.boot_frame = None
         self.boot_error = ""
+        self.muse_last_at = self.muse_reaction_ms = None
+        self.muse_elapsed_ms = 0.0
+        self.open("mascot")
         project = Path(__file__).resolve().parents[2]
         try:
             manifest = project / "assets/branding/VibeWare/generated/manifest.json"
@@ -572,7 +594,7 @@ class DeviceStudioWindow:
                 if self.options_page:
                     self.show_options_page(self.options_page - 1)
                 else:
-                    self.open("widgets")
+                    self.open("mascot")
             elif self.route == "widgets" and PAGES[self.page] == "About":
                 self.move(-1)
 
@@ -900,7 +922,7 @@ class DeviceStudioWindow:
                 ("Quick guide", self.open_quick_guide),
             )
         self.draw_option_rows(draw, rows)
-        self.button(draw, "Home", 382, lambda: self.open("widgets"), width=220, height=52,
+        self.button(draw, "Home", 382, lambda: self.open("mascot"), width=220, height=52,
                     icon="home", caption_size=20)
         opacity = self.navigation_opacity(now)
         if opacity > 0:
@@ -1226,6 +1248,32 @@ class DeviceStudioWindow:
             if page != "About" or self.info.page is not InfoPage.PROJECT_LINK:
                 self.sidebar(draw, 1, (lambda: self.move(1)) if opacity == 1 else None, opacity)
 
+    # self: Native avatar presentation with Tk-thread input and host-only audio.
+    # image: Writable logical framebuffer before display rotation.
+    # now: Current monotonic time, used for both animation and touch reaction.
+    # Exception: Propagates native load or drawing errors to the preview tick.
+    def draw_mascot(self, image, now):
+        if self.muse is None:
+            self.muse = NativeMusePreview()
+        if self.muse_last_at is not None:
+            self.muse_elapsed_ms += (now - self.muse_last_at) * 1000
+        self.muse_last_at = now
+        elapsed_ms = int(self.muse_elapsed_ms)
+        reaction_ms = (int(self.muse_elapsed_ms - self.muse_reaction_ms)
+                       if self.muse_reaction_ms is not None else NO_REACTION)
+        image.paste((0, 0, 0), (0, 0, SIZE, SIZE))
+        image.paste(self.muse.image(elapsed_ms, reaction_ms), (MUSE_OFFSET, MUSE_OFFSET))
+        self.targets["Mascot"] = (MUSE_BOUNDS, self.pet_mascot)
+
+    # self: Visible avatar receiving a complete short contact admitted by release.
+    def pet_mascot(self):
+        now = time.monotonic()
+        if not 0.03 <= now - self.touch_pressed_at <= 0.45:
+            return
+        self.muse_reaction_ms = self.muse_elapsed_ms
+        if self.audio is not None:
+            self.audio.touch()
+
     # self: Studio preview owning the rendered route and touch targets.
     # snapshot: Current loopback projection, if available.
     # code: Current SIMULATED CCP code, if a pairing attempt is active.
@@ -1241,6 +1289,8 @@ class DeviceStudioWindow:
         event_active = not self.standby and self.events and self.events.visible(snapshot, self.endpoint)
         if self.events and not event_active:
             self.events.hide()
+        if self.standby or event_active or self.route != "mascot":
+            self.muse_last_at = self.muse_reaction_ms = None
         project_link = PAGES[self.page] == "About" and self.info.page is InfoPage.PROJECT_LINK
         self.screensaver.observe(not self.standby and not event_active and self.route == "widgets" and not project_link,
                                  now - self.last_navigation)
@@ -1253,6 +1303,10 @@ class DeviceStudioWindow:
             image = self.events.render_device(snapshot, now)
         elif self.screensaver.active:
             image = render_screensaver(int((now - self.last_navigation - 15.0) * 25)).copy()
+        elif self.route == "mascot":
+            self.draw_mascot(image, now)
+            if self.safe_guide:
+                draw.rectangle((73, 73, 392, 392), outline=(62, 91, 113))
         else:
             label(draw, "SIMULATED", 28 if wifi_setup else 46, 14, MUTED)
             if wifi_setup:
@@ -1340,19 +1394,21 @@ class DeviceStudioWindow:
             if self.pairing_attempted and snapshot.state == LinkState.CONNECTED:
                 self.pairing_attempted = False
                 self.page = 0
-                self.open("widgets")
-            status = self.source_error or self.boot_error or snapshot.last_error
+                if self.route != "mascot":
+                    self.open("widgets")
+            sound_error = self.audio.last_error if self.audio is not None else self.audio_error
+            status = self.source_error or self.boot_error or snapshot.last_error or sound_error
             if not status:
                 if self.endpoint:
                     wifi_state = "on" if snapshot.network_ready else "off"
                     status = f"Loopback Wi-Fi {wifi_state} / {snapshot.state.value}"
                 else:
                     status = "Offline preview / use -Ccp to pair Codex"
-            self.status.configure(text="SIMULATED / " + status)
+            self.status.configure(text=f"SIMULATED / {status}")
             image = self.boot_image(now) if self.boot else None
             if image is None:
                 image = self.frame(snapshot, code, now)
-        except (OSError, RuntimeError, ValueError) as error:
+        except (OSError, RuntimeError, ValueError, AttributeError) as error:
             if self.boot is not None:
                 self.boot = None
                 self.boot_frame = None
@@ -1367,7 +1423,8 @@ class DeviceStudioWindow:
             self.canvas.coords(self.image, self.layout.left, self.layout.top)
             self.canvas.itemconfigure(self.image, image=self.photo)
             self.acknowledged = tuple(self.targets)
-        self.timer = self.root.after(40 if self.boot or self.screensaver.active else 100, self.tick)
+        animated = self.boot or self.screensaver.active or (self.route == "mascot" and not self.standby)
+        self.timer = self.root.after(40 if animated else 100, self.tick)
 
     def point(self, event):
         point = self.layout.to_device_pixel(event.x, event.y, self.rotation)
@@ -1402,7 +1459,7 @@ class DeviceStudioWindow:
         elif point is not None:
             name, _ = self.action_at(point)
             self.touch = (self.route, self.page, self.visibility_page, point, name)
-            self.last_navigation = time.monotonic()
+            self.touch_pressed_at = self.last_navigation = time.monotonic()
 
     def drag(self, event):
         point = self.point(event)
@@ -1440,4 +1497,6 @@ class DeviceStudioWindow:
             if self.endpoint:
                 self.endpoint.close()
         finally:
+            if self.audio is not None:
+                self.audio.close()
             self.root.destroy()
