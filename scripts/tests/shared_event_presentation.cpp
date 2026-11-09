@@ -149,7 +149,7 @@ void verify_shared_event_presentation()
     event.kind = LUNASHELL::CodexEventKind::ReplyReady;
     event.state = LUNASHELL::CodexEventState::Pending;
     event.last_error = ESP_OK;
-    std::strcpy(event.title, "Reply ready");
+    std::strcpy(event.title, "Chat waiting");
     std::strcpy(event.body, "A different SIMULATED chat");
     std::strcpy(event.context, "Cody project");
     context = {};
@@ -157,10 +157,10 @@ void verify_shared_event_presentation()
     navigation = {};
     assert(Presentation::prepare(event, navigation, context, 27, plan) == ESP_OK);
     assert(plan.route == Presentation::Route::CodexNotice && !plan.back);
-    assert(std::strcmp(plan.title, "Reply ready") == 0 && plan.title_color == 0x5FF9);
+    assert(std::strcmp(plan.title, "Chat waiting") == 0 && plan.title_color == 0x5FF9);
     assert(plan.line_count == 2 && std::strcmp(plan.lines[0].text, event.body) == 0);
     assert(plan.lines[0].top == 214 && plan.lines[1].top == 312 && plan.lines[1].instant);
-    assert(plan.action_count == 1 && std::strcmp(plan.actions[0].label, "Got it") == 0);
+    assert(plan.action_count == 1 && std::strcmp(plan.actions[0].label, "Mark as read") == 0);
     assert(plan.actions[0].id == Presentation::ActionId::Dismiss &&
         plan.actions[0].icon == CODY2D::ActionIcon::None);
     assert(Presentation::activate(event, context, plan.actions[0], navigation, effect) == ESP_OK &&
@@ -180,7 +180,7 @@ void verify_shared_event_presentation()
     event.context[0] = '\0';
     std::strcpy(event.body, event.title);
     assert(Presentation::prepare(event, navigation, context, 27, plan) == ESP_OK && plan.title[0] == '\0');
-    assert(plan.line_count == 1 && std::strcmp(plan.lines[0].text, "Reply ready") == 0);
+    assert(plan.line_count == 1 && std::strcmp(plan.lines[0].text, "Chat waiting") == 0);
     // A full native title has its own bounded viewport and never becomes a permission control.
     event = {};
     event.kind = LUNASHELL::CodexEventKind::ApprovalOnPc;

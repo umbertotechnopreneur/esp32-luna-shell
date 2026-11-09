@@ -149,7 +149,28 @@ struct Line {
     bool instant = false;
     bool delivery_pulse = false;
     bool pc_heading = false;
+    bool chat_waiting = false;
 };
+
+inline constexpr uint16_t kChatWaitingDotSize = 10;
+inline constexpr uint16_t kChatWaitingDotGap = 8;
+inline constexpr uint16_t kChatWaitingDotSpace = kChatWaitingDotSize + kChatWaitingDotGap;
+inline constexpr uint16_t kChatWaitingDotColor = 0xFA28;
+
+// text: Prepared title line whose centered group reserves space for the dot.
+// strip: Borrowed display tile retaining its stride and byte order.
+// first_row: Logical y origin of the tile.
+// first_column: Logical x origin of the tile.
+// Exception: Returns the original native capsule drawing error.
+inline esp_err_t draw_chat_waiting_dot(const CODY2D::TextLine &text, CODY2D::Surface strip,
+                                      uint16_t first_row, uint16_t first_column)
+{
+    const auto x = static_cast<uint16_t>(text.origin.x - kChatWaitingDotSpace);
+    const auto y = static_cast<uint16_t>(text.origin.y + (text.font->height - kChatWaitingDotSize) / 2U);
+    const CODY2D::CapsuleControl dot{{x, y, kChatWaitingDotSize, kChatWaitingDotSize}, {},
+        kChatWaitingDotColor, kChatWaitingDotColor, true};
+    return CODY2D::draw_capsule_rows(dot, strip, first_row, first_column);
+}
 
 // line: Shared narrative/status style; only an active delivery wait pulses.
 // elapsed_us: Pausable scene time, unrelated to the actual delivery deadline.
@@ -668,10 +689,11 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
     } else if (event.kind == Kind::ReplyReady && !LUNASHELL::codexEventIsTerminal(event.state)) {
         // A typed response-ready observation identifies an available reply, never a successful task.
         // Its body belongs to the originating chat; selected Home metadata cannot replace it.
-        std::strcpy(plan.title, "Reply ready");
+        std::strcpy(plan.title, "Chat waiting");
         plan.title_color = 0x5FF9;
         top = 214;
         text(event.body, false, 28);
+        if (error == ESP_OK && plan.line_count != 0) { plan.lines[0].chat_waiting = true; }
         top = 312;
         const esp_err_t status_error = context.ui_error != ESP_OK ? context.ui_error : event.last_error;
         if (status_error != ESP_OK) {
@@ -683,7 +705,7 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
             text(event.context[0] != '\0' ? event.context : "Project unavailable", true);
         }
         add_action(plan, context.ui_error == ESP_OK ? ActionId::Dismiss : ActionId::Retry,
-            context.ui_error == ESP_OK ? "Got it" : "Try again", !context.dismiss_admitted);
+            context.ui_error == ESP_OK ? "Mark as read" : "Try again", !context.dismiss_admitted);
     } else {
         const bool unconfirmed = plan.route == Route::CodexNotice && event.state == State::Expired &&
             event.selected_id[0] != '\0';

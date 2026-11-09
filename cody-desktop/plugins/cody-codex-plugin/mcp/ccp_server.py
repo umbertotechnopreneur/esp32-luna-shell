@@ -1479,7 +1479,7 @@ class CcpService:
             project = project[:21] + "..."
         context = project
         kind = interactions.EventKind.APPROVAL_ON_PC if approval else interactions.EventKind.REPLY_READY
-        title = "Approval needed" if approval else "Reply ready"
+        title = "Approval needed" if approval else "Chat waiting"
         fallback_body = "Open Codex to read the reply"
         if approval:
             fallback_body = "Chat title unavailable"

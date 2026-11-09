@@ -48,7 +48,7 @@ geometry, font metrics and reveal/touch rules:
 | network-wait | Wi-Fi needed |
 | project-active | Let's get to work |
 | working | Working |
-| response-ready | Reply ready |
+| response-ready | Chat waiting |
 | session-paused | Taking a pause |
 | session-ended | Chat closed |
 | connection-lost | Link unavailable |

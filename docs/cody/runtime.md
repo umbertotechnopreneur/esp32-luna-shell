@@ -8,7 +8,7 @@ frame. Partial writes never become the next displayed-state reference.
 
 Cold startup retires the original VibeWare animation before entering pairing
 or reconnection. PWR hands display ownership to the power service for standby.
-An authenticated question or Reply ready event can wake software standby when
+An authenticated question or Chat waiting event can wake software standby when
 the LAN link remains available. Optional audio follows Sounds and quiet hours.
 See [navigation](navigation.md) for current device routes.
 
@@ -312,7 +312,7 @@ An applied ACK proves the rendering worker accepted the view, not visible pixels
 | Native token_count | Exact Last call, Window, Free, Total, Input and Output where available | Same verified chat/turn, original source time, no count inferred from prose |
 | PreCompact | Orange Compacting on Home and orange technical heading/banner; compaction character cue | One sound admission per visible chat/turn/sequence, subject to audio policy |
 | PostCompact | Context refreshed; wait for a subsequent token sample | Missing start, interruption or lost source never implies successful completion |
-| Stop | Reply ready, then idle commands and retained statistics | A completed response does not prove task success |
+| Stop | Chat waiting, then idle commands and retained statistics | A completed response does not prove task success |
 | PermissionRequest | Waiting for you / Approve on your PC | Native approval remains on the PC |
 | Transport expires | Connecting while retained discovery is active | Preserve the canonical timeout error; do not request a new pairing |
 
@@ -352,7 +352,7 @@ metadata once and revalidates the original session, turn, checkout and ready
 phase after IO. It preserves the followed title cache and chat selection.
 The event uses its project and complete current title when at most 63 characters;
 otherwise it says **Open the other chat in Codex**. The native screen has one
-mint **Reply ready** headline, the chat title, subordinate project and **Got it**.
+mint **Chat waiting** headline, the chat title, subordinate project and **Mark as read**.
 Generic notices also omit identical title/body repetition. No GUID, transcript,
 task-success inference or polling is introduced. A prompt retires native notices
 only for that chat; dismissal still requires the authenticated owner acknowledgement.

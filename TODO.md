@@ -62,6 +62,17 @@
   headers at Debug level, and the built-in WebSocket transport logs the upgrade
   request on a write error. Check credential handling on failure in both build modes.
 
+## CLOUD-03 - Shared chat waiting state
+
+- Confirm the supported Dot surface and its stable chat and reply identities.
+  Persist unread state per reply in the relay, independently of delivery receipts.
+- Show a red dot and offer explicit Mark as read on each authorized surface.
+  Apply a read to the exact reply so it cannot clear a newer reply in the same
+  chat. Keep an unread reply eligible for quiet, rate-limited reminders.
+- Verify the two-surface flow: new reply, red dot, reminder on the associated
+  device, read on either surface, and clearance everywhere. Repeat with a later
+  reply in the same chat and verify that a display receipt alone keeps it unread.
+
 ## Offline statistics and local timer
 
 - Verify the saved snapshot, UTC timestamp and countdown with the paired PC off,

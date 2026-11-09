@@ -64,7 +64,7 @@
       {
         "hooks": [
           {
-            "statusMessage": "Cody: Reply ready",
+            "statusMessage": "Cody: Chat waiting",
             "timeout": 8,
             "command": "python -B -c \"import os,runpy,sys; p=os.path.join(os.environ['PLUGIN_ROOT'],'mcp'); sys.path.insert(0,p); runpy.run_path(os.path.join(p,'ccp_server.py'),run_name='__main__')\" --hook",
             "type": "command"

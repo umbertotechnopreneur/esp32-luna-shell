@@ -435,7 +435,7 @@ Several callers may queue questions, each retaining its private capability.
 Cody browses the actual pending tickets without changing the followed PC chat;
 a reply in flight or awaiting recipient acknowledgement cannot be displaced.
 Informational notices never displace a question. A genuine `Stop` from the
-followed chat or a background chat queues the typed **Reply ready** event once per
+followed chat or a background chat queues the typed **Chat waiting** event once per
 native turn, with a bounded project label. An authenticated delivery can wake
 Cody from connected software standby and play the existing cue when sounds are enabled. Before delivery to an eligible physical Cody, the existing title
 owner performs one read-only lookup of that exact chat and checkout in the native

@@ -1447,7 +1447,7 @@
         "tongue_opacity": 1
       },
       "title": {
-        "text": "Reply ready",
+        "text": "Chat waiting",
         "top": 210,
         "color_rgb565": 2047,
         "character_interval_ms": 45,

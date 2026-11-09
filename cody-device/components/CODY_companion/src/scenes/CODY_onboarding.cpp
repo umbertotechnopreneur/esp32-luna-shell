@@ -313,6 +313,7 @@ struct ContentView {
     EventChoiceControl event_choices[3]{};
     uint8_t event_choice_count = 0;
     bool event_review_panel = false;
+    bool chat_waiting = false;
     QrModules qr{};
     CODY2D::Rect qr_bounds{};
     CODY2D::Rect header_icon_bounds{};
@@ -1856,8 +1857,13 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
         error = event_presentation::draw_review_panel(strip, first_row, first_column);
     }
     for (uint8_t index = 0; error == ESP_OK && index < view.line_count; ++index) {
-        error = CODY2D::draw_text_rows(view.lines[index], view.visible_characters[index],
-            strip, first_row, first_column);
+        if (index == 0 && view.chat_waiting && view.visible_characters[index] != 0) {
+            error = event_presentation::draw_chat_waiting_dot(view.lines[index], strip, first_row, first_column);
+        }
+        if (error == ESP_OK) {
+            error = CODY2D::draw_text_rows(view.lines[index], view.visible_characters[index],
+                strip, first_row, first_column);
+        }
     }
     if (error == ESP_OK && view.actions_visible && view.action_visible && view.action.caption.valid) {
         // Reveal the complete action atomically after the main line finishes.
@@ -2923,20 +2929,23 @@ esp_err_t append_event_line(const event_presentation::Line &line)
     auto &buffer = s_view.debug_text[index];
     std::memcpy(buffer, line.text, count + 1U);
     const uint16_t width = static_cast<uint16_t>((count - 1U) * font.advance + font.width);
-    const int horizontal = (width + 1U) / 2U;
+    const uint16_t marker_space = line.chat_waiting ? event_presentation::kChatWaitingDotSpace : 0;
+    const uint16_t group_width = width + marker_space;
+    const int horizontal = (group_width + 1U) / 2U;
     const int vertical = static_cast<int>(line.top + font.height - 1U) - 233;
     if (horizontal * horizontal + vertical * vertical > 233 * 233) {
         ESP_LOGE(kTag, "Shared event line exceeds circular chord (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
     const esp_err_t error = CODY2D::prepare_text_line(font, {buffer, static_cast<uint16_t>(count)},
-        {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(line.top)},
+        {static_cast<int16_t>((466U - group_width) / 2U + marker_space), static_cast<int16_t>(line.top)},
         event_presentation::line_color(line, 0), s_view.lines[index]);
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Shared event line geometry failed (%s)", esp_err_to_name(error));
         return error;
     }
     s_view.instant_lines[index] = line.instant;
+    if (line.chat_waiting) { s_view.chat_waiting = true; }
     ++s_view.line_count;
     return ESP_OK;
 }
@@ -4214,7 +4223,7 @@ esp_err_t present_companion_activity_content(int64_t active_time_us, SceneFrame 
         } else if (activity.state == Activity::Paused) {
             headline = "Waiting for you";
         } else if (activity.state == Activity::ResponseReady && reply_introduction) {
-            headline = "Reply ready";
+            headline = "Chat waiting";
         } else if (activity.state == Activity::Interrupted) {
             headline = "Interrupted";
         }

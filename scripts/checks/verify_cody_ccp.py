@@ -1224,7 +1224,7 @@ class HookRoutingTests(unittest.TestCase):
         call = self.enqueue.call_args
         notice_payload = call.args[1]
         self.assertEqual((notice_payload.kind, notice_payload.title, notice_payload.body),
-                         (interactions.EventKind.REPLY_READY, "Reply ready", "Open the other chat in Codex"))
+                         (interactions.EventKind.REPLY_READY, "Chat waiting", "Open the other chat in Codex"))
         self.assertNotEqual(notice_payload.title, notice_payload.body)
         self.title_read.assert_called_once_with("chat-a", "E:/same-long-project-name")
         self.assertEqual(call.kwargs["native_session"], "chat-a")
@@ -1293,7 +1293,7 @@ class HookRoutingTests(unittest.TestCase):
                     self.enqueue.assert_called_once()
                     payload = self.enqueue.call_args.args[1]
                     self.assertEqual((payload.kind, payload.title, payload.body),
-                                     (interactions.EventKind.REPLY_READY, "Reply ready", expected))
+                                     (interactions.EventKind.REPLY_READY, "Chat waiting", expected))
                     self.assertEqual(payload.choices, ())
                     self.assertFalse(payload.progress_valid)
                     self.assertEqual([item["session_id"] for item in self.service.activity.list_sessions()
@@ -1433,7 +1433,7 @@ class HookRoutingTests(unittest.TestCase):
         origin = next(iter(self.service.interactions._tickets.values()))
         association = hashlib.sha256(self.key).hexdigest()
         other_payload = interactions.EventPayload(interactions.EventKind.REPLY_READY, "Other chat",
-                                                 "Reply ready", "Other chat finished")
+                                                 "Chat waiting", "Other chat finished")
         other = self.service.interactions.enqueue(self.device, other_payload, "LAN",
                                                   association_id=association, native_session="chat-other")
         question_payload = interactions.EventPayload(interactions.EventKind.QUESTION, "Caller", "Choose cache",
@@ -1945,7 +1945,7 @@ class InteractionTests(unittest.TestCase):
     # Raises AssertionError if explicit notice dismissal cannot release the FIFO or retires a question.
     def test_informational_dismissal_advances_notices_and_cannot_answer_questions(self) -> None:
         association = "a" * 64
-        notice = interactions.EventPayload(interactions.EventKind.REPLY_READY, "", "Reply ready", "Review the reply.")
+        notice = interactions.EventPayload(interactions.EventKind.REPLY_READY, "", "Chat waiting", "Review the reply.")
         first = self.store.enqueue(self.device, notice, "LAN", association_id=association, native_session="chat-one")
         second = self.store.enqueue(self.device, notice, "LAN", association_id=association, native_session="chat-two")
         self.assertEqual(self.store.snapshot(self.device, association)[0], first["request_id"])
@@ -2124,7 +2124,7 @@ class InteractionTests(unittest.TestCase):
     # Raises AssertionError if an ordinary tool caller can manufacture the typed background completion event.
     def test_reply_ready_kind_is_reserved_for_genuine_native_lifecycle(self) -> None:
         with self.assertRaisesRegex(ValueError, "Notification kind must be"):
-            interactions.payload_from_arguments({"kind": "reply_ready", "title": "Reply ready",
+            interactions.payload_from_arguments({"kind": "reply_ready", "title": "Chat waiting",
                 "body": "An unobserved completion claim."}, question=False)
 
     # self: One real semantic choice represented with synthetic identities and a fixed deadline.

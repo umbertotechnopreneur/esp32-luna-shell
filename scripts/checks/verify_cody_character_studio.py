@@ -138,26 +138,26 @@ class CharacterStudioTests(unittest.TestCase):
         from PIL import Image
         from cody_ccp_simulator import SimulatorSnapshot, interactions
         payload = interactions.EventPayload(interactions.EventKind.REPLY_READY, "SIMULATED Cody",
-            "Reply ready", "Review Cody battery savings and the next release")
+            "Chat waiting", "Review Cody battery savings and the next release")
         snapshot = SimulatorSnapshot(request_id="a" * 32, event_state="pending", event_payload=payload,
             event_fresh=True, project="Different Home project", title="Different selected Home chat")
         image, view = self.render_event_notice(snapshot)
         plan = view.native.output
         self.assertEqual((plan.scene.decode("ascii"), plan.title.decode("ascii"), plan.title_color),
-                         ("codex-notice", "Reply ready", 0x5FF9))
+                         ("codex-notice", "Chat waiting", 0x5FF9))
         narrative = [line.text.decode("ascii") for line in plan.lines[:plan.line_count] if not line.instant]
         self.assertEqual(" ".join(narrative), payload.body)
-        self.assertNotIn("Reply ready", narrative)
+        self.assertNotIn("Chat waiting", narrative)
         self.assertNotIn("From Codex", narrative)
         self.assertEqual([line.text.decode("ascii") for line in plan.lines[:plan.line_count] if line.instant],
                          [payload.context])
         self.assertEqual(len(view._actions), 1)
         self.assertEqual((view._actions[0].identity, view._actions[0].label, view._actions[0].bounds),
-                         ("dismiss", "Got it", (113, 352, 240, 72)))
+                         ("dismiss", "Mark as read", (113, 352, 240, 72)))
         self.assertEqual(plan.actions[0].icon, 0)
         self.assertFalse(plan.back)
         expected = Image.new("RGB", (466, 466))
-        self.renderer.scene_painter.paint_text(expected, "Reply ready", 150, 0x5FF9)
+        self.renderer.scene_painter.paint_text(expected, "Chat waiting", 150, 0x5FF9)
         self.assertEqual(image.crop((73, 150, 393, 190)).tobytes(), expected.crop((73, 150, 393, 190)).tobytes())
         self.assertIsNotNone(image.crop((73, 214, 393, 295)).getbbox())
         self.assertIsNotNone(image.crop((113, 352, 353, 424)).getbbox())
@@ -168,7 +168,7 @@ class CharacterStudioTests(unittest.TestCase):
         endpoint.reply.assert_not_called()
         self.assertFalse(view.visible(snapshot))
         OUTPUT.mkdir(parents=True, exist_ok=True)
-        capture = self.renderer.capture_sheet(image, "SIMULATED / Reply ready / original chat and project")
+        capture = self.renderer.capture_sheet(image, "SIMULATED / Chat waiting / original chat and project")
         destination = OUTPUT / "reply-ready-native.png"
         capture.save(destination)
         capture.resize((capture.width * 2, capture.height * 2), Image.Resampling.NEAREST).save(
@@ -181,7 +181,7 @@ class CharacterStudioTests(unittest.TestCase):
     def test_reply_ready_preserves_title_fallback_source_errors_and_generic_notice_deduplication(self):
         from cody_ccp_simulator import SimulatorSnapshot, interactions
         from cody_native_event_presentation import NativeEventPresentation
-        payload = interactions.EventPayload(interactions.EventKind.REPLY_READY, "", "Reply ready",
+        payload = interactions.EventPayload(interactions.EventKind.REPLY_READY, "", "Chat waiting",
                                             "Open the other chat in Codex")
         snapshot = SimulatorSnapshot(request_id="b" * 32, event_state="pending", event_payload=payload,
             event_fresh=True, title="Unrelated Home title", project="Unrelated Home project")

@@ -94,13 +94,15 @@ Firmware and Studio use the same native color policy. Device-first presents a
 complete frame; the legacy Studio inspector retains its animated reveal.
 
 A typed `ReplyReady` notification uses the compact character at (233,92), scale
-42, and one mint `Reply ready` headline at y=150. The originating chat's complete
-bounded title occupies up to three body rows at y=214/242/270. When its owner has
+42, and one mint `Chat waiting` headline at y=150. The originating chat's complete
+bounded title occupies up to three body rows at y=214/242/270. A red dot sits
+beside its first line and appears with that line. When its owner has
 no admitted title, the body says `Open the other chat in Codex`; it never repeats
 the headline or borrows the currently followed chat's identity. Project context
 is subordinate at y=312, with explicit unavailable/offline/error text when needed.
-The single iconless `Got it` action retains (113,352,240,72) and requests the
-existing authenticated dismissal. Controls appear only after the full narrative;
+The single iconless `Mark as read` action retains (113,352,240,72) and
+acknowledges the current LAN notice through its authenticated dismissal.
+Controls appear only after the full narrative;
 reply readiness implies neither task success nor passed checks. Generic notices
 also omit body text when it is identical to their title. Terminal request outcomes
 retain their own expired, cancelled or rejected captions.

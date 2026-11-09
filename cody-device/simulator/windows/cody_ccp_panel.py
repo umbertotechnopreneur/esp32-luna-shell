@@ -79,7 +79,7 @@ def presentation(snapshot: SimulatorSnapshot, code: str) -> tuple[str, str, tupl
                   "interrupted": "session-paused", "ended": "session-ended",
                   "unavailable": "activity-unavailable"}
     titles = {"working": "Working", "editing": "Editing code", "running": "Running command",
-              "paused": "Waiting for you", "ready": "Reply ready"}
+              "paused": "Waiting for you", "ready": "Chat waiting"}
     # Native identity rendering measures full bounded project/branch names in the fixed row.
     return identities[snapshot.phase], titles.get(snapshot.phase, ""), ()
 
@@ -173,7 +173,7 @@ class CcpPanel:
                         command=self.change_preview).pack(anchor="w")
         ttk.Label(preview, text="SIMULATED technical scenario").pack(anchor="w", pady=(12, 2))
         scenarios = ttk.Combobox(preview, textvariable=self.preview_scenario, state="readonly",
-            values=("Normal", "Attention", "Reply ready", "Nearly full", "Long compaction",
+            values=("Normal", "Attention", "Chat waiting", "Nearly full", "Long compaction",
                     "Refreshed / pending", "Counters updated", "Missing / stale", "Model changed", "Link lost",
                     "Cheap model", "Reasonable model", "Expensive model", "Custom"))
         scenarios.pack(fill="x")
@@ -469,7 +469,7 @@ class CcpPanel:
     # event: Optional Tk selection event; its contents are not used as telemetry.
     # Exceptions: Original preview metadata rejection remains visible through apply_preview.
     def select_preview_scenario(self, event=None):
-        phases = {"Attention": "paused", "Reply ready": "ready", "Long compaction": "working",
+        phases = {"Attention": "paused", "Chat waiting": "ready", "Long compaction": "working",
                   "Refreshed / pending": "working", "Counters updated": "working", "Missing / stale": "unavailable"}
         self.preview_phase.set(phases.get(self.preview_scenario.get(), "working"))
         self.apply_preview()

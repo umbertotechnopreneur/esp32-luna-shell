@@ -222,7 +222,7 @@ with exact chat/turn identity. Background tool/completion events cannot replace
 it. Opening a tab is not a focus event. Broker restart needs another real prompt;
 LAN reconnection may restore the current snapshot. Project names are labels.
 Packet state expires after eight seconds; active work becomes unavailable after
-120 seconds without another hook. A genuine Stop can publish a Reply ready
+120 seconds without another hook. A genuine Stop can publish a Chat waiting
 notice for the followed chat or a background chat. If the paired LAN link
 is active, the notice can wake the screen from software standby.
 

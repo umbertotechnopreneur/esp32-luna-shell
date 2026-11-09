@@ -438,7 +438,18 @@ CODY_HOST_EXPORT int cody_host_event_paint_frame(uint16_t *pixels, uint32_t capa
         const uint16_t prefix = line.instant
             ? (visible >= preceding && (!line.delivery_pulse || ready) ? length : 0)
             : std::min<uint16_t>(length, visible > preceding ? visible - preceding : 0);
-        if (prefix != 0) {
+        if (prefix != 0 && line.chat_waiting) {
+            const auto &font = CODY::SceneData::body_font;
+            const uint16_t width = (length - 1U) * font.advance + font.width;
+            const uint16_t marker_space = Presentation::kChatWaitingDotSpace;
+            CODY2D::TextLine title{};
+            error = CODY2D::prepare_text_line(font, {line.text, length},
+                {static_cast<int16_t>((466U - width - marker_space) / 2U + marker_space),
+                    static_cast<int16_t>(line.top)},
+                Presentation::line_color(line, elapsed_us), title);
+            if (error == ESP_OK) { error = Presentation::draw_chat_waiting_dot(title, canvas, 0, 0); }
+            if (error == ESP_OK) { error = CODY2D::draw_text_rows(title, prefix, canvas, 0, 0); }
+        } else if (prefix != 0) {
             error = cody_host_text(pixels, capacity, line.text, length, line.top,
                 Presentation::line_color(line, elapsed_us), true, prefix, 233, 300);
         }

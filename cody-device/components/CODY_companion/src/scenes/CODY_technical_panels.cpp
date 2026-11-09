@@ -98,7 +98,7 @@ const char *phase_text(LUNASHELL::CodexActivityState phase)
     case Phase::Working: return "Working";
     case Phase::Editing: return "Editing code";
     case Phase::Running: return "Running command";
-    case Phase::ResponseReady: return "Reply ready";
+    case Phase::ResponseReady: return "Chat waiting";
     case Phase::Paused: return "Waiting for you";
     case Phase::Interrupted: return "Interrupted";
     case Phase::Ended: return "Ended";

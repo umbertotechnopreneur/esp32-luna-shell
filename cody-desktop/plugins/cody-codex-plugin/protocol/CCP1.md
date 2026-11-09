@@ -66,7 +66,7 @@ truncation; schema 1, unknown kinds and contradictory/trailing fields are reject
 
 `ReplyReady=8` is native-lifecycle-only: the first genuine background-chat `Stop`
 may enqueue it once per turn; public notification tools cannot manufacture it.
-Its title is `Reply ready`, and its body is the complete current native chat title
+Its title is `Chat waiting`, and its body is the complete current native chat title
 when it fits 63 ASCII bytes, otherwise `Open the other chat in Codex`. The existing
 title owner performs one exact read-only index lookup for an eligible physical
 recipient, with session/turn/checkout revalidation and no transcript read or focus
@@ -502,7 +502,7 @@ PermissionRequest, Interrupt or SessionEnd. The skill asks for actual English
 work descriptions, never commands, logs, percentages or invented estimates.
 
 Firmware and Cody Studio use shared native presentation helpers. The main title
-shows Working, Editing code, Running command, Waiting for you or Reply ready.
+shows Working, Editing code, Running command, Waiting for you or Chat waiting.
 Ordinary tool subtypes require 2.5 seconds of stable observation while generic
 Working covers short bursts; completion, stale data and attention bypass that
 dwell. The observed work clock starts before subtype admission, ignores repaint

@@ -42,7 +42,7 @@ After pairing, follow authentic metadata:
   is not a documented focus hook.
 - `Stop` means a response is ready; it does not prove task success. Missing or
   expired activity remains **UNAVAILABLE**.
-- A real `Stop` from another chat queues **Reply ready** with its project and a
+- A real `Stop` from another chat queues **Chat waiting** with its project and a
   complete real chat title when a current canonical title fits the notice. It
   never displays a GUID, switches the followed chat or replaces an open
   question. Do not duplicate this hook notice with an MCP notification.

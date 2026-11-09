@@ -62,7 +62,7 @@ class Bounds(C.Structure):
 
 class Line(C.Structure):
     _fields_ = [("text", C.c_char * 64), ("top", C.c_uint16), ("instant", C.c_bool),
-                ("delivery_pulse", C.c_bool), ("pc_heading", C.c_bool)]
+                ("delivery_pulse", C.c_bool), ("pc_heading", C.c_bool), ("chat_waiting", C.c_bool)]
 
 
 class Action(C.Structure):
