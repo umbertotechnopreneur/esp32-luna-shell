@@ -51,10 +51,14 @@
   state through DeviceSnapshotService. Validate bounded polling, retries and
   credential recovery before admitting notifications. Acknowledge reception
   after owner admission and display after the corresponding frame retires.
-- Add an authenticated WebSocket wake signal after enrollment. Keep events in
-  the existing relay queue until delivery or expiry. Reconcile the queue after
-  reconnecting. Verify that the selected transport does not log credentials or
-  proofs on failed upgrades, including Debug.
+- Connect the enrolled firmware to the relay's authenticated WebSocket wake
+  signal. Reconcile the queue after connecting and after each hint. Exercise
+  reconnect, lost hints, concurrent devices, revocation, rotation and expiry
+  without treating the signal as delivery evidence.
+- Select credential-safe HTTPS and WebSocket clients for ESP-IDF 6.0.2 before
+  attaching proof or token headers. The built-in HTTP client can log serialized
+  headers at Debug level, and the built-in WebSocket transport logs the upgrade
+  request on a write error. Check credential handling on failure in both build modes.
 
 ## Offline statistics and local timer
 

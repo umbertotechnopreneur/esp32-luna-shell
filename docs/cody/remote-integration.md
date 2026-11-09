@@ -33,7 +33,7 @@ flowchart LR
     cody -.->|"Opt-in HTTPS and WebSocket check"| relay
     dot -.->|"HTTPS liveness check after rollout"| relay
     dot -.->|"Scoped agent calls after client integration"| relay
-    cody -.->|"Enrollment, polling and receipts after firmware integration"| relay
+    cody -.->|"Enrollment, queue hints and receipts after firmware integration"| relay
 ```
 
 Solid links show existing source paths or infrastructure configuration. Dotted
@@ -77,11 +77,15 @@ operations retain their own authentication. [Cody navigation](navigation.md#star
 ## Deliver a notification
 
 The private relay source implements scoped agent calls, owner-approved device
-enrollment, outbound device polling, expiry and delivery receipts. Once the
-firmware and client are integrated, the agent uses its own scoped credential and
-the owner grants that identity access to a selected device. Cody uses a separate
-proof-bound device credential. A queued event has been accepted by the relay.
-The device reports reception and display separately. [Open work](../../TODO.md)
+enrollment, an authenticated WebSocket queue signal, outbound device polling,
+expiry and delivery receipts. After durable queue acceptance, the WebSocket
+can signal the enrolled device to fetch pending events over HTTPS. A reconnect
+also checks for pending work. The signal contains no message content. The device
+reports reception and display separately.
+
+Firmware enrollment and queue consumption remain open. The agent uses its own
+scoped credential and the owner grants that identity access to a selected
+device. Cody uses a separate proof-bound device credential. [Open work](../../TODO.md)
 
 A connected PC running Codex is a candidate MCP client because Codex supports a
 bearer token sourced from its environment. Hosted ChatGPT plugins require a
