@@ -967,6 +967,17 @@ esp_err_t DeviceSnapshotService::reportCodexEvent(const CodexEventSnapshot &even
     return error;
 }
 
+// inbox: Synchronously borrowed owner page; the snapshot never retains the reference.
+// Exception: Returns the original canonical publication error.
+esp_err_t DeviceSnapshotService::reportCodexInbox(const CodexInboxSnapshot &inbox)
+{
+    const auto error = update_snapshot([&inbox](DeviceSnapshot &snapshot) {
+        snapshot.codex_inbox = inbox;
+    });
+    log_snapshot_publication_failure("Codex inbox report", error);
+    return error;
+}
+
 // technical: Synchronously borrowed owner buffer; the snapshot never retains the reference.
 // Exception: Returns the original canonical publication error.
 esp_err_t DeviceSnapshotService::reportCodexTechnical(const CodexTechnicalSnapshot &technical)

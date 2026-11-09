@@ -34,6 +34,7 @@ from typing import Any
 MAX_EVENT_DATAGRAM_BYTES = 4096
 MAX_TICKETS = 128
 MAX_TTL_SECONDS = 180
+INBOX_PAGE_SIZE = 3
 TERMINAL_RETENTION_SECONDS = 600.0
 TERMINAL_DISPLAY_SECONDS = 8.0
 IDENTITY = re.compile(r"^[0-9a-f]{32}$")
@@ -647,6 +648,53 @@ class InteractionStore:
 
     # self: Publisher choosing a complete request snapshot without changing caller ownership.
     # device_id: Authenticated active Cody peer.
+    # association_id: Current active-key digest.
+    # offset: Requested first row, clamped if the queue has shrunk.
+    # dismiss: Exact previously published ready reply, or the all-zero no-op.
+    # Raises ValueError for a foreign dismissal. Returns a bounded binary summary.
+    def inbox_page(self, device_id: str, association_id: str, offset: int, dismiss: str) -> str:
+        with self._condition:
+            self._expire()
+            if dismiss != "0" * 32:
+                ticket = self._tickets.get(dismiss)
+                if ticket is not None:
+                    if ticket.payload.kind != EventKind.REPLY_READY:
+                        raise ValueError("Only ready replies can be dismissed through Events")
+                    self.acknowledge_notice(device_id, dismiss, association_id)
+            questions = []
+            replies = []
+            for ticket in self._tickets.values():
+                if (ticket.device_id != device_id or ticket.state != "pending"
+                        or not hmac.compare_digest(ticket.association_id, association_id)):
+                    continue
+                if ticket.payload.kind == EventKind.QUESTION:
+                    questions.append(ticket)
+                elif ticket.payload.kind == EventKind.REPLY_READY:
+                    replies.append(ticket)
+            tickets = questions + replies
+            total = len(tickets)
+            start = min(offset, max(0, total - INBOX_PAGE_SIZE))
+            page = tickets[start:start + INBOX_PAGE_SIZE]
+            encoded = bytearray((total, start, len(page)))
+            for ticket in page:
+                payload = ticket.payload
+                question = payload.kind == EventKind.QUESTION
+                title = payload.context if question else payload.body
+                if not title or (not question and title == "Open Codex to read the reply"):
+                    title = "Chat title unavailable"
+                preview = payload.body if question else ""
+                title_bytes, preview_bytes = title.encode("ascii"), preview.encode("ascii")
+                encoded.append(int(payload.kind))
+                encoded.extend(bytes.fromhex(ticket.request_id))
+                encoded.append(len(title_bytes))
+                encoded.extend(title_bytes)
+                encoded.append(len(preview_bytes))
+                encoded.extend(preview_bytes)
+                if not question:
+                    ticket.published = True
+            return encoded.hex()
+
+    # device_id: Authenticated active Cody peer.
     # association_id: Current active-key digest; replacement retires old requests without exposing their payload.
     # current_id: Question identity reported by the authenticated device, or all zeros for absence.
     # current_state: Actual device state; an unknown open question is retired before publishing a successor.
@@ -660,7 +708,7 @@ class InteractionStore:
                 or (current_id == "0" * 32) != (current_state == "none")):
             raise ValueError("Device question observation is incoherent")
         if (IDENTITY.fullmatch(selection_request_id) is None or
-                (selection_request_id != "0" * 32 and current_state != "pending")):
+                (selection_request_id != "0" * 32 and current_state not in {"none", "pending"})):
             raise ValueError("Device pending-question selection is incoherent")
         with self._condition:
             self._expire()
@@ -698,7 +746,7 @@ class InteractionStore:
             notices = [item for item in relevant if item.payload.kind != EventKind.QUESTION and item.state == "pending"]
             target = None
             if selection_request_id != "0" * 32:
-                if current is not None and current.state == "pending" and not current.selected_id:
+                if current_state == "none" or (current is not None and current.state == "pending" and not current.selected_id):
                     target = next((item for item in questions if item.request_id == selection_request_id
                                    and item.state == "pending" and not item.selected_id), None)
                 if target is None:

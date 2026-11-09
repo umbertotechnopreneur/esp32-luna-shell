@@ -217,7 +217,7 @@ def encode_datagram(kind: str, fields: list[tuple[str, str]]) -> bytes:
     text = "|".join([PROTOCOL, kind, *[f"{name}={value}" for name, value in fields]])
     payload = text.encode("ascii")
     limit = (interactions.MAX_EVENT_DATAGRAM_BYTES if kind == "EVENT" else
-             MAX_ACTIVITY_DATAGRAM_BYTES if kind == "ACTIVITY" else
+             MAX_ACTIVITY_DATAGRAM_BYTES if kind in {"ACTIVITY", "INBOX"} else
              MAX_TECHNICAL_DATAGRAM_BYTES if kind == "TECH" else
              MAX_ACCOUNT2_DATAGRAM_BYTES if kind == "ACCOUNT2" else
              MAX_ACCOUNT_DATAGRAM_BYTES if kind == "ACCOUNT" else MAX_DATAGRAM_BYTES)
@@ -769,6 +769,9 @@ class CompanionResponder:
         if kind == "APPCAP":
             self._accept_app_capability(fields, source)
             return
+        if kind == "INBOXCAP":
+            self._accept_inbox_capability(fields, source)
+            return
         if kind in {"ALLOWANCECAP", "ALLOWANCECAP2", "ALLOWANCECAP3"}:
             self._accept_allowance_capability(fields, source, version=kind[-1] if kind != "ALLOWANCECAP" else "1")
             return
@@ -795,7 +798,7 @@ class CompanionResponder:
                     or (fields["current"] == "0" * 32) != (fields["state"] == "none")):
                 raise ValueError("CCP FIND question observation is incoherent")
             if (interactions.IDENTITY.fullmatch(fields["event_select"]) is None or
-                    (fields["event_select"] != "0" * 32 and fields["state"] != "pending")):
+                    (fields["event_select"] != "0" * 32 and fields["state"] not in {"none", "pending"})):
                 raise ValueError("CCP FIND pending-question selection is incoherent")
         for name in ("device", "pc", "nonce", "proof"):
             if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
@@ -956,6 +959,35 @@ class CompanionResponder:
             except (OSError, RuntimeError, ValueError) as error:
                 self.app_presence_error = error
                 raise
+
+    # self: UDP owner serving the bounded Events view for one retained association.
+    # fields: Signed request for an offset and an optional ready-reply dismissal.
+    # source: Socket-observed endpoint of the current authenticated FIND.
+    # Raises ValueError for invalid input or authentication, or the original send error.
+    def _accept_inbox_capability(self, fields: dict[str, str], source: tuple[str, int]) -> None:
+        names = ("device", "pc", "nonce", "offset", "dismiss")
+        if (set(fields) != {*names, "proof"}
+                or not re.fullmatch(r"(?:0|[1-9][0-9]{0,2})", fields["offset"])
+                or int(fields["offset"]) >= interactions.MAX_TICKETS
+                or not interactions.IDENTITY.fullmatch(fields["dismiss"])):
+            raise ValueError("CCP inbox capability fields malformed")
+        with self._event_lock:
+            peer = self._event_peers.get(fields["device"])
+        active = self._state.retained_keys(fields["device"]).active
+        values = [fields[name] for name in names]
+        if (peer is None or active is None or fields["pc"] != self._state.pc_id
+                or source != peer.source or fields["nonce"] != peer.nonce
+                or not 0 <= time.monotonic() - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS
+                or not hmac.compare_digest(active, peer.key)
+                or not hmac.compare_digest(make_proof(active, "inbox-cap-v1", *values), fields["proof"])):
+            raise ValueError("CCP inbox capability authentication failed")
+        data = self._requests.inbox_page(fields["device"], hashlib.sha256(active).hexdigest(),
+                                         int(fields["offset"]), fields["dismiss"])
+        response_names = ("device", "pc", "nonce", "requested", "dismiss", "data")
+        response_values = [*values, data]
+        payload = encode_datagram("INBOX", list(zip(response_names, response_values))
+                                  + [("proof", make_proof(active, "inbox-v1", *response_values))])
+        self._socket.sendto(payload, source)
 
     # self: Existing responder supplying account metadata to authenticated physical Cody devices.
     # fields: Exact signed allowance capability envelope after COMMITTED for the same heartbeat.

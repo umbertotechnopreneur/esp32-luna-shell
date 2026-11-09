@@ -402,6 +402,8 @@ bool s_event_reply_admitted = false;
 bool s_event_dismiss_admitted = false;
 char s_event_selected_id[13]{};
 char s_event_selection_target[33]{};
+char s_inbox_question[33]{};
+bool s_inbox_available = false;
 uint8_t s_event_failure_page = 0;
 uint8_t s_event_choice_page = 0;
 uint8_t s_event_detail_page = 0;
@@ -3741,6 +3743,17 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
     using Kind = LUNASHELL::CodexEventKind;
     using State = LUNASHELL::CodexEventState;
     const bool have_event = observed.kind != Kind::None && observed.request_id[0] != '\0';
+    const bool inbox_question = s_inbox_available && observed.kind == Kind::Question &&
+        std::strcmp(s_inbox_question, observed.request_id) == 0;
+    if (s_inbox_available && !inbox_question &&
+        (observed.kind == Kind::Question || observed.kind == Kind::ReplyReady)) {
+        if (is_codex_event_route(s_route)) {
+            reset_event_presentation();
+            changed = true;
+            return enter_route(Route::Connected15, scene);
+        }
+        return ESP_OK;
+    }
     if (!have_event) {
         s_question_audio_schedule.last_attempt_at_us = -1;
         const bool retained_question = s_presented_event.kind == Kind::Question && !s_event_dismiss_admitted;
@@ -3781,7 +3794,8 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
     }
     s_presented_event = observed;
     s_event_online = online;
-    if (selected_question && observed.kind == Kind::Question && observed.state == State::Pending) {
+    if ((selected_question || (inbox_question && !same_request)) &&
+        observed.kind == Kind::Question && observed.state == State::Pending) {
         s_event_stage = EventStage::Choices;
     }
     if (!online || observed.last_error != ESP_OK || observed.selection_request_id[0] == '\0') {
@@ -3840,6 +3854,14 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
 // Exception: Returns layout errors; owner admission failures remain visible and logged.
 esp_err_t activate_event_action(SceneFrame &scene, const event_presentation::Action &selected)
 {
+    if (s_inbox_available && s_inbox_question[0] != '\0' &&
+        selected.id == event_presentation::ActionId::Back && selected.enabled &&
+        (s_event_stage == EventStage::Choices || s_event_stage == EventStage::Questions ||
+         s_event_stage == EventStage::Notice)) {
+        s_inbox_question[0] = '\0';
+        reset_event_presentation();
+        return enter_route(Route::Connected15, scene);
+    }
     auto navigation = event_navigation();
     event_presentation::Effect effect;
     const esp_err_t decision_error = event_presentation::activate(s_presented_event,
@@ -3881,6 +3903,7 @@ esp_err_t activate_event_action(SceneFrame &scene, const event_presentation::Act
             s_event_stage = EventStage::Waiting;
         } else {
             s_event_dismiss_admitted = true;
+            s_inbox_question[0] = '\0';
         }
     } else {
         ESP_LOGE(kTag, "Codex event %s admission failed; explicit Retry available (%s)",
@@ -5135,6 +5158,23 @@ esp_err_t open_device_dashboard(SceneFrame &scene)
         return ESP_ERR_NOT_FINISHED;
     }
     return enter_route(Route::CompanionIdle16, scene);
+}
+
+// available: True after an authenticated Events page has been observed.
+void set_onboarding_inbox_available(bool available)
+{
+    s_inbox_available = available;
+    if (!available) s_inbox_question[0] = '\0';
+}
+
+// request_id: Exact identity of a visible queue row.
+// Exception: Returns the original selection admission failure.
+esp_err_t open_onboarding_inbox_question(const char *request_id)
+{
+    if (!s_inbox_available) return ESP_ERR_INVALID_STATE;
+    const auto error = LUNASHELL_codex_event_select(request_id);
+    if (error == ESP_OK) std::memcpy(s_inbox_question, request_id, sizeof(s_inbox_question));
+    return error;
 }
 
 // No parameters: consume only a released widget selection admitted by Options.

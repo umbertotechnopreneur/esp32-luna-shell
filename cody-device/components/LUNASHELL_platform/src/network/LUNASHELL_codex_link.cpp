@@ -159,6 +159,12 @@ LUNASHELL::CodexTechnicalSnapshot s_technical_snapshot{};
 // maintenance. Public command admissions only enqueue work; references never escape.
 LUNASHELL::ConnectivityObservation s_ready_connectivity{};
 bool s_event_received_for_nonce = false;
+bool s_inbox_requested = false;
+uint8_t s_inbox_offset = 0;
+uint8_t s_inbox_requested_offset = 0;
+char s_inbox_dismiss[33] = "00000000000000000000000000000000";
+LUNASHELL::CodexInboxSnapshot s_inbox_candidate{};
+LUNASHELL::CodexInboxSnapshot s_inbox_observation{};
 uint64_t s_app_sequence = 0;
 char s_ready_nonce[33]{};
 LUNASHELL::CodexEventSnapshot s_event_snapshot{};
@@ -1707,6 +1713,7 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
             s_voucher_exchange = VoucherExchange::Idle;
             s_account_received_for_nonce = false;
             s_event_received_for_nonce = false;
+            s_inbox_requested = false;
             wipe(s_ready_nonce, sizeof(s_ready_nonce));
             s_next_find_at_us = esp_timer_get_time() + kFindIntervalUs;
             if (s_finds_since_ready < UINT32_MAX) {
@@ -1754,6 +1761,12 @@ void startDiscovery()
     s_voucher_exchange = VoucherExchange::Idle;
     s_allowance_capability = AllowanceCapability::Subscription;
     s_account_received_for_nonce = false;
+    s_inbox_requested = false;
+    s_inbox_offset = 0;
+    std::memset(s_inbox_dismiss, '0', 32);
+    s_inbox_observation = {};
+    const auto inbox_error = LUNASHELL::DeviceSnapshotService::instance().reportCodexInbox(s_inbox_observation);
+    if (inbox_error != ESP_OK) ESP_LOGW(kTag, "CCP inbox invalidation failed (%s)", esp_err_to_name(inbox_error));
     publishLocked(State::Discovering, ESP_OK);
     ESP_LOGI(kTag, "CCP reconnect admitted with retained pairing; code window stays closed");
 }
@@ -1907,6 +1920,42 @@ esp_err_t sendNameCapability(const ReadyResponse &response, const sockaddr_in &s
     wipe(proof, sizeof(proof));
     wipe(input, sizeof(input));
     wipe(packet, sizeof(packet));
+    return error;
+}
+
+// response: Current authenticated READY with a durable COMMITTED exchange.
+// source: Observed endpoint of the active association.
+// Exception: Returns the original encoding, HMAC or transport error under s_mutex.
+esp_err_t sendInboxCapabilityLocked(const ReadyResponse &response, const sockaddr_in &source)
+{
+    if (s_inbox_requested) return ESP_OK;
+    auto &input = s_event_proof_input;
+    const int size = std::snprintf(input, sizeof(input), "inbox-cap-v1|%s|%s|%s|%u|%s",
+        response.device_id, response.pc_id, response.nonce, unsigned(s_inbox_offset), s_inbox_dismiss);
+    uint8_t proof[32]{};
+    char proof_hex[65]{};
+    esp_err_t error = size > 0 && static_cast<size_t>(size) < sizeof(input)
+        ? hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), input, proof)
+        : ESP_ERR_INVALID_SIZE;
+    if (error == ESP_OK) error = encodeHex(proof, sizeof(proof), proof_hex, sizeof(proof_hex));
+    auto &packet = s_event_ack_packet;
+    if (error == ESP_OK) {
+        const int packet_size = std::snprintf(packet, sizeof(packet),
+            "CCP1|INBOXCAP|device=%s|pc=%s|nonce=%s|offset=%u|dismiss=%s|proof=%s",
+            response.device_id, response.pc_id, response.nonce, unsigned(s_inbox_offset),
+            s_inbox_dismiss, proof_hex);
+        error = packet_size > 0 && static_cast<size_t>(packet_size) < sizeof(packet)
+            ? sendDatagram(packet, source.sin_addr, ntohs(source.sin_port), "CCP INBOXCAP")
+            : ESP_ERR_INVALID_SIZE;
+    }
+    if (error == ESP_OK) {
+        s_inbox_requested = true;
+        s_inbox_requested_offset = s_inbox_offset;
+    }
+    wipe(input, sizeof(input));
+    wipe(packet, sizeof(packet));
+    wipe(proof, sizeof(proof));
+    wipe(proof_hex, sizeof(proof_hex));
     return error;
 }
 
@@ -2092,6 +2141,10 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                     // retain the real error and retry COMMITTED on the next READY.
                     publishLocked(State::Connected, error);
                     if (error == ESP_OK) {
+                        const auto inbox_error = sendInboxCapabilityLocked(response, source);
+                        if (inbox_error != ESP_OK) {
+                            ESP_LOGW(kTag, "Optional CCP inbox capability failed (%s)", esp_err_to_name(inbox_error));
+                        }
                         const esp_err_t app_error = sendObservationCapabilityLocked(response, source,
                             ObservationCapability::AppPresence);
                         if (app_error != ESP_OK) {
@@ -3699,6 +3752,51 @@ esp_err_t sendTerminalEventAckLocked(const char *request_id, LUNASHELL::CodexEve
     return error;
 }
 
+// payload: Complete bounded INBOX envelope, never logged with chat text.
+// source: Observed UDP endpoint matched against the current authenticated READY.
+// Exception: Returns envelope, authentication, schema or publication errors.
+esp_err_t acceptInbox(const char *payload, const sockaddr_in &source)
+{
+    static constexpr const char *names[] = {"device", "pc", "nonce", "requested", "dismiss", "data", "proof"};
+    char *values[7]{};
+    if (!parseEventFields(payload, "CCP1|INBOX|", names, 7, values)) return ESP_ERR_INVALID_ARG;
+    std::lock_guard<std::mutex> guard(s_mutex);
+    auto error = admitEventEnvelopeLocked(source, values[0], values[1], values[2], InboundCommand::Maintenance);
+    if (error != ESP_OK) return error;
+    char expected_offset[4]{};
+    std::snprintf(expected_offset, sizeof(expected_offset), "%u", unsigned(s_inbox_requested_offset));
+    if (!s_inbox_requested || std::strcmp(values[3], expected_offset) != 0 ||
+        std::strcmp(values[4], s_inbox_dismiss) != 0) return ESP_ERR_INVALID_STATE;
+    const int size = std::snprintf(s_event_proof_input, sizeof(s_event_proof_input),
+        "inbox-v1|%s|%s|%s|%s|%s|%s", values[0], values[1], values[2], values[3], values[4], values[5]);
+    if (size <= 0 || static_cast<size_t>(size) >= sizeof(s_event_proof_input)) return ESP_ERR_INVALID_SIZE;
+    error = verifyEventProofLocked(values[6]);
+    if (error != ESP_OK) return error;
+    auto &observation = s_inbox_candidate;
+    error = LUNASHELL::decodeCodexInboxPage(values[5], std::strlen(values[5]), observation);
+    if (error != ESP_OK || observation.offset > s_inbox_requested_offset) {
+        return error != ESP_OK ? error : ESP_ERR_INVALID_ARG;
+    }
+    if (s_inbox_offset != s_inbox_requested_offset) return ESP_ERR_INVALID_STATE;
+    const int64_t now = esp_timer_get_time();
+    observation.last_attempt_at_us = observation.last_success_at_us = now;
+    observation.data_valid = true;
+    observation.data_stale = false;
+    observation.last_error = ESP_OK;
+    observation.health = LUNASHELL::DeviceHealth::Ready;
+    const char *acknowledged = std::strcmp(s_inbox_dismiss, "00000000000000000000000000000000") == 0
+        ? s_inbox_observation.acknowledged_reply : s_inbox_dismiss;
+    std::memcpy(observation.acknowledged_reply, acknowledged, sizeof(observation.acknowledged_reply));
+    error = LUNASHELL::DeviceSnapshotService::instance().reportCodexInbox(observation);
+    if (error == ESP_OK) {
+        s_inbox_observation = observation;
+        s_inbox_offset = observation.offset;
+        s_inbox_requested = false;
+        std::memset(s_inbox_dismiss, '0', 32);
+    }
+    return error;
+}
+
 // payload: Complete bounded EVENT envelope, never logged as raw user content.
 // source: Observed UDP endpoint matched against authenticated READY.
 // Exception: Returns precise envelope/schema/replay/publication/wake errors.
@@ -4129,6 +4227,11 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
             }
             return;
         }
+        if (std::strncmp(payload, "CCP1|INBOX|", 11) == 0) {
+            const auto error = acceptInbox(payload, source);
+            if (error != ESP_OK) reportDatagramRejection("INBOX", error);
+            return;
+        }
         if (std::strncmp(payload, "CCP1|TECH|", 10) == 0) {
             const esp_err_t error = acceptTechnical(payload, source);
             if (error != ESP_OK) {
@@ -4197,7 +4300,8 @@ void receiveDatagrams()
         payload[received] = '\0';
         const bool extended_activity = std::strncmp(payload, "CCP1|ACTIVITY|", 14) == 0 &&
             received <= static_cast<int>(kMaximumActivityDatagramBytes);
-        const bool extended_technical = std::strncmp(payload, "CCP1|TECH|", 10) == 0 &&
+        const bool extended_technical = (std::strncmp(payload, "CCP1|TECH|", 10) == 0 ||
+            std::strncmp(payload, "CCP1|INBOX|", 11) == 0) &&
             received <= static_cast<int>(kMaximumActivityDatagramBytes);
         const bool extended_account = (std::strncmp(payload, kAccountPrefix, sizeof(kAccountPrefix) - 1) == 0 &&
             received <= static_cast<int>(kMaximumAccountDatagramBytes)) ||
@@ -4817,6 +4921,54 @@ extern "C" esp_err_t LUNASHELL_codex_event_reply(const char *expected_request_id
     return ESP_OK;
 }
 
+// request_id: Exact displayed row identity.
+// kind: Expected event kind, checked under the network owner mutex.
+bool inboxRowCurrentLocked(const char *request_id, LUNASHELL::CodexEventKind kind)
+{
+    const auto now = esp_timer_get_time();
+    if (request_id == nullptr || !s_inbox_observation.data_valid ||
+        !LUNASHELL::codex_presence::ready_current(s_link_snapshot, now) ||
+        now < s_inbox_observation.last_success_at_us ||
+        now - s_inbox_observation.last_success_at_us >= kReadyExpiryUs) return false;
+    for (uint8_t index = 0; index < s_inbox_observation.count; ++index) {
+        const auto &row = s_inbox_observation.rows[index];
+        if (row.kind == kind && std::strcmp(row.request_id, request_id) == 0) return true;
+    }
+    return false;
+}
+
+// offset: Requested first visible row within the bounded queue.
+// Exception: Returns the original state or range error without changing the current projection.
+extern "C" esp_err_t LUNASHELL_codex_inbox_page(uint8_t offset)
+{
+    if (offset >= LUNASHELL::kCodexInboxCapacity) return ESP_ERR_INVALID_ARG;
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (s_worker == nullptr || s_pending != Command::None || !s_link_present ||
+        s_link_snapshot.state != State::Connected) return ESP_ERR_INVALID_STATE;
+    if (s_inbox_offset != offset) {
+        s_inbox_offset = offset;
+        s_next_find_at_us = 0;
+        xTaskNotifyGive(s_worker);
+    }
+    return ESP_OK;
+}
+
+// request_id: Exact authenticated ready reply currently listed in Events.
+// Exception: Returns stale/identity/operation errors, preserving existing admission.
+extern "C" esp_err_t LUNASHELL_codex_inbox_dismiss(const char *request_id)
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (s_worker == nullptr || s_pending != Command::None ||
+        !inboxRowCurrentLocked(request_id, LUNASHELL::CodexEventKind::ReplyReady) ||
+        std::strcmp(s_inbox_dismiss, "00000000000000000000000000000000") != 0) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    std::memcpy(s_inbox_dismiss, request_id, sizeof(s_inbox_dismiss));
+    s_next_find_at_us = 0;
+    xTaskNotifyGive(s_worker);
+    return ESP_OK;
+}
+
 // request_id: Canonical advertised question selected without submitting an answer.
 // Exception: Returns admission/publication failure and retains the prior question on rejection.
 extern "C" esp_err_t LUNASHELL_codex_event_select(const char *request_id)
@@ -4824,8 +4976,18 @@ extern "C" esp_err_t LUNASHELL_codex_event_select(const char *request_id)
     std::lock_guard<std::mutex> guard(s_mutex);
     const bool fresh = s_worker != nullptr && s_pending == Command::None && s_link_present &&
         s_link_snapshot.state == State::Connected && s_event_snapshot.data_valid && !s_event_snapshot.data_stale;
-    const esp_err_t admission = LUNASHELL::selectCodexQuestion(eventTransactionLocked(), request_id,
+    auto admission = LUNASHELL::selectCodexQuestion(eventTransactionLocked(), request_id,
         fresh, esp_timer_get_time());
+    using EventState = LUNASHELL::CodexEventState;
+    const bool waiting = s_event_snapshot.state == EventState::Sending ||
+        s_event_snapshot.state == EventState::Received;
+    if (admission != ESP_OK && !waiting && s_pending == Command::None &&
+        inboxRowCurrentLocked(request_id, LUNASHELL::CodexEventKind::Question)) {
+        if (std::strcmp(s_event_snapshot.request_id, request_id) != 0) {
+            std::memcpy(s_event_snapshot.selection_request_id, request_id, sizeof(s_event_snapshot.selection_request_id));
+        }
+        admission = ESP_OK;
+    }
     if (admission != ESP_OK) {
         ESP_LOGE(kTag, "CCP pending-question selection rejected (%s)", esp_err_to_name(admission));
         return admission;
@@ -4909,6 +5071,22 @@ extern "C" esp_err_t LUNASHELL_codex_event_reply(const char *expected_request_id
 extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_id)
 {
     (void)expected_request_id;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// offset: Unused queue offset in a profile without CCP support.
+// Exception: Always returns ESP_ERR_NOT_SUPPORTED.
+extern "C" esp_err_t LUNASHELL_codex_inbox_page(uint8_t offset)
+{
+    (void)offset;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// request_id: Unused event identity in a profile without CCP support.
+// Exception: Always returns ESP_ERR_NOT_SUPPORTED.
+extern "C" esp_err_t LUNASHELL_codex_inbox_dismiss(const char *request_id)
+{
+    (void)request_id;
     return ESP_ERR_NOT_SUPPORTED;
 }
 

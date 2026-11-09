@@ -101,6 +101,53 @@ struct PayloadReader {
 };
 } // namespace
 
+// hex: Complete authenticated INBOX summary body.
+// length: Exact length in ASCII bytes.
+// page: Network-owned scratch; publish only after the complete page validates.
+// Exception: Returns original bounds and schema errors.
+esp_err_t decodeCodexInboxPage(const char *hex, size_t length, CodexInboxPage &page)
+{
+    constexpr size_t max_bytes = 3 + kCodexInboxRows * (1 + 16 + 1 + 63 + 1 + 63);
+    if (hex == nullptr || length < 6 || length > 2 * max_bytes || length % 2 != 0) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    PayloadReader reader{hex, length};
+    page = {};
+    if (!reader.byte(page.total) || !reader.byte(page.offset) || !reader.byte(page.count)) return reader.error;
+    const uint8_t max_offset = page.total > kCodexInboxRows ? page.total - kCodexInboxRows : 0;
+    const uint8_t expected = page.total < kCodexInboxRows ? page.total : kCodexInboxRows;
+    if (page.total > kCodexInboxCapacity || page.offset > max_offset || page.count != expected) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    constexpr char digits[] = "0123456789abcdef";
+    bool seen_reply = false;
+    for (uint8_t index = 0; index < page.count; ++index) {
+        auto &row = page.rows[index];
+        uint8_t kind = 0;
+        if (!reader.byte(kind)) return reader.error;
+        row.kind = static_cast<CodexEventKind>(kind);
+        if (row.kind == CodexEventKind::ReplyReady) seen_reply = true;
+        else if (row.kind != CodexEventKind::Question || seen_reply) return ESP_ERR_INVALID_ARG;
+        bool nonzero = false;
+        for (size_t byte = 0; byte < 16; ++byte) {
+            uint8_t value = 0;
+            if (!reader.byte(value)) return reader.error;
+            nonzero = nonzero || value != 0;
+            row.request_id[byte * 2] = digits[value >> 4U];
+            row.request_id[byte * 2 + 1] = digits[value & 15U];
+        }
+        if (!nonzero) return ESP_ERR_INVALID_ARG;
+        for (uint8_t previous = 0; previous < index; ++previous) {
+            if (std::strcmp(page.rows[previous].request_id, row.request_id) == 0) return ESP_ERR_INVALID_ARG;
+        }
+        if (!reader.text(row.title, true) || !reader.text(row.preview, row.kind == CodexEventKind::Question)) {
+            return reader.error;
+        }
+        if (row.kind == CodexEventKind::ReplyReady && row.preview[0] != '\0') return ESP_ERR_INVALID_ARG;
+    }
+    return reader.offset == length ? ESP_OK : ESP_ERR_INVALID_SIZE;
+}
+
 // confirmation_code: Exact intentional-reset check; authentication belongs to the existing CCP link.
 bool validCodexResetCode(const char *confirmation_code)
 {

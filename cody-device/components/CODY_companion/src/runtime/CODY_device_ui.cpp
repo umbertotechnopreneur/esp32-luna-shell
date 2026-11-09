@@ -10,6 +10,7 @@
 #include "CODY_codex_audio.hpp"
 #include "CODY_device_view.hpp"
 #include "CODY_device_effects.hpp"
+#include "CODY_codex_panels.hpp"
 #include "CODY_local_timer_view.hpp"
 #include "CODY_screensaver.hpp"
 #include "CODY_onboarding.hpp"
@@ -47,15 +48,17 @@ constexpr uint32_t kWorkerStackBytes = 12288;
 
 enum class Layer : uint8_t {
     Branding, Message, Scene, Dashboard, AboutLink, Visibility, Timer, Voice, Diagnostics,
-    VoucherWarning, Screensaver, Blank
+    VoucherWarning, Events, CurrentTurn, EventReply, Screensaver, Blank
 };
 enum class Command : uint8_t { Ready = 1, Sleep, Wake, Shutdown, ShutdownFailed };
+enum class ActivityPage : uint8_t { Events, CurrentTurn, Reply, Statistics };
 enum class BrandingPhase : uint8_t { Inactive, AwaitingReady, Playing };
 using Save = CODY::VisibilitySave;
 enum class Target : uint8_t {
     None, Previous, Next, VisibilityFirst, VisibilitySecond, VisibilityThird,
     Interval, FirstAction, SecondAction, VoiceGesture, VoucherScroll, VoucherDismiss,
-    TimerDecrease, TimerIncrease, TimerSound, TimerStart, TimerCancel, TimerDismiss
+    TimerDecrease, TimerIncrease, TimerSound, TimerStart, TimerCancel, TimerDismiss,
+    EventsGesture, ActivityBack, EventDismiss
 };
 constexpr std::array<Target, CODY::kVisibilityRowsPerPage> kVisibilityTargets{
     Target::VisibilityFirst, Target::VisibilitySecond, Target::VisibilityThird,
@@ -104,7 +107,16 @@ struct DeviceUi {
     BrandingPhase branding_phase = BrandingPhase::Inactive;
 
     CODY::DeviceView view{};
+    CODY::CodexPanelView codex_panel{};
+    LUNASHELL::CodexInboxSnapshot inbox{};
+    LUNASHELL::CodexTechnicalObservation turn{};
+    LUNASHELL::CodexInboxRow reply{};
+    char touched_event[33]{};
+    ActivityPage activity_page = ActivityPage::Events;
+    bool reply_dismiss_pending = false;
     RetiredFrame retired{};
+    CODY2D::Point activity_touch_start{};
+    CODY2D::Point activity_touch_last{};
     CODY2D::Point voucher_touch_start{};
     CODY2D::Point voucher_touch_last{};
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
@@ -151,6 +163,7 @@ void invalidate()
 // No parameters: choose the first enabled statistics page, with Device always available.
 void select_statistics()
 {
+    s_ui->activity_page = ActivityPage::Statistics;
     s_ui->model.vouchers.warning_expiry = 0;
     s_ui->model.vouchers.first_row = 0;
     s_ui->model.info_page = CODY::InfoPage::System;
@@ -311,6 +324,28 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
             CODY::SceneData::title_font, CODY::SceneData::body_font, ui.editor, frame.presentation.content);
     }
     if (CODY::onboarding_dashboard_active()) {
+        if (ui.activity_page == ActivityPage::Events) {
+            frame.layer = Layer::Events;
+            return CODY::prepare_codex_events(ui.codex_panel, ui.inbox, now_us, frame.presentation.content);
+        }
+        if (ui.activity_page == ActivityPage::CurrentTurn) {
+            frame.layer = Layer::CurrentTurn;
+            frame.arrows = true;
+            frame.navigation_opacity = 255;
+            const auto error = DeviceSnapshotService::instance().readCodexTechnicalObservation(ui.turn);
+            if (error != ESP_OK) {
+                ui.turn.link.data_valid = false;
+                ESP_LOGW(kTag, "Current turn observation unavailable (%s)", esp_err_to_name(error));
+            }
+            return CODY::prepare_current_turn(ui.codex_panel, ui.turn, now_us, frame.presentation.content);
+        }
+        if (ui.activity_page == ActivityPage::Reply) {
+            frame.layer = Layer::EventReply;
+            frame.arrows = true;
+            frame.navigation_opacity = 255;
+            return CODY::prepare_codex_reply(ui.codex_panel, ui.reply.title, ui.reply_dismiss_pending,
+                frame.presentation.content);
+        }
         if (ui.model.vouchers.warning_expiry != 0 && voucher_attention_allowed) {
             frame.layer = Layer::VoucherWarning;
             frame.arrows = true;
@@ -391,7 +426,8 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const bool draws_navigation = frame.arrows || frame.layer == Layer::Scene;
     const uint8_t opacity = draws_navigation ? frame.navigation_opacity : 0;
     const bool next_navigation = frame.arrows && frame.layer != Layer::AboutLink && frame.layer != Layer::Timer &&
-        frame.layer != Layer::VoucherWarning &&
+        frame.layer != Layer::VoucherWarning && frame.layer != Layer::CurrentTurn &&
+        frame.layer != Layer::EventReply &&
         (frame.layer != Layer::Visibility || ui.editor.page + 1U < CODY::kVisibilityPageCount);
     const bool navigation_changed = old.navigation_opacity != opacity || old.next_navigation != next_navigation;
     const bool content_changed = old.content_revision != view.content.revision;
@@ -540,6 +576,13 @@ Target target_at(CODY2D::Point point)
 {
     const auto &ui = *s_ui;
     const auto layer = ui.retired.layer;
+    if (layer == Layer::Events) return Target::EventsGesture;
+    if (layer == Layer::CurrentTurn || layer == Layer::EventReply) {
+        if (CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::ActivityBack;
+        if (layer == Layer::EventReply && !ui.reply_dismiss_pending &&
+            point.x >= 113 && point.x < 353 && point.y >= 330 && point.y < 386) return Target::EventDismiss;
+        return Target::None;
+    }
     if (layer == Layer::VoucherWarning) {
         if (CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::VoucherDismiss;
         return CODY::device_action_at(ui.view, point) == 1 ? Target::VoucherDismiss : Target::None;
@@ -619,13 +662,57 @@ void edit_visibility(Target target)
     // trigger a full repaint. A local edit must not invalidate the whole panel.
 }
 
+// ui: Owns the retired Events view, press identity and local navigation.
+// Exception: Optional selection errors are logged without stopping the display worker.
+void activate_events_gesture(DeviceUi &ui)
+{
+    const int dx = ui.activity_touch_last.x - ui.activity_touch_start.x;
+    const int dy = ui.activity_touch_last.y - ui.activity_touch_start.y;
+    if (std::abs(dx) >= 44 && std::abs(dx) > std::abs(dy)) {
+        if (dx < 0) ui.activity_page = ActivityPage::CurrentTurn;
+        else select_statistics();
+        invalidate();
+        return;
+    }
+    const auto &page = ui.codex_panel.page;
+    if (!ui.codex_panel.inbox_current) return;
+    if (std::abs(dy) >= 34 && std::abs(dy) > std::abs(dx)) {
+        const int maximum = std::max(0, int(page.total) - LUNASHELL::kCodexInboxRows);
+        const auto offset = static_cast<uint8_t>(std::clamp(int(page.offset) + (dy < 0 ? 1 : -1), 0, maximum));
+        const auto error = LUNASHELL_codex_inbox_page(offset);
+        if (error != ESP_OK) ESP_LOGW(kTag, "Events page request failed (%s)", esp_err_to_name(error));
+        return;
+    }
+    if (std::abs(dx) > 16 || std::abs(dy) > 16 || ui.touched_event[0] == '\0') return;
+    const int row = CODY::codex_event_row_at(ui.activity_touch_last);
+    if (row < 0 || row >= page.count || std::strcmp(page.rows[row].request_id, ui.touched_event) != 0) return;
+    const auto &event = page.rows[row];
+    if (event.kind == LUNASHELL::CodexEventKind::Question) {
+        const auto error = CODY::open_onboarding_inbox_question(event.request_id);
+        if (error != ESP_OK) ESP_LOGW(kTag, "Events question open failed (%s)", esp_err_to_name(error));
+    } else if (event.kind == LUNASHELL::CodexEventKind::ReplyReady && !ui.reply_dismiss_pending) {
+        ui.reply = event;
+        ui.activity_page = ActivityPage::Reply;
+        invalidate();
+    }
+}
+
 // target: Released control admitted on the same complete frame.
 // Exception: Returns a real voice transport admission error.
 esp_err_t activate(Target target)
 {
     auto &ui = *s_ui;
     const auto layer = ui.retired.layer;
-    if (layer == Layer::VoucherWarning) {
+    if (target == Target::EventsGesture && layer == Layer::Events) {
+        activate_events_gesture(ui);
+    } else if (target == Target::ActivityBack) {
+        ui.activity_page = ActivityPage::Events;
+        invalidate();
+    } else if (target == Target::EventDismiss && layer == Layer::EventReply) {
+        const auto error = LUNASHELL_codex_inbox_dismiss(ui.reply.request_id);
+        if (error == ESP_OK) ui.reply_dismiss_pending = true;
+        else ESP_LOGW(kTag, "Events reply dismissal failed (%s)", esp_err_to_name(error));
+    } else if (layer == Layer::VoucherWarning) {
         if (target == Target::VoucherDismiss) {
             CODY::dismiss_device_voucher_warning(ui.model);
             invalidate();
@@ -731,7 +818,8 @@ esp_err_t sample_touch()
         return ESP_OK;
     }
     if (read != ESP_OK) return read;
-    const bool pressed_edge = sample.pressed && !ui.pressed;
+    const bool was_pressed = ui.pressed;
+    const bool pressed_edge = sample.pressed && !was_pressed;
     ui.pressed = sample.pressed;
     if (!ui.retired.valid || ui.retired.display_revision != LUNASHELL_display_runtime_content_revision()) {
         ui.contact = Target::None;
@@ -784,7 +872,18 @@ esp_err_t sample_touch()
     }
     if (sample.pressed) {
         const auto target = target_at(point);
-        if (pressed_edge) ui.contact = target;
+        if (pressed_edge) {
+            ui.contact = target;
+            ui.activity_touch_start = point;
+            ui.touched_event[0] = '\0';
+            if (target == Target::EventsGesture && ui.codex_panel.inbox_current) {
+                const int row = CODY::codex_event_row_at(point);
+                if (row >= 0 && row < ui.codex_panel.page.count) {
+                    std::memcpy(ui.touched_event, ui.codex_panel.page.rows[row].request_id, sizeof(ui.touched_event));
+                }
+            }
+        }
+        ui.activity_touch_last = point;
         if (ui.contact == Target::VoucherScroll) {
             if (pressed_edge) ui.voucher_touch_start = point;
             ui.voucher_touch_last = point;
@@ -806,6 +905,16 @@ esp_err_t sample_touch()
     }
     const auto contact = ui.contact;
     ui.contact = Target::None;
+    if (was_pressed && ui.retired.layer == Layer::Dashboard &&
+        (contact == Target::None || contact == Target::VoiceGesture)) {
+        const int dx = ui.activity_touch_last.x - ui.activity_touch_start.x;
+        const int dy = ui.activity_touch_last.y - ui.activity_touch_start.y;
+        if (dx >= 44 && dx > std::abs(dy)) {
+            ui.activity_page = ActivityPage::Events;
+            invalidate();
+            return ESP_OK;
+        }
+    }
     return contact != Target::None ? activate(contact) : ESP_OK;
 }
 
@@ -857,6 +966,18 @@ esp_err_t update_navigation()
         break;
     default: break;
     }
+    const auto inbox_error = DeviceSnapshotService::instance().readCodexInboxObservation(ui.inbox);
+    if (inbox_error != ESP_OK) {
+        ui.inbox.data_valid = false;
+        ui.inbox.last_error = inbox_error;
+    }
+    CODY::set_onboarding_inbox_available(ui.inbox.last_success_at_us > 0);
+    if (ui.reply_dismiss_pending && ui.inbox.data_valid &&
+        std::strcmp(ui.inbox.acknowledged_reply, ui.reply.request_id) == 0) {
+        ui.reply_dismiss_pending = false;
+        if (ui.activity_page == ActivityPage::Reply) ui.activity_page = ActivityPage::Events;
+        invalidate();
+    }
     bool changed = false;
     const auto error = CODY::update_onboarding(ui.scene, ui.completed_scene, ui.awake_us, ui.awake_us, changed);
     if (changed) {
@@ -904,6 +1025,7 @@ esp_err_t apply_command(Command command)
         const auto error = CODY::start_device_setup(ui.scene, ui.first_boot);
         if (error != ESP_OK) return error;
         select_statistics();
+        ui.activity_page = ActivityPage::Events;
     }
     if (command == Command::Sleep || command == Command::Shutdown) {
         ui.model.effects.event_sound = {};

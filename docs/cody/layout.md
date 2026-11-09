@@ -107,6 +107,22 @@ reply readiness implies neither task success nor passed checks. Generic notices
 also omit body text when it is identical to their title. Terminal request outcomes
 retain their own expired, cancelled or rejected captions.
 
+## Events and Current turn
+
+Events is the connected dashboard's starting page. Its authenticated queue
+shows three rows, with open questions first and ready replies after them. A
+vertical swipe moves one row. The lead question preview scrolls horizontally
+inside its row; its event label and chat caption stay fixed. Tapping an exact
+row opens the existing choice flow or the ready-reply detail. Read dismissal
+returns to Events after the broker confirms it. A question caption comes from
+its declared source context when one is supplied.
+
+Swipe left on Events for Current turn, and right for statistics. Swipe right
+on a statistics page to return to Events. Current turn uses the lateral Back
+control. It shows the currently followed chat, an observed Shell, Web search
+or Editing identity when available, and a separate compaction icon and measured
+elapsed time. A hosted web search without a native hook remains unavailable.
+
 ## Setup, QR and Skin
 
 Device-first pairing uses the same title and body fonts, left chevron, and

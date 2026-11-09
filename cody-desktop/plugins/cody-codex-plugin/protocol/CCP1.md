@@ -454,6 +454,22 @@ compatibility fallback. The saved pairing record format remains unchanged.
 The link key authenticates every activity field in the documented order. `chat`
 is the SHA-256 of the followed session ID; zeroes denote no followed prompt.
 `revision` is a volatile diagnostic counter, not a persisted ordering guarantee.
+After the normal active COMMITTED exchange an inbox-capable device may request
+`INBOXCAP` with ordered fields `device,pc,nonce,offset,dismiss,proof`. Its HMAC
+domain is `inbox-cap-v1`. Offset is a decimal first row from 0 through 127.
+Dismiss is a previously published ready-reply ID or 32 zero digits. The broker
+validates the active association and socket endpoint and returns `INBOX`
+with ordered fields `device,pc,nonce,requested,dismiss,data,proof` and domain
+`inbox-v1`. The authenticated echo confirms any admitted read dismissal.
+The data is lowercase hex over three bytes for total, actual offset and count,
+followed by up to three rows. Each row contains its kind byte, 16-byte request
+ID, byte-counted printable title and byte-counted question preview. Titles and
+previews admit up to 63 bytes. Ready replies have an empty preview. Open questions
+precede ready replies. Inbox pages never acknowledge or select a question.
+An explicit `event_select` may use a zero current ID while the device has no
+current question; a live or closing question retains the original transaction
+ownership. Existing EVENT and REPLY acknowledgement formats are unchanged.
+
 The current FIND nonce admits at most one ACTIVITY snapshot; old polls, duplicate
 replies and altered metadata are rejected. Printable ASCII text is hex encoded:
 `project` and `branch` admit at most 64 characters, `description` at most 192.

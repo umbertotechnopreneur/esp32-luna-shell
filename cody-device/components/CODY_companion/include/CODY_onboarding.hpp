@@ -80,6 +80,13 @@ esp_err_t open_device_dashboard(SceneFrame &scene);
 
 enum class WidgetOpenRequest : uint8_t { None, Statistics, Visibility, Timer };
 
+// available: True after this device has received the broker's authenticated Events projection.
+void set_onboarding_inbox_available(bool available);
+
+// request_id: Exact question selected from the retired native Events list.
+// Exception: Returns the original signed selection admission error.
+esp_err_t open_onboarding_inbox_question(const char *request_id);
+
 // No parameters: consumes one released Options selection owned by the display task.
 WidgetOpenRequest take_widget_open_request();
 

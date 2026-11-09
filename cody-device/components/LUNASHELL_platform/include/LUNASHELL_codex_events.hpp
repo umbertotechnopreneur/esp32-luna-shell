@@ -101,6 +101,29 @@ struct CodexEventPayload {
     CodexPendingQuestion pending_questions[2]{};
 };
 
+inline constexpr uint8_t kCodexInboxRows = 3;
+inline constexpr uint8_t kCodexInboxCapacity = 128;
+
+struct CodexInboxRow {
+    CodexEventKind kind = CodexEventKind::None;
+    char request_id[33]{};
+    char title[64]{};
+    char preview[64]{};
+};
+
+struct CodexInboxPage {
+    uint8_t total = 0;
+    uint8_t offset = 0;
+    uint8_t count = 0;
+    CodexInboxRow rows[kCodexInboxRows]{};
+};
+
+// hex: Complete authenticated INBOX summary body.
+// length: Exact length in ASCII bytes.
+// page: Network-owned scratch; publish only after the complete page validates.
+// Exception: Returns the first structural or semantic error.
+esp_err_t decodeCodexInboxPage(const char *hex, size_t length, CodexInboxPage &page);
+
 // hex: Complete lowercase hexadecimal payload, without the EVENT envelope.
 // length: Exact character count, bounded before any decoding or writes.
 // candidate: Untrusted scratch; publish only after this function succeeds.

@@ -2793,6 +2793,25 @@ esp_err_t DeviceSnapshotService::readCodexEventObservation(CodexEventSnapshot &o
     return ESP_OK;
 }
 
+// observation: Caller-owned page, usable only when the snapshot read succeeds.
+// Exception: Returns the original synchronization error.
+esp_err_t DeviceSnapshotService::readCodexInboxObservation(CodexInboxSnapshot &observation) const
+{
+    const auto error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "Codex inbox read");
+    if (error != ESP_OK) return error;
+    observation = s_snapshot.codex_inbox;
+    const int64_t now_us = esp_timer_get_time();
+    const auto &link = s_snapshot.radios.codex_link;
+    if (observation.data_valid && (!codex_presence::ready_current(link, now_us) ||
+        observation.last_success_at_us > now_us || static_cast<uint64_t>(now_us - observation.last_success_at_us) >= codex_presence::kTransportTtlUs)) {
+        observation.data_valid = false;
+        observation.data_stale = true;
+        observation.last_error = ESP_ERR_TIMEOUT;
+        observation.health = DeviceHealth::Degraded;
+    }
+    return give_snapshot_mutex("Codex inbox read");
+}
+
 // observation: Bounded canonical telemetry; no network, filesystem or sensor reads.
 // Exception: Returns the original mutex or immutable image-identity error; output is unusable on failure.
 esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObservation &observation) const

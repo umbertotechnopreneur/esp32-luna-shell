@@ -922,6 +922,14 @@ esp_err_t LUNASHELL_codex_event_select(const char *request_id);
 // Exception: Rejects dismissal of an unanswered question or a newer request.
 esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_id);
 
+// offset: Requested first row of the authenticated Events page.
+// Exception: Returns admission errors without changing the visible owner page.
+esp_err_t LUNASHELL_codex_inbox_page(uint8_t offset);
+
+// request_id: Exact published ready reply selected for dismissal.
+// Exception: Returns an identity/freshness error or admits one idempotent dismissal.
+esp_err_t LUNASHELL_codex_inbox_dismiss(const char *request_id);
+
 #ifdef __cplusplus
 }
 #endif

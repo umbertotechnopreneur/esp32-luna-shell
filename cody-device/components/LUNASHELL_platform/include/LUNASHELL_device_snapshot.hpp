@@ -496,6 +496,11 @@ struct CodexTokenIntervalObservation {
     bool tokens_valid = false;
 };
 
+struct CodexInboxSnapshot : ComponentSnapshot, CodexInboxPage {
+    char acknowledged_reply[33]{};
+};
+static_assert(sizeof(CodexInboxSnapshot) <= 640, "Inbox page must fit its bounded owner projection");
+
 struct CodexEventSnapshot : ComponentSnapshot, CodexEventPayload {
     CodexEventState state = CodexEventState::None;
     uint64_t revision = 0;
@@ -1048,6 +1053,7 @@ struct DeviceSnapshot {
     BatteryEnduranceSnapshot battery_endurance;
     ActivitySnapshot activity;
     CodexEventSnapshot codex_event;
+    CodexInboxSnapshot codex_inbox;
     CodexTechnicalSnapshot codex_technical;
     uint32_t sequence = 0;
     int64_t last_update_attempt_at_us = 0;
@@ -1274,6 +1280,9 @@ public:
     // observation: Bounded canonical interaction; no radio, sensor or transcript reads.
     // Exception: Returns the original canonical snapshot lock/read failure.
     esp_err_t readCodexEventObservation(CodexEventSnapshot &observation) const;
+    // observation: Caller-owned Events page; its age derives from the authenticated receive time.
+    // Exception: Returns the original snapshot synchronization error.
+    esp_err_t readCodexInboxObservation(CodexInboxSnapshot &observation) const;
 
     // observation: Persistent caller-owned link/telemetry projection, copied under one lock.
     // Exception: Returns original lock/release errors; do not consume output on failure.
@@ -1312,6 +1321,9 @@ public:
     // event: Authenticated controller state, including real delivery and expiry outcomes.
     // Exception: Returns the original publication failure and logs its cause.
     esp_err_t reportCodexEvent(const CodexEventSnapshot &event);
+    // inbox: Network-owned authenticated page borrowed only for this publication.
+    // Exception: Returns the original canonical publication error.
+    esp_err_t reportCodexInbox(const CodexInboxSnapshot &inbox);
 
     // preferences: Actual settings-owner outcome, including failed reads and writes.
     // Exception: Returns the original publication error.
