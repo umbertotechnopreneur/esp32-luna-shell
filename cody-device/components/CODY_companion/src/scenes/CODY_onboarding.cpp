@@ -43,6 +43,7 @@
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_platform.h"
 #include "scene_data.hpp"
+#include "home_dashboard_fonts.hpp"
 #include "navigation_data.hpp"
 #include "sdkconfig.h"
 #include "esp_log.h"
@@ -308,6 +309,7 @@ struct ContentView {
     uint16_t options_visible_characters = 0;
     PreferenceControl preferences[kPreferencesPerPage]{};
     uint8_t preference_count = 0;
+    uint8_t menu_page = 0;
     EventChoiceControl event_choices[3]{};
     uint8_t event_choice_count = 0;
     QrModules qr{};
@@ -1601,10 +1603,6 @@ esp_err_t prepare_action(OnboardingAction action, bool enabled)
     }
     if (kDeviceFirstSetup) {
         using Icon = CODY2D::ActionIcon;
-        if (s_route == Route::MakeItYours10 && action == OnboardingAction::GoHome) {
-            return prepare_icon_pill(action, label, kOptionsFooterBounds, enabled, Icon::Home,
-                s_view.action, s_view.action_second_line);
-        }
         if (s_route == Route::NetworkWait && action == OnboardingAction::Later) {
             return prepare_icon_pill(action, label, kOfflineLaterBounds, enabled, Icon::ChevronRight,
                 s_view.action, s_view.action_second_line);
@@ -1765,17 +1763,30 @@ esp_err_t draw_preference_row(const PreferenceControl &preference, CODY2D::Surfa
     if (!kDeviceFirstSetup) {
         return CODY2D::draw_capsule_rows(control, strip, first_row, first_column);
     }
-    // Open rows keep color in the semantic glyph, with no filled card or border.
+    const auto &bounds = control.bounds;
+    if (preference.action != OnboardingAction::None) {
+        auto panel = control;
+        panel.caption = {};
+        panel.icon = CODY2D::ActionIcon::None;
+        auto error = CODY2D::draw_capsule_rows(panel, strip, first_row, first_column);
+        const CODY2D::CapsuleControl badge{{static_cast<uint16_t>(bounds.x + 12U),
+            static_cast<uint16_t>(bounds.y + 15U), 42, 42}, {}, 0x214A, 0x18E7, true, 21};
+        if (error == ESP_OK) error = CODY2D::draw_capsule_rows(badge, strip, first_row, first_column);
+        if (error == ESP_OK) error = draw_action_visual(control, 28, strip, first_row, first_column);
+        if (error == ESP_OK) error = CODY2D::draw_text_rows(control.caption, control.caption.text.length,
+            strip, first_row, first_column);
+        if (error == ESP_OK) {
+            error = CODY2D::draw_action_icon_rows(CODY2D::ActionIcon::ChevronRight,
+                {static_cast<uint16_t>(bounds.x + bounds.width - 30U),
+                 static_cast<uint16_t>(bounds.y + 27U), 18, 18}, kPairingCaption, strip, first_row, first_column);
+        }
+        return error;
+    }
+
+    // Setting values retain their flat two-line rows.
     auto error = draw_action_visual(control, 30, strip, first_row, first_column);
     if (error == ESP_OK) {
         error = CODY2D::draw_text_rows(control.caption, control.caption.text.length,
-            strip, first_row, first_column);
-    }
-    const auto &bounds = control.bounds;
-    if (error == ESP_OK && preference.action != OnboardingAction::None) {
-        error = CODY2D::draw_action_icon_rows(CODY2D::ActionIcon::ChevronRight,
-            {static_cast<uint16_t>(bounds.x + bounds.width - 20U),
-             static_cast<uint16_t>(bounds.y + 26U), 16, 16}, kPairingCaption,
             strip, first_row, first_column);
     }
     if (error == ESP_OK) {
@@ -1785,6 +1796,24 @@ esp_err_t draw_preference_row(const PreferenceControl &preference, CODY2D::Surfa
         error = CODY2D::draw_capsule_rows(divider, strip, first_row, first_column);
     }
     return error;
+}
+
+// page: One-based Options section; zero means this route has no page marks.
+// strip: Borrowed content tile.
+// first_row: Logical tile y origin.
+// first_column: Logical tile x origin.
+// Exception: Returns the original native draw failure.
+esp_err_t draw_menu_page_marks(uint8_t page, CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+{
+    if (page == 0) return ESP_OK;
+    for (uint8_t mark = 1; mark <= 3; ++mark) {
+        const auto color = static_cast<uint16_t>(mark == page ? 0x6F9E : 0x31CA);
+        const auto x = static_cast<uint16_t>(194U + (mark - 1U) * 27U);
+        const CODY2D::CapsuleControl indicator{{x, 370, 24, 4}, {}, color, color, true};
+        const auto error = CODY2D::draw_capsule_rows(indicator, strip, first_row, first_column);
+        if (error != ESP_OK) return error;
+    }
+    return ESP_OK;
 }
 
 // state: Immutable content owned by this route through frame retirement.
@@ -1857,6 +1886,9 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
             error = CODY2D::draw_text_rows(preference.value, preference.value.text.length,
                 strip, first_row, first_column);
         }
+    }
+    if (error == ESP_OK && view.actions_visible && view.preference_count != 0) {
+        error = draw_menu_page_marks(view.menu_page, strip, first_row, first_column);
     }
     for (uint8_t index = 0; error == ESP_OK && view.actions_visible && index < view.event_choice_count; ++index) {
         const auto &choice = view.event_choices[index];
@@ -2305,9 +2337,9 @@ const char *options_title()
         return "Save failed";
     }
     switch (s_options_page) {
-    case OptionsPage::Menu: return kDeviceFirstSetup ? "Tools 1/3" : "Options 1/2";
-    case OptionsPage::MenuMore: return kDeviceFirstSetup ? "Preferences 2/3" : "Options 2/2";
-    case OptionsPage::MenuMaintenance: return "Device 3/3";
+    case OptionsPage::Menu: return kDeviceFirstSetup ? "Tools" : "Options 1/2";
+    case OptionsPage::MenuMore: return kDeviceFirstSetup ? "Preferences" : "Options 2/2";
+    case OptionsPage::MenuMaintenance: return "Device";
     case OptionsPage::Display: return "Display";
     case OptionsPage::Behavior: return "Behavior";
     case OptionsPage::BehaviorMore: return "More behavior";
@@ -2539,16 +2571,58 @@ MenuAppearance menu_appearance(OnboardingAction action)
     using Icon = CODY2D::ActionIcon;
     switch (action) {
     case OnboardingAction::Connections: return {Icon::Link, 0xBD9F, "Wi-Fi and PC"};
-    case OnboardingAction::CodexStatistics: return {Icon::PlanAccount, 0x7759, "Usage and limits"};
-    case OnboardingAction::LocalTimer: return {Icon::Clock, 0xFDA9, "A moment to focus"};
-    case OnboardingAction::VisibleScreens: return {Icon::PlanBusiness, 0x6F9E, "Choose your pages"};
+    case OnboardingAction::CodexStatistics: return {Icon::Statistics, 0x7759, "Limits and credits"};
+    case OnboardingAction::LocalTimer: return {Icon::Clock, 0xFDA9, "Focus countdown"};
+    case OnboardingAction::VisibleScreens: return {Icon::PlanBusiness, 0x6F9E, "Dashboard pages"};
     case OnboardingAction::DisplayOptions: return {Icon::Orientation, 0xFDA9, "Light and rotation"};
-    case OnboardingAction::BehaviorOptions: return {Icon::Motion, 0xBD9F, "Make Cody yours"};
-    case OnboardingAction::RestartDevice: return {Icon::Retry, 0x6F9E, "Start fresh"};
+    case OnboardingAction::BehaviorOptions: return {Icon::Motion, 0xBD9F, "Sound, wake, voice"};
+    case OnboardingAction::RestartDevice: return {Icon::Retry, 0x6F9E, "Reboot Cody"};
     case OnboardingAction::FactoryReset: return {Icon::Close, 0xED53, "Erase settings"};
     case OnboardingAction::QuickGuide: return {Icon::PlanEducation, 0x7759, "Learn the controls"};
     default: return {Icon::None, kPairingCaption, ""};
     }
+}
+
+// label: Complete destination title.
+// appearance: Semantic icon, accent color and complete supporting description.
+// control: Receives the card and its shared raster/touch rectangle.
+// detail: Receives the smaller second line.
+// Exception: Returns the original glyph error or an overflowing label.
+esp_err_t prepare_menu_row(const char *label, const MenuAppearance &appearance,
+    CODY2D::CapsuleControl &control, CODY2D::TextLine &detail)
+{
+    constexpr uint16_t kTextInset = 63;
+    constexpr uint16_t kChevronSpace = 37;
+    const auto &bounds = control.bounds;
+    control.corner_radius = 18;
+    control.top_color = 0x18E7;
+    control.bottom_color = 0x10A4;
+    control.border_color = 0x31CA;
+    control.icon = appearance.icon;
+    control.icon_color = appearance.color;
+    control.icon_center = {static_cast<int16_t>(bounds.x + 33U), static_cast<int16_t>(bounds.y + 36U)};
+
+    // caption: Full printable label or hint.
+    // font: Immutable face for that line.
+    // offset: Logical y relative to the card top.
+    // color: Native foreground.
+    // line: Receives the prepared left-aligned caption.
+    // Exception: Preserves the original glyph error or rejects an overflowing caption.
+    const auto prepare_line = [&](const char *caption, const CODY2D::MonoFont &font,
+                                  uint16_t offset, uint16_t color, CODY2D::TextLine &line) {
+        const CODY2D::TextSpan text{caption, static_cast<uint16_t>(std::strlen(caption))};
+        uint32_t width = 0;
+        const auto error = CODY2D::measure_text_width(font, text, width);
+        if (error != ESP_OK) return error;
+        if (width + kTextInset + kChevronSpace > bounds.width || offset + font.height > bounds.height) {
+            ESP_LOGE(kTag, "Options card caption does not fit: %s", caption);
+            return ESP_ERR_INVALID_SIZE;
+        }
+        return CODY2D::prepare_text_line(font, text,
+            {static_cast<int16_t>(bounds.x + kTextInset), static_cast<int16_t>(bounds.y + offset)}, color, line);
+    };
+    const auto error = prepare_line(label, HomeFonts::heading_font, 12, kPairingTitle, control.caption);
+    return error == ESP_OK ? prepare_line(appearance.hint, HomeFonts::small_font, 40, kPairingCaption, detail) : error;
 }
 
 // scene: Screen 10 receiving actual canonical values or a visible write failure.
@@ -2559,6 +2633,7 @@ esp_err_t prepare_options_content(SceneFrame &scene,
 {
     s_view.line_count = 0;
     s_view.preference_count = 0;
+    s_view.menu_page = 0;
     s_view.header_icon = CODY2D::ActionIcon::None;
     s_view.header_icon_bounds = {};
     s_view.header_icon_color = 0;
@@ -2604,6 +2679,7 @@ esp_err_t prepare_options_content(SceneFrame &scene,
         size_t first = 0;
         if (s_options_page == OptionsPage::MenuMore) first = kPreferencesPerPage;
         if (s_options_page == OptionsPage::MenuMaintenance) first = 2U * kPreferencesPerPage;
+        if (kDeviceFirstSetup) s_view.menu_page = static_cast<uint8_t>(first / kPreferencesPerPage + 1U);
         const size_t end = std::min(first + kPreferencesPerPage, count);
         for (size_t index = first; index < end; ++index) {
             const auto action = actions[index];
@@ -2618,21 +2694,7 @@ esp_err_t prepare_options_content(SceneFrame &scene,
                 error = prepare_button(action, label, {kPreferenceLeft, top, kPreferenceWidth, kPreferenceHeight},
                     true, false, target.control, unused);
                 if (error == ESP_OK && kDeviceFirstSetup) {
-                    const auto appearance = menu_appearance(action);
-                    target.control.icon = appearance.icon;
-                    target.control.icon_color = appearance.color;
-                    target.control.icon_center = {static_cast<int16_t>(kPreferenceLeft + 18U),
-                        static_cast<int16_t>(top + 34U)};
-                    error = CODY2D::prepare_text_line(SceneData::body_font,
-                        {label, static_cast<uint16_t>(std::strlen(label))},
-                        {static_cast<int16_t>(kPreferenceLeft + 48U), static_cast<int16_t>(top + 5U)},
-                        kPairingTitle, target.control.caption);
-                    if (error == ESP_OK) {
-                        error = CODY2D::prepare_text_line(SceneData::body_font,
-                            {appearance.hint, static_cast<uint16_t>(std::strlen(appearance.hint))},
-                            {static_cast<int16_t>(kPreferenceLeft + 48U), static_cast<int16_t>(top + 35U)},
-                            kPairingCaption, target.value);
-                    }
+                    error = prepare_menu_row(label, menu_appearance(action), target.control, target.value);
                 }
             }
             if (error != ESP_OK) {

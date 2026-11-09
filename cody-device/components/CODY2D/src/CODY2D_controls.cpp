@@ -352,6 +352,11 @@ constexpr bool icon_contains(ActionIcon icon, float x, float y)
         return ring_contains(x, y, 12.f, 12.f, 9.f) ||
             stroke_contains(x, y, 12.f, 7.f, 12.f, 12.f) ||
             stroke_contains(x, y, 12.f, 12.f, 16.f, 14.f);
+    case ActionIcon::Statistics:
+        return stroke_contains(x, y, 3.f, 20.f, 21.f, 20.f, .8f) ||
+            stroke_contains(x, y, 6.f, 16.f, 6.f, 13.f, 1.2f) ||
+            stroke_contains(x, y, 12.f, 16.f, 12.f, 9.f, 1.2f) ||
+            stroke_contains(x, y, 18.f, 16.f, 18.f, 5.f, 1.2f);
     case ActionIcon::None:
         return false;
     }
@@ -436,6 +441,7 @@ const uint8_t *icon_coverage(ActionIcon icon)
     case ActionIcon::PlanAccount: return cached_icon_coverage<ActionIcon::PlanAccount>();
     case ActionIcon::Clock: return cached_icon_coverage<ActionIcon::Clock>();
     case ActionIcon::Microphone: return cached_icon_coverage<ActionIcon::Microphone>();
+    case ActionIcon::Statistics: return cached_icon_coverage<ActionIcon::Statistics>();
     case ActionIcon::None: return nullptr;
     }
     return nullptr;
@@ -479,7 +485,7 @@ esp_err_t draw_action_icon_rows(ActionIcon icon, Rect bounds, uint16_t color,
         bounds.x + bounds.width > 466 || bounds.y + bounds.height > 466 ||
         static_cast<uint32_t>(first_row) + strip.height > 466 ||
         static_cast<uint32_t>(first_column) + strip.width > 466 ||
-        static_cast<uint8_t>(icon) > static_cast<uint8_t>(ActionIcon::Microphone)) {
+        static_cast<uint8_t>(icon) > static_cast<uint8_t>(ActionIcon::Statistics)) {
         ESP_LOGE(kTag, "Action icon geometry or tile origin rejected (%s)",
             esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
@@ -567,7 +573,7 @@ esp_err_t draw_capsule_rows(const CapsuleControl &control, Surface strip,
         static_cast<uint32_t>(first_row) + strip.height > 466 ||
         static_cast<uint32_t>(first_column) + strip.width > 466 ||
         control.corner_radius > bounds.height / 2U ||
-        static_cast<uint8_t>(control.icon) > static_cast<uint8_t>(ActionIcon::Microphone)) {
+        static_cast<uint8_t>(control.icon) > static_cast<uint8_t>(ActionIcon::Statistics)) {
         ESP_LOGE(kTag, "Capsule geometry or tile origin rejected (%s)",
             esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
