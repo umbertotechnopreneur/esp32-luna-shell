@@ -43,7 +43,7 @@ Page 2 contains **Visible screens**, **Display** and **Behavior**. Page 3 holds
 three fixed instruction pages and their lateral arrows. Restart replays the boot and preserves
 settings and the simulator association. Timer previews duration and sound selection, a running countdown
 and the finished state. Audible playback and hardware wake belong to the device.
-**Go home** on any page opens Reset countdown or the first enabled statistics
+**Home** on any page opens Reset countdown or the first enabled statistics
 screen, with Device as the fallback. Brightness, orientation and visibility
 choices affect this preview session. **Visible screens** groups the nine
 configurable pages into three sets of full-width rows. **About** contains

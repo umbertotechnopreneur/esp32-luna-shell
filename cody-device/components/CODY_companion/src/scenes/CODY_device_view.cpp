@@ -743,7 +743,7 @@ esp_err_t prepare_device_diagnostics(DeviceView &view, DeviceFrameContent &frame
     const LUNASHELL::DiagnosticsObservation &observed, bool available)
 {
     if (!available) {
-        return prepare_device_message(view, frame, "Diagnostics", "System data unavailable", "", "Done");
+        return prepare_device_message(view, frame, "Diagnostics", "System data unavailable", "", "OK");
     }
 
     char cpu[32] = "CPU unavailable";
@@ -762,7 +762,7 @@ esp_err_t prepare_device_diagnostics(DeviceView &view, DeviceFrameContent &frame
         std::snprintf(memory, sizeof(memory), "Free heap %lu KiB",
             static_cast<unsigned long>(observed.memory.heap_free_bytes / 1024U));
     }
-    return prepare_device_message(view, frame, "Diagnostics", cpu, memory, "Done");
+    return prepare_device_message(view, frame, "Diagnostics", cpu, memory, "OK");
 }
 
 } // namespace CODY

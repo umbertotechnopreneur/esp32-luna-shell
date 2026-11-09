@@ -37,7 +37,7 @@ no typewriter timing or character audio.
 | Check relay, when configured | Text-only footer at (123,366,220,52). The latest check replaces the Connections hint at y=136. |
 | Options and category rows | Up to three rows at x=93, width 280, height 72, y=130/210/290. Destination cards use 18-pixel corners and icon badges; settings use flat rows. |
 | Visible screens | Three Options-sized rows, name on the left and visibility on the right, with page and save status below |
-| Options footer | (123,382,220,52), with a centered Go home caption |
+| Options footer | (123,382,220,52), with a centered Home caption |
 | Restart / factory reset confirmation | Cancel at (93,270,280,64), confirmation at (123,382,220,52) |
 | Visibility toggle | (113,226,240,52) |
 | Ordinary single action | (113,352,240,72) |
@@ -52,7 +52,7 @@ Device-first Options uses named Tools, Preferences and Device pages with three
 page marks above the footer. Destination cards use a quiet graphite gradient,
 a colored semantic icon, a title and a smaller description. Codex stats uses a
 bar-chart icon. Behavior and Display retain flat rows with the canonical setting
-value on the second line. Go home and More options use the graphite footer palette.
+value on the second line. Home and More options use the graphite footer palette.
 
 Saved PC uses a link glyph above the title, an explicit PC-name-unavailable
 caption, and the canonical configured Wi-Fi name. The current link projection has no
@@ -139,10 +139,10 @@ Both QR screens keep their white area within the square code tile.
 | 06 | Phone download glyph, app name at y=139, installation QR 192 x 192 at (137,165), App Store caption at y=360, and Show pairing QR footer |
 | 07 | Bluetooth glyph, title at y=115, and session QR 204 x 204 at (131,182) while ReadyToScan |
 | 09 / Wi-Fi result | Mint Wi-Fi glyph for a usable connection, amber offline glyph otherwise. Title at y=200, status detail at y=248, and up to two SSID rows from y=280. Continue at (113,352,240,72). |
-| 10 / Options | Title at y=82, up to three enlarged rows, lateral paging arrows, and the Go home footer at y=382 |
+| 10 / Options | Title at y=82, up to three enlarged rows, lateral paging arrows, and the Home footer at y=382 |
 | 12 / Pair Codex | Title at y=88, link glyph at (205,148,56,56), and the six-character code at y=236 when ready |
 | 14 / Waiting for PC | Same heading and glyph slot as Pair Codex, with two status lines and Later |
-| 11 / Skin | Preview (233,172,44), title y=78, viewport (117,226,232,126), Done (123,386,220,48) |
+| 11 / Skin | Preview (233,172,44), title y=78, viewport (117,226,232,126), OK (123,386,220,48) |
 | 42 / Wi-Fi offline | Amber offline glyph, title at y=180, Set up Wi-Fi at (93,272,280,58), and Later at (153,350,160,50) |
 
 During passive reconnect, the 72-pixel signal glyph animates above Wi-Fi
@@ -316,7 +316,7 @@ window requires a fresh reset observation before showing a new countdown.
 Options opens Timer with a large minutes and seconds readout. The duration
 controls occupy a pair of 154 x 60 cards at y=247. Sound and Start use the same
 pair at y=321. Running and finished timers use a centered 240 x 60 capsule for
-Cancel or Done. The lateral Back target returns to the previous view. The
+Cancel or OK. The lateral Back target returns to the previous view. The
 finished page distinguishes a pending, muted or unavailable alarm.
 
 ## Codex statistics

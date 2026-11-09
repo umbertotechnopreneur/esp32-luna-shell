@@ -1229,10 +1229,10 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         label = "Connections";
         break;
     case OnboardingAction::Done:
-        label = "Done";
+        label = "OK";
         break;
     case OnboardingAction::GoHome:
-        label = "Go home";
+        label = "Home";
         break;
     case OnboardingAction::LetsGo:
         label = "Let's go";
@@ -1284,7 +1284,7 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
     case OnboardingAction::OpenEvent: label = "Open"; break;
     case OnboardingAction::ViewFailures: label = "View failures"; break;
     case OnboardingAction::SendReply: label = "Send reply"; break;
-    case OnboardingAction::DismissEvent: label = "Done"; break;
+    case OnboardingAction::DismissEvent: label = "OK"; break;
     case OnboardingAction::RetryEvent: label = "Try again"; break;
     default:
         ESP_LOGE(kTag, "Unknown navigation action %u (%s)", to_index(action), esp_err_to_name(ESP_ERR_INVALID_ARG));
@@ -3804,7 +3804,7 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
     s_companion_seen_selection = true;
     if (!same_request || (observed.state != previous_state && LUNASHELL::codexEventIsTerminal(observed.state))) {
         // A terminal owner result retires any failed local admission; Retry must
-        // never resurrect an expired/rejected response or replace Done with Send.
+        // never resurrect an expired/rejected response or replace OK with Send.
         s_event_ui_error = ESP_OK;
         s_event_retry = EventRetry::None;
         s_event_dismiss_admitted = false;

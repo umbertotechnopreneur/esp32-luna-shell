@@ -441,7 +441,7 @@ void check_reply_semantics()
         s_presented_event.state = state;
         require(codex_event_destination() == Route::CodexNotice, "terminal errors are not success screens");
         prepare(Route::CodexNotice, SceneId::CodexNotice);
-        require(s_view.action_id == OnboardingAction::DismissEvent, "terminal states expose Done without resubmission");
+        require(s_view.action_id == OnboardingAction::DismissEvent, "terminal states expose OK without resubmission");
         require_text_layout();
     }
     s_presented_event.state = State::Expired;

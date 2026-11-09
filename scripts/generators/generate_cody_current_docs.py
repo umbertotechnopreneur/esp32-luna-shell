@@ -508,11 +508,11 @@ def navigation_chapters():
             ("Current and saved data", "Measured counters keep their source date/time. Saved offline observations are labeled with their UTC update times. Missing daily counts remain gaps. No extrapolation, backfill or invented zeros."),
             ("About", "System shows measured CPU/uptime; Memory shows allocatable RAM/PSRAM used, free and largest free block; Firmware shows version/build context. The project QR follows these child pages and is not a carousel item."),
         ], label)),
-        ("Options", cards_page("BOOT opens Options", "Three menu pages; Go home returns to the first enabled statistics screen or Device.", [
+        ("Options", cards_page("BOOT opens Options", "Three menu pages; Home returns to the first enabled statistics screen or Device.", [
             ("Page 1", "Connections, Codex stats, Timer. Connections opens Connect Codex and Set up Wi-Fi. Timer runs for 1-120 minutes with Bell or Chime; Back leaves it running."),
             ("Page 2", "Visible screens, Display, Behavior. Display owns brightness/rotation/orientation. Behavior owns Sounds, shake-to-wake and profile-dependent Dictation; More behavior contains the optional screensaver."),
             ("Page 3", "Restart device, Factory reset, Quick guide. Restart retains configuration. Factory reset requires confirmation and verified settings deletion. Quick guide has three pages and returns to Options."),
-            ("Saving and returning", "Visibility/settings apply only after confirmed storage; failure retains the prior policy. Back and Go home preserve the correct caller. An opening touch cannot also select the newly shown control."),
+            ("Saving and returning", "Visibility/settings apply only after confirmed storage; failure retains the prior policy. Back and Home preserve the correct caller. An opening touch cannot also select the newly shown control."),
         ], label)),
         ("Pairing and retained PC", connection_chapters(label)[1][1]),
         ("Questions and notifications", connection_chapters(label)[2][1]),
@@ -628,7 +628,7 @@ def navigation_map():
         ]),
         ("Dashboard and Options", [
             ("Carousel", "Device > Codex reset > Context > Codex limits > Today > Last 7 days > Token history > Credits > Codex account > About."),
-            ("BOOT / Options pages", "1: Connections, Codex stats, Timer. 2: Visible screens, Display, Behavior. 3: Restart device, Factory reset, Quick guide. Go home returns to the first enabled statistics page or Device."),
+            ("BOOT / Options pages", "1: Connections, Codex stats, Timer. 2: Visible screens, Display, Behavior. 3: Restart device, Factory reset, Quick guide. Home returns to the first enabled statistics page or Device."),
             ("About and visibility", "System > Memory > Firmware > project QR. Saved changes require confirmed storage. Arrows fade after 10 seconds; reveal before touching again."),
         ]),
         ("Events and local tools", [

@@ -194,7 +194,7 @@ esp_err_t prepare_caption(const char *text, uint16_t top, CODY2D::TextLine &line
         {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(top)}, 0xFFFF, line);
 }
 
-// label: Bounded retained text for the footer's current Done, Saving or error state.
+// label: Bounded retained text for the footer's current OK, Saving or error state.
 // enabled: Whether the footer may request the host's Done destination.
 // Exception: Returns the real text-layout error without replacing the prior footer.
 esp_err_t prepare_done_control(const char *label, bool enabled)
@@ -547,7 +547,7 @@ esp_err_t open_look_screen(SceneFrame &scene, const LookNavigationContext &navig
     if (error != ESP_OK) {
         return error;
     }
-    static constexpr char done_label[] = "Done";
+    static constexpr char done_label[] = "OK";
     error = prepare_done_control(done_label, true);
     if (error != ESP_OK) {
         return error;
@@ -672,7 +672,7 @@ esp_err_t handle_look_touch(SceneFrame &scene, CODY2D::Point point, bool pressed
                 result.save_id = item.id;
             } else {
                 s_view.choice_confirmed = true;
-                const esp_err_t footer_error = prepare_done_control("Done", true);
+                const esp_err_t footer_error = prepare_done_control("OK", true);
                 if (footer_error != ESP_OK) {
                     return footer_error;
                 }
@@ -742,14 +742,14 @@ LookSaveCompletion complete_look_save(SceneFrame &scene, uint32_t request_id, es
     if (save_error == ESP_OK) {
         s_view.selected_look_id = s_view.pending_id;
         s_view.choice_confirmed = true;
-        result.presentation_error = prepare_done_control("Done", true);
+        result.presentation_error = prepare_done_control("OK", true);
     } else {
         // This is an optional user preference failure, not a renderer failure.
         // The worker has published the original result in DeviceSnapshotService.
         ESP_LOGE(kTag, "Look save failed; previous selection retained (%s)", esp_err_to_name(save_error));
         std::snprintf(s_view.status_text, sizeof(s_view.status_text), "Error: 0x%x",
                       static_cast<unsigned>(save_error));
-        // Keep the real error visible without overlapping the fixed Done footer.
+        // Keep the real error visible without overlapping the fixed OK footer.
         result.presentation_error = prepare_done_control(s_view.status_text, false);
     }
     s_view.pending_id = nullptr;

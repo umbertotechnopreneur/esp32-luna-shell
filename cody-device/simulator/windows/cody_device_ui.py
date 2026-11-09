@@ -887,7 +887,7 @@ class DeviceStudioWindow:
                 ("Quick guide", self.open_quick_guide),
             )
         self.draw_option_rows(draw, rows)
-        self.button(draw, "Go home", 382, self.open_statistics, width=220, height=52,
+        self.button(draw, "Home", 382, self.open_statistics, width=220, height=52,
                     icon="home", caption_size=20)
         opacity = self.navigation_opacity(now)
         if opacity > 0:
@@ -911,7 +911,7 @@ class DeviceStudioWindow:
         if not last_page:
             self.sidebar(draw, 1, lambda: self.move_quick_guide(1))
         else:
-            self.button(draw, "Done", 382, lambda: self.show_options_page(OPTIONS_PAGE_COUNT - 1),
+            self.button(draw, "OK", 382, lambda: self.show_options_page(OPTIONS_PAGE_COUNT - 1),
                         width=220, height=52, caption_size=20)
 
     # self: Studio preview drawing its independently retained timer state.
@@ -939,7 +939,7 @@ class DeviceStudioWindow:
             self.button(draw, "Start", 321, lambda: timer.start(time.monotonic()),
                         width=154, height=60, center_x=316)
         elif finished:
-            self.button(draw, "Done", 321, timer.dismiss, width=240, height=60)
+            self.button(draw, "OK", 321, timer.dismiss, width=240, height=60)
         else:
             self.button(draw, "Cancel", 321, timer.cancel, width=240, height=60, secondary=True)
         opacity = self.navigation_opacity(now)

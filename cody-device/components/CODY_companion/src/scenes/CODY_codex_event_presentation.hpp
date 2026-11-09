@@ -694,7 +694,7 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
             text(status, true);
         }
         add_action(plan, context.ui_error == ESP_OK ? ActionId::Dismiss : ActionId::Retry,
-            context.ui_error == ESP_OK ? "Done" : "Try again", !context.dismiss_admitted, Tone::Positive);
+            context.ui_error == ESP_OK ? "OK" : "Try again", !context.dismiss_admitted, Tone::Positive);
     } else if (plan.route == Route::ApprovalOnPc) {
         // This read-only notice never offers a native permission decision on Cody.
         std::strcpy(plan.title, "Approval needed");
@@ -762,7 +762,7 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
             add_action(plan, ActionId::Failures, "View failures", true);
         } else if (plan.route == Route::CodexNotice) {
             add_action(plan, context.ui_error == ESP_OK ? ActionId::Dismiss : ActionId::Retry,
-                context.ui_error == ESP_OK ? "Done" : "Try again", !context.dismiss_admitted);
+                context.ui_error == ESP_OK ? "OK" : "Try again", !context.dismiss_admitted);
         } else if (event.kind == Kind::ChecksPassed && context.ui_error != ESP_OK) {
             add_action(plan, ActionId::Retry, "Try again", true);
         }

@@ -68,23 +68,23 @@ record is not remotely revoked by this local action.
 PWR toggles software standby. BOOT opens Options. Page 1 has Connections,
 Codex stats and Timer. Page 2 has Visible screens, Display and Behavior.
 Page 3 has Restart device, Factory reset and Quick guide. The lateral arrows move between pages. Each page
-offers **Go home** to return to the first enabled statistics screen, or Device
+offers **Home** to return to the first enabled statistics screen, or Device
 if all are hidden.
 The Tools, Preferences and Device pages show three position marks above the
-**Go home** footer. Each destination has a colored icon, title and short description.
+**Home** footer. Each destination has a colored icon, title and short description.
 Display holds brightness, rotation and orientation. Behavior holds sound,
 shake-to-wake and, in the voice-enabled profile, Dictation. **More behavior**
 contains **Screensaver**, disabled by default.
 
 **Quick guide** has three color-coded pages for the physical buttons, display
 gestures and offline features. Available arrows stay visible while reading.
-The left arrow on the first page and **Done** on the last page return to Options
+The left arrow on the first page and **OK** on the last page return to Options
 page 3. The voice instruction reflects the firmware profile.
 
 **Timer** sets a duration from 1 to 120 minutes and selects Bell or Chime.
 **Start** begins the countdown. Back returns to the previous screen while the
 timer continues. Reopen Timer to cancel it. At expiry the device can wake from
-software standby, and **Done** clears the finished timer.
+software standby, and **OK** clears the finished timer.
 
 **Restart device** opens a confirmation and reboots Cody with Wi-Fi credentials,
 pairing, preferences and saved statistics intact. Any running local timer ends.

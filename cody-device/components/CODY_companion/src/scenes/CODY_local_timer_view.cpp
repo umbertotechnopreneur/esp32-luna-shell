@@ -229,7 +229,7 @@ esp_err_t prepare_local_timer_view(const LocalTimerModel &model, int64_t now_us,
     } else if (finished) {
         error = prepare_alarm_status(model.alarm, body_font, view.captions[3]);
         if (error == ESP_OK) {
-            error = prepare_action(view.actions[0], LocalTimerControl::Dismiss, kSingleAction, "Done", body_font);
+            error = prepare_action(view.actions[0], LocalTimerControl::Dismiss, kSingleAction, "OK", body_font);
         }
     } else {
         error = prepare_action(view.actions[0], LocalTimerControl::Cancel, kSingleAction, "Cancel", body_font);

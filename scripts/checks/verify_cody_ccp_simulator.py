@@ -1163,8 +1163,8 @@ class SimulatorProtocolTests(unittest.TestCase):
         self.assertEqual([action.identity for action in actions], ["dismiss"])
         delivered = replace(snapshot, event_state="delivered")
         view._delivered_at = time.monotonic() - 10
-        self.assertTrue(view.visible(delivered), "A terminal question must wait for explicit Done")
-        self.assertEqual([action.label for action in view.plan(delivered)[2]], ["Done"])
+        self.assertTrue(view.visible(delivered), "A terminal question must wait for explicit OK")
+        self.assertEqual([action.label for action in view.plan(delivered)[2]], ["OK"])
 
     # self: Preview input using two full-width answer rows, review and canonical Back.
     # Raises AssertionError if touch down answers, controls reveal early or Back loses the request.
