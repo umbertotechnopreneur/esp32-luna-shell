@@ -1,8 +1,8 @@
 """Inspect GCC stack-usage sidecars from an authorized Cody firmware build.
 
-This rejects a task whose own compiled frame exhausts its stack, and CCP helpers
-that individually exhaust their owning task. Nested call chains and device
-watermarks remain separate evidence.
+This rejects a task whose own compiled frame exhausts its stack, and selected CCP
+and voice helpers that individually exhaust their owning task. Nested call chains
+and device watermarks remain separate evidence.
 """
 from pathlib import Path
 import argparse
@@ -45,12 +45,35 @@ def collect(build: Path) -> list[dict]:
 # rows: Individual compiler records already parsed from the selected build.
 # sources: Translation units contributing the named subsystem's helper frames.
 # signature: Optional function/source pattern that narrows a shared UI translation unit.
-def helper_frames(rows: list[dict], sources: tuple[str, ...], signature: str = "") -> dict:
-    selected = [row for row in rows if any(source in row["sidecar"] for source in sources)
-                and (not signature or re.search(signature, row["function"], re.IGNORECASE))]
-    ordered = sorted(selected, key=lambda row: row["bytes"], reverse=True)
+def select_frames(rows: list[dict], sources: tuple[str, ...], signature: str = "") -> list[dict]:
+    return [row for row in rows if any(source in row["sidecar"] for source in sources)
+            and (not signature or re.search(signature, row["function"], re.IGNORECASE))]
+
+
+# rows: Matching compiler records, including those omitted from the bounded report.
+def summarize_frames(rows: list[dict]) -> dict:
+    ordered = sorted(rows, key=lambda row: row["bytes"], reverse=True)
     return {"compiled_record_count": len(ordered), "largest_frames": ordered[:12],
             "omitted_record_count": max(0, len(ordered) - 12)}
+
+
+# rows: Individual compiler records already parsed from the selected build.
+# sources: Translation units contributing the named subsystem's helper frames.
+# signature: Optional function pattern that narrows a shared translation unit.
+def helper_frames(rows: list[dict], sources: tuple[str, ...], signature: str = "") -> dict:
+    return summarize_frames(select_frames(rows, sources, signature))
+
+
+# rows: Matching helper records for one task or a shared path with a known minimum budget.
+# label: Identifies the helper group in failures.
+# budget: Stack bytes of the owning task.
+# failures: Receives incomplete coverage and invalid individual-frame findings.
+def check_helper_budget(rows: list[dict], label: str, budget: int, failures: list[str]) -> None:
+    if not rows:
+        failures.append(f"{label} stack records are missing; rebuild with current flags")
+    for frame in rows:
+        if frame["bytes"] >= budget or frame["classification"] == "dynamic":
+            failures.append(f"{label}: unbounded or exhausting individual frame: {frame['function']}")
 
 
 # argv: Explicit public CLI arguments; no compilation or device access occurs here.
@@ -154,31 +177,27 @@ def main(argv=None) -> int:
              "device_ui_worker", 12288),
         )
         for name, sources, signature, owner, budget in ccp_groups:
-            group = helper_frames(rows, sources, signature)
+            matching = select_frames(rows, sources, signature)
+            group = summarize_frames(matching)
             group.update(owning_task=owner, task_stack_bytes=budget)
             ccp_helpers[name] = group
-            if not group["compiled_record_count"]:
-                failures.append(f"CCP {name} stack records are missing; rebuild with current flags")
-            # Presentation header helpers are emitted in the onboarding sidecar
-            # or inlined into its callers. Check every matching record, including
-            # records omitted from the bounded report, without summing unrelated
-            # functions or treating the largest frame as the whole call chain.
-            for frame in rows:
-                if not any(source in frame["sidecar"] for source in sources):
-                    continue
-                if signature and not re.search(signature, frame["function"], re.IGNORECASE):
-                    continue
-                if frame["bytes"] >= budget or frame["classification"] == "dynamic":
-                    failures.append(
-                        f"CCP {name}: unbounded or exhausting individual frame for {owner}: {frame['function']}")
+            check_helper_budget(matching, f"CCP {name} ({owner})", budget, failures)
     if wake_word_enabled:
         helpers["afe"] = helper_frames(rows, ("LUNASHELL_voice_afe.cpp",))
     if voice_input_enabled:
-        helpers["voice_input"] = helper_frames(rows, ("LUNASHELL_voice_input.cpp",))
-        helpers["cody_recording_ribbon"] = helper_frames(
-            rows, ("CODY_device_ui.cpp", "CODY_device_view.cpp"), r"voice|recording|ribbon")
-        if not helpers["cody_recording_ribbon"]["compiled_record_count"]:
-            failures.append("Active Cody voice presentation stack records are missing")
+        voice_source = ("LUNASHELL_voice_input.cpp",)
+        helpers["voice_input"] = helper_frames(rows, voice_source)
+        if wake_word_enabled:
+            fetch_frames = select_frames(rows, voice_source, r"\bfeedVoiceInput\(")
+            check_helper_budget(fetch_frames, "Voice input (AFE fetch)", 3072, failures)
+        if codex_enabled:
+            transport_frames = select_frames(rows, voice_source, r"\btickVoiceInputTransport\(")
+            check_helper_budget(transport_frames, "Voice input (CCP)", 8192, failures)
+        if cody_enabled:
+            presentation_frames = select_frames(
+                rows, ("CODY_device_ui.cpp", "CODY_device_view.cpp"), r"voice|recording|ribbon")
+            helpers["cody_recording_ribbon"] = summarize_frames(presentation_frames)
+            check_helper_budget(presentation_frames, "Voice presentation (display)", 12288, failures)
     report = {"status": "failed" if failures else "passed", "tasks": tasks,
               "largest_selected_frames": sorted(selected, key=lambda row: row["bytes"], reverse=True)[:40],
               "voice_helper_frames": helpers,

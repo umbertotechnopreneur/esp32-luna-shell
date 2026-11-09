@@ -324,6 +324,14 @@ foreach(brookesia_component ${brookesia_build_components})
     endif()
 endforeach()
 
+# Emit compiler stack records for the native Debug profile without changing optimization.
+if(CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION AND CONFIG_LUNASHELL_BUILD_MODE_DEBUG)
+    foreach(stack_component LUNASHELL_platform LUNASHELL_logger CODY_companion CODY2D)
+        idf_component_get_property(stack_library ${stack_component} COMPONENT_LIB)
+        target_compile_options(${stack_library} PRIVATE "$<$<COMPILE_LANGUAGE:C,CXX>:-fstack-usage>")
+    endforeach()
+endif()
+
 # Apply after ESP-DL's own -O3. Keep renderers, Sophia and assembly optimized
 # for speed; size-optimize the observer and control plane within existing OTA slots.
 if(CONFIG_LUNASHELL_ACTIVITY_MODEL)

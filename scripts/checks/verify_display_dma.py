@@ -111,17 +111,22 @@ def prepare_source(output: Path) -> dict:
     cody = (ROOT / "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp").read_text(encoding="utf-8")
     draw = function_text(cody, "esp_err_t render(")
     loop = draw[draw.index("for (uint16_t row = top;"):]
-    if loop.index("LUNASHELL_display_frame_buffer(") >= loop.index("const CODY2D::Surface strip{"):
-        raise ValueError("Renderer does not reborrow an idle slot before rasterizing")
-    if "LUNASHELL_display_frame_submit_rgb565(" not in loop:
-        raise ValueError("Renderer no longer uses frame DMA submission")
-    if loop.index("LUNASHELL_display_frame_end(") >= loop.index("old = {frame.layer"):
-        raise ValueError("Presentation state is committed before frame retirement")
+    borrow = loop.index("LUNASHELL_display_frame_buffer(")
+    raster = loop.index("CODY2D::clear(strip,")
+    submit = loop.index("LUNASHELL_display_frame_submit_rgb565(")
+    retire = loop.index("error = LUNASHELL_display_frame_end(error);")
+    commit = loop.index("old = {frame.layer")
+    if not borrow < raster < submit < retire < commit:
+        raise ValueError("Renderer must borrow, rasterize, submit, then retire DMA before committing")
+    if not re.match(r"error = LUNASHELL_display_frame_end\(error\);\s*"
+                    r"if \(error != ESP_OK\) \{\s*old\.valid = false;\s*return error;\s*\}",
+                    loop[retire:commit]):
+        raise ValueError("Renderer must invalidate and return a retirement error before committing")
     return {"production_source_sha256": hashlib.sha256(bsp.encode()).hexdigest(),
             "production_allocator_sha256": hashlib.sha256(dma.encode()).hexdigest(),
             "executed_functions": list(signatures),
             "integration": ["watchdog spans DMA drain", "idle slot reborrow before raster",
-                            "presentation state committed after frame retirement"]}
+                            "presentation state committed only after successful frame retirement"]}
 
 
 # argv: Literal options supplied through device.ps1 check -Check display-dma.
