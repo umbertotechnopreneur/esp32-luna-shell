@@ -36,9 +36,10 @@
 ## CLOUD-02 - Device relay integration
 
 - Obtain the deployed relay hostname. Validate the opt-in `-RelayHost` build
-  and Connections liveness action on the board. Cover absent Wi-Fi, invalid
-  time, certificate rejection, non-200 HTTP, unexpected response and success.
-  Measure the separate TLS worker's stack headroom and free internal heap.
+  and Connections relay check on the board. Cover absent Wi-Fi, invalid time,
+  certificate rejection, HTTPS errors, upgrade rejection, a missing or malformed
+  WebSocket frame, a normal close and success. Measure the separate TLS worker's
+  stack headroom and free internal heap across both requests.
 - Reuse the canonical clock observation for device proof time. Wait for valid
   UTC and surface time errors. Select protected device key and token storage
   for the target board before enrollment.
@@ -50,6 +51,10 @@
   state through DeviceSnapshotService. Validate bounded polling, retries and
   credential recovery before admitting notifications. Acknowledge reception
   after owner admission and display after the corresponding frame retires.
+- Add an authenticated WebSocket wake signal after enrollment. Keep events in
+  the existing relay queue until delivery or expiry. Reconcile the queue after
+  reconnecting. Verify that the selected transport does not log credentials or
+  proofs on failed upgrades, including Debug.
 
 ## Offline statistics and local timer
 

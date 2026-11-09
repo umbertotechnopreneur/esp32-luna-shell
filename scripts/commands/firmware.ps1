@@ -404,7 +404,7 @@ if ($RelayHost) {
     $ProfileBuildKey += '-relay'
     $SelectedProfileVariant.generated_sdkconfig += '-relay'
     $SelectedProfileVariant.default_build_dir += '-relay'
-    $SelectedProfileVariant.component_roots = @($SelectedProfileVariant.component_roots) + @('esp_http_client')
+    $SelectedProfileVariant.component_roots = @($SelectedProfileVariant.component_roots) + @('esp_http_client', 'tcp_transport')
 }
 $hostArtifactSuffix = if ($IsLinux) { '-linux' } else { '' }
 $profileArtifactKey = "$ProfileBuildKey$hostArtifactSuffix"
@@ -468,6 +468,7 @@ $featureOverlay = @(
 if ($RelayHost) {
     $featureOverlay += @(
         'CONFIG_ESP_HTTP_CLIENT_ENABLE_HTTPS=y'
+        'CONFIG_WS_TRANSPORT=y'
         'CONFIG_MBEDTLS_CERTIFICATE_BUNDLE=y'
         'CONFIG_MBEDTLS_HAVE_TIME=y'
         'CONFIG_MBEDTLS_HAVE_TIME_DATE=y'

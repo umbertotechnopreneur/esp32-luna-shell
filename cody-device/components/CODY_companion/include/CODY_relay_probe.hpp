@@ -6,7 +6,7 @@
 
 namespace CODY {
 
-enum class RelayProbeStage : uint8_t { Start, Wifi, Clock, Https, Http, Response };
+enum class RelayProbeStage : uint8_t { Start, Wifi, Clock, Https, Http, Response, WebSocketUpgrade, WebSocketFrame };
 
 struct RelayProbeResult {
     RelayProbeStage stage = RelayProbeStage::Start;

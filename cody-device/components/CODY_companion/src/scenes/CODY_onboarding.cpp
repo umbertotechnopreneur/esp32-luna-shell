@@ -1476,7 +1476,7 @@ esp_err_t prepare_relay_footer()
     const char *status = "Choose what to connect";
     uint16_t color = kPairingCaption;
     if (s_command_pending) {
-        status = "Checking HTTPS...";
+        status = "Checking relay...";
     } else if (s_relay_attempted) {
         if (s_relay_result.error == ESP_OK) {
             status = "Relay reachable";
@@ -1496,6 +1496,10 @@ esp_err_t prepare_relay_footer()
                 status = s_view.error_text;
                 break;
             case RelayProbeStage::Response: status = "Unexpected relay response"; break;
+            case RelayProbeStage::WebSocketUpgrade: status = "WebSocket upgrade failed"; break;
+            case RelayProbeStage::WebSocketFrame:
+                status = s_relay_result.error == ESP_ERR_TIMEOUT ? "WebSocket timed out" : "WebSocket check failed";
+                break;
             }
         }
     }

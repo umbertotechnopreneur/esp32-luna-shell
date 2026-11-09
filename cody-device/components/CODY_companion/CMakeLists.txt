@@ -78,7 +78,7 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION AND CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPA
 endif()
 
 if(NOT CMAKE_BUILD_EARLY_EXPANSION AND CONFIG_LUNASHELL_CODY_RELAY_PROBE)
-    idf_component_optional_requires(PRIVATE esp_http_client mbedtls)
+    idf_component_optional_requires(PRIVATE esp_http_client mbedtls tcp_transport esp-tls)
     target_sources(${COMPONENT_LIB} PRIVATE "src/runtime/CODY_relay_probe.cpp")
 endif()
 

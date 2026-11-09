@@ -30,7 +30,7 @@ flowchart LR
     end
 
     pc <-->|"Authenticated LAN CCP"| cody
-    cody -.->|"Opt-in HTTPS liveness check"| relay
+    cody -.->|"Opt-in HTTPS and WebSocket check"| relay
     dot -.->|"HTTPS liveness check after rollout"| relay
     dot -.->|"Scoped agent calls after client integration"| relay
     cody -.->|"Enrollment, polling and receipts after firmware integration"| relay
@@ -69,7 +69,10 @@ need explicit configuration compatible with the relay's HTTPS and host checks.
 For a device-side check, an authorized `cody-companion` build using
 `-RelayHost <dns-name>` exposes **Options → Connections → Check relay**. The
 device needs working Wi-Fi and valid time for certificate verification. The
-Luna Shell profile retains its own Pairing route. [Cody navigation](navigation.md#start-and-connect)
+check first calls the HTTPS liveness route, then upgrades to a secure WebSocket
+at /health/websocket and verifies one fixed diagnostic frame and a normal close.
+The WebSocket health route carries only the diagnostic frame. Agent and device
+operations retain their own authentication. [Cody navigation](navigation.md#start-and-connect)
 
 ## Deliver a notification
 

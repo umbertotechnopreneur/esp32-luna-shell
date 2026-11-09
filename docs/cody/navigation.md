@@ -36,10 +36,10 @@ means the device authenticated the bridge and is waiting for app presence.
 
 An opt-in Cody Companion build with `-RelayHost <dns-name>` adds **Check relay**
 to Connections. Supply the same deployed HTTPS hostname for build and flash.
-Cody checks Wi-Fi and device time, verifies the certificate and hostname, and
-checks the relay's liveness response on a separate worker. **Relay reachable**
-reports that one request. Enrollment and notification delivery are separate
-capabilities and remain pending.
+Cody checks Wi-Fi and device time on a separate worker. It verifies the
+certificate and hostname for both the HTTPS liveness request and the secure
+WebSocket upgrade. **Relay reachable** reports a successful liveness response,
+WebSocket frame and close handshake. Enrollment and event delivery remain pending.
 
 ## Manage the retained PC
 
