@@ -57,7 +57,7 @@ static_assert(kTapSamples * 1000U / kTapRateHz == 30U && kTapPcm.front() == 0 &&
     "The tap is 30 ms of mono PCM16 with silent boundaries");
 
 enum class SoundPriority : uint8_t {
-    None, Feedback, Connection, Wifi, Battery, Confirmation, Attention, EventNotice, CriticalBattery
+    None, Feedback, Connection, Wifi, Battery, Confirmation, Attention, EventNotice, VoiceWarning, CriticalBattery
 };
 
 struct SoundRequest {
@@ -75,7 +75,7 @@ bool current(const LUNASHELL::ComponentSnapshot &sample)
 // request: One winning request for this tick; a current event notice can wait briefly.
 // cue: Existing immutable PCM identity.
 // priority: Semantic urgency independent of any rendered route.
-// repetitions: Bounded repeated short notice, used only for low battery severity.
+// repetitions: Bounded repeated short notice for low battery or a blocked dictation.
 void choose(SoundRequest &request, CodexAudioCue cue, SoundPriority priority, uint8_t repetitions = 1)
 {
     if (priority > request.priority) {
@@ -112,31 +112,41 @@ void schedule_event_sound(DeviceEffectsModel &model, CodexAudioCue cue, int64_t 
     sound.deadline_us = now_us + kEventSoundWaitUs;
 }
 
-// model: Owns the single current sound and its correlated shared-worker admission.
+// cue: Exact immutable PCM identity used for the previous admission.
+// sequence: Worker sequence, cleared only when the same request reports a busy drop.
+// finished: True for a terminal result, a failed read or a superseding request.
+// Exception: Returns the original asynchronous owner error if a status read fails.
+esp_err_t observe_sound_attempt(CodexAudioCue cue, uint32_t &sequence, bool &finished)
+{
+    finished = false;
+    if (sequence == 0) return ESP_OK;
+    CodexAudioStatus status{};
+    const auto error = get_codex_audio_status(status);
+    if (error != ESP_OK || status.request_sequence != sequence || status.cue != cue) {
+        finished = true;
+    } else if (status.state == CodexAudioState::DroppedBusy) {
+        sequence = 0;
+    } else {
+        finished = status.state != CodexAudioState::Dispatched && status.state != CodexAudioState::Playing;
+    }
+    return error;
+}
+
+// model: Owns the single current event sound and its correlated shared-worker admission.
 // request: Receives the sound if still eligible and ready to attempt.
 // Exception: Returns the original asynchronous owner error if a status read fails.
 esp_err_t select_event_sound(DeviceEffectsModel &model, SoundRequest &request)
 {
     auto &sound = model.event_sound;
     if (sound.cue == CodexAudioCue::None) return ESP_OK;
-    if (sound.request_sequence != 0) {
-        CodexAudioStatus status{};
-        const auto error = get_codex_audio_status(status);
-        if (error != ESP_OK || status.request_sequence != sound.request_sequence || status.cue != sound.cue) {
-            sound = {};
-            return error;
-        }
-        if (status.state == CodexAudioState::Dispatched || status.state == CodexAudioState::Playing) {
-            return ESP_OK;
-        }
-        if (status.state != CodexAudioState::DroppedBusy) {
-            sound = {};
-            return ESP_OK;
-        }
-        sound.request_sequence = 0;
+    bool finished = false;
+    const auto error = observe_sound_attempt(sound.cue, sound.request_sequence, finished);
+    if (finished) {
+        sound = {};
+    } else if (sound.request_sequence == 0) {
+        choose(request, sound.cue, SoundPriority::EventNotice);
     }
-    choose(request, sound.cue, SoundPriority::EventNotice);
-    return ESP_OK;
+    return error;
 }
 
 // model: Request ledger and successfully read canonical event.
@@ -394,6 +404,7 @@ bool observe_voice(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *vo
     const auto &input = voice->input;
     if (input.started_at_us > 0 && input.started_at_us != model.voice_session_us) {
         model.voice_session_us = input.started_at_us;
+        model.voice_warning_sequence = 0;
         model.voice_start_announced = false;
         model.voice_send_announced = false;
         model.voice_close_announced = false;
@@ -407,6 +418,24 @@ bool observe_voice(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *vo
             choose(request, CodexAudioCue::ResponseReady, SoundPriority::Confirmation);
         }
         return input.countdown_seconds < 2;
+    }
+    const bool destination_blocked = input.phase == Phase::Failed && !input.end_sent &&
+        input.failure == LUNASHELL::VoiceInputFailure::Destination;
+    if ((destination_blocked || input.phase == Phase::Unconfirmed) &&
+        input.started_at_us > 0 && input.changed_at_us > 0 && now_us >= input.changed_at_us) {
+        // The visible terminal result owns this notice. Do not play a late Send or generic Close cue.
+        if (input.end_sent) model.voice_send_announced = true;
+        if (now_us - input.changed_at_us < kVoiceResultDwellUs) {
+            request = {};
+            if (!model.voice_close_announced) {
+                const auto cue = destination_blocked ? CodexAudioCue::Interrupted : CodexAudioCue::ChecksFailed;
+                choose(request, cue, SoundPriority::VoiceWarning, destination_blocked ? 2 : 1);
+            }
+        } else {
+            model.voice_warning_sequence = 0;
+            model.voice_close_announced = true;
+        }
+        return false;
     }
     if (input.end_sent && !model.voice_send_announced && input.changed_at_us > 0 && now_us >= input.changed_at_us) {
         model.voice_send_announced = true;
@@ -437,6 +466,34 @@ bool observe_voice(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *vo
         }
     }
     return false;
+}
+
+// request: One selected cue and its bounded repeat count.
+// playback: Receives the actual owner admission result.
+// Exception: Returns the original shared audio-owner error.
+esp_err_t dispatch_sound(const SoundRequest &request, CodexAudioStatus &playback)
+{
+    return request.repetitions == 1
+        ? notify_codex_audio(request.cue, playback)
+        : notify_codex_audio_sequence(request.cue, request.repetitions, 150, playback);
+}
+
+// model: Retains admission and retry state for the current terminal voice result.
+// request: Warning selected only within the result's visible lifetime.
+// Exception: Returns the original shared-worker status or admission failure.
+esp_err_t dispatch_voice_warning(DeviceEffectsModel &model, const SoundRequest &request)
+{
+    auto &sequence = model.voice_warning_sequence;
+    auto error = observe_sound_attempt(request.cue, sequence, model.voice_close_announced);
+    if (model.voice_close_announced || sequence != 0) return error;
+
+    error = dispatch_sound(request, model.playback);
+    if (error == ESP_OK && model.playback.state == CodexAudioState::Dispatched) {
+        sequence = model.playback.request_sequence;
+    } else if (error != ESP_OK || model.playback.state != CodexAudioState::DroppedBusy) {
+        model.voice_close_announced = true;
+    }
+    return error;
 }
 } // namespace
 
@@ -570,9 +627,8 @@ esp_err_t update_device_effects(DeviceEffectsModel &model,
         error = event_sound_error != ESP_OK ? event_sound_error : suspend_error;
     }
     if (!suspended && suspend_error == ESP_OK && request.cue != CodexAudioCue::None) {
-        const auto sound_error = request.repetitions == 1
-            ? notify_codex_audio(request.cue, model.playback)
-            : notify_codex_audio_sequence(request.cue, request.repetitions, 150, model.playback);
+        const auto sound_error = request.priority == SoundPriority::VoiceWarning
+            ? dispatch_voice_warning(model, request) : dispatch_sound(request, model.playback);
         if (request.priority == SoundPriority::EventNotice) {
             if (sound_error == ESP_OK && model.playback.state == CodexAudioState::Dispatched) {
                 model.event_sound.request_sequence = model.playback.request_sequence;

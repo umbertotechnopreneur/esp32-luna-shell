@@ -51,6 +51,7 @@ struct DeviceEffectsModel {
     int64_t voice_session_us = 0;
     uint32_t battery_sequence = 0;
     uint32_t pairing_session = 0;
+    uint32_t voice_warning_sequence = 0;
     uint8_t next_event_slot = 0;
     bool prepared = false;
     bool boot_cue_requested = false;

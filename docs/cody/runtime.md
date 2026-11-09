@@ -614,7 +614,9 @@ volume, quiet hours and power admission remain authoritative.
 | Battery 5% or measured empty | Two or three ConnectionLost clips with short gaps |
 | Dictation enters its start countdown | Clear ResponseReady chime before microphone capture |
 | Dictation sends its complete END datagram | Short Running pulse |
-| Dictation closes after its result | SessionEnded on confirmed queue admission, Interrupted otherwise |
+| Dictation cannot confirm the destination | Two short Interrupted pulses while the result is visible |
+| Dictation delivery remains unconfirmed | Descending ChecksFailed chime while the result is visible |
+| Dictation closes after another result | SessionEnded on confirmed queue admission, Interrupted otherwise |
 
 The first connection observation establishes a silent baseline. Generic notices,
 ongoing work, running checks, navigation and statistic refreshes are silent.
@@ -623,9 +625,10 @@ from replaying the same event. One priority-selected request is admitted per
 update. A new question, a ready reply or confirmed delivery can wait up to
 2.5 seconds for the shared speaker, as long as the same event is current.
 Muted, expired and failed requests are consumed. Other busy effects are
-consumed as well. Recording and delivery suppress competing effects so they
-cannot be captured by the microphone. The matching delivery acknowledgement
-remains authoritative.
+consumed as well. A blocked dictation destination or unconfirmed delivery can
+retry audio admission while its terminal screen is visible. Recording and
+delivery suppress competing effects so they cannot be captured by the
+microphone. The matching delivery acknowledgement remains authoritative.
 
 Studio's device-first preview shows the corresponding routes but does not
 reimplement this controller in Python or provide speaker validation. Hardware
