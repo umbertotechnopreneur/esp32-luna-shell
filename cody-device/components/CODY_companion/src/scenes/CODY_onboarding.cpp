@@ -202,7 +202,7 @@ enum class OnboardingAction : uint8_t {
     ForgetPairing, ConfirmForget, KeepSaved, DisplayOptions, BehaviorOptions, MoreBehavior,
     Connections, CodexStatistics, VisibleScreens, OpenPairingGuide, GoHome,
     FactoryReset, ConfirmFactoryReset, LocalTimer, RestartDevice, ConfirmRestart, QuickGuide,
-    CheckRelay, SynthOptions,
+    CheckRelay, SynthOptions, AudioLevels,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
@@ -1217,6 +1217,9 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         break;
     case OnboardingAction::LocalTimer:
         label = "Timer";
+        break;
+    case OnboardingAction::AudioLevels:
+        label = "Audio";
         break;
     case OnboardingAction::QuickGuide:
         label = "Quick guide";
@@ -2600,6 +2603,7 @@ MenuAppearance menu_appearance(OnboardingAction action)
     case OnboardingAction::Connections: return {Icon::Link, 0xBD9F, "Wi-Fi and PC"};
     case OnboardingAction::CodexStatistics: return {Icon::Statistics, 0x7759, "Limits and credits"};
     case OnboardingAction::LocalTimer: return {Icon::Clock, 0xFDA9, "Focus countdown"};
+    case OnboardingAction::AudioLevels: return {Icon::Microphone, 0x6F9E, "Microphone levels"};
     case OnboardingAction::VisibleScreens: return {Icon::PlanBusiness, 0x6F9E, "Dashboard pages"};
     case OnboardingAction::DisplayOptions: return {Icon::Orientation, 0xFDA9, "Light and rotation"};
     case OnboardingAction::BehaviorOptions: return {Icon::Motion, 0xBD9F, "Sound, wake, voice"};
@@ -2777,7 +2781,7 @@ esp_err_t prepare_options_content(SceneFrame &scene,
     static_assert(std::size(display_rows) <= kPreferencesPerPage);
     static_assert(std::size(synth_rows) <= kPreferencesPerPage);
     static_assert(std::size(behavior_rows) <= kPreferencesPerPage);
-    static_assert(std::size(more_behavior_rows) <= kPreferencesPerPage);
+    static_assert(std::size(more_behavior_rows) + 1U <= kPreferencesPerPage);
     const Row *rows = behavior_rows;
     size_t row_count = std::size(behavior_rows);
     if (s_options_page == OptionsPage::Display) {
@@ -2861,6 +2865,21 @@ esp_err_t prepare_options_content(SceneFrame &scene,
         return prepare_action(OnboardingAction::MoreBehavior, !s_command_pending);
     }
     if (s_options_page == OptionsPage::BehaviorMore) {
+        if (kDeviceFirstSetup) {
+            // This destination uses the remaining row without adding a persisted preference.
+            auto &target = s_view.preferences[s_view.preference_count];
+            target = {};
+            target.action = OnboardingAction::AudioLevels;
+            const uint16_t top = kPreferenceTop + s_view.preference_count * kPreferenceStep;
+            CODY2D::TextLine unused;
+            error = prepare_button(target.action, "Audio", {kPreferenceLeft, top, kPreferenceWidth, kPreferenceHeight},
+                !s_command_pending, false, target.control, unused);
+            if (error == ESP_OK) {
+                error = prepare_menu_row("Audio", menu_appearance(target.action), target.control, target.value);
+            }
+            if (error != ESP_OK) return error;
+            ++s_view.preference_count;
+        }
         return prepare_action(OnboardingAction::SynthOptions, !s_command_pending);
     }
     if (s_options_page == OptionsPage::SynthVoice) {
@@ -6688,6 +6707,9 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
                     return ESP_OK;
                 case OnboardingAction::LocalTimer:
                     s_widget_open_request = WidgetOpenRequest::Timer;
+                    return ESP_OK;
+                case OnboardingAction::AudioLevels:
+                    s_widget_open_request = WidgetOpenRequest::Audio;
                     return ESP_OK;
                 case OnboardingAction::QuickGuide:
                     return show_options_page(scene, OptionsPage::GuideButtons);

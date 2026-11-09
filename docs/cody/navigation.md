@@ -73,9 +73,17 @@ statistics page with data, or Device when none is available.
 The Tools, Preferences and Device pages show three position marks above the
 **Home** footer. Each destination has a colored icon, title and short description.
 Display holds brightness, rotation and orientation. Behavior holds sound,
-shake-to-wake and, in the voice-enabled profile, Dictation. **More behavior**
-contains **Screensaver**, disabled by default, and opens **Synth Voice**. The
-Synth Voice page presents Enable Synth Voice, Voice volume and Voice type as
+shake-to-wake and, in the voice-enabled profile, Dictation. **More options**
+contains **Screensaver**, disabled by default, and opens **Audio** and **Synth Voice**.
+**Options > Preferences > Behavior > More options > Audio** shows independent
+**Mic 1** and **Mic 2** mean/peak PCM levels from the canonical device snapshot.
+**Close** or lateral Back returns to that retained Options page. Missing channels,
+stale samples and read failures remain explicit; no recording starts from this page.
+Real microphone levels currently require the `cody-companion -Feature wake-word`
+composition. The default `-Feature none` composition shows **Unavailable**.
+Playback volume, microphone gain and Power off remain planned for the separate
+Creamwork 3 audio menu.
+The Synth Voice page presents Enable Synth Voice, Voice volume and Voice type as
 unavailable until a speech engine is integrated; these rows cannot be activated.
 
 **Quick guide** has three color-coded pages for the physical buttons, display

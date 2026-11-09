@@ -78,7 +78,7 @@ esp_err_t open_companion_options(SceneFrame &scene);
 // scene: Options frame to return to ordinary dashboard and authenticated event routing.
 esp_err_t open_device_dashboard(SceneFrame &scene);
 
-enum class WidgetOpenRequest : uint8_t { None, Home, Statistics, Visibility, Timer };
+enum class WidgetOpenRequest : uint8_t { None, Home, Statistics, Visibility, Timer, Audio };
 
 // available: True after this device has received the broker's authenticated Events projection.
 void set_onboarding_inbox_available(bool available);
