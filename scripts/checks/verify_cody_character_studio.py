@@ -153,8 +153,8 @@ class CharacterStudioTests(unittest.TestCase):
                          [payload.context])
         self.assertEqual(len(view._actions), 1)
         self.assertEqual((view._actions[0].identity, view._actions[0].label, view._actions[0].bounds),
-                         ("dismiss", "Mark as read", (113, 352, 240, 72)))
-        self.assertEqual(plan.actions[0].icon, 0)
+                         ("dismiss", "OK", (113, 352, 240, 72)))
+        self.assertEqual(plan.actions[0].icon, 4)
         self.assertFalse(plan.back)
         expected = Image.new("RGB", (466, 466))
         self.renderer.scene_painter.paint_text(expected, "Chat waiting", 150, 0x5FF9)

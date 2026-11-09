@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include "CODY2D_controls.hpp"
 #include "CODY_scene.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 
@@ -13,6 +14,7 @@ struct CodexPanelView {
     LUNASHELL::CodexInboxPage page{};
     std::array<CODY2D::TextLine, 12> lines{};
     std::array<CODY2D::Rect, 12> line_boxes{};
+    CODY2D::CapsuleControl reply_action{};
     char subtitle[64]{};
     char detail[193]{};
     char elapsed[12]{};

@@ -352,7 +352,7 @@ metadata once and revalidates the original session, turn, checkout and ready
 phase after IO. It preserves the followed title cache and chat selection.
 The event uses its project and complete current title when at most 63 characters;
 otherwise it says **Open the other chat in Codex**. The native screen has one
-mint **Chat waiting** headline, the chat title, subordinate project and **Mark as read**.
+mint **Chat waiting** headline, the chat title, subordinate project and an **OK** button with a check mark.
 Generic notices also omit identical title/body repetition. No GUID, transcript,
 task-success inference or polling is introduced. A prompt retires native notices
 only for that chat; dismissal still requires the authenticated owner acknowledgement.

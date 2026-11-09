@@ -160,9 +160,9 @@ void verify_shared_event_presentation()
     assert(std::strcmp(plan.title, "Chat waiting") == 0 && plan.title_color == 0x5FF9);
     assert(plan.line_count == 2 && std::strcmp(plan.lines[0].text, event.body) == 0);
     assert(plan.lines[0].top == 214 && plan.lines[1].top == 312 && plan.lines[1].instant);
-    assert(plan.action_count == 1 && std::strcmp(plan.actions[0].label, "Mark as read") == 0);
+    assert(plan.action_count == 1 && std::strcmp(plan.actions[0].label, "OK") == 0);
     assert(plan.actions[0].id == Presentation::ActionId::Dismiss &&
-        plan.actions[0].icon == CODY2D::ActionIcon::None);
+        plan.actions[0].icon == CODY2D::ActionIcon::Check);
     assert(Presentation::activate(event, context, plan.actions[0], navigation, effect) == ESP_OK &&
         effect == Presentation::Effect::Dismiss);
     readable_at = -1;

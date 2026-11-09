@@ -516,12 +516,12 @@ void check_reply_ready_notice()
         require_text_layout();
         require_circle(s_view.action.bounds);
         require(s_view.action_id == OnboardingAction::DismissEvent &&
-            std::strcmp(s_event_plan.actions[0].label, "Mark as read") == 0 &&
+            std::strcmp(s_event_plan.actions[0].label, "OK") == 0 &&
             s_event_plan.actions[0].tone == LUNASHELL::CodexChoiceTone::Info &&
-            s_view.action.icon == CODY2D::ActionIcon::None &&
+            s_view.action.icon == CODY2D::ActionIcon::Check &&
             s_view.action.bounds.x == 113 && s_view.action.bounds.y == 352 &&
             s_view.action.bounds.width == 240 && s_view.action.bounds.height == 72,
-            "Mark as read retains one iconless informational capsule");
+            "OK retains one informational capsule with a check mark");
         require(!P::hit_action(s_event_plan, s_view.actions_visible, 233, 388),
             "the acknowledgement cannot be tapped before its complete narrative is visible");
         complete_narrative(scene);
@@ -529,7 +529,7 @@ void check_reply_ready_notice()
         P::Effect effect{};
         require(P::activate(s_presented_event, event_context(), s_event_plan.actions[0], navigation, effect) == ESP_OK &&
             effect == P::Effect::Dismiss && s_presented_event.state == State::Pending,
-            "Mark as read requests the signed dismissal of the current LAN notice");
+            "OK requests the signed dismissal of the current LAN notice");
         int64_t readable_at = -1;
         require(!P::checks_passed_dismiss_due(s_presented_event, event_context(), true, 9000000, readable_at) &&
             readable_at == -1, "reply readiness cannot trigger checks-passed auto-dismissal");

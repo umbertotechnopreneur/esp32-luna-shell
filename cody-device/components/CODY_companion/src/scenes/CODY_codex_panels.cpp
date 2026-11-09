@@ -7,6 +7,7 @@
 
 #include "CODY2D_controls.hpp"
 #include "CODY2D_paths.hpp"
+#include "CODY_codex_event_presentation.hpp"
 #include "CODY_home_dashboard.hpp"
 #include "home_dashboard_fonts.hpp"
 #include "scene_data.hpp"
@@ -165,12 +166,7 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
     } else if (error == ESP_OK) {
         error = draw_glyph(view.glyph, strip, row, column);
         if (error == ESP_OK && view.kind == CodexPanelKind::Reply) {
-            CODY2D::CapsuleControl action{};
-            action.bounds = {113, 330, 240, 56};
-            action.top_color = 0x2127;
-            action.bottom_color = 0x1082;
-            action.border_color = kRule;
-            error = CODY2D::draw_capsule_rows(action, strip, row, column);
+            error = CODY2D::draw_capsule_rows(view.reply_action, strip, row, column);
         }
     }
     for (uint8_t index = 0; error == ESP_OK && index < view.line_count; ++index) {
@@ -382,9 +378,8 @@ esp_err_t prepare_current_turn(CodexPanelView &view, const LUNASHELL::CodexTechn
 // Exception: Returns the original font or geometry error.
 esp_err_t prepare_codex_reply(CodexPanelView &view, const char *title, bool pending, SceneContent &content)
 {
-    const char *status = pending ? "Marking as read" : "Mark as read";
     if (view.valid && view.kind == CodexPanelKind::Reply && std::strcmp(view.subtitle, title) == 0 &&
-        std::strcmp(view.detail, status) == 0) {
+        view.reply_action.enabled == !pending) {
         attach(view, content);
         return ESP_OK;
     }
@@ -393,10 +388,17 @@ esp_err_t prepare_codex_reply(CodexPanelView &view, const char *title, bool pend
     view.glyph = TurnGlyph::None;
     view.line_count = 0;
     std::snprintf(view.subtitle, sizeof(view.subtitle), "%s", title);
-    std::snprintf(view.detail, sizeof(view.detail), "%s", status);
-    auto error = add_line(view, "Reply ready", SceneData::title_font, {73, 83, 320, 48}, kMint);
+    auto &action = view.reply_action;
+    action = {};
+    action.bounds = {113, 330, 240, 56};
+    action.top_color = 0x2127;
+    action.bottom_color = 0x1082;
+    action.border_color = kRule;
+    action.icon_color = kMint;
+    action.enabled = !pending;
+    auto error = add_line(view, "Chat waiting", SceneData::title_font, {73, 83, 320, 48}, kMint);
     if (error == ESP_OK) error = add_line(view, view.subtitle, SceneData::body_font, {73, 190, 320, 32}, kWhite);
-    if (error == ESP_OK) error = add_line(view, view.detail, SceneData::body_font, {113, 330, 240, 56}, kMuted);
+    if (error == ESP_OK) error = event_presentation::prepare_read_confirmation(SceneData::body_font, action);
     return finish(view, content, error);
 }
 

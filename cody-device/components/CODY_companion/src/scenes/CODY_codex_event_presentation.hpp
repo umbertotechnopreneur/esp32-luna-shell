@@ -232,11 +232,10 @@ struct Plan {
     uint16_t title_color = 0xFFFF;
 };
 
-// action: Complete semantic identity/tone receiving text-only production colors.
+// action: Complete semantic identity and tone receiving production colors.
 inline void style(Action &action)
 {
     using Tone = LUNASHELL::CodexChoiceTone;
-    action.icon = CODY2D::ActionIcon::None;
     switch (action.tone) {
     case Tone::Neutral:
         action.colors[0] = 0x18E5;
@@ -276,6 +275,33 @@ inline void style(Action &action)
     }
 }
 
+inline constexpr char kReadConfirmationLabel[] = "OK";
+
+// font: Actual shared Cody body-font glyphs and metrics.
+// control: Prepared capsule receiving a centered check mark and OK caption.
+// Exception: Returns the original font error or invalid size if the group does not fit.
+inline esp_err_t prepare_read_confirmation(const CODY2D::MonoFont &font, CODY2D::CapsuleControl &control)
+{
+    constexpr uint16_t icon_size = 24;
+    constexpr uint16_t icon_gap = 8;
+    constexpr CODY2D::TextSpan label{kReadConfirmationLabel, sizeof(kReadConfirmationLabel) - 1};
+    uint32_t text_width = 0;
+    const esp_err_t error = CODY2D::measure_text_width(font, label, text_width);
+    if (error != ESP_OK) { return error; }
+    const auto &bounds = control.bounds;
+    const uint32_t group_width = icon_size + icon_gap + text_width;
+    if (bounds.height < icon_size || bounds.height < font.height || bounds.width < group_width + 20U) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const auto left = static_cast<int16_t>(bounds.x + (bounds.width - group_width) / 2);
+    control.icon = CODY2D::ActionIcon::Check;
+    control.icon_center = {static_cast<int16_t>(left + icon_size / 2),
+        static_cast<int16_t>(bounds.y + bounds.height / 2)};
+    return CODY2D::prepare_text_line(font, label,
+        {static_cast<int16_t>(left + icon_size + icon_gap),
+         static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2)}, 0xFFFF, control.caption);
+}
+
 // action: Model-owned semantic style, exact bounds and full untimed caption.
 // font: Actual shared Cody body-font glyphs and metrics.
 // control: Receives native immutable rounded control geometry/style and first caption.
@@ -294,7 +320,9 @@ inline esp_err_t prepare_control(const Action &action, const CODY2D::MonoFont &f
     control.bottom_color = action.colors[1];
     control.border_color = action.colors[2];
     control.icon_color = action.colors[3];
-    control.icon = CODY2D::ActionIcon::None;
+    if (action.icon == CODY2D::ActionIcon::Check) {
+        return prepare_read_confirmation(font, control);
+    }
     const char *label = action.label;
     const char *space = action.card && !action.row ? std::strchr(label, ' ') : nullptr;
     if (space == label || (space != nullptr && space[1] == '\0')) { space = nullptr; }
@@ -704,8 +732,12 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         } else {
             text(event.context[0] != '\0' ? event.context : "Project unavailable", true);
         }
-        add_action(plan, context.ui_error == ESP_OK ? ActionId::Dismiss : ActionId::Retry,
-            context.ui_error == ESP_OK ? "Mark as read" : "Try again", !context.dismiss_admitted);
+        if (context.ui_error == ESP_OK) {
+            add_action(plan, ActionId::Dismiss, kReadConfirmationLabel, !context.dismiss_admitted);
+            plan.actions[plan.action_count - 1U].icon = CODY2D::ActionIcon::Check;
+        } else {
+            add_action(plan, ActionId::Retry, "Try again", !context.dismiss_admitted);
+        }
     } else {
         const bool unconfirmed = plan.route == Route::CodexNotice && event.state == State::Expired &&
             event.selected_id[0] != '\0';
