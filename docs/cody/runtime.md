@@ -809,9 +809,8 @@ destination, a current link and a fresh successful AFE Listening observation.
 No wake-word cache is prepended. Physical timing still needs observation.
 
 Voice input has presentation priority while retaining the interrupted route and
-its real question deadlines. The native device UI uses one split tile for the
-owner-published 3, 2, 1 sequence. It uses the reset countdown's 200 ms flap and
-repaints only the face during the transition. During preparation, listening and
+its real question deadlines. The native device UI shows the owner-published
+3, 2, 1 sequence as a centered number with a red Cancel button. During preparation, listening and
 sending, a four-color ribbon occupies a 384 x 58 logical-pixel band at (41,179).
 While listening, gain follows valid, fresh microphone levels. Unavailable samples
 decay the visual response. Actual frame rate and energy cost require target measurements.

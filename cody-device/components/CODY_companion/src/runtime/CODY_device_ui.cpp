@@ -89,8 +89,6 @@ struct RetiredFrame {
     bool next_navigation = false;
     bool valid = false;
     CODY2D::Rect voucher_bounds{};
-    uint16_t voice_flip_progress = CODY::kResetCountdownFlipComplete;
-    uint8_t voice_countdown_seconds = 0;
     int64_t voice_ribbon_at_us = 0;
 };
 
@@ -299,8 +297,7 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     if (voice_visible(now_us)) {
         frame.layer = Layer::Voice;
-        const auto error = CODY::prepare_device_voice(ui.view, frame.presentation, ui.model.voice.input,
-            esp_timer_get_time());
+        const auto error = CODY::prepare_device_voice(ui.view, frame.presentation, ui.model.voice.input);
         if (error == ESP_OK) prepare_device_voice_ribbon(ui, frame, motion_error);
         return error;
     }
@@ -435,18 +432,8 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const bool connection_changed = old.connection_revision != chrome.connection_revision;
     const bool connection_activity_changed = old.connection_activity_phase != frame.connection_activity_phase;
     const bool voice_ribbon_changed = old.voice_ribbon_at_us != frame.voice_ribbon_at_us;
-    const auto flip_progress = frame.layer == Layer::Voice &&
-        ui.view.plain.layout == CODY::DeviceMessageLayout::VoiceCountdown
-        ? ui.view.plain.voice_flip_progress : CODY::kResetCountdownFlipComplete;
-    uint8_t countdown_seconds = 0;
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-    if (frame.layer == Layer::Voice && ui.view.plain.layout == CODY::DeviceMessageLayout::VoiceCountdown) {
-        countdown_seconds = ui.model.voice.input.countdown_seconds;
-    }
-#endif
-    const bool flip_changed = old.voice_flip_progress != flip_progress || old.voice_countdown_seconds != countdown_seconds;
     if (!full && !content_changed && !navigation_changed && !battery_changed && !connection_changed &&
-        !connection_activity_changed && !voice_ribbon_changed && !flip_changed) return ESP_OK;
+        !connection_activity_changed && !voice_ribbon_changed) return ESP_OK;
 
     bool parked = false;
     esp_err_t error = LUNASHELL_display_frame_begin(kFrameBudgetMs, &parked);
@@ -477,11 +464,6 @@ esp_err_t render(const FrameView &frame, bool force = false)
         if (voice_ribbon_changed) {
             include_damage({CODY::kVoiceRibbonLeft, CODY::kVoiceRibbonDamageTop,
                 CODY::kVoiceRibbonLeft + CODY::kVoiceRibbonWidth, CODY::kVoiceRibbonDamageBottom});
-        }
-        if (flip_changed) {
-            const auto face = CODY::kVoiceCountdownFace;
-            include_damage({face.x, face.y, static_cast<uint16_t>(face.x + face.width),
-                static_cast<uint16_t>(face.y + face.height)});
         }
     }
     const uint16_t left = bounds.left & ~1U;
@@ -561,8 +543,6 @@ esp_err_t render(const FrameView &frame, bool force = false)
         frame.statistics_unavailable, next_navigation, true};
     old.voucher_bounds = frame.layer == Layer::Dashboard && screen == WidgetScreen::Credits &&
         !frame.statistics_unavailable ? ui.view.account.voucher_bounds : CODY2D::Rect{};
-    old.voice_flip_progress = flip_progress;
-    old.voice_countdown_seconds = countdown_seconds;
     old.voice_ribbon_at_us = frame.voice_ribbon_at_us;
     if (frame.layer == Layer::Scene) {
         ui.completed_scene = ui.scene;
@@ -1252,8 +1232,7 @@ void device_ui_worker(void *context)
             vTaskDelay(pdMS_TO_TICKS(kPollMs));
             continue;
         }
-        const bool animating = ui.retired.voice_ribbon_at_us != 0 || ui.view.countdown.animating() ||
-            ui.retired.voice_flip_progress < CODY::kResetCountdownFlipComplete;
+        const bool animating = ui.retired.voice_ribbon_at_us != 0 || ui.view.countdown.animating();
         const uint32_t wait_ms = ui.model.screensaver.phase == CODY::ScreensaverPhase::Visible
             ? static_cast<uint32_t>(CODY::kScreensaverFrameUs / 1000)
             : animating ? 33 : kPollMs;

@@ -59,24 +59,6 @@ struct ResetCountdownPresentation {
 static_assert(sizeof(ResetCountdownPresentation) <= 2048,
     "The countdown uses bounded persistent display storage");
 
-// tile: Display-owned flip face with room for the borrowed digit captions.
-// bounds: Admitted 74-pixel-high face used by the reset and dictation clocks.
-// font: Immutable digit font.
-// digit: Current single digit.
-// previous: Previous single digit, or zero to omit the moving flap.
-// Exception: Returns the original digit preparation error.
-esp_err_t prepare_single_countdown_tile(ResetCountdownPresentation::Tile &tile,
-    CODY2D::Rect bounds, const CODY2D::MonoFont &font, char digit, char previous);
-
-// tile: Prepared face and optional moving digit.
-// progress: Animation progress from zero to kResetCountdownFlipComplete.
-// strip: Borrowed native tile.
-// first_row: Logical tile y origin.
-// first_column: Logical tile x origin.
-// Exception: Returns the original native raster error.
-esp_err_t draw_countdown_tile(const ResetCountdownPresentation::Tile &tile, uint16_t progress,
-    CODY2D::Surface strip, uint16_t first_row, uint16_t first_column);
-
 // fields: Reset calendar fields and reported remaining allowance in basis points.
 bool valid_reset_countdown_fields(const ResetCountdownFields &fields);
 

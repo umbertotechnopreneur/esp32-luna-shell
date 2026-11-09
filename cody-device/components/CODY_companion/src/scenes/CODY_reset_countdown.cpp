@@ -437,39 +437,6 @@ uint16_t perimeter_color(float angle)
 }
 } // namespace
 
-// tile: Display-owned face and digit buffers.
-// bounds: Admitted logical face using the shared flip hinge height.
-// font: Immutable digit font.
-// digit: Current digit.
-// previous: Prior digit, or zero for a stationary tile.
-// Exception: Rejects incompatible geometry or returns the original glyph error.
-esp_err_t prepare_single_countdown_tile(ResetCountdownPresentation::Tile &tile,
-    CODY2D::Rect bounds, const CODY2D::MonoFont &font, char digit, char previous)
-{
-    if (bounds.height != kFaceHeight || bounds.width <= 2U * kFoldInset) return ESP_ERR_INVALID_SIZE;
-    tile.face = {bounds, {}, kTileTop, kTileBottom, true, 9};
-    tile.previous.line = {};
-    const char current_text[]{digit, '\0'};
-    auto error = prepare_caption(tile.value, font, current_text, bounds, kWhite);
-    if (error == ESP_OK && previous != '\0') {
-        const char previous_text[]{previous, '\0'};
-        error = prepare_caption(tile.previous, font, previous_text, bounds, kWhite);
-    }
-    return error;
-}
-
-// tile: Prepared reset-style face and digits.
-// progress: Owner's animation progress in thousandths.
-// strip: Borrowed native tile.
-// first_row: Logical tile y origin.
-// first_column: Logical tile x origin.
-// Exception: Returns the original raster error.
-esp_err_t draw_countdown_tile(const ResetCountdownPresentation::Tile &tile, uint16_t progress,
-    CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
-{
-    return draw_tile(tile, progress, strip, first_row, first_column);
-}
-
 // fields: Reset calendar fields and reported remaining allowance in basis points.
 bool valid_reset_countdown_fields(const ResetCountdownFields &fields)
 {

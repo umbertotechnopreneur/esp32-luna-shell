@@ -24,6 +24,7 @@ constexpr CODY2D::Rect kDetail{73, 202, 320, 28};
 constexpr CODY2D::Rect kVoiceHeading{73, 84, 320, 42};
 constexpr CODY2D::Rect kVoiceStatus{73, 127, 320, 25};
 constexpr CODY2D::Rect kVoiceDetail{73, 152, 320, 25};
+constexpr CODY2D::Rect kVoiceCountdownDigit{185, 176, 96, 74};
 constexpr CODY2D::Rect kVoiceFailureIcon{201, 142, 64, 64};
 constexpr CODY2D::Rect kVoiceFailureStatus{73, 220, 320, 40};
 constexpr CODY2D::Rect kVoiceFailureDetail{73, 270, 320, 28};
@@ -131,11 +132,6 @@ esp_err_t draw_message_rows(const void *state, CODY2D::Surface strip, uint16_t f
         return ESP_ERR_INVALID_STATE;
     }
     const auto &plain = *static_cast<const PlainView *>(state);
-    if (plain.layout == DeviceMessageLayout::VoiceCountdown) {
-        const auto error = draw_countdown_tile(plain.voice_tile, plain.voice_flip_progress,
-            strip, first_row, first_column);
-        if (error != ESP_OK) return error;
-    }
     if (plain.layout == DeviceMessageLayout::VoiceFailure) {
         const auto error = CODY2D::draw_action_icon_rows(CODY2D::ActionIcon::Microphone,
             kVoiceFailureIcon, kAttention, strip, first_row, first_column);
@@ -521,7 +517,9 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
             voice_failure ? kVoiceFailureDetail : voice_layout ? kVoiceDetail : kDetail,
             kMuted, plain.captions[2]);
     }
-    if (error == ESP_OK) {
+    if (error == ESP_OK && layout == DeviceMessageLayout::VoiceCountdown) {
+        error = prepare_line(plain.text[5].data(), HomeFonts::value_font, kVoiceCountdownDigit, kWhite, plain.captions[3]);
+    } else if (error == ESP_OK) {
         const uint16_t top = voice_failure ? 312 : layout == DeviceMessageLayout::Dashboard ? 230 : 234;
         error = prepare_line(plain.text[5].data(), SceneData::body_font, {73, top, 320, 27},
             voice_failure ? kMuted : kWhite, plain.captions[3]);
@@ -536,6 +534,12 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
     }
     if (error == ESP_OK) {
         error = prepare_action(plain.text[4].data(), two_actions ? second_bounds : single_bounds, false, plain.actions[1]);
+    }
+    if (voice_layout && plain.actions[1].enabled) {
+        auto &cancel = plain.actions[1];
+        cancel.top_color = 0x70C8;
+        cancel.bottom_color = 0x38A5;
+        cancel.border_color = 0xBA0B;
     }
     if (dashboard_actions && !two_actions) {
         for (auto &action : plain.actions) {
@@ -663,10 +667,9 @@ esp_err_t prepare_device_info(DeviceView &view, DeviceFrameContent &frame, const
 // view: Retained presentation state.
 // frame: Receives prepared content.
 // voice: Canonical recording state.
-// now_us: Display owner's monotonic time for the visual flip only.
 // Exception: Returns the original caption or geometry error.
 esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,
-    const LUNASHELL::VoiceInputObservation &voice, int64_t now_us)
+    const LUNASHELL::VoiceInputObservation &voice)
 {
     using Phase = LUNASHELL::VoiceInputPhase;
     // status: Current voice phase caption.
@@ -690,18 +693,10 @@ esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,
     case Phase::StartCountdown:
     case Phase::SendCountdown: {
         if (voice.countdown_seconds < 1 || voice.countdown_seconds > 3) return ESP_ERR_INVALID_RESPONSE;
-        auto error = prepare_device_message(view, frame, "Dictation to",
+        const char digit[]{static_cast<char>('0' + voice.countdown_seconds), '\0'};
+        return prepare_device_message(view, frame, "Voice recording",
             voice.phase == Phase::StartCountdown ? "Recording starts in" : "Sending in",
-            voice.destination_title, nullptr, "Cancel", "", DeviceMessageLayout::VoiceCountdown);
-        if (error != ESP_OK) return error;
-        constexpr int64_t kFlipUs = 200000;
-        const auto age = now_us - voice.changed_at_us;
-        const bool flipping = voice.countdown_seconds < 3 && age >= 0 && age < kFlipUs;
-        view.plain.voice_flip_progress = flipping
-            ? static_cast<uint16_t>(age * kResetCountdownFlipComplete / kFlipUs) : kResetCountdownFlipComplete;
-        const char digit = static_cast<char>('0' + voice.countdown_seconds);
-        return prepare_single_countdown_tile(view.plain.voice_tile, kVoiceCountdownFace,
-            HomeFonts::value_font, digit, flipping ? static_cast<char>(digit + 1) : '\0');
+            voice.destination_title, nullptr, "Cancel", digit, DeviceMessageLayout::VoiceCountdown);
     }
     case Phase::AwaitingPc:
         return prepare("Waiting for PC", "", nullptr, "Cancel");

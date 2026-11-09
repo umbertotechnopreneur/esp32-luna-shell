@@ -406,9 +406,9 @@ The native recording route uses centered captions and explicit Send and Cancel
 controls. The display shows the confirmed destination title above the animation
 band during preparation, listening and transfer. Long titles keep both ends.
 Only a completely retired Preparing frame with the destination admits the owner's
-start countdown. Both countdowns show 3, 2 and 1 on one split tile at (185,176),
-96 x 74, with the reset clock's 200 ms flap animation. The audio owner supplies
-the seconds and determines when to advance. The ribbon animates during
+start countdown. Both countdowns show a centered 3, 2 or 1 below the confirmed
+destination. The audio owner supplies the seconds and determines when to advance.
+The red Cancel button stays below the number. The ribbon animates during
 preparation, listening and sending; while listening, it responds to current
 microphone levels. When START is still pending after the countdown, Waiting for PC
 keeps the destination and Cancel visible without opening the microphone. Cancel
