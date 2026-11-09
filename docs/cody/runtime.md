@@ -612,8 +612,9 @@ volume, quiet hours and power admission remain authoritative.
 | Observed provisioning attempt fails | Interrupted |
 | Battery 50%, 20%, 10% | QuestionReminder, Paused, ConnectionLost respectively |
 | Battery 5% or measured empty | Two or three ConnectionLost clips with short gaps |
-| Voice input enters its start countdown | Short ConnectionRestored, before microphone capture |
-| Voice delivery confirmed by the recipient | AnswerReceived |
+| Dictation enters its start countdown | Clear ResponseReady chime before microphone capture |
+| Dictation sends its complete END datagram | Short Running pulse |
+| Dictation closes after its result | SessionEnded on confirmed queue admission, Interrupted otherwise |
 
 The first connection observation establishes a silent baseline. Generic notices,
 ongoing work, running checks, navigation and statistic refreshes are silent.
@@ -789,10 +790,15 @@ Preparing is admitted for wake-word, character double tap,
 and a completed physical standby wake from a short power press, touch or motion.
 Internal recovery, power-off farewell and Codex-notification wake do not start
 recording. A wake-word event already admitted before wake is not duplicated.
-No wake-word block or audio from preparation is recorded. Only a completely
-retired Preparing screen admits the three-second Recording starts in countdown.
-Its real owner deadline and a fresh successful AFE Listening observation then
-admit PCM. No wake-word cache is prepended; physical timing still needs observation.
+No wake-word block or audio from preparation is recorded. Preparing waits for
+fresh authenticated chat metadata. It advances the existing discovery poll once
+when the previous exchange is complete. Cody freezes the destination title and chat
+identity together and shows the title throughout the recording and transfer.
+Long titles display their beginning and end. A complete Preparing frame showing
+the destination admits the three-second Recording starts in countdown. Cody sends
+START during that countdown. PCM requires the countdown deadline, authenticated
+START acceptance for that destination and a fresh successful AFE Listening
+observation. No wake-word cache is prepended. Physical timing still needs observation.
 
 Voice input has presentation priority while retaining the interrupted route and
 its real question deadlines. The native device UI uses one split tile for the
@@ -825,8 +831,8 @@ seconds of **unacknowledged** 16 kHz mono audio. It is not an utterance-duration
 limit. Full buffers fail explicitly without overwriting unheard words. Neither SD
 nor internal flash stores audio on the device. Canonical `voice.input` contains
 typed phase/trigger, actual counters, original request/capture times, canonical
-countdown seconds, failure category when known and original error; its bounded
-projection remains at most 48 bytes. No consumer
+countdown seconds, displayed destination, END transmission, failure category
+when known and original error. Its bounded projection is at most 64 bytes. No consumer
 reads the microphone. The CCP worker borrows the transport with a 5-ms cadence
 only while connected input needs service (at least one RTOS tick). Idle and
 disconnected input use the normal 100-ms cadence; the last 100 ms before an ACK
@@ -841,14 +847,18 @@ contiguous prefix. Retransmission repeats identical ciphertext; START/END and
 delivery are distinct. Temporary CCP loss consumes the ten-second ACK budget,
 preserving buffered PCM and resuming only with the same authenticated key and IP.
 Transport failure after END transmission remains Unconfirmed.
-The PC binds START to the exact genuinely followed chat, rejects a changed chat
-before submission and never selects a different destination on retry.
+The PC checks the displayed chat's digest against the exact chat selected by the
+latest genuine Codex prompt. A changed or missing selection fails admission.
+Opening a different chat in Desktop alone does not update this selection. A
+change during dictation also blocks queue admission. Both Cody and the plugin
+need the matching START contract.
 
 The plugin receives bounded PCM, writes a private WAV under its runtime
 `artifacts/voice` and submits `localAudio` to the public queue of the exact
 followed Codex chat. Setup selects the installed Codex executable explicitly.
 The receiver re-reads the selection at each readiness check; a changed executable
-must pass its own queue probe before a new START can be admitted. An existing
+must pass its own queue probe before a new START can be admitted. A new followed
+chat is probed on the delivery worker's next tick. An existing
 recording never moves to a replacement executable. The readiness lease lasts ten
 seconds and does not certify audio/model capability. The native device UI shows
 `PC rejected audio` for an authenticated rejection; the PC status retains the cause.

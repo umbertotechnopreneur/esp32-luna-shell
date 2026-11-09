@@ -9,6 +9,8 @@
 
 namespace CODY {
 
+inline constexpr int64_t kVoiceResultDwellUs = 3000000;
+
 enum class DeviceFeedback : uint8_t { None, OptionsOpened, TimerStarted };
 
 // Recent request identities prevent navigation, refresh and reconnect from replaying notices.
@@ -49,7 +51,8 @@ struct DeviceEffectsModel {
     bool event_online = false;
     bool pairing_terminal_announced = false;
     bool voice_start_announced = false;
-    bool voice_delivery_announced = false;
+    bool voice_send_announced = false;
+    bool voice_close_announced = false;
 };
 static_assert(sizeof(DeviceEffectsModel) <= 4096,
     "Device effects retain bounded observations and identities in the device model");

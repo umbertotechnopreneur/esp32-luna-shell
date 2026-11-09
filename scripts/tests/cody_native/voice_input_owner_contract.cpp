@@ -17,7 +17,7 @@ int16_t *s_ring = storage;
 size_t s_read, s_write, s_count, s_inflight_samples, s_window_read, s_window_count, s_reserved, s_packet_size;
 uint32_t s_sequence, s_ack_counter, s_silence_samples;
 uint8_t s_session[16];
-bool s_end_sent, s_begun, s_final, s_publication_pending;
+bool s_begun, s_final, s_publication_pending, s_destination_refresh_requested;
 int64_t s_last_ack_at, s_countdown_deadline_us, now_us = 1000000;
 LUNASHELL::VoiceInputObservation s_observation, published;
 esp_err_t injected_publication_error = ESP_OK;
@@ -74,12 +74,21 @@ void prepare()
     assert(published.capturing_started_at_us == 0 && published.countdown_seconds == 0);
 }
 
+// No parameters: fixture publishes the destination normally resolved by authenticated CCP.
+void resolve_destination()
+{
+    s_observation.destination_title[0] = 'A';
+    assert(publish(LUNASHELL::VoiceInputPhase::Preparing) == ESP_OK);
+}
+
 // No parameters: deterministic successful frame retirement followed by three actual seconds.
 void begin()
 {
     prepare();
+    resolve_destination();
     bool accepted = false;
     assert(LUNASHELL::beginVoiceInputCountdown(published.started_at_us, accepted) == ESP_OK && accepted);
+    s_begun = true; // Authenticated START acknowledgement.
     now_us += 3000000;
     assert(advance_countdown_locked(now_us) == ESP_OK);
     assert(published.phase == LUNASHELL::VoiceInputPhase::Listening);
@@ -95,6 +104,8 @@ int main()
     feedVoiceInput(storage, 16000, true, ESP_OK);
     assert(s_count == 0 && published.phase == VoiceInputPhase::Preparing);
     bool accepted = true;
+    assert(beginVoiceInputCountdown(pending_identity, accepted) == ESP_OK && !accepted);
+    resolve_destination();
     assert(beginVoiceInputCountdown(pending_identity - 1, accepted) == ESP_OK && !accepted);
     assert(beginVoiceInputCountdown(pending_identity, accepted) == ESP_OK && accepted);
     assert(published.phase == VoiceInputPhase::StartCountdown && published.countdown_seconds == 3);
@@ -110,7 +121,16 @@ int main()
     assert(advance_countdown_locked(now_us) == ESP_OK && published.phase == VoiceInputPhase::Cancelled);
 
     prepare();
+    resolve_destination();
     assert(beginVoiceInputCountdown(published.started_at_us, accepted) == ESP_OK && accepted);
+    now_us += 3000000;
+    assert(advance_countdown_locked(now_us) == ESP_ERR_TIMEOUT);
+    assert(published.phase == VoiceInputPhase::Failed && published.capturing_started_at_us == 0);
+
+    prepare();
+    resolve_destination();
+    assert(beginVoiceInputCountdown(published.started_at_us, accepted) == ESP_OK && accepted);
+    s_begun = true;
     injected_read_error = ESP_FAIL;
     now_us += 3000000;
     assert(advance_countdown_locked(now_us) == ESP_FAIL);
@@ -122,7 +142,9 @@ int main()
     fixture_voice.data_stale = true;
     assert(requestVoiceInput(VoiceInputTrigger::StandbyWake) == ESP_OK);
     assert(published.phase == VoiceInputPhase::Preparing && published.captured_samples == 0);
+    resolve_destination();
     assert(beginVoiceInputCountdown(published.started_at_us, accepted) == ESP_OK && accepted);
+    s_begun = true;
     now_us += 3000000;
     assert(advance_countdown_locked(now_us) == ESP_ERR_INVALID_STATE);
     assert(published.phase == VoiceInputPhase::Failed); // A stale pause never becomes actual Listening.
@@ -137,7 +159,7 @@ int main()
     assert(advance_countdown_locked(now_us) == ESP_OK && published.countdown_seconds == 1);
     assert(cancelVoiceInput(published.started_at_us, accepted) == ESP_OK && accepted);
     now_us += 1000000;
-    assert(advance_countdown_locked(now_us) == ESP_OK && published.phase == VoiceInputPhase::Cancelled);
+    assert(advance_countdown_locked(now_us) == ESP_OK && published.phase == VoiceInputPhase::Cancelling);
 
     begin();
     feedVoiceInput(storage, 1, true, ESP_OK);
@@ -176,7 +198,7 @@ int main()
     assert(cancelVoiceInput(identity, accepted) == ESP_OK && !accepted);
     begin();
     feedVoiceInput(storage, 1, true, ESP_OK);
-    s_end_sent = true;
+    s_observation.end_sent = true;
     s_observation.phase = VoiceInputPhase::Sending;
     assert(cancelVoiceInput(s_observation.started_at_us, accepted) == ESP_OK && !accepted);
     assert(cancelVoiceInput() == ESP_ERR_INVALID_STATE);

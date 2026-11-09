@@ -176,7 +176,7 @@ bool voice_visible(int64_t now_us)
     case VoicePhase::Delivered:
     case VoicePhase::Cancelled:
     case VoicePhase::Unconfirmed:
-    case VoicePhase::Failed: return now_us - input.changed_at_us < 3000000;
+    case VoicePhase::Failed: return now_us - input.changed_at_us < CODY::kVoiceResultDwellUs;
     default: return true;
     }
 }
@@ -1034,7 +1034,7 @@ esp_err_t update_and_draw(int64_t now_us)
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     if (error == ESP_OK && frame.layer == Layer::Voice) {
         ui.presented_voice_session = ui.model.voice.input.started_at_us;
-        if (ui.model.voice.input.phase == VoicePhase::Preparing) {
+        if (ui.model.voice.input.phase == VoicePhase::Preparing && ui.model.voice.input.destination_title[0] != '\0') {
             bool accepted = false;
             error = LUNASHELL::beginVoiceInputCountdown(ui.presented_voice_session, accepted);
         }

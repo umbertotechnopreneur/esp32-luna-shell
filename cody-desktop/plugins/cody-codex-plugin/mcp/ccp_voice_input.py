@@ -24,6 +24,13 @@ MAX_PCM = 16000 * 2 * 60
 MAX_RECORDINGS = 64
 MAX_ACTIVE = 4
 WINDOW = 4
+CHAT_DIGEST_BYTES = hashlib.sha256().digest_size
+DESTINATION_REJECTED = 7
+REJECTED_STATUSES = (5, DESTINATION_REJECTED)
+
+
+class DestinationChanged(RuntimeError):
+    """The frozen chat is no longer selected for dictation."""
 
 
 @dataclass
@@ -34,7 +41,6 @@ class Recording:
     key: bytes
     source: tuple[str, int]
     thread_id: str
-    turn_id: str
     queue_executable: str = ""
     expected: int = 0
     counter: int = 0
@@ -72,6 +78,7 @@ class VoiceInputServer:
         self.ready_at = 0.0
         self.native_error = "Native audio readiness has not been checked"
         self.next_probe = 0.0
+        self.probed_thread = ""
         self.receiver = threading.Thread(target=self.receive, name="CCP-audio-receiver", daemon=True)
         self.delivery = threading.Thread(target=self.deliver, name="CCP-audio-delivery", daemon=True)
 
@@ -151,7 +158,8 @@ class VoiceInputServer:
         magic, device_bytes, session, presence, sequence, flag, size = HEADER.unpack(packet[:HEADER.size])
         if magic != b"CYA1" or flag not in (1, 2, 3, 4) or size > 960 or size % 2 or len(packet) != HEADER.size + size + 16:
             raise ValueError("Audio header is invalid")
-        if (flag == 1 and (sequence != 0 or size != 0)) or (flag != 1 and sequence == 0) or (flag in (3, 4) and size != 0):
+        if ((flag == 1 and (sequence != 0 or size not in (0, CHAT_DIGEST_BYTES)))
+                or (flag != 1 and sequence == 0) or (flag in (3, 4) and size != 0)):
             raise ValueError("Audio packet identity and payload kind disagree")
         device = device_bytes.hex()
         retained_key, current_nonce = self.peer_key(device, source)
@@ -162,26 +170,28 @@ class VoiceInputServer:
             identity = (device, session)
             recording = self.records.get(identity)
             if recording is None:
-                if sequence != 0 or flag != 1 or size != 0:
+                if sequence != 0 or flag != 1:
                     raise ValueError("Audio input requires an authenticated START")
                 if not hmac.compare_digest(presence.hex(), current_nonce):
                     raise ValueError("Audio START is not bound to fresh authenticated discovery")
                 # Retain terminal identities for replay rejection; bounded slots never evict a live recording.
                 self.records = {item: record for item, record in self.records.items()
                     if time.monotonic() - record.touched < 180}
-                if len(self.records) >= MAX_RECORDINGS or sum(not item.finished and item.status != 5
+                if len(self.records) >= MAX_RECORDINGS or sum(not item.finished and item.status not in REJECTED_STATUSES
                     for item in self.records.values()) >= MAX_ACTIVE:
                     raise ValueError("Audio receiver is full")
-                followed = [item for item in self.responder._activity.list_sessions() if item["followed"]]
+                thread_id = self.responder._activity.voice_destination()
+                digest = hashlib.sha256(thread_id.encode("ascii")).digest() if thread_id else None
+                # Legacy empty START and a stale title both fail before any PCM is admitted.
+                matched = digest is not None and hmac.compare_digest(plaintext, digest)
                 recording = Recording(device, session, presence, key, source,
-                    followed[0]["session_id"] if len(followed) == 1 else "",
-                    followed[0]["turn_id"] if len(followed) == 1 else "", self.executable)
+                    thread_id if matched else "", self.executable)
                 self.records[identity] = recording
-                if not recording.thread_id:
-                    recording.status, recording.error = 5, "No genuine followed Codex chat"
-                elif self.ready_thread != recording.thread_id or not 0 <= now - self.ready_at <= 10:
+                if not matched:
+                    recording.status, recording.error = DESTINATION_REJECTED, "No match for the displayed Codex chat"
+                elif self.ready_thread != thread_id or not 0 <= now - self.ready_at <= 10:
                     recording.status, recording.error = 5, self.native_error or "Native audio readiness expired"
-                if recording.status == 5:
+                if recording.status in REJECTED_STATUSES:
                     print(f"CCP audio START rejected: {recording.error}", file=sys.stderr, flush=True)
             if recording.source != source or not hmac.compare_digest(key, recording.key):
                 raise ValueError("Audio input endpoint or retained key changed")
@@ -193,7 +203,7 @@ class VoiceInputServer:
                 recording.expected = max(recording.expected, sequence + 1)
                 self.acknowledge(recording, sequence)
                 return
-            if recording.status == 5:
+            if recording.status in REJECTED_STATUSES:
                 # Rejected START has no accepted prefix; acknowledge the failure, never sequence -1.
                 self.acknowledge(recording, sequence)
                 return
@@ -204,7 +214,7 @@ class VoiceInputServer:
             if sequence < recording.expected and sequence < recording.expected - WINDOW:
                 raise ValueError("Audio replay is outside the four-packet acknowledgement window")
             recording.touched = time.monotonic()
-            if sequence == recording.expected and not recording.finished and recording.status != 5:
+            if sequence == recording.expected and not recording.finished:
                 if flag == 1 and sequence != 0:
                     raise ValueError("Audio START replay is invalid")
                 if flag == 2:
@@ -233,7 +243,8 @@ class VoiceInputServer:
         while not self.stop.is_set():
             with self.lock:
                 for recording in self.records.values():
-                    if not recording.finished and recording.status != 5 and time.monotonic() - recording.touched > 10:
+                    if (not recording.finished and recording.status not in REJECTED_STATUSES
+                            and time.monotonic() - recording.touched > 10):
                         recording.status, recording.error = 5, "Audio capture stopped before END"
                         recording.pcm.clear()
             try:
@@ -252,10 +263,11 @@ class VoiceInputServer:
     # self: Native readiness owner; bounded read-only probe stays off the UDP worker.
     # Exceptions: Probe failures become explicit unavailable state and are logged once per change.
     def refresh_readiness(self):
-        if time.monotonic() < self.next_probe:
+        thread_id = self.responder._activity.voice_destination()
+        # The worker sees a genuine chat switch on its next tick, even within the periodic lease.
+        if thread_id == self.probed_thread and time.monotonic() < self.next_probe:
             return
-        followed = [item for item in self.responder._activity.list_sessions() if item["followed"]]
-        thread_id = followed[0]["session_id"] if len(followed) == 1 else ""
+        self.probed_thread = thread_id
         error = ""
         configuration = audio_config.NativeAudioConfig(source="invalid")
         try:
@@ -348,16 +360,16 @@ class VoiceInputServer:
                         output.writeframes(pcm)
                 with self.lock:
                     recording.artifact = str(path)
-                followed = [item for item in self.responder._activity.list_sessions() if item["followed"]]
-                if len(followed) != 1 or followed[0]["session_id"] != recording.thread_id:
-                    raise RuntimeError("The followed Codex chat changed during audio capture")
+                if self.responder._activity.voice_destination() != recording.thread_id:
+                    raise DestinationChanged("The followed Codex chat changed during audio capture")
                 # No parameters: cancellation and the frozen chat are checked at queue admission.
                 # Raises RuntimeError without sending user input if either owner changed.
                 def before_submit():
                     with self.lock:
-                        current = [item for item in self.responder._activity.list_sessions() if item["followed"]]
-                        if self.stop.is_set() or recording.status == 5 or len(current) != 1 or current[0]["session_id"] != recording.thread_id:
-                            raise RuntimeError("Audio cancelled or followed chat changed before native submission")
+                        if self.stop.is_set() or recording.status in REJECTED_STATUSES:
+                            raise RuntimeError("Audio cancelled before native submission")
+                        if self.responder._activity.voice_destination() != recording.thread_id:
+                            raise DestinationChanged("The followed Codex chat changed before native submission")
                         recording.submitting = True
 
                 if self.queue_client is None or self.native_error:
@@ -371,13 +383,18 @@ class VoiceInputServer:
             except Exception as error:
                 # Optional failure stays structured; unknown exceptions do not become delivery success.
                 with self.lock:
-                    recording.status = 6 if recording.submitting and not isinstance(error, NativeInputRejected) else 5
+                    if isinstance(error, DestinationChanged):
+                        recording.status = DESTINATION_REJECTED
+                    else:
+                        recording.status = 6 if recording.submitting and not isinstance(error, NativeInputRejected) else 5
                     recording.error = str(error)
                 print(f"CCP audio queue delivery failed: {error}", file=sys.stderr, flush=True)
-                try:
-                    self.close_queue()
-                except Exception as cleanup_error:
-                    print(f"CCP audio queue cleanup failed: {cleanup_error}", file=sys.stderr, flush=True)
+                # Selection changed, but the process can probe the new chat on the next tick.
+                if not isinstance(error, DestinationChanged):
+                    try:
+                        self.close_queue()
+                    except Exception as cleanup_error:
+                        print(f"CCP audio queue cleanup failed: {cleanup_error}", file=sys.stderr, flush=True)
             finally:
                 pcm = b""
                 with self.lock:
@@ -387,9 +404,9 @@ class VoiceInputServer:
     # self: Reports transport/native state without PCM, keys or transcript contents.
     def status(self) -> dict:
         with self.lock:
-            followed = [item for item in self.responder._activity.list_sessions() if item["followed"]]
-            native_ready = (len(followed) == 1 and self.ready_thread == followed[0]["session_id"] and
-                            0 <= time.monotonic() - self.ready_at <= 10)
+            thread_id = self.responder._activity.voice_destination()
+            native_ready = bool(thread_id and self.ready_thread == thread_id and
+                                0 <= time.monotonic() - self.ready_at <= 10)
             return {"available": self.socket is not None, "error": self.error or None,
                 "rejected_packets": self.rejections,
                 "native_executable_configured": bool(self.executable),

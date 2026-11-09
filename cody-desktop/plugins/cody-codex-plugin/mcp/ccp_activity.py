@@ -494,6 +494,12 @@ class ActivityStore:
                      "followed": item.session_id == self._followed_session_id}
                     for item in self._sessions.values()]
 
+    # self: Canonical hook owner, read without a title lookup or session list scan.
+    def voice_destination(self) -> str:
+        with self._lock:
+            session = self._sessions.get(self._followed_session_id)
+            return session.session_id if session and session.phase != Phase.ENDED else ""
+
     # self: Genuine native hook owner; companion status never performs another journal read.
     # Returns only bounded source identity, phase and original observation age.
     def source_observation(self) -> dict[str, Any]:

@@ -3493,6 +3493,50 @@ esp_err_t DeviceSnapshotService::readVoiceInputAdmissionObservation(VoiceInputAd
     }
     return release_error;
 }
+
+// requested_at_us: Original voice request. A prior chat observation cannot select a destination.
+// destination: Receives a coherent, bounded projection from the authenticated link snapshot.
+// Exception: Returns NOT_FINISHED for pending metadata, NOT_FOUND for an absent chat or the original lock error.
+esp_err_t DeviceSnapshotService::readVoiceInputDestination(int64_t requested_at_us,
+    VoiceInputDestinationObservation &destination) const
+{
+    const auto lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "voice destination read");
+    if (lock_error != ESP_OK) return lock_error;
+    const auto &link = s_snapshot.radios.codex_link;
+    const auto &activity = link.activity;
+    const int64_t now_us = esp_timer_get_time();
+    esp_err_t error = ESP_ERR_NOT_FINISHED;
+    VoiceInputDestinationObservation copy{};
+    if (codex_presence::ready_current(link, now_us) && activity.data_valid && !activity.data_stale &&
+        activity.last_error == ESP_OK && activity.last_attempt_at_us >= requested_at_us &&
+        now_us >= activity.last_attempt_at_us) {
+        if (activity.state == CodexActivityState::None || activity.state == CodexActivityState::Ended) {
+            error = ESP_ERR_NOT_FOUND;
+        } else if (activity.title_state == CodexChatTitleState::Current && activity.title_error == ESP_OK &&
+                   activity.title[0] != '\0' && activity.title_age_at_receive_us < kCodexChatTitleLifetimeUs &&
+                   static_cast<uint64_t>(now_us - activity.last_attempt_at_us) <
+                       kCodexChatTitleLifetimeUs - activity.title_age_at_receive_us) {
+            std::memcpy(copy.chat_id, activity.chat_id, sizeof(copy.chat_id));
+            const auto length = std::strlen(activity.title);
+            if (length < sizeof(copy.title)) {
+                std::memcpy(copy.title, activity.title, length + 1);
+            } else {
+                // Retain both ends of the name within the safe caption width.
+                constexpr size_t prefix = 12;
+                constexpr size_t ellipsis = 3;
+                constexpr size_t suffix = sizeof(copy.title) - prefix - ellipsis - 1;
+                std::memcpy(copy.title, activity.title, prefix);
+                std::memcpy(copy.title + prefix, "...", ellipsis);
+                std::memcpy(copy.title + prefix + ellipsis, activity.title + length - suffix, suffix);
+            }
+            error = ESP_OK;
+        }
+    }
+    const auto release_error = give_snapshot_mutex("voice destination read");
+    if (release_error != ESP_OK) return release_error;
+    if (error == ESP_OK) destination = copy;
+    return error;
+}
 #endif
 
 // voice: Receives the canonical AFE state; this method never acquires audio.

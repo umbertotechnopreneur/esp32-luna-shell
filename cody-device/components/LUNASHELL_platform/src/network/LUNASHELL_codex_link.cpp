@@ -4476,10 +4476,14 @@ void codexLinkWorker(void *context)
         {
             // Reuse the serialized CCP owner; the AFE never blocks on network work.
             std::lock_guard<std::mutex> guard(s_mutex);
+            bool refresh_destination = false;
             voice_busy = LUNASHELL::tickVoiceInputTransport(s_persisted_link.link_key,
                 s_link_snapshot.device_id, s_link_snapshot.peer_ip_address, s_ready_nonce,
                 s_link_present && !s_candidate_present && s_pending == Command::None &&
-                s_link_snapshot.state == State::Connected);
+                s_link_snapshot.state == State::Connected, refresh_destination);
+            // Reuse FIND when its previous activity arrived. An in-flight exchange can
+            // still supply the title, so do not invalidate its nonce to refresh it.
+            if (refresh_destination && s_activity_received_for_nonce) s_next_find_at_us = 0;
         }
 #endif
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION

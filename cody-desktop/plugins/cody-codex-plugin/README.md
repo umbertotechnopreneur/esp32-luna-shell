@@ -142,8 +142,12 @@ There is no separate OpenAI API key, transcription service or model session.
 The receiver owns one standard stdio app-server client, restricted to initialize,
 thread metadata and public experimental queue operations. It never resumes or
 starts a chat, steers a turn, overrides model modalities or answers approvals.
-At END it retains the completed WAV and calls `thread/queue/add` once with the
-capture's frozen chat and recording ID. A changed followed chat cancels admission;
+Cody shows the destination and the receiver checks its digest at START before
+recording opens. The followed chat changes on a genuine prompt in Codex. Merely
+opening another chat in Desktop leaves the selection unchanged. Update the
+plugin and firmware together for this START contract.
+At END the receiver retains the completed WAV and calls `thread/queue/add` once
+with the capture's frozen chat and recording ID. A changed followed chat cancels admission;
 ambiguous acknowledgement remains unconfirmed and is never automatically retried.
 The process is reused for read-only readiness and retired with the audio owner.
 

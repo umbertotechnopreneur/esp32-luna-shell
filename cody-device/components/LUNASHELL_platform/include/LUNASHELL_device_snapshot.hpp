@@ -289,6 +289,8 @@ struct PairingSessionSnapshot : ComponentSnapshot {
 
 enum class CodexChatTitleState : uint8_t { Unavailable, Current, Unsupported, Error };
 
+inline constexpr uint64_t kCodexChatTitleLifetimeUs = 45000000;
+
 struct CodexActivitySnapshot : ComponentSnapshot {
     CodexActivityState state = CodexActivityState::None;
     uint64_t revision = 0;
@@ -1351,6 +1353,11 @@ public:
     // admission: Receives the persisted preference and current LAN route in one canonical read.
     // Exception: Returns the original lock or release failure without assigning a partial result.
     esp_err_t readVoiceInputAdmissionObservation(VoiceInputAdmissionObservation &admission) const;
+    // requested_at_us: Monotonic time of the voice request. Older metadata is ineligible.
+    // destination: Receives the authenticated digest and its bounded title together.
+    // Exception: Returns NOT_FINISHED while waiting for metadata, NOT_FOUND for a confirmed absent chat,
+    // or the original snapshot lock or release error.
+    esp_err_t readVoiceInputDestination(int64_t requested_at_us, VoiceInputDestinationObservation &destination) const;
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     // input: Real capture/transport state from the sole voice-input owner.

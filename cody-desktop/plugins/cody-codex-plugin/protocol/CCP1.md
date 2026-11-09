@@ -900,8 +900,9 @@ Start/send countdowns admit immediate tap cancellation before native submission.
 The header is network-order `!4s6s16s16sIBH`: magic, binary device identity,
 16-byte utterance identity, 16-byte authenticated discovery nonce, uint32 sequence,
 uint8 kind and uint16 plaintext byte count. Device magic is `CYA1`; PC magic is
-`CYA2`. Device kinds are START=1 (sequence zero, no PCM), DATA=2 (at most 960 PCM
-bytes), END=3 (no PCM) and CANCEL=4 (no PCM, new sequence/nonce). PCM bytes are
+`CYA2`. Device kinds are START=1 (sequence zero, the 32-byte SHA-256 chat digest
+from authenticated ACTIVITY), DATA=2 (at most 960 PCM bytes), END=3 (no PCM) and
+CANCEL=4 (no PCM, new sequence/nonce). PCM bytes are
 little-endian int16. Up to four DATA packets may be in flight; START, END and
 CANCEL remain individually acknowledged. ACKs carry the highest contiguous
 sequence. Retries within the four-packet window never append PCM twice.
@@ -916,13 +917,17 @@ identical ciphertext, never different plaintext under the same nonce. PC ACKs
 use `ACK1 || uint64(ack counter)` with a strictly increasing counter. ACK plaintext
 is `!IB`: acknowledged device sequence plus status START accepted=1, PCM received=2,
 whole utterance received=3, native Codex queue accepted=4, failed/cancelled=5 or native
-submission unconfirmed=6. An unconfirmed input is never automatically repeated.
+submission unconfirmed=6 or destination rejected=7. An unconfirmed input is
+never automatically repeated.
 
 START requires both a fresh authenticated CCP peer and that peer's current
 discovery nonce. This prevents an old recorded START from reopening an utterance
 after the bounded transient record expires. Retained pairing alone never admits
-audio. A recent successful native initialization/thread-read probe for the followed
-chat is also required: five-second refresh, ten-second maximum age. Each bounded
+audio. The PC rejects a missing or mismatched chat digest, including legacy
+empty START packets. The device waits for START acceptance before admitting PCM.
+A successful native initialization/thread-read probe for the followed chat is
+also required. Selection changes trigger a probe on the delivery worker's next
+tick. Periodic refresh is five seconds, with a ten-second maximum age. Each bounded
 public RPC allows up to fifteen seconds; a stalled probe does not renew freshness.
 This is reachability evidence, not model/audio capability evidence.
 Later blocks remain bound to the original endpoint, credential, utterance
@@ -934,7 +939,8 @@ and fails explicitly on overflow. Reconnection requires the same authenticated
 credential and IP. A transmitted END makes later transport failure Unconfirmed.
 The four ciphertext slots use at most 4,352 component-owned bytes, not task stack.
 The transport service cadence is five milliseconds, with a minimum of one RTOS tick.
-The PC freezes the genuine followed chat at START. After END it writes the complete
+The PC binds START to the same genuine followed chat whose title Cody showed.
+After END it writes the complete
 WAV exclusively and calls the public experimental `thread/queue/add` once, using
 that same chat and `clientUserMessageId` equal to the recording ID. A last-moment
 chat switch or cancellation prevents admission. The stable ID is correlation,

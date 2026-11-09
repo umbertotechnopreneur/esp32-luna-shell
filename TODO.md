@@ -6,8 +6,9 @@
   display at all rotations, with missing/stale and unsupported network names.
 - Verify Account and Token activity empty states. Exercise Credits with no vouchers,
   one voucher, equal dates and multiple dates, including local midnight and vertical swipes.
-- Verify the three-second dictation flip with both Sophia and a double tap. Exercise
-  cancellation, PC configuration recovery and a real WAV queue receipt on Windows.
+- Verify the dictation countdowns and start, send and close sounds with Sophia and
+  a double tap. Exercise cancellation, destination changes, PC configuration recovery
+  and a real WAV queue receipt on Windows.
 - Verify Connections action admission, passive Wi-Fi animation and the
   provisioning result at all rotations, including a 32-byte SSID and a lost IP.
 

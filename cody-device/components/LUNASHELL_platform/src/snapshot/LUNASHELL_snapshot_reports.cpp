@@ -212,7 +212,8 @@ esp_err_t DeviceSnapshotService::reportVoiceInput(const VoiceInputObservation &i
     const bool recording_phase = input.phase == VoiceInputPhase::Listening || input.phase == VoiceInputPhase::SendCountdown ||
         input.phase == VoiceInputPhase::Sending || input.phase == VoiceInputPhase::Received || input.phase == VoiceInputPhase::Delivered;
     const bool known_failure = input.failure == VoiceInputFailure::None ||
-        ((input.failure == VoiceInputFailure::Microphone || input.failure == VoiceInputFailure::PcRejected) &&
+        ((input.failure == VoiceInputFailure::Microphone || input.failure == VoiceInputFailure::PcRejected ||
+            input.failure == VoiceInputFailure::Destination) &&
             input.phase == VoiceInputPhase::Failed) ||
         (input.failure == VoiceInputFailure::Transport &&
             (input.phase == VoiceInputPhase::Failed || input.phase == VoiceInputPhase::Unconfirmed));
@@ -224,8 +225,12 @@ esp_err_t DeviceSnapshotService::reportVoiceInput(const VoiceInputObservation &i
         input.capturing_started_at_us < 0 || input.capturing_started_at_us > now_us ||
         (input.capturing_started_at_us != 0 && input.capturing_started_at_us < input.started_at_us) ||
         (input.captured_samples != 0 && input.capturing_started_at_us == 0) ||
+        ((recording_phase || input.phase == VoiceInputPhase::StartCountdown) && input.destination_title[0] == '\0') ||
         (recording_phase && input.capturing_started_at_us == 0) ||
         (capture_pending && (input.capturing_started_at_us != 0 || input.captured_samples != 0)) ||
+        (input.end_sent && (input.captured_samples == 0 || input.phase == VoiceInputPhase::Idle ||
+            capture_pending || input.phase == VoiceInputPhase::Listening || input.phase == VoiceInputPhase::SendCountdown ||
+            input.phase == VoiceInputPhase::Cancelling || input.phase == VoiceInputPhase::Cancelled)) ||
         input.acknowledged_samples > input.captured_samples || input.started_at_us < 0 || input.started_at_us > now_us ||
         (input.phase != VoiceInputPhase::Idle && input.started_at_us == 0) || input.changed_at_us <= 0 ||
         input.changed_at_us < input.started_at_us || input.changed_at_us > now_us ||

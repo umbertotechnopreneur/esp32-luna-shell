@@ -676,7 +676,9 @@ esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,
     // Exception: Preserves the native layout error.
     const auto prepare = [&](const char *status, const char *detail = "", const char *first = nullptr,
                              const char *second = nullptr) {
-        return prepare_device_message(view, frame, "Dictation", status, detail, first, second, "",
+        const bool has_destination = voice.destination_title[0] != '\0';
+        return prepare_device_message(view, frame, has_destination ? "Dictation to" : "Dictation", status,
+            has_destination ? voice.destination_title : detail, first, second, has_destination ? detail : "",
             DeviceMessageLayout::Voice);
     };
     char detail[32]{};
@@ -684,13 +686,13 @@ esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,
     case Phase::Idle:
         return prepare("Recording unavailable");
     case Phase::Preparing:
-        return prepare("Preparing", "Please wait", nullptr, "Cancel");
+        return prepare("Preparing", voice.destination_title[0] == '\0' ? "Finding destination" : "", nullptr, "Cancel");
     case Phase::StartCountdown:
     case Phase::SendCountdown: {
         if (voice.countdown_seconds < 1 || voice.countdown_seconds > 3) return ESP_ERR_INVALID_RESPONSE;
-        auto error = prepare_device_message(view, frame, "Dictation",
+        auto error = prepare_device_message(view, frame, "Dictation to",
             voice.phase == Phase::StartCountdown ? "Recording starts in" : "Sending in",
-            "", nullptr, "Cancel", "", DeviceMessageLayout::VoiceCountdown);
+            voice.destination_title, nullptr, "Cancel", "", DeviceMessageLayout::VoiceCountdown);
         if (error != ESP_OK) return error;
         constexpr int64_t kFlipUs = 200000;
         const auto age = now_us - voice.changed_at_us;
@@ -704,7 +706,7 @@ esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,
     case Phase::Listening:
         // The capture owner checks for PCM on release. Its public observation
         // does not publish the private buffer size for every incoming block.
-        return prepare("Listening", "Speak now", "Send", "Cancel");
+        return prepare("Listening", "", "Send", "Cancel");
     case Phase::Sending:
         return prepare("Sending audio");
     case Phase::Cancelling:
@@ -722,11 +724,12 @@ esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,
         // The owner already returns after three seconds. A terminal failure has
         // no retry/dismiss capability; do not expose a button that cancels again.
         const bool rejected = voice.failure == LUNASHELL::VoiceInputFailure::PcRejected;
-        const char *status = rejected ? "PC rejected audio" :
+        const bool destination = voice.failure == LUNASHELL::VoiceInputFailure::Destination;
+        const char *status = destination ? "Chat unavailable" : rejected ? "PC rejected audio" :
             voice.failure == LUNASHELL::VoiceInputFailure::Microphone ? "Microphone failed" :
             voice.failure == LUNASHELL::VoiceInputFailure::Transport ? "Audio link failed" : "Audio failed";
         return prepare_device_message(view, frame, "Dictation", status,
-            rejected ? "Check Codex audio on PC" : "Returning to your screen",
+            destination ? "Check Codex chat on PC" : rejected ? "Check Codex audio on PC" : "Returning to your screen",
             nullptr, nullptr, detail, DeviceMessageLayout::VoiceFailure);
     }
     }

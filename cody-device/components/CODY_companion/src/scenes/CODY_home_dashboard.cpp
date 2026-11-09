@@ -434,7 +434,7 @@ const char *chat_title_text(const LUNASHELL::CodexActivitySnapshot &activity, in
     }
     if (activity.title_state != State::Current || !activity.data_valid) { return "Title unavailable"; }
     if (activity.last_error != ESP_OK) { return "Title error"; }
-    constexpr uint64_t lifetime_us = 45000000;
+    constexpr uint64_t lifetime_us = LUNASHELL::kCodexChatTitleLifetimeUs;
     if (activity.data_stale || activity.last_attempt_at_us <= 0 || now_us < activity.last_attempt_at_us ||
         activity.title_age_at_receive_us >= lifetime_us ||
         static_cast<uint64_t>(now_us - activity.last_attempt_at_us) >= lifetime_us - activity.title_age_at_receive_us) {

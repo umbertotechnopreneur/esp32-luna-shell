@@ -22,7 +22,8 @@ constexpr size_t kTapSamples = 480;
 constexpr int64_t kDisconnectDwellUs = 3000000;
 constexpr int64_t kWifiReadyDwellUs = 500000;
 constexpr int64_t kQuestionReminderUs = 60000000;
-constexpr int64_t kVoiceStartFreshnessUs = 200000;
+constexpr int64_t kVoiceCountdownCueFreshnessUs = 200000;
+constexpr int64_t kVoiceCloseCueFreshnessUs = 500000;
 
 // No parameters: build a rounded-noise impulse with a short attack and quadratic decay.
 constexpr std::array<int16_t, kTapSamples> make_tap_cue()
@@ -326,10 +327,10 @@ bool voice_sound_state_known(const LUNASHELL::VoiceSnapshot &voice, int64_t now_
         (published_input || (stopped && voice.last_attempt_at_us > 0));
 }
 
-// model: Voice session identity and one-shot start/delivery flags.
+// model: Voice session identity and one-shot start, send and close flags.
 // voice: Optional original canonical voice snapshot; absent means no voice feature.
-// now_us: Monotonic time used to admit the start cue only at the beginning of its countdown.
-// request: Replaces other sounds during voice preparation and suppresses them during capture.
+// now_us: Monotonic time used to admit sounds only near their actual transitions.
+// request: Replaces other sounds on the voice route and suppresses them during capture.
 // Returns whether the shared Codex sound channel must remain suspended this tick.
 bool observe_voice(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice,
     int64_t now_us, SoundRequest &request)
@@ -346,31 +347,46 @@ bool observe_voice(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *vo
     if (input.started_at_us > 0 && input.started_at_us != model.voice_session_us) {
         model.voice_session_us = input.started_at_us;
         model.voice_start_announced = false;
-        model.voice_delivery_announced = false;
+        model.voice_send_announced = false;
+        model.voice_close_announced = false;
     }
-    if (input.phase == Phase::Preparing || input.phase == Phase::StartCountdown) {
+    if (input.phase == Phase::StartCountdown) {
         request = {};
-        // Three seconds are owned by the recording service. A <=350-ms cue with
-        // a 200-ms dispatch lease is admitted only in the first 200 ms of that window.
-        const bool starting = input.phase == Phase::StartCountdown && input.countdown_seconds == 3 &&
-            input.changed_at_us > 0 && now_us >= input.changed_at_us &&
-            now_us - input.changed_at_us <= kVoiceStartFreshnessUs;
-        if (starting && !model.voice_start_announced) {
+        // The start chime ends well before PCM can enter the recording.
+        if (!model.voice_start_announced && input.countdown_seconds == 3 && input.changed_at_us > 0 &&
+            now_us >= input.changed_at_us && now_us - input.changed_at_us <= kVoiceCountdownCueFreshnessUs) {
             model.voice_start_announced = true;
-            choose(request, CodexAudioCue::ConnectionRestored, SoundPriority::Confirmation);
+            choose(request, CodexAudioCue::ResponseReady, SoundPriority::Confirmation);
         }
-        // Keep an admitted start cue alive only while at least two countdown seconds remain.
-        return input.phase == Phase::Preparing || input.countdown_seconds < 2;
+        return input.countdown_seconds < 2;
     }
-    if (input.phase == Phase::Listening || input.phase == Phase::SendCountdown ||
-        input.phase == Phase::Sending || input.phase == Phase::Cancelling || input.phase == Phase::Received) {
+    if (input.end_sent && !model.voice_send_announced && input.changed_at_us > 0 && now_us >= input.changed_at_us) {
+        model.voice_send_announced = true;
+        if (now_us - input.changed_at_us <= kVoiceCloseCueFreshnessUs) {
+            request = {};
+            choose(request, CodexAudioCue::Running, SoundPriority::Confirmation);
+            return false;
+        }
+    }
+    if (!voice_input_stopped(input.phase)) {
         request = {};
-        return true;
+        // After END, keep the admitted send cue playing while waiting for Codex.
+        return !input.end_sent;
     }
-    if (input.phase == Phase::Delivered && input.error == ESP_OK && input.started_at_us > 0 &&
-        !model.voice_delivery_announced) {
-        model.voice_delivery_announced = true;
-        choose(request, CodexAudioCue::AnswerReceived, SoundPriority::Confirmation);
+    if (input.phase != Phase::Idle && input.started_at_us > 0 && input.changed_at_us > 0 &&
+        now_us >= input.changed_at_us && !model.voice_close_announced) {
+        const auto age_us = now_us - input.changed_at_us;
+        if (age_us < kVoiceResultDwellUs) {
+            request = {};
+        } else {
+            model.voice_close_announced = true;
+            if (age_us - kVoiceResultDwellUs <= kVoiceCloseCueFreshnessUs) {
+                request = {};
+                const bool delivered = input.phase == Phase::Delivered && input.error == ESP_OK;
+                choose(request, delivered ? CodexAudioCue::SessionEnded : CodexAudioCue::Interrupted,
+                    SoundPriority::Confirmation);
+            }
+        }
     }
     return false;
 }

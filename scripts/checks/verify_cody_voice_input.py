@@ -75,7 +75,7 @@ class VoiceInputBoundaries(unittest.TestCase):
         self.source = ("192.0.2.1", 55000)
         peer = SimpleNamespace(key=self.link, nonce=self.presence.hex(), source=(self.source[0], 42117), observed_at=time.monotonic())
         activity = Mock()
-        activity.list_sessions.return_value = [{"followed": True, "session_id": "test-chat", "turn_id": "test-turn"}]
+        activity.voice_destination.return_value = "test-chat"
         self.responder = SimpleNamespace(_event_lock=threading.Lock(), _event_peers={self.device: peer}, _activity=activity)
         self.receiver = audio.VoiceInputServer(self.responder)
         self.receiver.cipher = AESGCM
@@ -87,13 +87,15 @@ class VoiceInputBoundaries(unittest.TestCase):
     # self: Public synthetic protocol fixture.
     # sequence: Exact input block identity.
     # flag: START/PCM/END/CANCEL wire kind.
-    # pcm: Acquired synthetic PCM bytes for this boundary case.
+    # payload: Optional explicit bytes. START defaults to the displayed test-chat digest.
     # presence: Optional old discovery nonce for replay-rejection evidence.
-    def packet(self, sequence, flag, pcm=b"", presence=None):
+    def packet(self, sequence, flag, payload=None, presence=None):
         nonce = self.presence if presence is None else presence
+        if payload is None:
+            payload = hashlib.sha256(b"test-chat").digest() if flag == 1 else b""
         key = hmac.new(self.link, b"cody-audio-v1|" + self.session.hex().encode() + b"|" + nonce.hex().encode(), hashlib.sha256).digest()
-        header = audio.HEADER.pack(b"CYA1", bytes.fromhex(self.device), self.session, nonce, sequence, flag, len(pcm))
-        return header + AESGCM(key).encrypt(b"DAT1" + sequence.to_bytes(8, "big"), pcm, header)
+        header = audio.HEADER.pack(b"CYA1", bytes.fromhex(self.device), self.session, nonce, sequence, flag, len(payload))
+        return header + AESGCM(key).encrypt(b"DAT1" + sequence.to_bytes(8, "big"), payload, header)
 
     # self: Receiver fixture without any network execution.
     # Raises AssertionError if retransmission duplicates PCM or native delivery jobs.
@@ -183,6 +185,36 @@ class VoiceInputBoundaries(unittest.TestCase):
         self.receiver.accept(self.packet(1, 2, bytes(20)), self.source)
         self.assertFalse(recording.pcm)
         self.assertTrue(self.receiver.jobs.empty())
+
+    # self: Isolated receiver fixture with the selected chat already changed on the PC.
+    # Raises AssertionError if a stale or absent displayed destination can receive audio.
+    def test_start_rejects_stale_or_legacy_destination(self):
+        self.responder._activity.voice_destination.return_value = "different-chat"
+        self.receiver.ready_thread = "different-chat"
+        for payload in (None, b""):
+            self.receiver.accept(self.packet(0, 1, payload), self.source)
+            self.receiver.accept(self.packet(1, 2, bytes(20)), self.source)
+            recording = self.receiver.records[(self.device, self.session)]
+            self.assertEqual(recording.status, audio.DESTINATION_REJECTED)
+            self.assertEqual(recording.thread_id, "")
+            self.assertFalse(recording.pcm)
+            self.assertTrue(self.receiver.jobs.empty())
+            self.session = bytes(reversed(self.session))
+
+    # self: Isolated queue client during a native destination change.
+    # Raises AssertionError if a new chat waits for the previous chat's refresh deadline.
+    def test_chat_change_reprobes_before_periodic_deadline(self):
+        receiver = self.receiver
+        receiver.probed_thread = "test-chat"
+        receiver.next_probe = time.monotonic() + 5
+        receiver.queue_client = Mock()
+        receiver.executable = receiver.queue_executable = "configured-codex"
+        self.responder._activity.voice_destination.return_value = "different-chat"
+        configuration = audio.audio_config.NativeAudioConfig(receiver.executable, "fixture")
+        with patch.object(audio.audio_config, "load_config", return_value=configuration):
+            receiver.refresh_readiness()
+        receiver.queue_client.probe.assert_called_once_with("different-chat")
+        self.assertEqual(receiver.ready_thread, "different-chat")
 
     # self: Four-packet sender model with one lost prefix and repeated window packets.
     # Raises AssertionError if cumulative ACK advances over a gap or PCM duplicates.
