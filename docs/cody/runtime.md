@@ -794,11 +794,14 @@ No wake-word block or audio from preparation is recorded. Preparing waits for
 fresh authenticated chat metadata. It advances the existing discovery poll once
 when the previous exchange is complete. Cody freezes the destination title and chat
 identity together and shows the title throughout the recording and transfer.
-Long titles display their beginning and end. A complete Preparing frame showing
-the destination admits the three-second Recording starts in countdown. Cody sends
-START during that countdown. PCM requires the countdown deadline, authenticated
-START acceptance for that destination and a fresh successful AFE Listening
-observation. No wake-word cache is prepended. Physical timing still needs observation.
+Long titles display their beginning and end. A fresh unsupported title fails
+immediately. A complete Preparing frame showing the destination admits the
+three-second Recording starts in countdown. Cody sends START during that countdown.
+If the countdown ends without START acceptance or a current link, Cody shows
+Waiting for PC and keeps trying within the original ten-second ACK budget.
+PCM requires the countdown deadline, authenticated START acceptance for that
+destination, a current link and a fresh successful AFE Listening observation.
+No wake-word cache is prepended. Physical timing still needs observation.
 
 Voice input has presentation priority while retaining the interrupted route and
 its real question deadlines. The native device UI uses one split tile for the
@@ -807,8 +810,8 @@ repaints only the face during the transition. During preparation, listening and
 sending, a four-color ribbon occupies a 384 x 58 logical-pixel band at (41,179).
 While listening, gain follows valid, fresh microphone levels. Unavailable samples
 decay the visual response. Actual frame rate and energy cost require target measurements.
-On the native device screen, Cancel is available during Preparing and the
-countdowns; Listening offers Send and Cancel. Session and orientation guards
+On the native device screen, Cancel is available during Preparing, Waiting for PC
+and the countdowns. Listening offers Send and Cancel. Session and orientation guards
 reject late gestures, and only a fully retired view admits input. Cancellation remains possible
 while sending before END, but cannot revoke END already transmitted or a turn
 accepted by Codex; no late gesture claims that remote audio was discarded.
@@ -844,8 +847,11 @@ authenticated discovery nonce, sequence numbers and independent data/ACK nonce
 domains. A block stays in the ring until its authenticated acknowledgement.
 Four DATA packets may be in flight with cumulative acknowledgement of the
 contiguous prefix. Retransmission repeats identical ciphertext; START/END and
-delivery are distinct. Temporary CCP loss consumes the ten-second ACK budget,
-preserving buffered PCM and resuming only with the same authenticated key and IP.
+delivery are distinct. Repeated temporary CCP losses preserve the same session
+and buffered PCM. Each authenticated ACK renews the ten-second allowance, while
+the total session deadline still applies. Recovery requires the same credential,
+IP and audio endpoint, with the receiver's in-memory recording still present.
+After END, retries can recover the receipt without another Codex submission.
 Transport failure after END transmission remains Unconfirmed.
 The PC checks the displayed chat's digest against the exact chat selected by the
 latest genuine Codex prompt. A changed or missing selection fails admission.

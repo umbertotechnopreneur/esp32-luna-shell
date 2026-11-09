@@ -920,23 +920,28 @@ whole utterance received=3, native Codex queue accepted=4, failed/cancelled=5 or
 submission unconfirmed=6 or destination rejected=7. An unconfirmed input is
 never automatically repeated.
 
-START requires both a fresh authenticated CCP peer and that peer's current
-discovery nonce. This prevents an old recorded START from reopening an utterance
-after the bounded transient record expires. Retained pairing alone never admits
-audio. The PC rejects a missing or mismatched chat digest, including legacy
+START requires a fresh authenticated CCP peer and a nonce confirmed for that
+same active key and CCP endpoint. The PC retains up to eight previous nonces
+for up to ten seconds from their original confirmation, so a first START lost
+during discovery rotation can be retried byte for byte. This window is shorter
+than the 180-second recording retention window. Retained pairing alone never
+admits audio. The PC rejects a missing or mismatched chat digest, including legacy
 empty START packets. The device waits for START acceptance before admitting PCM.
 A successful native initialization/thread-read probe for the followed chat is
 also required. Selection changes trigger a probe on the delivery worker's next
-tick. Periodic refresh is five seconds, with a ten-second maximum age. Each bounded
-public RPC allows up to fifteen seconds; a stalled probe does not renew freshness.
+tick. Periodic refresh is five seconds, with a ten-second maximum age. Closing
+the queue client immediately revokes readiness. Each bounded public RPC allows
+up to fifteen seconds. A stalled probe does not renew freshness.
 This is reachability evidence, not model/audio capability evidence.
 Later blocks remain bound to the original endpoint, credential, utterance
 and discovery nonce; ordinary CCP challenge rotation does not rekey an active stream.
 
 The device retains every PCM block until its valid acknowledgement. Its ten-second
-ring survives temporary CCP liveness loss within the same ten-second ACK deadline
-and fails explicitly on overflow. Reconnection requires the same authenticated
-credential and IP. A transmitted END makes later transport failure Unconfirmed.
+ring survives repeated temporary CCP liveness losses within the ten-second
+allowance from the latest authenticated ACK and fails explicitly on overflow.
+The 90-second overall deadline still applies. Recovery requires the same
+authenticated credential, original IP and audio endpoint, and the PC's original
+in-memory recording. A transmitted END makes later transport failure Unconfirmed.
 The four ciphertext slots use at most 4,352 component-owned bytes, not task stack.
 The transport service cadence is five milliseconds, with a minimum of one RTOS tick.
 The PC binds START to the same genuine followed chat whose title Cody showed.

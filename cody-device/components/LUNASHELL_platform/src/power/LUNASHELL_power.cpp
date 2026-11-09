@@ -2561,10 +2561,7 @@ void queue_leg_sound(const LegMotionReading &motion, int64_t now_us)
 // input: Bounded canonical voice projection; never a second microphone read.
 bool voice_input_is_active(const LUNASHELL::VoiceInputObservation &input)
 {
-    using Phase = LUNASHELL::VoiceInputPhase;
-    return input.phase == Phase::Preparing || input.phase == Phase::StartCountdown ||
-        input.phase == Phase::Listening || input.phase == Phase::SendCountdown ||
-        input.phase == Phase::Sending || input.phase == Phase::Cancelling || input.phase == Phase::Received;
+    return LUNASHELL::voice_input_phase_active(input.phase);
 }
 #endif
 

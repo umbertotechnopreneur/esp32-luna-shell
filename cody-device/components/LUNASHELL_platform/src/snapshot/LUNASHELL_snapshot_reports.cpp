@@ -206,9 +206,10 @@ esp_err_t DeviceSnapshotService::reportVoiceInput(const VoiceInputObservation &i
         input.phase == VoiceInputPhase::Delivered || input.phase == VoiceInputPhase::Cancelled ||
         input.phase == VoiceInputPhase::Unconfirmed || input.phase == VoiceInputPhase::Failed ||
         input.phase == VoiceInputPhase::Preparing || input.phase == VoiceInputPhase::StartCountdown ||
-        input.phase == VoiceInputPhase::SendCountdown;
+        input.phase == VoiceInputPhase::SendCountdown || input.phase == VoiceInputPhase::AwaitingPc;
     const bool countdown = input.phase == VoiceInputPhase::StartCountdown || input.phase == VoiceInputPhase::SendCountdown;
-    const bool capture_pending = input.phase == VoiceInputPhase::Preparing || input.phase == VoiceInputPhase::StartCountdown;
+    const bool capture_pending = input.phase == VoiceInputPhase::Preparing || input.phase == VoiceInputPhase::StartCountdown ||
+        input.phase == VoiceInputPhase::AwaitingPc;
     const bool recording_phase = input.phase == VoiceInputPhase::Listening || input.phase == VoiceInputPhase::SendCountdown ||
         input.phase == VoiceInputPhase::Sending || input.phase == VoiceInputPhase::Received || input.phase == VoiceInputPhase::Delivered;
     const bool known_failure = input.failure == VoiceInputFailure::None ||
@@ -225,7 +226,8 @@ esp_err_t DeviceSnapshotService::reportVoiceInput(const VoiceInputObservation &i
         input.capturing_started_at_us < 0 || input.capturing_started_at_us > now_us ||
         (input.capturing_started_at_us != 0 && input.capturing_started_at_us < input.started_at_us) ||
         (input.captured_samples != 0 && input.capturing_started_at_us == 0) ||
-        ((recording_phase || input.phase == VoiceInputPhase::StartCountdown) && input.destination_title[0] == '\0') ||
+        ((recording_phase || (capture_pending && input.phase != VoiceInputPhase::Preparing)) &&
+            input.destination_title[0] == '\0') ||
         (recording_phase && input.capturing_started_at_us == 0) ||
         (capture_pending && (input.capturing_started_at_us != 0 || input.captured_samples != 0)) ||
         (input.end_sent && (input.captured_samples == 0 || input.phase == VoiceInputPhase::Idle ||

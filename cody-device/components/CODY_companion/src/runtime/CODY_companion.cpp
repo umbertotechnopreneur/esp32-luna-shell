@@ -3454,21 +3454,12 @@ bool voice_input_view_active()
     return s_voice_view_visible;
 }
 
-// phase: Canonical owner phase; preparing/countdowns remain active without admitting microphone PCM.
-bool voice_input_phase_active(LUNASHELL::VoiceInputPhase phase)
-{
-    using Phase = LUNASHELL::VoiceInputPhase;
-    return phase == Phase::Preparing || phase == Phase::StartCountdown || phase == Phase::SendCountdown ||
-        phase == Phase::Listening || phase == Phase::Sending || phase == Phase::Cancelling || phase == Phase::Received;
-}
-
 // phase: Canonical or completely retired phase whose gesture meaning must never cross a transition.
 CODY::VoiceRecordingMode voice_recording_mode(LUNASHELL::VoiceInputPhase phase)
 {
     using Phase = LUNASHELL::VoiceInputPhase;
     if (phase == Phase::Listening) { return CODY::VoiceRecordingMode::Recording; }
-    if (phase == Phase::Preparing || phase == Phase::StartCountdown ||
-        phase == Phase::SendCountdown || phase == Phase::Sending) {
+    if (LUNASHELL::voice_input_phase_cancellable(phase)) {
         return CODY::VoiceRecordingMode::CancelOnly;
     }
     return CODY::VoiceRecordingMode::Disabled;
@@ -3617,7 +3608,8 @@ esp_err_t prepare_voice_hint()
     using Phase = LUNASHELL::VoiceInputPhase;
     const auto phase = s_voice_input_view.input.phase;
     s_voice_send = s_voice_silence = s_voice_discard = s_voice_discard_detail = {};
-    if (phase == Phase::Preparing || phase == Phase::StartCountdown || phase == Phase::SendCountdown) {
+    if (phase == Phase::Preparing || phase == Phase::StartCountdown || phase == Phase::SendCountdown ||
+        phase == Phase::AwaitingPc) {
         esp_err_t error = prepare_voice_caption(CODY::kVoiceCancelHint, 334, 0xF7BE, s_voice_discard);
         if (error == ESP_OK) {
             error = prepare_voice_caption(CODY::kVoiceShakeCancelHint, 362, 0xAD75, s_voice_discard_detail);
@@ -3659,6 +3651,7 @@ esp_err_t draw_voice_input_rows()
         const char *title = phase == Phase::Preparing ? CODY::kVoicePreparingTitle :
             phase == Phase::StartCountdown ? CODY::kVoiceStartCountdownTitle :
             phase == Phase::SendCountdown ? CODY::kVoiceSendCountdownTitle :
+            phase == Phase::AwaitingPc ? "Waiting for PC" :
             phase == Phase::Listening ? "Listening" : phase == Phase::Sending ? "Sending audio" :
             phase == Phase::Cancelling ? "Cancelling" : phase == Phase::Received ? "On your PC" :
             phase == Phase::Delivered ? "Sent to Codex" : phase == Phase::Cancelled ? "Discarded" :
@@ -3677,7 +3670,7 @@ esp_err_t draw_voice_input_rows()
                 return ESP_ERR_INVALID_STATE;
             }
             error = prepare_voice_caption(caption, CODY::kVoiceCountdownTop, 0xF7BE, s_voice_send);
-        } else if (phase != Phase::Preparing) {
+        } else if (phase != Phase::Preparing && phase != Phase::AwaitingPc) {
             const int64_t captured_at_us = s_voice_input_view.input.capturing_started_at_us;
             if (phase == Phase::Listening && (captured_at_us <= 0 || captured_at_us > now_us)) {
                 error = prepare_voice_caption("Timing unavailable", 402, 0xAD75, s_voice_timer);
@@ -3967,7 +3960,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         if (action_error != ESP_OK) return frame.finish({action_error, false, 0});
     }
     const auto voice_phase = s_voice_input_view.input.phase;
-    const bool voice_active = voice_input_phase_active(voice_phase);
+    const bool voice_active = LUNASHELL::voice_input_phase_active(voice_phase);
     const bool voice_terminal = voice_phase == VoicePhase::Delivered || voice_phase == VoicePhase::Cancelled ||
         voice_phase == VoicePhase::Unconfirmed || voice_phase == VoicePhase::Failed;
     const bool voice_visible = voice_active || (voice_terminal && s_voice_input_view.input.changed_at_us > 0 &&
@@ -6465,7 +6458,7 @@ void companion_worker(void *context)
             input_phase == LUNASHELL::VoiceInputPhase::Cancelled || input_phase == LUNASHELL::VoiceInputPhase::Unconfirmed ||
             input_phase == LUNASHELL::VoiceInputPhase::Failed) && s_voice_input_view.input.changed_at_us > 0 &&
             esp_timer_get_time() - s_voice_input_view.input.changed_at_us < 3000000;
-        const bool voice_attention = voice_input_phase_active(input_phase) || s_voice_view_visible || recent_terminal;
+        const bool voice_attention = LUNASHELL::voice_input_phase_active(input_phase) || s_voice_view_visible || recent_terminal;
         if ((voice_attention && (input_phase != s_voice_view_phase ||
             s_voice_view_started_at_us != s_voice_input_view.input.started_at_us ||
             s_voice_view_countdown_seconds != s_voice_input_view.input.countdown_seconds ||

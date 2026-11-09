@@ -66,6 +66,7 @@ VOUCHER_FIELDS = ("series", "available", "expiries", "age")
 PBKDF2_ITERATIONS = 50_000
 SERVER_VERSION = "0.6.19"
 LIVENESS_TIMEOUT_SECONDS = 10.0
+MAX_PREVIOUS_AUDIO_NONCES = 8
 CHALLENGE_TIMEOUT_SECONDS = 2.0
 MAX_DISCOVERY_OFFERS = 16
 MAX_DISCOVERY_OFFERS_PER_SOURCE = 4
@@ -129,6 +130,23 @@ class EventPeer:
     key: bytes
     source: tuple[str, int]
     observed_at: float
+    previous_audio_nonces: tuple[tuple[str, float], ...] = ()
+
+    # self: Most recent confirmed endpoint for this active pairing.
+    # nonce: Newly confirmed discovery challenge.
+    # now: Original observation time of that confirmation.
+    def rotate_audio_nonce(self, nonce: str, now: float) -> tuple[tuple[str, float], ...]:
+        recent = ((self.nonce, self.observed_at), *self.previous_audio_nonces)
+        return tuple((value, observed) for value, observed in recent
+                     if value != nonce and 0 <= now - observed <= LIVENESS_TIMEOUT_SECONDS)[:MAX_PREVIOUS_AUDIO_NONCES]
+
+    # self: Current authenticated endpoint, with bounded history from the same active key.
+    # nonce: Discovery identity from an authenticated START packet.
+    # now: Admission clock; a later discovery never extends an earlier nonce's age.
+    def admits_audio_nonce(self, nonce: str, now: float) -> bool:
+        confirmed = ((self.nonce, self.observed_at), *self.previous_audio_nonces)
+        return any(hmac.compare_digest(nonce, value) and 0 <= now - observed <= LIVENESS_TIMEOUT_SECONDS
+                   for value, observed in confirmed)
 
 
 # address: Socket-observed IP address, or an empty value before fresh observation.
@@ -877,7 +895,12 @@ class CompanionResponder:
                                      if 0 <= now - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS}
                 if len(self._event_peers) >= 128 and fields["device"] not in self._event_peers:
                     raise ValueError("CCP authenticated event peer cache is full")
-                self._event_peers[fields["device"]] = EventPeer(fields["nonce"], link_key, source, now)
+                previous = self._event_peers.get(fields["device"])
+                recent = ()
+                if (previous is not None and previous.source == source
+                        and hmac.compare_digest(previous.key, link_key)):
+                    recent = previous.rotate_audio_nonce(fields["nonce"], now)
+                self._event_peers[fields["device"]] = EventPeer(fields["nonce"], link_key, source, now, recent)
                 self._debug_peers = {identity: peer for identity, peer in self._debug_peers.items()
                                      if 0 <= now - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS}
             request_id, state, ttl, data = self._requests.snapshot(

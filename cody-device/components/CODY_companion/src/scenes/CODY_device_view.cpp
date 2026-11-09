@@ -703,6 +703,8 @@ esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,
         return prepare_single_countdown_tile(view.plain.voice_tile, kVoiceCountdownFace,
             HomeFonts::value_font, digit, flipping ? static_cast<char>(digit + 1) : '\0');
     }
+    case Phase::AwaitingPc:
+        return prepare("Waiting for PC", "", nullptr, "Cancel");
     case Phase::Listening:
         // The capture owner checks for PCM on release. Its public observation
         // does not publish the private buffer size for every incoming block.
@@ -725,7 +727,8 @@ esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,
         // no retry/dismiss capability; do not expose a button that cancels again.
         const bool rejected = voice.failure == LUNASHELL::VoiceInputFailure::PcRejected;
         const bool destination = voice.failure == LUNASHELL::VoiceInputFailure::Destination;
-        const char *status = destination ? "Chat unavailable" : rejected ? "PC rejected audio" :
+        const char *destination_status = voice.error == ESP_ERR_NOT_SUPPORTED ? "Chat title unsupported" : "Chat unavailable";
+        const char *status = destination ? destination_status : rejected ? "PC rejected audio" :
             voice.failure == LUNASHELL::VoiceInputFailure::Microphone ? "Microphone failed" :
             voice.failure == LUNASHELL::VoiceInputFailure::Transport ? "Audio link failed" : "Audio failed";
         return prepare_device_message(view, frame, "Dictation", status,

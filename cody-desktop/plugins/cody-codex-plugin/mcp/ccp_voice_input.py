@@ -25,6 +25,7 @@ MAX_RECORDINGS = 64
 MAX_ACTIVE = 4
 WINDOW = 4
 CHAT_DIGEST_BYTES = hashlib.sha256().digest_size
+AUDIO_PEER_LEASE_SECONDS = 10.0
 DESTINATION_REJECTED = 7
 REJECTED_STATUSES = (5, DESTINATION_REJECTED)
 
@@ -120,12 +121,13 @@ class VoiceInputServer:
     # device: Exact paired identity from the bounded binary header.
     # source: Socket-observed source; a saved address is insufficient.
     # Raises ValueError when fresh authenticated CCP liveness is absent.
-    def peer_key(self, device: str, source: tuple[str, int]) -> tuple[bytes, str]:
+    def audio_peer(self, device: str, source: tuple[str, int]):
         with self.responder._event_lock:
             peer = self.responder._event_peers.get(device)
-            if peer is None or peer.source[0] != source[0] or not 0 <= time.monotonic() - peer.observed_at <= 10:
+            if (peer is None or peer.source[0] != source[0]
+                    or not 0 <= time.monotonic() - peer.observed_at <= AUDIO_PEER_LEASE_SECONDS):
                 raise ValueError("Audio source lacks current authenticated CCP presence")
-            return peer.key, peer.nonce
+            return peer
 
     # self: Serialized audio acknowledgement owner.
     # recording: Exact authenticated input owner.
@@ -162,17 +164,21 @@ class VoiceInputServer:
                 or (flag != 1 and sequence == 0) or (flag in (3, 4) and size != 0)):
             raise ValueError("Audio packet identity and payload kind disagree")
         device = device_bytes.hex()
-        retained_key, current_nonce = self.peer_key(device, source)
-        key = hmac.new(retained_key, b"cody-audio-v1|" + session.hex().encode("ascii") + b"|" +
+        peer = self.audio_peer(device, source)
+        key = hmac.new(peer.key, b"cody-audio-v1|" + session.hex().encode("ascii") + b"|" +
             presence.hex().encode("ascii"), hashlib.sha256).digest()
         plaintext = self.cipher(key).decrypt(b"DAT1" + sequence.to_bytes(8, "big"), packet[HEADER.size:], packet[:HEADER.size])
+        # Resolve any concurrent discovery rotation before taking the recording lock.
+        current_peer = self.audio_peer(device, source) if flag == 1 else peer
         with self.lock:
             identity = (device, session)
             recording = self.records.get(identity)
             if recording is None:
                 if sequence != 0 or flag != 1:
                     raise ValueError("Audio input requires an authenticated START")
-                if not hmac.compare_digest(presence.hex(), current_nonce):
+                nonce = presence.hex()
+                if not hmac.compare_digest(peer.key, current_peer.key) or not current_peer.admits_audio_nonce(
+                        nonce, time.monotonic()):
                     raise ValueError("Audio START is not bound to fresh authenticated discovery")
                 # Retain terminal identities for replay rejection; bounded slots never evict a live recording.
                 self.records = {item: record for item, record in self.records.items()
@@ -189,7 +195,7 @@ class VoiceInputServer:
                 self.records[identity] = recording
                 if not matched:
                     recording.status, recording.error = DESTINATION_REJECTED, "No match for the displayed Codex chat"
-                elif self.ready_thread != thread_id or not 0 <= now - self.ready_at <= 10:
+                elif not self.queue_ready_locked(thread_id, time.monotonic()):
                     recording.status, recording.error = 5, self.native_error or "Native audio readiness expired"
                 if recording.status in REJECTED_STATUSES:
                     print(f"CCP audio START rejected: {recording.error}", file=sys.stderr, flush=True)
@@ -260,6 +266,18 @@ class VoiceInputServer:
                     print(f"CCP audio receive rejected: {self.error}; rejected_packets={self.rejections}", file=sys.stderr, flush=True)
                     next_report = time.monotonic() + 5
 
+    # self: Audio owner with the receiver lock already held.
+    # thread_id: Current exact Codex chat, or empty when no destination is known.
+    # now: Monotonic time sampled under the receiver lock.
+    def queue_ready_locked(self, thread_id: str, now: float) -> bool:
+        return bool(thread_id and self.ready_thread == thread_id and 0 <= now - self.ready_at <= 10)
+
+    # self: Invalidates the readiness lease under the receiver lock before retiring its client.
+    def revoke_readiness_locked(self):
+        self.ready_thread = ""
+        self.ready_at = 0.0
+        self.next_probe = 0.0
+
     # self: Native readiness owner; bounded read-only probe stays off the UDP worker.
     # Exceptions: Probe failures become explicit unavailable state and are logged once per change.
     def refresh_readiness(self):
@@ -277,8 +295,7 @@ class VoiceInputServer:
         if error or configuration.executable != self.executable:
             # Revoke the old readiness before closing or probing a different executable.
             with self.lock:
-                self.ready_thread = ""
-                self.ready_at = 0.0
+                self.revoke_readiness_locked()
         try:
             if error:
                 raise RuntimeError(error)
@@ -311,6 +328,8 @@ class VoiceInputServer:
     # self: Sole queue-client owner, including shutdown after cancellation or failure.
     # Raises original cleanup errors; never terminates the Desktop process.
     def close_queue(self):
+        with self.lock:
+            self.revoke_readiness_locked()
         if self.queue_client is not None:
             self.queue_client.close()
             self.queue_client = None
@@ -388,6 +407,9 @@ class VoiceInputServer:
                     else:
                         recording.status = 6 if recording.submitting and not isinstance(error, NativeInputRejected) else 5
                     recording.error = str(error)
+                    if not isinstance(error, DestinationChanged):
+                        self.revoke_readiness_locked()
+                        self.native_error = recording.error
                 print(f"CCP audio queue delivery failed: {error}", file=sys.stderr, flush=True)
                 # Selection changed, but the process can probe the new chat on the next tick.
                 if not isinstance(error, DestinationChanged):
@@ -405,8 +427,7 @@ class VoiceInputServer:
     def status(self) -> dict:
         with self.lock:
             thread_id = self.responder._activity.voice_destination()
-            native_ready = bool(thread_id and self.ready_thread == thread_id and
-                                0 <= time.monotonic() - self.ready_at <= 10)
+            native_ready = self.queue_ready_locked(thread_id, time.monotonic())
             return {"available": self.socket is not None, "error": self.error or None,
                 "rejected_packets": self.rejections,
                 "native_executable_configured": bool(self.executable),

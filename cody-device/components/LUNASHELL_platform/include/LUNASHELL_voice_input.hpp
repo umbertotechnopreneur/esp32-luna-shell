@@ -9,8 +9,25 @@ namespace LUNASHELL {
 
 enum class VoiceInputPhase : uint8_t {
     Idle, Listening, Sending, Cancelling, Received, Delivered, Cancelled, Unconfirmed, Failed,
-    Preparing, StartCountdown, SendCountdown
+    Preparing, StartCountdown, SendCountdown, AwaitingPc
 };
+
+// phase: Owner-published phase that still needs capture or delivery service.
+constexpr bool voice_input_phase_active(VoiceInputPhase phase)
+{
+    using Phase = VoiceInputPhase;
+    return phase == Phase::Preparing || phase == Phase::StartCountdown || phase == Phase::AwaitingPc ||
+        phase == Phase::Listening || phase == Phase::SendCountdown || phase == Phase::Sending ||
+        phase == Phase::Cancelling || phase == Phase::Received;
+}
+
+// phase: Owner-published phase eligible for an explicit pre-END cancellation.
+constexpr bool voice_input_phase_cancellable(VoiceInputPhase phase)
+{
+    using Phase = VoiceInputPhase;
+    return phase == Phase::Preparing || phase == Phase::StartCountdown || phase == Phase::AwaitingPc ||
+        phase == Phase::Listening || phase == Phase::SendCountdown || phase == Phase::Sending;
+}
 enum class VoiceInputTrigger : uint8_t { WakeWord, DoubleTap, StandbyWake, DeviceButton };
 enum class VoiceInputFailure : uint8_t { None, Microphone, Transport, PcRejected, Destination };
 

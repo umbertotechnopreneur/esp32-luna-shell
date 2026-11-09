@@ -3512,6 +3512,8 @@ esp_err_t DeviceSnapshotService::readVoiceInputDestination(int64_t requested_at_
         now_us >= activity.last_attempt_at_us) {
         if (activity.state == CodexActivityState::None || activity.state == CodexActivityState::Ended) {
             error = ESP_ERR_NOT_FOUND;
+        } else if (activity.title_state == CodexChatTitleState::Unsupported) {
+            error = ESP_ERR_NOT_SUPPORTED;
         } else if (activity.title_state == CodexChatTitleState::Current && activity.title_error == ESP_OK &&
                    activity.title[0] != '\0' && activity.title_age_at_receive_us < kCodexChatTitleLifetimeUs &&
                    static_cast<uint64_t>(now_us - activity.last_attempt_at_us) <

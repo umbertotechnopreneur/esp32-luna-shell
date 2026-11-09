@@ -388,8 +388,10 @@ start countdown. Both countdowns show 3, 2 and 1 on one split tile at (185,176),
 96 x 74, with the reset clock's 200 ms flap animation. The audio owner supplies
 the seconds and determines when to advance. The ribbon animates during
 preparation, listening and sending; while listening, it responds to current
-microphone levels. Cancel is available during preparation and both countdowns.
-Send and Cancel are available while listening.
+microphone levels. When START is still pending after the countdown, Waiting for PC
+keeps the destination and Cancel visible without opening the microphone. Cancel
+is also available during preparation and both countdowns. Send and Cancel are
+available while listening.
 
 Failure distinguishes a microphone failure, an audio link failure and an
 authenticated PC rejection. The screen keeps the hexadecimal error and returns

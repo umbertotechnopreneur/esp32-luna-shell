@@ -90,7 +90,7 @@ void begin()
     assert(LUNASHELL::beginVoiceInputCountdown(published.started_at_us, accepted) == ESP_OK && accepted);
     s_begun = true; // Authenticated START acknowledgement.
     now_us += 3000000;
-    assert(advance_countdown_locked(now_us) == ESP_OK);
+    assert(advance_countdown_locked(now_us, true) == ESP_OK);
     assert(published.phase == LUNASHELL::VoiceInputPhase::Listening);
     assert(published.capturing_started_at_us == now_us && published.countdown_seconds == 0);
 }
@@ -111,21 +111,28 @@ int main()
     assert(published.phase == VoiceInputPhase::StartCountdown && published.countdown_seconds == 3);
     for (unsigned elapsed = 1; elapsed <= 2; ++elapsed) {
         now_us += 1000000;
-        assert(advance_countdown_locked(now_us) == ESP_OK);
+        assert(advance_countdown_locked(now_us, true) == ESP_OK);
         assert(published.countdown_seconds == 3 - elapsed && published.captured_samples == 0);
         feedVoiceInput(storage, 16000, true, ESP_OK);
         assert(s_count == 0);
     }
     assert(cancelVoiceInput(pending_identity, accepted) == ESP_OK && accepted);
     now_us += 1000000;
-    assert(advance_countdown_locked(now_us) == ESP_OK && published.phase == VoiceInputPhase::Cancelled);
+    assert(advance_countdown_locked(now_us, true) == ESP_OK && published.phase == VoiceInputPhase::Cancelled);
 
     prepare();
     resolve_destination();
     assert(beginVoiceInputCountdown(published.started_at_us, accepted) == ESP_OK && accepted);
     now_us += 3000000;
-    assert(advance_countdown_locked(now_us) == ESP_ERR_TIMEOUT);
-    assert(published.phase == VoiceInputPhase::Failed && published.capturing_started_at_us == 0);
+    assert(advance_countdown_locked(now_us, false) == ESP_OK);
+    assert(published.phase == VoiceInputPhase::AwaitingPc && published.capturing_started_at_us == 0);
+    feedVoiceInput(storage, 1, true, ESP_OK);
+    assert(published.captured_samples == 0 && s_count == 0);
+    now_us += 1000000;
+    assert(advance_countdown_locked(now_us, true) == ESP_OK && published.phase == VoiceInputPhase::AwaitingPc);
+    s_begun = true;
+    assert(advance_countdown_locked(now_us, false) == ESP_OK && published.phase == VoiceInputPhase::AwaitingPc);
+    assert(advance_countdown_locked(now_us, true) == ESP_OK && published.phase == VoiceInputPhase::Listening);
 
     prepare();
     resolve_destination();
@@ -133,7 +140,7 @@ int main()
     s_begun = true;
     injected_read_error = ESP_FAIL;
     now_us += 3000000;
-    assert(advance_countdown_locked(now_us) == ESP_FAIL);
+    assert(advance_countdown_locked(now_us, true) == ESP_FAIL);
     assert(published.phase == VoiceInputPhase::Failed && published.error == ESP_FAIL);
 
     prepare();
@@ -146,7 +153,7 @@ int main()
     assert(beginVoiceInputCountdown(published.started_at_us, accepted) == ESP_OK && accepted);
     s_begun = true;
     now_us += 3000000;
-    assert(advance_countdown_locked(now_us) == ESP_ERR_INVALID_STATE);
+    assert(advance_countdown_locked(now_us, true) == ESP_ERR_INVALID_STATE);
     assert(published.phase == VoiceInputPhase::Failed); // A stale pause never becomes actual Listening.
 
     begin();
@@ -156,10 +163,10 @@ int main()
     feedVoiceInput(storage, 1, false, ESP_OK); // Initial silence also reaches the exact five-second bound.
     assert(published.phase == VoiceInputPhase::SendCountdown && published.countdown_seconds == 3);
     now_us += 2000000;
-    assert(advance_countdown_locked(now_us) == ESP_OK && published.countdown_seconds == 1);
+    assert(advance_countdown_locked(now_us, true) == ESP_OK && published.countdown_seconds == 1);
     assert(cancelVoiceInput(published.started_at_us, accepted) == ESP_OK && accepted);
     now_us += 1000000;
-    assert(advance_countdown_locked(now_us) == ESP_OK && published.phase == VoiceInputPhase::Cancelling);
+    assert(advance_countdown_locked(now_us, true) == ESP_OK && published.phase == VoiceInputPhase::Cancelling);
 
     begin();
     feedVoiceInput(storage, 1, true, ESP_OK);
@@ -171,9 +178,9 @@ int main()
     feedVoiceInput(storage, 1, false, ESP_OK);
     assert(published.phase == VoiceInputPhase::SendCountdown);
     now_us += 2999999;
-    assert(advance_countdown_locked(now_us) == ESP_OK && published.countdown_seconds == 1);
+    assert(advance_countdown_locked(now_us, true) == ESP_OK && published.countdown_seconds == 1);
     ++now_us;
-    assert(advance_countdown_locked(now_us) == ESP_OK);
+    assert(advance_countdown_locked(now_us, true) == ESP_OK);
     assert(published.phase == VoiceInputPhase::Sending);
     begin();
     assert(s_silence_samples == 0);

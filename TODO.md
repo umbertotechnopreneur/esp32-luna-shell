@@ -7,8 +7,9 @@
 - Verify Account and Token activity empty states. Exercise Credits with no vouchers,
   one voucher, equal dates and multiple dates, including local midnight and vertical swipes.
 - Verify the dictation countdowns and start, send and close sounds with Sophia and
-  a double tap. Exercise cancellation, destination changes, PC configuration recovery
-  and a real WAV queue receipt on Windows.
+  a double tap. Exercise cancellation, destination changes, unsupported titles,
+  repeated LAN loss before START and during PCM, and a real WAV queue receipt on
+  Windows, including a temporary loss after END.
 - Verify Connections action admission, passive Wi-Fi animation and the
   provisioning result at all rotations, including a 32-byte SSID and a lost IP.
 

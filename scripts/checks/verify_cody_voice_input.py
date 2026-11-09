@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "cody-desktop/plugi
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.exceptions import InvalidTag
 import ccp_voice_input as audio
+from ccp_server import EventPeer
 
 
 class VoiceInputBoundaries(unittest.TestCase):
@@ -31,7 +32,8 @@ class VoiceInputBoundaries(unittest.TestCase):
         source = source_path.read_text(encoding="utf-8")
         signatures = [
             "esp_err_t publish(", "bool active()", "esp_err_t start_countdown_locked(",
-            "esp_err_t advance_countdown_locked(", "esp_err_t LUNASHELL::requestVoiceInput(",
+            "esp_err_t begin_listening_locked(", "esp_err_t advance_countdown_locked(",
+            "esp_err_t LUNASHELL::requestVoiceInput(",
             "esp_err_t LUNASHELL::beginVoiceInputCountdown(",
             "void LUNASHELL::feedVoiceInput(", "static esp_err_t cancel_voice_input_locked()",
             "esp_err_t LUNASHELL::cancelVoiceInput()", "esp_err_t LUNASHELL::finishVoiceInput(",
@@ -73,7 +75,7 @@ class VoiceInputBoundaries(unittest.TestCase):
         self.session = bytes(range(16))
         self.presence = bytes(range(16, 32))
         self.source = ("192.0.2.1", 55000)
-        peer = SimpleNamespace(key=self.link, nonce=self.presence.hex(), source=(self.source[0], 42117), observed_at=time.monotonic())
+        peer = EventPeer(self.presence.hex(), self.link, (self.source[0], 42117), time.monotonic())
         activity = Mock()
         activity.voice_destination.return_value = "test-chat"
         self.responder = SimpleNamespace(_event_lock=threading.Lock(), _event_peers={self.device: peer}, _activity=activity)
@@ -119,6 +121,45 @@ class VoiceInputBoundaries(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "fresh authenticated discovery"):
             self.receiver.accept(self.packet(0, 1, presence=bytes(16)), self.source)
         self.assertEqual(self.receiver.records, {})
+
+    # self: Same authenticated peer rotating discovery twice before its first START arrives.
+    # Raises AssertionError if a fresh retry is rejected or an expired nonce opens a session.
+    def test_start_recovers_after_discovery_rotation(self):
+        peer = self.responder._event_peers[self.device]
+        for value in ("a" * 32, "b" * 32):
+            at = peer.observed_at + 2
+            peer = EventPeer(value, peer.key, peer.source, at, peer.rotate_audio_nonce(value, at))
+        self.responder._event_peers[self.device] = peer
+        self.receiver.ready_at = peer.observed_at
+        with patch.object(audio.time, "monotonic", return_value=peer.observed_at):
+            self.receiver.accept(self.packet(0, 1), self.source)
+        self.assertEqual(self.receiver.records[(self.device, self.session)].expected, 1)
+
+        self.session = bytes(reversed(self.session))
+        with patch.object(audio.time, "monotonic", return_value=peer.observed_at + 7):
+            with self.assertRaisesRegex(ValueError, "fresh authenticated discovery"):
+                self.receiver.accept(self.packet(0, 1), self.source)
+        self.assertNotIn((self.device, self.session), self.receiver.records)
+
+    # self: Same recording crosses two gaps and must queue its exact PCM once.
+    # Raises AssertionError on a duplicate, gap or unintended second submission.
+    def test_repeated_liveness_recovery_keeps_the_recording(self):
+        self.receiver.accept(self.packet(0, 1), self.source)
+        peer = self.responder._event_peers[self.device]
+        for sequence in (1, 2):
+            block = self.packet(sequence, 2, bytes([sequence, 0]))
+            del self.responder._event_peers[self.device]
+            with self.assertRaisesRegex(ValueError, "lacks current authenticated CCP presence"):
+                self.receiver.accept(block, self.source)
+            peer = EventPeer(f"{sequence:032x}", peer.key, peer.source, time.monotonic())
+            self.responder._event_peers[self.device] = peer
+            self.receiver.accept(block, self.source)
+            self.receiver.accept(block, self.source)
+        end = self.packet(3, 3)
+        self.receiver.accept(end, self.source)
+        self.receiver.accept(end, self.source)
+        self.assertEqual(self.receiver.records[(self.device, self.session)].pcm, b"\x01\x00\x02\x00")
+        self.assertEqual(self.receiver.jobs.qsize(), 1)
 
     # self: Receiver fixture bound to one actual socket endpoint.
     # Raises AssertionError if missing blocks or endpoint changes modify PCM.
@@ -200,6 +241,17 @@ class VoiceInputBoundaries(unittest.TestCase):
             self.assertFalse(recording.pcm)
             self.assertTrue(self.receiver.jobs.empty())
             self.session = bytes(reversed(self.session))
+
+    # self: Receiver with a live readiness lease before retiring the native client.
+    # Raises AssertionError if closing that client still admits a subsequent START.
+    def test_closed_queue_revokes_readiness(self):
+        self.receiver.queue_client = Mock()
+        self.receiver.close_queue()
+        self.assertFalse(self.receiver.status()["native_ready"])
+        self.receiver.accept(self.packet(0, 1), self.source)
+        recording = self.receiver.records[(self.device, self.session)]
+        self.assertEqual(recording.status, 5)
+        self.assertEqual(self.receiver.next_probe, 0)
 
     # self: Isolated queue client during a native destination change.
     # Raises AssertionError if a new chat waits for the previous chat's refresh deadline.

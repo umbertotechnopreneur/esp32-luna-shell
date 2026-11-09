@@ -4474,7 +4474,8 @@ void codexLinkWorker(void *context)
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
         bool voice_busy = false;
         {
-            // Reuse the serialized CCP owner; the AFE never blocks on network work.
+            // Reuse the serialized CCP owner. Socket work is nonblocking, but
+            // the AFE and the voice transport share the utterance mutex.
             std::lock_guard<std::mutex> guard(s_mutex);
             bool refresh_destination = false;
             voice_busy = LUNASHELL::tickVoiceInputTransport(s_persisted_link.link_key,
