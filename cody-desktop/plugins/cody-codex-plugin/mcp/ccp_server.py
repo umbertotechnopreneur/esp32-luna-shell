@@ -64,7 +64,7 @@ ACCOUNT_DETAILS_FIELDS = ("short_reset", "short_remaining", "short_minutes", "an
 SUBSCRIPTION_FIELDS = ("plan_label", "plan_icon", "plan_price")
 VOUCHER_FIELDS = ("series", "available", "expiries", "age")
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.19"
+SERVER_VERSION = "0.6.20"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 MAX_PREVIOUS_AUDIO_NONCES = 8
 CHALLENGE_TIMEOUT_SECONDS = 2.0
@@ -1473,9 +1473,13 @@ class CcpService:
     # Hook notices reuse the exact originating title acquisition owner without changing chat focus.
     # Raises ValueError for a lost association or full bounded notification queue.
     def notify_hook_notice(self, observation: HookObservation) -> bool:
+        if observation.event == "UserPromptSubmit":
+            # Approval attention belongs to the followed turn. The new prompt
+            # retires it across recipients without touching other chats' replies.
+            self.interactions.retire_native(None, interactions.EventKind.APPROVAL_ON_PC)
         if (observation.event in {"UserPromptSubmit", "Interrupt", "SessionEnd"}
                 or observation.event == "Stop" and observation.reply_ready):
-            # A prompt in another chat must not erase this chat's pending notice.
+            # Other chats keep their unread replies.
             self.interactions.retire_native(observation.session_id)
         if (observation.event in {"PreToolUse", "PostToolUse"}
                 and observation.phase not in {Phase.PAUSED, Phase.INTERRUPTED}):

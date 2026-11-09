@@ -4,14 +4,15 @@
 uses local MCP for Codex and CCP1 for the device. Local Wi-Fi/IP is sufficient
 for pairing; public Internet availability is a separate condition.
 
-CCP **0.6.19** provides one local owner for Codex and the Windows/Linux companion
+CCP **0.6.20** provides one local owner for Codex and the Windows/Linux companion
 control panel. Codex activity and semantic questions retain their own identities.
 The panel reads genuine native MCP presence and original activity freshness.
 Its signed READY handshake retains the 0.6.4 endpoint-binding contract. Signed READY binds a fresh
 broker challenge to the observed device endpoint. Cody validates the endpoint
 and returns matching COMMITTED before the broker admits presence, events or
 current activity/technical data. Earlier handshake formats are rejected.
-Source changes do not install the plugin or flash the device.
+The Cody Events view requires the authenticated inbox exchange in this plugin
+version. Source changes do not install the plugin or flash the device.
 
 The packaged stdio entrypoint uses `cwd: "."` and `./mcp/ccp_server.py`.
 The native manager resolves that working directory to the installed plugin root;
@@ -225,9 +226,11 @@ before a new one is offered. See the [wire contract](protocol/CCP1.md) and
 Native PC-approval attention is limited to one successfully queued notice per
 originating chat turn. Repeated PermissionRequest hooks in that turn do not renew
 its ticket, deadline or device route, including after Back or expiry. A new turn
-can signal again. Accepted native tool activity retires only that chat's approval
-notice; questions and other chats' notices keep their ownership. A rejected queue
-admission remains an observable error and can retry on a later genuine event.
+can signal again. A new prompt retires approval notices from the previous
+followed turn. Accepted native tool activity retires the originating chat's
+approval notice. Both paths preserve caller-owned questions and other chats'
+reply notices. A rejected queue admission remains observable and can retry on a
+later genuine event.
 Partial multi-device retries retain already admitted ticket identities/deadlines.
 This is an advisory attention policy, not a statement that each native request is
 still pending or was approved. Broker diagnostics record accepted permission

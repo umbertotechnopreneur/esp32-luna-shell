@@ -1405,6 +1405,24 @@ class HookRoutingTests(unittest.TestCase):
         self.assertEqual(self.service.notifications_error, "synthetic queue full")
 
 
+    # self: Genuine focus change with an already published approval and a background reply.
+    # Raises AssertionError if the old approval stays visible or the other chat loses its reply.
+    def test_new_followed_prompt_retires_previous_approval(self) -> None:
+        self.observe("UserPromptSubmit")
+        self.observe("PermissionRequest")
+        association = hashlib.sha256(self.key).hexdigest()
+        approval = self.service.interactions.snapshot(self.device, association)
+        self.assertEqual(interactions.decode_payload(approval[3]).kind, interactions.EventKind.APPROVAL_ON_PC)
+
+        reply_payload = interactions.EventPayload(interactions.EventKind.REPLY_READY, "Other project",
+                                                   "Chat waiting", "Other chat finished")
+        reply = self.service.interactions.enqueue(self.device, reply_payload, "LAN",
+                                                  association_id=association, native_session="chat-other")
+
+        self.observe("UserPromptSubmit", "chat-b", "turn-b")
+        current = self.service.interactions.snapshot(self.device, association)
+        self.assertEqual(current[:2], (reply["request_id"], "pending"))
+
     # self: Genuine repeated permission events, a device dismissal and an expired registry record.
     # Raises AssertionError if one native turn reopens its informational notice or blocks the next turn.
     def test_approval_notice_is_once_per_turn_after_dismissal_and_expiry(self) -> None:

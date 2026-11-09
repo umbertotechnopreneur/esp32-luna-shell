@@ -94,9 +94,11 @@ explicit. The stored user name remains an authenticated runtime preference.
 Native PC-approval attention is limited to one successfully queued notice per
 originating chat turn. Repeated PermissionRequest hooks in that turn do not renew
 its ticket, deadline or device route, including after Back or expiry. A new turn
-can signal again. Accepted native tool activity retires only that chat's approval
-notice; questions and other chats' notices keep their ownership. A rejected queue
-admission remains an observable error and can retry on a later genuine event.
+can signal again. A new prompt retires approval notices from the previous
+followed turn. Accepted native tool activity retires the originating chat's
+approval notice. Both paths preserve caller-owned questions and other chats'
+reply notices. A rejected queue admission remains observable and can retry on a
+later genuine event.
 Partial multi-device retries retain already admitted ticket identities/deadlines.
 This is an advisory attention policy, not a statement that each native request is
 still pending or was approved. Broker diagnostics record accepted permission
