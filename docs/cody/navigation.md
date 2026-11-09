@@ -74,7 +74,9 @@ The Tools, Preferences and Device pages show three position marks above the
 **Home** footer. Each destination has a colored icon, title and short description.
 Display holds brightness, rotation and orientation. Behavior holds sound,
 shake-to-wake and, in the voice-enabled profile, Dictation. **More behavior**
-contains **Screensaver**, disabled by default.
+contains **Screensaver**, disabled by default, and opens **Synth Voice**. The
+Synth Voice page presents Enable Synth Voice, Voice volume and Voice type as
+unavailable until a speech engine is integrated; these rows cannot be activated.
 
 **Quick guide** has three color-coded pages for the physical buttons, display
 gestures and offline features. Available arrows stay visible while reading.

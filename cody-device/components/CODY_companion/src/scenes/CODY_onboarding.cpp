@@ -147,10 +147,6 @@ constexpr uint16_t kPreferenceTop = kDeviceFirstSetup ? 130 : 194;
 constexpr uint16_t kPreferenceHeight = kDeviceFirstSetup ? 72 : 50;
 constexpr uint16_t kPreferenceStep = kDeviceFirstSetup ? 80 : 60;
 constexpr uint8_t kPreferencesPerPage = 3;
-constexpr CODY2D::Rect kMoreBehaviorGlyph{207, 143, 52, 52};
-constexpr uint16_t kMoreBehaviorHintTop = 208;
-constexpr uint16_t kMoreBehaviorRowsTop = 254;
-constexpr uint16_t kMoreBehaviorSingleRowTop = 273;
 static_assert(kPreferenceTop + (kPreferencesPerPage - 1U) * kPreferenceStep +
     kPreferenceHeight < kOptionsFooterBounds.y);
 constexpr uint16_t kEventCaptionWidth = 300;
@@ -206,14 +202,14 @@ enum class OnboardingAction : uint8_t {
     ForgetPairing, ConfirmForget, KeepSaved, DisplayOptions, BehaviorOptions, MoreBehavior,
     Connections, CodexStatistics, VisibleScreens, OpenPairingGuide, GoHome,
     FactoryReset, ConfirmFactoryReset, LocalTimer, RestartDevice, ConfirmRestart, QuickGuide,
-    CheckRelay,
+    CheckRelay, SynthOptions,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
 enum class OptionsPage : uint8_t {
     Menu, MenuMore, MenuMaintenance, Display, Behavior, BehaviorMore,
     RestartConfirm, RestartPending, ResetConfirm, ResetPending, ResetFailed,
-    GuideButtons, GuideTouch, GuideOffline
+    GuideButtons, GuideTouch, GuideOffline, SynthVoice
 };
 
 struct ScreenInactivityPolicy {
@@ -1213,6 +1209,9 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
     case OnboardingAction::MoreBehavior:
         label = "More options";
         break;
+    case OnboardingAction::SynthOptions:
+        label = "Synth Voice";
+        break;
     case OnboardingAction::CodexStatistics:
         label = "Codex stats";
         break;
@@ -1332,6 +1331,7 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
     case OnboardingAction::Options:
     case OnboardingAction::GoHome:
     case OnboardingAction::MoreBehavior:
+    case OnboardingAction::SynthOptions:
     case OnboardingAction::CheckRelay:
         control.top_color = 0x18E5;
         control.bottom_color = 0x10A3;
@@ -2017,9 +2017,6 @@ esp_err_t attach_content(SceneFrame &scene)
         if (on_maintenance_page() || on_quick_guide()) {
             content.bounds.bottom = kOptionsFooterBounds.y;
         }
-        if (kDeviceFirstSetup && s_options_page == OptionsPage::BehaviorMore && !content.bottom_action_visible) {
-            content.bounds.bottom = kMoreBehaviorRowsTop + kPreferenceStep + kPreferenceHeight;
-        }
     }
     if (s_route == Route::SetupMenu) {
         content.bounds = {kSetupCodexBounds.x, kSetupCodexBounds.y,
@@ -2366,6 +2363,7 @@ const char *options_title()
     case OptionsPage::Display: return "Display";
     case OptionsPage::Behavior: return "Behavior";
     case OptionsPage::BehaviorMore: return "More behavior";
+    case OptionsPage::SynthVoice: return "Synth Voice";
     case OptionsPage::RestartConfirm: return s_restart_error == ESP_OK ? "Restart device" : "Restart failed";
     case OptionsPage::RestartPending: return "Restarting...";
     case OptionsPage::ResetConfirm: return "Factory reset";
@@ -2521,6 +2519,12 @@ PreferencePresentation project_preference(PreferenceId identity,
     const auto &orientation = observation.orientation;
     PreferencePresentation result{preferences.data_valid && !preferences.data_stale, false, 0};
     switch (identity) {
+    case PreferenceId::SynthEnabled:
+    case PreferenceId::SynthVolume:
+    case PreferenceId::SynthVoice:
+        // No engine has been admitted yet. Never offer a setting that cannot be applied.
+        result.available = false;
+        break;
     case PreferenceId::Screensaver:
         result.available = preferences.screensaver_valid && preferences.screensaver_error == ESP_OK;
         result.active = preferences.screensaver_enabled;
@@ -2748,6 +2752,11 @@ esp_err_t prepare_options_content(SceneFrame &scene,
         {PreferenceId::AutoRotate, "Auto-rotate", Icon::Rotate, 0x7759},
         {PreferenceId::Orientation, "Orientation", Icon::Orientation, 0x6F9E},
     };
+    static constexpr Row synth_rows[] = {
+        {PreferenceId::SynthEnabled, kDeviceFirstSetup ? "Enable Synth Voice" : "Synth voice", Icon::Sound, 0xFDA9},
+        {PreferenceId::SynthVolume, "Voice volume", Icon::Sound, 0xFDA9},
+        {PreferenceId::SynthVoice, "Voice type", Icon::Sound, 0xFDA9},
+    };
     static constexpr Row usage_row{PreferenceId::UsageMode, "Usage", Icon::Home, 0x6F9E};
     static constexpr Row more_behavior_rows[] = {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
@@ -2766,6 +2775,7 @@ esp_err_t prepare_options_content(SceneFrame &scene,
 #endif
     };
     static_assert(std::size(display_rows) <= kPreferencesPerPage);
+    static_assert(std::size(synth_rows) <= kPreferencesPerPage);
     static_assert(std::size(behavior_rows) <= kPreferencesPerPage);
     static_assert(std::size(more_behavior_rows) <= kPreferencesPerPage);
     const Row *rows = behavior_rows;
@@ -2773,22 +2783,14 @@ esp_err_t prepare_options_content(SceneFrame &scene,
     if (s_options_page == OptionsPage::Display) {
         rows = display_rows;
         row_count = std::size(display_rows);
+    } else if (s_options_page == OptionsPage::SynthVoice) {
+        rows = synth_rows;
+        row_count = std::size(synth_rows);
     } else if (s_options_page == OptionsPage::BehaviorMore) {
         rows = more_behavior_rows;
         row_count = std::size(more_behavior_rows);
     }
-    uint16_t first_row_top = kPreferenceTop;
-    if (kDeviceFirstSetup && s_options_page == OptionsPage::BehaviorMore) {
-        s_view.header_icon = CODY2D::ActionIcon::Motion;
-        s_view.header_icon_bounds = kMoreBehaviorGlyph;
-        error = prepare_caption("Animate while idle", kMoreBehaviorHintTop, s_view.lines[0]);
-        if (error != ESP_OK) {
-            return error;
-        }
-        s_view.lines[0].color = kPairingCaption;
-        s_view.line_count = 1;
-        first_row_top = row_count == 1 ? kMoreBehaviorSingleRowTop : kMoreBehaviorRowsTop;
-    }
+    const uint16_t first_row_top = kPreferenceTop;
     const auto &font = SceneData::body_font;
     s_presented_options = observation;
     for (size_t index = 0; index < row_count; ++index) {
@@ -2858,7 +2860,10 @@ esp_err_t prepare_options_content(SceneFrame &scene,
     if (s_options_page == OptionsPage::Behavior) {
         return prepare_action(OnboardingAction::MoreBehavior, !s_command_pending);
     }
-    if (kDeviceFirstSetup && s_options_page == OptionsPage::BehaviorMore) {
+    if (s_options_page == OptionsPage::BehaviorMore) {
+        return prepare_action(OnboardingAction::SynthOptions, !s_command_pending);
+    }
+    if (s_options_page == OptionsPage::SynthVoice) {
         return prepare_action(OnboardingAction::None, false);
     }
     return prepare_action(OnboardingAction::Done, !s_command_pending);
@@ -6132,6 +6137,7 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
             auto parent = OptionsPage::MenuMore;
             if (s_options_page == OptionsPage::MenuMore) parent = OptionsPage::Menu;
             if (s_options_page == OptionsPage::BehaviorMore) parent = OptionsPage::Behavior;
+            if (s_options_page == OptionsPage::SynthVoice) parent = OptionsPage::BehaviorMore;
             if (on_maintenance_page()) parent = OptionsPage::MenuMaintenance;
             if (s_options_page == OptionsPage::GuideButtons) parent = OptionsPage::MenuMaintenance;
             if (s_options_page == OptionsPage::GuideTouch) parent = OptionsPage::GuideButtons;
@@ -6206,6 +6212,9 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         }
         if (s_options_page == OptionsPage::Behavior && s_view.action_id == OnboardingAction::MoreBehavior) {
             return show_options_page(scene, OptionsPage::BehaviorMore);
+        }
+        if (s_options_page == OptionsPage::BehaviorMore && s_view.action_id == OnboardingAction::SynthOptions) {
+            return show_options_page(scene, OptionsPage::SynthVoice);
         }
         if (!on_options_menu()) {
             return show_options_page(scene, OptionsPage::MenuMore);

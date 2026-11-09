@@ -505,7 +505,7 @@ uint8_t LUNASHELL_audio_input_channel_count(void);
 
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
-// source_rate_hz: Actual engine PCM16 rate; output preserves the current codec clock.
+// source_rate_hz: Engine PCM16 rate, 22050 or 24000 Hz; output preserves the current codec clock.
 // request_id: Exact nonzero speech request identity retained through the session.
 // Exception: Returns busy, lifecycle, volume or codec failures; success holds the owner mutex.
 esp_err_t LUNASHELL_audio_begin_speech(uint32_t source_rate_hz, uint32_t request_id);

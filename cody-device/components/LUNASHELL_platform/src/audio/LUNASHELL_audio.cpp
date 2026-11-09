@@ -2414,12 +2414,12 @@ enum class SpeechPlaybackCue : uint32_t { Speech = 0x54545301U };
 constexpr uint32_t kSpeechPlaybackCue = static_cast<uint32_t>(SpeechPlaybackCue::Speech);
 }
 
-// source_rate_hz: Actual engine sample rate; current duplex clock remains authoritative.
+// source_rate_hz: Engine PCM rate, 22050 or 24000 Hz; the duplex clock remains authoritative.
 // request_id: Nonzero owner-produced identity, independent of application cue IDs.
 // Exception: Success holds the existing audio mutex; every failure releases it.
 extern "C" esp_err_t LUNASHELL_audio_begin_speech(uint32_t source_rate_hz, uint32_t request_id)
 {
-    if (source_rate_hz != 22050 || request_id == 0) {
+    if ((source_rate_hz != 22050 && source_rate_hz != 24000) || request_id == 0) {
         return reject_playback("Speech format", ESP_ERR_INVALID_ARG, source_rate_hz, 0);
     }
     esp_err_t error = LUNASHELL_audio_init();

@@ -389,8 +389,9 @@ observation. Presentation does not sample hardware or create another collector.
 
 ## Optional screensaver
 
-Options > Behavior > More behavior uses an outline motion glyph and a short
-idle animation hint above the Screensaver setting, initially Off. After
+Options > Behavior > More behavior contains the Screensaver setting, initially
+Off, and a footer opening Synth Voice. Its three unavailable rows use the same
+Options geometry until a speech engine is integrated. After
 fifteen idle seconds on an unobstructed dashboard, a softly colored globe
 fills the otherwise black display. There is no text, quota perimeter or
 navigation chrome while it is active. The globe pulses from 50% to 100% of
