@@ -9,6 +9,7 @@
 #include <limits>
 
 #include "esp_log.h"
+#include "home_dashboard_fonts.hpp"
 #include "scene_data.hpp"
 #include "sdkconfig.h"
 
@@ -130,6 +131,11 @@ esp_err_t draw_message_rows(const void *state, CODY2D::Surface strip, uint16_t f
         return ESP_ERR_INVALID_STATE;
     }
     const auto &plain = *static_cast<const PlainView *>(state);
+    if (plain.layout == DeviceMessageLayout::VoiceCountdown) {
+        const auto error = draw_countdown_tile(plain.voice_tile, plain.voice_flip_progress,
+            strip, first_row, first_column);
+        if (error != ESP_OK) return error;
+    }
     if (plain.layout == DeviceMessageLayout::VoiceFailure) {
         const auto error = CODY2D::draw_action_icon_rows(CODY2D::ActionIcon::Microphone,
             kVoiceFailureIcon, kAttention, strip, first_row, first_column);
@@ -467,7 +473,7 @@ esp_err_t draw_device_chrome(const DeviceChrome &chrome, CODY2D::Surface strip,
 // first: Optional primary action.
 // second: Optional secondary action.
 // extra: Optional third status line.
-// layout: Dashboard uses cards; Voice reserves the ribbon; VoiceFailure uses an icon and status.
+// layout: Selects the compact, dashboard or voice presentation slots.
 // Exception: Returns the original bounded text or preparation error.
 esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
     const char *heading, const char *status, const char *detail, const char *first, const char *second,
@@ -501,7 +507,7 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
     plain.captions = {};
     plain.actions = {};
 
-    const bool voice_layout = layout == DeviceMessageLayout::Voice;
+    const bool voice_layout = layout == DeviceMessageLayout::Voice || layout == DeviceMessageLayout::VoiceCountdown;
     const bool voice_failure = layout == DeviceMessageLayout::VoiceFailure;
     esp_err_t error = prepare_line(plain.text[0].data(), SceneData::title_font,
         voice_layout || voice_failure ? kVoiceHeading : kHeading, kWhite, plain.captions[0]);
@@ -547,62 +553,26 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
 }
 
 // view: Stable glyph and action buffers whose lifetime covers native frame retirement.
-// frame: Receives a live-only detail or warning page with bounded native controls.
-// model: Current voucher identities and canonical clock; no saved snapshot is consulted.
+// frame: Receives the live-only warning with bounded native controls.
+// model: Current warned expiry; no saved snapshot is consulted.
 // Exception: Preserves UTC conversion, bounded formatting and native preparation errors.
-esp_err_t prepare_device_vouchers(DeviceView &view, DeviceFrameContent &frame, const DeviceModel &model)
+esp_err_t prepare_device_voucher_warning(DeviceView &view, DeviceFrameContent &frame, const DeviceModel &model)
 {
-    const auto &data = model.dashboard;
-    const auto &vouchers = model.vouchers;
-    const bool warning = vouchers.page == VoucherPage::Warning;
-    if (!device_voucher_expiries_current(data)) {
-        const char *status = data.vouchers.data_stale ? "Voucher data is stale" : "Expiry data unavailable";
-        return prepare_device_message(view, frame, "Reset vouchers", status, "Live Codex data required",
-            "Done", nullptr, "", DeviceMessageLayout::Dashboard);
-    }
-    if (vouchers.expiry_count == 0) {
-        const char *status = data.vouchers.available_valid && data.vouchers.available == 0
-            ? "No reset vouchers" : "No expiry dates reported";
-        return prepare_device_message(view, frame, "Reset vouchers", status, "", "Done", nullptr, "",
-            DeviceMessageLayout::Dashboard);
-    }
-
-    const auto expiry = warning ? vouchers.warning_expiry : vouchers.selected_expiry;
-    const auto end = vouchers.expiries.begin() + vouchers.expiry_count;
-    const auto selected = std::find(vouchers.expiries.begin(), end, expiry);
-    if (selected == end) return ESP_ERR_INVALID_STATE;
-    char heading[32]{};
-    const int written = warning ? std::snprintf(heading, sizeof(heading), "Reset voucher expiring") :
-        std::snprintf(heading, sizeof(heading), "Voucher expiry %u of %u",
-            static_cast<unsigned>(selected - vouchers.expiries.begin() + 1),
-            static_cast<unsigned>(vouchers.expiry_count));
-    if (written < 0 || static_cast<size_t>(written) >= sizeof(heading)) return ESP_ERR_INVALID_SIZE;
+    const auto expiry = model.vouchers.warning_expiry;
+    if (expiry == 0 || pending_device_voucher_warning(model) != expiry) return ESP_ERR_INVALID_STATE;
     char date[32]{};
     char time[32]{};
-    const char *status = "No expiry";
-    const char *detail = "Reported by Codex";
-    const char *extra = "";
-    if (expiry != 0) {
-        const auto instant = static_cast<time_t>(expiry);
-        std::tm calendar{};
-        if (static_cast<uint64_t>(instant) != expiry || gmtime_r(&instant, &calendar) == nullptr) {
-            return ESP_ERR_INVALID_STATE;
-        }
-        if (std::strftime(date, sizeof(date), "%Y-%m-%d", &calendar) == 0 ||
-            std::strftime(time, sizeof(time), "%H:%M:%S UTC", &calendar) == 0) {
-            return ESP_ERR_INVALID_SIZE;
-        }
-        status = date;
-        detail = time;
-        if (warning) extra = "Expires within 24 hours";
-        else if (data.clock.data_stale) extra = "Clock data is stale";
-        else if (!current(data.clock) || data.clock.utc_epoch_seconds <= 0) extra = "Clock unavailable";
-        else if (data.clock.utc_epoch_seconds >= expiry) extra = "Expired";
-        else extra = "Exact UTC time";
+    const auto instant = static_cast<time_t>(expiry);
+    std::tm calendar{};
+    if (static_cast<uint64_t>(instant) != expiry || gmtime_r(&instant, &calendar) == nullptr) {
+        return ESP_ERR_INVALID_STATE;
     }
-    const bool paging = !warning && vouchers.expiry_count > 1;
-    return prepare_device_message(view, frame, heading, status, detail,
-        warning ? "Dismiss" : paging ? "Prev" : "Done", paging ? "Next" : nullptr, extra,
+    if (std::strftime(date, sizeof(date), "%Y-%m-%d", &calendar) == 0 ||
+        std::strftime(time, sizeof(time), "%H:%M:%S UTC", &calendar) == 0) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return prepare_device_message(view, frame, "Reset voucher expiring", date, time,
+        "Dismiss", nullptr, "Expires within 24 hours",
         DeviceMessageLayout::Dashboard);
 }
 
@@ -628,9 +598,11 @@ int device_action_at(const DeviceView &view, CODY2D::Point point)
 // interval: Selected token history time window.
 // data: Current read-only device model projection.
 // now_us: Monotonic time for countdown and title freshness.
+// vouchers: Live expiry viewport for Credits, empty on other routes.
 // Exception: Returns the original preparation or unsupported screen error.
 esp_err_t prepare_device_dashboard(DeviceView &view, DeviceFrameContent &frame,
-    WidgetScreen screen, TokenHistoryInterval interval, const DeviceDashboardData &data, int64_t now_us)
+    WidgetScreen screen, TokenHistoryInterval interval, const DeviceDashboardData &data, int64_t now_us,
+    const VoucherList &vouchers)
 {
     frame = {};
     if (screen == WidgetScreen::Device) {
@@ -664,7 +636,7 @@ esp_err_t prepare_device_dashboard(DeviceView &view, DeviceFrameContent &frame,
     default: return ESP_ERR_INVALID_ARG;
     }
     return prepare_account_dashboard(page, data.details, data.weekly, data.clock, title_font, body_font,
-        view.account, frame.content, device_saved_page_epoch(data, screen) > 0 ? &data.saved : nullptr);
+        view.account, frame.content, device_saved_page_epoch(data, screen) > 0 ? &data.saved : nullptr, vouchers);
 }
 
 // view: Persistent information presentation, changed after the previous frame retires.
@@ -691,9 +663,10 @@ esp_err_t prepare_device_info(DeviceView &view, DeviceFrameContent &frame, const
 // view: Retained presentation state.
 // frame: Receives prepared content.
 // voice: Canonical recording state.
+// now_us: Display owner's monotonic time for the visual flip only.
 // Exception: Returns the original caption or geometry error.
 esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,
-    const LUNASHELL::VoiceInputObservation &voice)
+    const LUNASHELL::VoiceInputObservation &voice, int64_t now_us)
 {
     using Phase = LUNASHELL::VoiceInputPhase;
     // status: Current voice phase caption.
@@ -713,11 +686,21 @@ esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,
     case Phase::Preparing:
         return prepare("Preparing", "Please wait", nullptr, "Cancel");
     case Phase::StartCountdown:
-    case Phase::SendCountdown:
-        std::snprintf(detail, sizeof(detail), "%s in %u s",
-            voice.phase == Phase::StartCountdown ? "Recording starts" : "Sending",
-            static_cast<unsigned>(voice.countdown_seconds));
-        return prepare(detail, "", nullptr, "Cancel");
+    case Phase::SendCountdown: {
+        if (voice.countdown_seconds < 1 || voice.countdown_seconds > 3) return ESP_ERR_INVALID_RESPONSE;
+        auto error = prepare_device_message(view, frame, "Dictation",
+            voice.phase == Phase::StartCountdown ? "Recording starts in" : "Sending in",
+            "", nullptr, "Cancel", "", DeviceMessageLayout::VoiceCountdown);
+        if (error != ESP_OK) return error;
+        constexpr int64_t kFlipUs = 200000;
+        const auto age = now_us - voice.changed_at_us;
+        const bool flipping = voice.countdown_seconds < 3 && age >= 0 && age < kFlipUs;
+        view.plain.voice_flip_progress = flipping
+            ? static_cast<uint16_t>(age * kResetCountdownFlipComplete / kFlipUs) : kResetCountdownFlipComplete;
+        const char digit = static_cast<char>('0' + voice.countdown_seconds);
+        return prepare_single_countdown_tile(view.plain.voice_tile, kVoiceCountdownFace,
+            HomeFonts::value_font, digit, flipping ? static_cast<char>(digit + 1) : '\0');
+    }
     case Phase::Listening:
         // The capture owner checks for PCM on release. Its public observation
         // does not publish the private buffer size for every incoming block.
@@ -734,12 +717,18 @@ esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,
         return prepare("Discarded");
     case Phase::Unconfirmed:
         return prepare("Delivery unconfirmed", "Check on your PC");
-    case Phase::Failed:
+    case Phase::Failed: {
         std::snprintf(detail, sizeof(detail), "Error 0x%lx", static_cast<unsigned long>(voice.error));
         // The owner already returns after three seconds. A terminal failure has
         // no retry/dismiss capability; do not expose a button that cancels again.
-        return prepare_device_message(view, frame, "Dictation", "Audio failed",
-            "Returning to your screen", nullptr, nullptr, detail, DeviceMessageLayout::VoiceFailure);
+        const bool rejected = voice.failure == LUNASHELL::VoiceInputFailure::PcRejected;
+        const char *status = rejected ? "PC rejected audio" :
+            voice.failure == LUNASHELL::VoiceInputFailure::Microphone ? "Microphone failed" :
+            voice.failure == LUNASHELL::VoiceInputFailure::Transport ? "Audio link failed" : "Audio failed";
+        return prepare_device_message(view, frame, "Dictation", status,
+            rejected ? "Check Codex audio on PC" : "Returning to your screen",
+            nullptr, nullptr, detail, DeviceMessageLayout::VoiceFailure);
+    }
     }
     return ESP_ERR_INVALID_ARG;
 }

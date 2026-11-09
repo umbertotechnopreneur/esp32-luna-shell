@@ -35,9 +35,9 @@ no typewriter timing or character audio.
 | Saved PC management | Three standalone 36-pixel icons, with 90 x 90 touch areas at x=83/188/293, y=302 |
 | Connections actions | 54-pixel glyphs at (148,219) and (318,219), with 140 × 168 touch areas |
 | Check relay, when configured | Text-only footer at (123,366,220,52). The latest check replaces the Connections hint at y=136. |
-| Options and category rows | Up to three open rows at x=93, width 280, height 72, y=130/210/290; 30-pixel colored icons, label and secondary line |
+| Options and category rows | Up to three rows at x=93, width 280, height 72, y=130/210/290. Destination cards use 18-pixel corners and icon badges; settings use flat rows. |
 | Visible screens | Three Options-sized rows, name on the left and visibility on the right, with page and save status below |
-| Options footer | (123,382,220,52), with an outline home glyph next to Go home |
+| Options footer | (123,382,220,52), with a centered Go home caption |
 | Restart / factory reset confirmation | Cancel at (93,270,280,64), confirmation at (123,382,220,52) |
 | Visibility toggle | (113,226,240,52) |
 | Ordinary single action | (113,352,240,72) |
@@ -48,11 +48,11 @@ no typewriter timing or character audio.
 The outer corners of each control fit within the circular chord at its row.
 Coverage is clipped to the rounded control; complete hit bounds remain admitted.
 
-Device-first Options uses named Tools, Preferences and Device pages with their
-page fraction. Open rows have a colored semantic icon and a short description;
-Behavior and Display use the second line for the canonical setting value.
-Subtle dividers separate rows without filled cards. Go home and More options
-use the subdued graphite footer palette.
+Device-first Options uses named Tools, Preferences and Device pages with three
+page marks above the footer. Destination cards use a quiet graphite gradient,
+a colored semantic icon, a title and a smaller description. Codex stats uses a
+bar-chart icon. Behavior and Display retain flat rows with the canonical setting
+value on the second line. Go home and More options use the graphite footer palette.
 
 Saved PC uses a link glyph above the title, an explicit PC-name-unavailable
 caption, and the canonical configured Wi-Fi name. The current link projection has no
@@ -311,9 +311,17 @@ distinct. The history range control says Show 1 hour, Show 5 hours or Show 24 ho
 and retains the same cycling action. Missing intervals remain gaps.
 
 Reset uses four flip tiles while it has a valid duration. A clock glyph and a
-single status occupy that area when it has no duration. Limits and Credits
-center the available metric when only one is reported. Last 7 Days labels
+single status occupy that area when it has no duration. Limits centers a single
+reported window, and Credits centers the balance if voucher data is unavailable. Last 7 Days labels
 partial coverage and distinguishes a measured zero from a missing day.
+
+Credits places **Reset Vouchers** below the balance, with a 38 x 22 gold ticket
+at the right. The viewport holds three complete numbered rows and moves one row
+per vertical swipe when there are multiple vouchers. A slim position mark stays
+within that viewport. Lateral arrows continue to change statistics pages. Each
+row uses the configured timezone at the actual expiry instant, with a caption
+such as `11 March 2027`. Equal dates retain separate rows. Unavailable local
+dates, missing expiry details and explicit non-expiring vouchers are distinct.
 
 Token History uses an ECG-style grid and connects only adjacent measured
 15-minute intervals. Its central control cycles through 1, 5 and 24 hours.
@@ -366,20 +374,20 @@ remain owned by the existing power policy.
 
 ## Voice recording
 
-Failed dictation uses an amber microphone above Audio failed, a short automatic
-return message, and the original hexadecimal error in muted text. The existing
-three-second return policy remains unchanged; presentation does not resolve the
-underlying audio failure or offer an unsupported Retry operation.
-
 The native recording route uses centered captions and explicit Send and Cancel
 controls. Only a completely retired Preparing frame admits the owner's start
-countdown. The display uses the recorded phase and countdown supplied by the
-audio owner. The colored ribbon animates through preparation, both countdowns,
-listening and sending. Each countdown tick starts a visible pulse. While
-listening, the ribbon responds to current microphone levels. Cancel is available
-during preparation and both countdowns. Send and Cancel are available while
-listening. The transport determines whether the recipient has confirmed the
-recording.
+countdown. Both countdowns show 3, 2 and 1 on one split tile at (185,176),
+96 x 74, with the reset clock's 200 ms flap animation. The audio owner supplies
+the seconds and determines when to advance. The ribbon animates during
+preparation, listening and sending; while listening, it responds to current
+microphone levels. Cancel is available during preparation and both countdowns.
+Send and Cancel are available while listening.
+
+Failure distinguishes a microphone failure, an audio link failure and an
+authenticated PC rejection. The screen keeps the hexadecimal error and returns
+automatically after three seconds. A PC rejection points to the PC audio setup,
+where the native readiness failure is recorded. The transport determines whether
+the recipient confirmed the recording.
 
 ## Boot
 

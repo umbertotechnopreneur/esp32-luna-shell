@@ -67,9 +67,8 @@ Codex stats and Timer. Page 2 has Visible screens, Display and Behavior.
 Page 3 has Restart device, Factory reset and Quick guide. The lateral arrows move between pages. Each page
 offers **Go home** to return to the first enabled statistics screen, or Device
 if all are hidden.
-The Tools, Preferences and Device titles include the page fraction. Up to three
-72-pixel-high open rows show colored icons, labels and short descriptions.
-A house glyph identifies the graphite **Go home** footer.
+The Tools, Preferences and Device pages show three position marks above the
+**Go home** footer. Each destination has a colored icon, title and short description.
 Display holds brightness, rotation and orientation. Behavior holds sound,
 shake-to-wake and, in the voice-enabled profile, Dictation. **More behavior**
 contains **Screensaver**, disabled by default.
@@ -122,13 +121,14 @@ later refreshes the public catalog on the computer and supplies the icon, label
 and price through the authenticated link. **Workspace messages** appears only
 when the current account observation contains a count, including a measured zero.
 
-In **Credits**, tap **Reset vouchers** to open the expiry details. Cody shows the
-UTC date and time reported by Codex and groups identical dates. The plugin sends
-up to eight available vouchers, with the earliest dates first. The count remains
-available independently of expiry details. A current expiry within 24 hours can
-open a dismissible visual notice on the awake dashboard. Setup, questions and
-recording take priority. Details and notices use current observations from CCP
-0.6.18 or later and a valid device clock for the 24-hour check.
+In **Credits**, **Reset Vouchers** lists the expiry of each available voucher in
+the configured timezone. Cody numbers the rows, even when dates match, and
+shows up to three at a time. Swipe up or down within the list when there is more
+than one voucher. The plugin sends up to eight expiries, earliest first. The count
+is independent of expiry details. A current expiry within 24 hours can open a
+dismissible visual notice on the awake dashboard. Setup, questions and recording
+take priority. Dates and notices use current observations from CCP 0.6.18 or later
+and a valid device clock for the 24-hour check.
 
 After ten seconds without touch, the lateral arrows fade. Touch or shake
 reveals them. A hidden arrow requires a new touch once it is visible. Token

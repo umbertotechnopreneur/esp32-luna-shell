@@ -12,10 +12,12 @@ enum class VoiceInputPhase : uint8_t {
     Preparing, StartCountdown, SendCountdown
 };
 enum class VoiceInputTrigger : uint8_t { WakeWord, DoubleTap, StandbyWake, DeviceButton };
+enum class VoiceInputFailure : uint8_t { None, Microphone, Transport, PcRejected };
 struct VoiceInputObservation {
     VoiceInputPhase phase = VoiceInputPhase::Idle;
     VoiceInputTrigger trigger = VoiceInputTrigger::WakeWord;
     uint8_t countdown_seconds = 0;
+    VoiceInputFailure failure = VoiceInputFailure::None;
     uint32_t captured_samples = 0;
     uint32_t acknowledged_samples = 0;
     int64_t started_at_us = 0;

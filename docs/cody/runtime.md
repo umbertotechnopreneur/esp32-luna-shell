@@ -788,36 +788,28 @@ and a completed physical standby wake from a short power press, touch or motion.
 Internal recovery, power-off farewell and Codex-notification wake do not start
 recording. A wake-word event already admitted before wake is not duplicated.
 No wake-word block or audio from preparation is recorded. Only a completely
-retired Preparing screen admits the three-second Start listening in countdown.
+retired Preparing screen admits the three-second Recording starts in countdown.
 Its real owner deadline and a fresh successful AFE Listening observation then
 admit PCM. No wake-word cache is prepended; physical timing still needs observation.
 
 Voice input has presentation priority while retaining the interrupted route and
-its real question deadlines. The native device UI draws the four-color procedural
-ribbon in a 384 x 58 logical-pixel band at (41,179), centered at y208. Partial
-DMA refresh aligns the damage to even rows [178,238), while artwork clips to
-[179,237). Fixed-point interpolation and native RGB565 alpha composition reuse
-a display-owned 784-byte knot buffer. Each owner-published countdown tick pulses
-the ribbon independently of microphone gain. While listening, gain follows
-valid, fresh microphone levels. Unavailable samples decay the visual response.
-Between caption or control changes, animation refreshes only the ribbon band.
-Actual frame rate and energy cost require target measurements.
-The bottom timer shows elapsed and remaining seconds within the sixty-second
-budget, starting at `00s elapsed / 60s left`. Recording keeps all instructions
-visible: `Tap once to send`, `5s of silence to finish`, and
-`Shake or double tap` / `to discard`. A single completed tap waits 350 ms for
-double-tap arbitration; a second held contact postpones that decision. Double tap
-or deliberate shake requests discard. Session and orientation guards reject late
-gestures, and only a fully retired view admits input. Cancellation remains possible
+its real question deadlines. The native device UI uses one split tile for the
+owner-published 3, 2, 1 sequence. It uses the reset countdown's 200 ms flap and
+repaints only the face during the transition. During preparation, listening and
+sending, a four-color ribbon occupies a 384 x 58 logical-pixel band at (41,179).
+While listening, gain follows valid, fresh microphone levels. Unavailable samples
+decay the visual response. Actual frame rate and energy cost require target measurements.
+On the native device screen, Cancel is available during Preparing and the
+countdowns; Listening offers Send and Cancel. Session and orientation guards
+reject late gestures, and only a fully retired view admits input. Cancellation remains possible
 while sending before END, but cannot revoke END already transmitted or a turn
 accepted by Codex; no late gesture claims that remote audio was discarded.
 Five seconds of successfully acquired 16-kHz VAD nonspeech PCM finish capture,
 including initial silence. A straddling block admits only the exact five-second
 quiet prefix; scheduling gaps and failed reads do not count. Capture then enters
-Sending the audio in for three actual seconds before END may leave. Buffered PCM
+Sending in for three actual seconds before END may leave. Buffered PCM
 can continue its authenticated transfer, but no native submission is committed
-during that countdown. Both countdowns and Preparing allow one tap anywhere or
-shake to cancel. Recording retains single-send/double-discard arbitration.
+during that countdown.
 The maximum utterance is
 60 seconds from actual capture admission, with a 90-second overall session budget.
 Preparation that cannot retire a complete frame fails after 15 seconds. New
@@ -831,7 +823,8 @@ seconds of **unacknowledged** 16 kHz mono audio. It is not an utterance-duration
 limit. Full buffers fail explicitly without overwriting unheard words. Neither SD
 nor internal flash stores audio on the device. Canonical `voice.input` contains
 typed phase/trigger, actual counters, original request/capture times, canonical
-countdown seconds and errors; its bounded projection remains at most 48 bytes. No consumer
+countdown seconds, failure category when known and original error; its bounded
+projection remains at most 48 bytes. No consumer
 reads the microphone. The CCP worker borrows the transport with a 5-ms cadence
 only while connected input needs service (at least one RTOS tick). Idle and
 disconnected input use the normal 100-ms cadence; the last 100 ms before an ACK
@@ -849,16 +842,14 @@ Transport failure after END transmission remains Unconfirmed.
 The PC binds START to the exact genuinely followed chat, rejects a changed chat
 before submission and never selects a different destination on retry.
 
-Plugin 0.6.5 receives bounded PCM, writes a private WAV under its runtime
-`artifacts/voice` and passes `localAudio` to the exact native Codex chat. The
-installed CLI's generated schema confirms `localAudio`; account/model support,
-desktop endpoint availability, native approval routing and actual delivery remain
-unverified. The explicit loopback `CODY_CODEX_AUDIO_ENDPOINT` must identify the
-intended desktop/app-server host; the implementation does not launch a second
-host or guess a chat. A periodic read-only native probe rejects START early if
-the endpoint or followed chat is unavailable; readiness expires after ten seconds.
-This does not certify audio/model capability. Steering uses the current turn in
-the frozen chat at submission; native conflicts preserve the WAV for inspection.
+The plugin receives bounded PCM, writes a private WAV under its runtime
+`artifacts/voice` and submits `localAudio` to the public queue of the exact
+followed Codex chat. Setup selects the installed Codex executable explicitly.
+The receiver re-reads the selection at each readiness check; a changed executable
+must pass its own queue probe before a new START can be admitted. An existing
+recording never moves to a replacement executable. The readiness lease lasts ten
+seconds and does not certify audio/model capability. The native device UI shows
+`PC rejected audio` for an authenticated rejection; the PC status retains the cause.
 Recording IDs, returned native turn IDs, artifact paths and uncertainty are
 available through audio status; ambiguous input is never automatically retried. Native approvals
 and questions are never answered by the device or plugin.

@@ -47,14 +47,14 @@ constexpr uint32_t kWorkerStackBytes = 12288;
 
 enum class Layer : uint8_t {
     Branding, Message, Scene, Dashboard, AboutLink, Visibility, Timer, Voice, Diagnostics,
-    VoucherDetails, VoucherWarning, Screensaver, Blank
+    VoucherWarning, Screensaver, Blank
 };
 enum class Command : uint8_t { Ready = 1, Sleep, Wake, Shutdown, ShutdownFailed };
 enum class BrandingPhase : uint8_t { Inactive, AwaitingReady, Playing };
 using Save = CODY::VisibilitySave;
 enum class Target : uint8_t {
     None, Previous, Next, VisibilityFirst, VisibilitySecond, VisibilityThird,
-    Interval, FirstAction, SecondAction, VoiceGesture, OpenVouchers, VoucherPrevious, VoucherNext, VoucherDismiss,
+    Interval, FirstAction, SecondAction, VoiceGesture, VoucherScroll, VoucherDismiss,
     TimerDecrease, TimerIncrease, TimerSound, TimerStart, TimerCancel, TimerDismiss
 };
 constexpr std::array<Target, CODY::kVisibilityRowsPerPage> kVisibilityTargets{
@@ -85,7 +85,8 @@ struct RetiredFrame {
     bool next_navigation = false;
     bool valid = false;
     CODY2D::Rect voucher_bounds{};
-    bool voucher_paging = false;
+    uint16_t voice_flip_progress = CODY::kResetCountdownFlipComplete;
+    uint8_t voice_countdown_seconds = 0;
     int64_t voice_ribbon_at_us = 0;
 };
 
@@ -103,6 +104,8 @@ struct DeviceUi {
 
     CODY::DeviceView view{};
     RetiredFrame retired{};
+    CODY2D::Point voucher_touch_start{};
+    CODY2D::Point voucher_touch_last{};
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     int64_t presented_voice_session = 0;
     CODY::VoiceRibbonFrame voice_ribbon{};
@@ -147,7 +150,8 @@ void invalidate()
 // No parameters: choose the first enabled statistics page, with Device always available.
 void select_statistics()
 {
-    s_ui->model.vouchers.page = CODY::VoucherPage::Closed;
+    s_ui->model.vouchers.warning_expiry = 0;
+    s_ui->model.vouchers.first_row = 0;
     s_ui->model.info_page = CODY::InfoPage::System;
     const auto page = CODY::first_visible_widget(s_ui->model.widgets.visibility, CODY::WidgetScope::Statistics);
     CODY::select_widget_screen(s_ui->model.widgets, page.value_or(WidgetScreen::Device));
@@ -183,9 +187,8 @@ bool voice_visible(int64_t now_us)
 void prepare_device_voice_ribbon(DeviceUi &ui, FrameView &frame, esp_err_t motion_error)
 {
     const auto &input = ui.model.voice.input;
-    const bool countdown = input.phase == VoicePhase::StartCountdown || input.phase == VoicePhase::SendCountdown;
     const bool listening = input.phase == VoicePhase::Listening;
-    if (!countdown && !listening && input.phase != VoicePhase::Preparing && input.phase != VoicePhase::Sending) {
+    if (!listening && input.phase != VoicePhase::Preparing && input.phase != VoicePhase::Sending) {
         ui.voice_ribbon_energy = 0;
         return;
     }
@@ -223,15 +226,7 @@ void prepare_device_voice_ribbon(DeviceUi &ui, FrameView &frame, esp_err_t motio
         ui.voice_ribbon_energy = 0;
     }
 
-    uint8_t emphasis = 0;
-    constexpr int64_t kPulseUs = 240000;
-    if (countdown && input.countdown_seconds != 0 && input.changed_at_us > 0) {
-        const int64_t tick_age_us = now_us - input.changed_at_us;
-        if (tick_age_us >= 0 && tick_age_us < kPulseUs) {
-            emphasis = static_cast<uint8_t>((kPulseUs - tick_age_us) * 255 / kPulseUs);
-        }
-    }
-    CODY::prepare_voice_ribbon(now_us, static_cast<uint8_t>(ui.voice_ribbon_energy), ui.voice_ribbon, emphasis);
+    CODY::prepare_voice_ribbon(now_us, static_cast<uint8_t>(ui.voice_ribbon_energy), ui.voice_ribbon);
     frame.voice_ribbon_at_us = now_us;
 }
 #endif
@@ -268,17 +263,16 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         !CODY::device_effects_require_attention(ui.model.effects) && ui.model.battery_banner.sequence == 0 &&
         !(ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::ProjectLink);
     if (voucher_attention_allowed && !ui.asleep && !ui.pressed &&
-        ui.model.vouchers.page == CODY::VoucherPage::Closed) {
+        ui.model.vouchers.warning_expiry == 0) {
         const auto expiry = CODY::pending_device_voucher_warning(ui.model);
         if (expiry != 0) {
             // A visible-only notice never wakes the panel, plays audio or changes the retained dashboard route.
             ui.model.vouchers.warning_expiry = expiry;
-            ui.model.vouchers.page = CODY::VoucherPage::Warning;
         }
     }
     const bool saver_eligible = CODY::onboarding_dashboard_active() && !ui.model.editing && !ui.diagnostics &&
         !ui.timer_open && !voice_busy &&
-        ui.model.vouchers.page == CODY::VoucherPage::Closed &&
+        ui.model.vouchers.warning_expiry == 0 &&
         !CODY::device_effects_require_attention(ui.model.effects) && ui.model.battery_banner.sequence == 0 &&
         !(ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::ProjectLink);
     CODY::update_screensaver(ui.model.screensaver, saver_eligible,
@@ -291,7 +285,8 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     if (voice_visible(now_us)) {
         frame.layer = Layer::Voice;
-        const auto error = CODY::prepare_device_voice(ui.view, frame.presentation, ui.model.voice.input);
+        const auto error = CODY::prepare_device_voice(ui.view, frame.presentation, ui.model.voice.input,
+            esp_timer_get_time());
         if (error == ESP_OK) prepare_device_voice_ribbon(ui, frame, motion_error);
         return error;
     }
@@ -315,13 +310,11 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
             CODY::SceneData::title_font, CODY::SceneData::body_font, ui.editor, frame.presentation.content);
     }
     if (CODY::onboarding_dashboard_active()) {
-        const auto voucher_page = ui.model.vouchers.page;
-        if (voucher_page == CODY::VoucherPage::Details ||
-            (voucher_page == CODY::VoucherPage::Warning && voucher_attention_allowed)) {
-            frame.layer = voucher_page == CODY::VoucherPage::Warning ? Layer::VoucherWarning : Layer::VoucherDetails;
+        if (ui.model.vouchers.warning_expiry != 0 && voucher_attention_allowed) {
+            frame.layer = Layer::VoucherWarning;
             frame.arrows = true;
             frame.navigation_opacity = 255;
-            return CODY::prepare_device_vouchers(ui.view, frame.presentation, ui.model);
+            return CODY::prepare_device_voucher_warning(ui.view, frame.presentation, ui.model);
         }
         if (ui.model.widgets.selected_screen == WidgetScreen::About &&
             ui.model.info_page == CODY::InfoPage::ProjectLink) {
@@ -341,8 +334,9 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
             return CODY::prepare_device_info(ui.view, frame.presentation, model);
         }
         const auto read_error = CODY::read_device_dashboard(model.dashboard, screen, model.interval);
+        const auto vouchers = screen == WidgetScreen::Credits ? CODY::project_device_voucher_list(model) : CODY::VoucherList{};
         const auto error = read_error == ESP_OK ? CODY::prepare_device_dashboard(ui.view, frame.presentation,
-            screen, model.interval, model.dashboard, now_us) : read_error;
+            screen, model.interval, model.dashboard, now_us, vouchers) : read_error;
         if (error == ESP_OK) return ESP_OK;
         // An optional data provider must leave navigation and power controls usable.
         if (!ui.retired.statistics_unavailable) {
@@ -373,7 +367,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const auto revision = LUNASHELL_display_runtime_content_revision();
     const auto screen = ui.model.widgets.selected_screen;
     const bool show_connection = (frame.layer == Layer::Dashboard && screen != WidgetScreen::Device) ||
-        frame.layer == Layer::AboutLink || frame.layer == Layer::VoucherDetails || frame.layer == Layer::VoucherWarning;
+        frame.layer == Layer::AboutLink || frame.layer == Layer::VoucherWarning;
     const bool show_battery = frame.layer != Layer::Blank && frame.layer != Layer::Branding &&
         frame.layer != Layer::Screensaver;
     const auto saved_epoch = frame.layer == Layer::Dashboard && !frame.statistics_unavailable
@@ -392,7 +386,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const bool draws_navigation = frame.arrows || frame.layer == Layer::Scene;
     const uint8_t opacity = draws_navigation ? frame.navigation_opacity : 0;
     const bool next_navigation = frame.arrows && frame.layer != Layer::AboutLink && frame.layer != Layer::Timer &&
-        frame.layer != Layer::VoucherDetails && frame.layer != Layer::VoucherWarning &&
+        frame.layer != Layer::VoucherWarning &&
         (frame.layer != Layer::Visibility || ui.editor.page + 1U < CODY::kVisibilityPageCount);
     const bool navigation_changed = old.navigation_opacity != opacity || old.next_navigation != next_navigation;
     const bool content_changed = old.content_revision != view.content.revision;
@@ -400,8 +394,18 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const bool connection_changed = old.connection_revision != chrome.connection_revision;
     const bool connection_activity_changed = old.connection_activity_phase != frame.connection_activity_phase;
     const bool voice_ribbon_changed = old.voice_ribbon_at_us != frame.voice_ribbon_at_us;
+    const auto flip_progress = frame.layer == Layer::Voice &&
+        ui.view.plain.layout == CODY::DeviceMessageLayout::VoiceCountdown
+        ? ui.view.plain.voice_flip_progress : CODY::kResetCountdownFlipComplete;
+    uint8_t countdown_seconds = 0;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    if (frame.layer == Layer::Voice && ui.view.plain.layout == CODY::DeviceMessageLayout::VoiceCountdown) {
+        countdown_seconds = ui.model.voice.input.countdown_seconds;
+    }
+#endif
+    const bool flip_changed = old.voice_flip_progress != flip_progress || old.voice_countdown_seconds != countdown_seconds;
     if (!full && !content_changed && !navigation_changed && !battery_changed && !connection_changed &&
-        !connection_activity_changed && !voice_ribbon_changed) return ESP_OK;
+        !connection_activity_changed && !voice_ribbon_changed && !flip_changed) return ESP_OK;
 
     bool parked = false;
     esp_err_t error = LUNASHELL_display_frame_begin(kFrameBudgetMs, &parked);
@@ -432,6 +436,11 @@ esp_err_t render(const FrameView &frame, bool force = false)
         if (voice_ribbon_changed) {
             include_damage({CODY::kVoiceRibbonLeft, CODY::kVoiceRibbonDamageTop,
                 CODY::kVoiceRibbonLeft + CODY::kVoiceRibbonWidth, CODY::kVoiceRibbonDamageBottom});
+        }
+        if (flip_changed) {
+            const auto face = CODY::kVoiceCountdownFace;
+            include_damage({face.x, face.y, static_cast<uint16_t>(face.x + face.width),
+                static_cast<uint16_t>(face.y + face.height)});
         }
     }
     const uint16_t left = bounds.left & ~1U;
@@ -494,8 +503,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
     if (!old.valid || old.display_revision != frame_revision || old.layer != frame.layer || old.screen != screen ||
         (old.content_revision != view.content.revision &&
          (frame.layer == Layer::Visibility || ui.contact == Target::FirstAction || ui.contact == Target::SecondAction ||
-          ui.contact == Target::OpenVouchers || ui.contact == Target::VoucherPrevious ||
-          ui.contact == Target::VoucherNext || ui.contact == Target::VoucherDismiss))) {
+          ui.contact == Target::VoucherScroll || ui.contact == Target::VoucherDismiss))) {
         ui.contact = Target::None;
     }
     if (old.navigation_opacity == 255 && opacity < 255) {
@@ -507,10 +515,11 @@ esp_err_t render(const FrameView &frame, bool force = false)
     }
     old = {frame.layer, screen, frame_revision, view.content.revision, chrome.battery_sequence,
         chrome.connection_revision, allowance, opacity, frame.connection_activity_phase,
-        frame.statistics_unavailable, next_navigation, true, {}, false};
+        frame.statistics_unavailable, next_navigation, true};
     old.voucher_bounds = frame.layer == Layer::Dashboard && screen == WidgetScreen::Credits &&
         !frame.statistics_unavailable ? ui.view.account.voucher_bounds : CODY2D::Rect{};
-    old.voucher_paging = frame.layer == Layer::VoucherDetails && ui.view.plain.actions[1].enabled;
+    old.voice_flip_progress = flip_progress;
+    old.voice_countdown_seconds = countdown_seconds;
     old.voice_ribbon_at_us = frame.voice_ribbon_at_us;
     if (frame.layer == Layer::Scene) {
         ui.completed_scene = ui.scene;
@@ -524,12 +533,9 @@ Target target_at(CODY2D::Point point)
 {
     const auto &ui = *s_ui;
     const auto layer = ui.retired.layer;
-    if (layer == Layer::VoucherDetails || layer == Layer::VoucherWarning) {
+    if (layer == Layer::VoucherWarning) {
         if (CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::VoucherDismiss;
-        const auto action = CODY::device_action_at(ui.view, point);
-        if (action == 0) return Target::None;
-        if (!ui.retired.voucher_paging) return Target::VoucherDismiss;
-        return action == 1 ? Target::VoucherPrevious : Target::VoucherNext;
+        return CODY::device_action_at(ui.view, point) == 1 ? Target::VoucherDismiss : Target::None;
     }
     if (layer == Layer::Timer) {
         if (ui.retired.navigation_opacity == 255 &&
@@ -560,7 +566,7 @@ Target target_at(CODY2D::Point point)
     if (layer == Layer::Dashboard && ui.retired.screen == WidgetScreen::Credits) {
         const auto &bounds = ui.retired.voucher_bounds;
         if (point.x >= bounds.x && point.x < bounds.x + bounds.width &&
-            point.y >= bounds.y && point.y < bounds.y + bounds.height) return Target::OpenVouchers;
+            point.y >= bounds.y && point.y < bounds.y + bounds.height) return Target::VoucherScroll;
     }
     if (layer == Layer::Dashboard && ui.retired.screen == WidgetScreen::TokenHistory &&
         CODY::hit_token_history_interval(ui.view.history, point)) return Target::Interval;
@@ -612,21 +618,17 @@ esp_err_t activate(Target target)
 {
     auto &ui = *s_ui;
     const auto layer = ui.retired.layer;
-    if (layer == Layer::VoucherDetails || layer == Layer::VoucherWarning) {
+    if (layer == Layer::VoucherWarning) {
         if (target == Target::VoucherDismiss) {
-            if (layer == Layer::VoucherWarning) CODY::dismiss_device_voucher_warning(ui.model);
-            else ui.model.vouchers.page = CODY::VoucherPage::Closed;
+            CODY::dismiss_device_voucher_warning(ui.model);
             invalidate();
-        } else if (layer == Layer::VoucherDetails &&
-            (target == Target::VoucherPrevious || target == Target::VoucherNext)) {
-            CODY::step_device_voucher(ui.model.vouchers,
-                target == Target::VoucherPrevious ? WidgetStep::Previous : WidgetStep::Next);
         }
-    } else if (target == Target::OpenVouchers) {
-        auto &vouchers = ui.model.vouchers;
-        vouchers.page = CODY::VoucherPage::Details;
-        if (vouchers.expiry_count != 0) vouchers.selected_expiry = vouchers.expiries.front();
-        invalidate();
+    } else if (target == Target::VoucherScroll) {
+        const int dx = ui.voucher_touch_last.x - ui.voucher_touch_start.x;
+        const int dy = ui.voucher_touch_last.y - ui.voucher_touch_start.y;
+        if (std::abs(dy) >= 32 && std::abs(dy) > std::abs(dx)) {
+            CODY::step_device_voucher(ui.model.vouchers, dy < 0 ? WidgetStep::Next : WidgetStep::Previous);
+        }
     } else if (layer == Layer::Visibility) {
         edit_visibility(target);
     } else if (layer == Layer::Timer) {
@@ -776,7 +778,12 @@ esp_err_t sample_touch()
     if (sample.pressed) {
         const auto target = target_at(point);
         if (pressed_edge) ui.contact = target;
-        else if (ui.contact != target) ui.contact = Target::None;
+        if (ui.contact == Target::VoucherScroll) {
+            if (pressed_edge) ui.voucher_touch_start = point;
+            ui.voucher_touch_last = point;
+        } else if (ui.contact != target) {
+            ui.contact = Target::None;
+        }
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
         if (pressed_edge && target == Target::VoiceGesture) {
             ui.model.voice_touch_start = point;
@@ -812,7 +819,7 @@ esp_err_t update_navigation()
             !ui.model.editing && !ui.timer_open && !ui.diagnostics;
         ui.model.editing = false;
         ui.timer_open = false;
-        ui.model.vouchers.page = CODY::VoucherPage::Closed;
+        ui.model.vouchers.warning_expiry = 0;
         ui.model.info_page = CODY::InfoPage::System;
         CODY::dismiss_screensaver(ui.model.screensaver, esp_timer_get_time());
         ui.diagnostics = false;
@@ -1115,9 +1122,11 @@ void device_ui_worker(void *context)
             vTaskDelay(pdMS_TO_TICKS(kPollMs));
             continue;
         }
+        const bool animating = ui.retired.voice_ribbon_at_us != 0 || ui.view.countdown.animating() ||
+            ui.retired.voice_flip_progress < CODY::kResetCountdownFlipComplete;
         const uint32_t wait_ms = ui.model.screensaver.phase == CODY::ScreensaverPhase::Visible
             ? static_cast<uint32_t>(CODY::kScreensaverFrameUs / 1000)
-            : ui.retired.voice_ribbon_at_us != 0 || ui.view.countdown.animating() ? 33 : kPollMs;
+            : animating ? 33 : kPollMs;
         const auto wait = LUNASHELL_touch_wait_for_report(wait_ms);
         if (wait != ESP_OK && wait != ESP_ERR_NOT_FOUND) {
             error = wait;

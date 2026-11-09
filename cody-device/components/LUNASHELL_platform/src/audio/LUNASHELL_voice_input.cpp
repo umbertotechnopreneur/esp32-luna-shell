@@ -73,8 +73,10 @@ uint32_t get32(const uint8_t *input)
 }
 // phase: Confirmed capture/transport transition.
 // error: Original failing operation, or ESP_OK for an actual successful transition.
+// failure: Owner of a terminal failure when it is known.
 // Exception: Returns a real publication failure rather than admitting invisible capture.
-esp_err_t publish(LUNASHELL::VoiceInputPhase phase, esp_err_t error = ESP_OK)
+esp_err_t publish(LUNASHELL::VoiceInputPhase phase, esp_err_t error = ESP_OK,
+                  LUNASHELL::VoiceInputFailure failure = LUNASHELL::VoiceInputFailure::None)
 {
     s_observation.phase = phase;
     if (phase != LUNASHELL::VoiceInputPhase::StartCountdown &&
@@ -82,6 +84,7 @@ esp_err_t publish(LUNASHELL::VoiceInputPhase phase, esp_err_t error = ESP_OK)
         s_observation.countdown_seconds = 0;
     }
     s_observation.error = error;
+    s_observation.failure = failure;
     s_observation.changed_at_us = esp_timer_get_time();
     const esp_err_t result = LUNASHELL::DeviceSnapshotService::instance().reportVoiceInput(s_observation);
     s_publication_pending = result != ESP_OK;
@@ -91,6 +94,7 @@ esp_err_t publish(LUNASHELL::VoiceInputPhase phase, esp_err_t error = ESP_OK)
         s_observation.phase = s_end_sent ? LUNASHELL::VoiceInputPhase::Unconfirmed : LUNASHELL::VoiceInputPhase::Failed;
         s_observation.countdown_seconds = 0;
         s_observation.error = result;
+        s_observation.failure = LUNASHELL::VoiceInputFailure::None;
     }
     return error != ESP_OK ? error : result;
 }
@@ -131,7 +135,7 @@ esp_err_t advance_countdown_locked(int64_t now_us)
                 const esp_err_t error = read_error != ESP_OK ? read_error :
                     voice.last_error != ESP_OK ? voice.last_error : ESP_ERR_INVALID_STATE;
                 ESP_LOGE(kTag, "Recording start rejected: AFE state=%u (%s)", unsigned(voice.state), esp_err_to_name(error));
-                return publish(Phase::Failed, error);
+                return publish(Phase::Failed, error, LUNASHELL::VoiceInputFailure::Microphone);
             }
             // The first three seconds belong to visible preparation, not the recording duration.
             s_observation.capturing_started_at_us = now_us;
@@ -151,7 +155,8 @@ esp_err_t advance_countdown_locked(int64_t now_us)
 // Exception: Returns the original transport or canonical publication error.
 esp_err_t transportFailure(esp_err_t error)
 {
-    return publish(s_end_sent ? LUNASHELL::VoiceInputPhase::Unconfirmed : LUNASHELL::VoiceInputPhase::Failed, error);
+    return publish(s_end_sent ? LUNASHELL::VoiceInputPhase::Unconfirmed : LUNASHELL::VoiceInputPhase::Failed,
+        error, LUNASHELL::VoiceInputFailure::Transport);
 }
 // link_key: Existing paired credential; never exposed to consumers or logs.
 // presence_nonce: Fresh READY nonce; START must prove this exact current discovery event.
@@ -358,8 +363,14 @@ void LUNASHELL::feedVoiceInput(const int16_t *samples, size_t count, bool speech
         // even when the AFE block straddles that boundary. No samples are invented.
         admitted = std::min<size_t>(admitted, kSilenceSamples - s_silence_samples);
     }
-    if (error != ESP_OK || samples == nullptr || count == 0 || admitted > kSamples - s_count) {
-        publish(VoiceInputPhase::Failed, error != ESP_OK ? error : ESP_ERR_INVALID_SIZE);
+    if (error != ESP_OK || samples == nullptr || count == 0) {
+        publish(VoiceInputPhase::Failed, error != ESP_OK ? error : ESP_ERR_INVALID_SIZE,
+            VoiceInputFailure::Microphone);
+        return;
+    }
+    if (admitted > kSamples - s_count) {
+        ESP_LOGE(kTag, "Audio input buffer is full before acknowledgement (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        publish(VoiceInputPhase::Failed, ESP_ERR_INVALID_SIZE, VoiceInputFailure::Transport);
         return;
     }
     const int64_t now = esp_timer_get_time();
@@ -519,7 +530,7 @@ bool LUNASHELL::tickVoiceInputTransport(const uint8_t *link_key, const char *dev
         s_socket = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
         if (s_socket < 0) {
             ESP_LOGE(kTag, "Audio socket creation failed: errno=%d", errno);
-            publish(VoiceInputPhase::Failed, ESP_FAIL);
+            transportFailure(ESP_FAIL);
             return false;
         }
         const int flags = fcntl(s_socket, F_GETFL, 0);
@@ -529,7 +540,7 @@ bool LUNASHELL::tickVoiceInputTransport(const uint8_t *link_key, const char *dev
                 ESP_LOGE(kTag, "Audio socket cleanup failed: errno=%d", errno);
             }
             s_socket = -1;
-            publish(VoiceInputPhase::Failed, ESP_FAIL);
+            transportFailure(ESP_FAIL);
             return false;
         }
     }
@@ -538,17 +549,17 @@ bool LUNASHELL::tickVoiceInputTransport(const uint8_t *link_key, const char *dev
         s_peer.sin_family = AF_INET;
         s_peer.sin_port = htons(42119);
         if (inet_pton(AF_INET, peer_ip, &s_peer.sin_addr) != 1) {
-            publish(VoiceInputPhase::Failed, ESP_ERR_INVALID_ARG);
+            transportFailure(ESP_ERR_INVALID_ARG);
             return false;
         }
         const esp_err_t key_error = derive(link_key, presence_nonce);
         if (key_error != ESP_OK) {
-            publish(VoiceInputPhase::Failed, key_error);
+            transportFailure(key_error);
             return false;
         }
         std::memcpy(s_retained_link_key, link_key, sizeof(s_retained_link_key));
         const esp_err_t error = prepare(device_id, 1);
-        if (error != ESP_OK) { publish(VoiceInputPhase::Failed, error); return false; }
+        if (error != ESP_OK) { transportFailure(error); return false; }
     }
     sockaddr_in source{};
     socklen_t source_size = sizeof(source);
@@ -583,10 +594,11 @@ bool LUNASHELL::tickVoiceInputTransport(const uint8_t *link_key, const char *dev
                     // The authenticated PC rejected the transfer. Its more
                     // specific native-admission cause remains in the PC log.
                     ESP_LOGE(kTag, "Audio transfer rejected by PC: phase=%u (%s)",
-                        unsigned(s_observation.phase), esp_err_to_name(ESP_FAIL));
+                        unsigned(s_observation.phase), esp_err_to_name(ESP_ERR_NOT_ALLOWED));
+                    publish(VoiceInputPhase::Failed, ESP_ERR_NOT_ALLOWED, VoiceInputFailure::PcRejected);
+                } else {
+                    publish(VoiceInputPhase::Cancelled);
                 }
-                publish(s_observation.phase == VoiceInputPhase::Cancelling ? VoiceInputPhase::Cancelled : VoiceInputPhase::Failed,
-                    s_observation.phase == VoiceInputPhase::Cancelling ? ESP_OK : ESP_FAIL);
                 return false;
             }
             if (status == 4) { publish(VoiceInputPhase::Delivered); return false; }

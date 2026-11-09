@@ -2,6 +2,7 @@
 
 #include <array>
 
+#include "CODY_account_dashboard.hpp"
 #include "CODY_battery_alerts.hpp"
 #include "CODY_device_effects.hpp"
 #include "CODY_local_timer.hpp"
@@ -39,19 +40,16 @@ struct DeviceDashboardData {
 
 enum class VisibilitySave : uint8_t { Idle, Pending, Failed };
 
-enum class VoucherPage : uint8_t { Closed, Details, Warning };
-
-// Expiry instants identify cards and dismissals; source order never identifies a voucher.
+// Exact UTC instants identify warnings; the read-only list keeps every reported row.
 // This bounded, volatile state is deliberately absent from the saved account schema.
 struct VoucherModel {
     std::array<uint32_t, LUNASHELL::CodexVoucherSnapshot::kMaximumExpiries> expiries{};
     std::array<uint32_t, LUNASHELL::CodexVoucherSnapshot::kMaximumExpiries> dismissed{};
     uint64_t series = 0;
-    uint32_t selected_expiry = 0;
     uint32_t warning_expiry = 0;
     uint8_t expiry_count = 0;
     uint8_t dismissed_count = 0;
-    VoucherPage page = VoucherPage::Closed;
+    uint8_t first_row = 0;
 };
 static_assert(sizeof(VoucherModel) <= 96, "Voucher cards and dismissal identities stay bounded in RAM");
 
@@ -100,9 +98,12 @@ uint32_t pending_device_voucher_warning(const DeviceModel &model);
 // model: Receives a once-per-expiry dismissal for the current account and uptime.
 void dismiss_device_voucher_warning(DeviceModel &model);
 
-// model: Current unique expiry cards and selected exact instant.
-// step: Explicit previous or next card direction; navigation wraps the bounded list.
+// model: Current reported dates and viewport offset.
+// step: Explicit up/down movement through the list; it stops at the ends.
 void step_device_voucher(VoucherModel &model, WidgetStep step);
+
+// model: Current live list; exposes only the rows that fit on Credits.
+VoucherList project_device_voucher_list(const DeviceModel &model);
 
 // data: Historical data admitted for the retained pairing while Codex is unavailable.
 // screen: Current dashboard page, used to select its independent saved source.

@@ -2,10 +2,12 @@
 
 ## Cody layout refinement
 
-- Validate the open Options/Behavior rows, saved-PC icon actions and full SSID
+- Validate the Options destination cards, Behavior rows, saved-PC icon actions and full SSID
   display at all rotations, with missing/stale and unsupported network names.
-- Verify Account and Token activity empty states and Dictation failure layout;
-  the underlying audio failure still requires diagnosis from current observations.
+- Verify Account and Token activity empty states. Exercise Credits with no vouchers,
+  one voucher, equal dates and multiple dates, including local midnight and vertical swipes.
+- Verify the three-second dictation flip with both Sophia and a double tap. Exercise
+  cancellation, PC configuration recovery and a real WAV queue receipt on Windows.
 - Verify Connections action admission, passive Wi-Fi animation and the
   provisioning result at all rotations, including a 32-byte SSID and a lost IP.
 

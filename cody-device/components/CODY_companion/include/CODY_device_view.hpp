@@ -10,14 +10,18 @@
 
 namespace CODY {
 
-enum class DeviceMessageLayout : uint8_t { Compact, Dashboard, Voice, VoiceFailure };
+enum class DeviceMessageLayout : uint8_t { Compact, Dashboard, Voice, VoiceCountdown, VoiceFailure };
+
+inline constexpr CODY2D::Rect kVoiceCountdownFace{185, 176, 96, 74};
 
 // The display owner retains prepared text and controls until its frame retires.
 struct PlainView {
     std::array<std::array<char, 32>, 6> text{};
     std::array<CODY2D::TextLine, 4> captions{};
     std::array<CODY2D::CapsuleControl, 2> actions{};
+    ResetCountdownPresentation::Tile voice_tile{};
     uint32_t revision = 0;
+    uint16_t voice_flip_progress = kResetCountdownFlipComplete;
     DeviceMessageLayout layout = DeviceMessageLayout::Compact;
     bool valid = false;
 };
@@ -80,18 +84,19 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
     const char *first = nullptr, const char *second = nullptr, const char *extra = "",
     DeviceMessageLayout layout = DeviceMessageLayout::Compact);
 
-// view: Persistent captions and visible controls for live voucher details or a warning.
-// frame: Receives the bounded child page with its original date and exact UTC time.
-// model: Canonical live snapshot, trusted clock and current exact expiry selection.
+// view: Persistent captions and visible controls for a live voucher warning.
+// frame: Receives the bounded warning with the exact UTC time.
+// model: Canonical live snapshot and selected warning expiry.
 // Exception: Preserves original UTC conversion, formatting and native preparation errors.
-esp_err_t prepare_device_vouchers(DeviceView &view, DeviceFrameContent &frame, const DeviceModel &model);
+esp_err_t prepare_device_voucher_warning(DeviceView &view, DeviceFrameContent &frame, const DeviceModel &model);
 
 // Returns 1 for the first action, 2 for the second, or 0 outside enabled controls.
 int device_action_at(const DeviceView &view, CODY2D::Point point);
 
 // Prepares the selected page from its read-only model projection.
 esp_err_t prepare_device_dashboard(DeviceView &view, DeviceFrameContent &frame,
-    WidgetScreen screen, TokenHistoryInterval interval, const DeviceDashboardData &data, int64_t now_us);
+    WidgetScreen screen, TokenHistoryInterval interval, const DeviceDashboardData &data, int64_t now_us,
+    const VoucherList &vouchers = {});
 
 // view: Persistent glyph and geometry owner for System, Memory and Firmware.
 // frame: Receives the native central content without controls or the shared perimeter.
@@ -101,7 +106,7 @@ esp_err_t prepare_device_info(DeviceView &view, DeviceFrameContent &frame, const
 
 // Presents the owner-published voice phase. Session admission remains with the runtime.
 esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,
-    const LUNASHELL::VoiceInputObservation &voice);
+    const LUNASHELL::VoiceInputObservation &voice, int64_t now_us);
 
 // Presents measured processor and heap data with explicit unavailable fields.
 esp_err_t prepare_device_diagnostics(DeviceView &view, DeviceFrameContent &frame,

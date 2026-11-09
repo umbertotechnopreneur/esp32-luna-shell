@@ -126,7 +126,7 @@ uint32_t pending_device_voucher_warning(const DeviceModel &model)
     return 0;
 }
 
-// model: Display-owned source projection and live-only child page state.
+// model: Display-owned source projection, viewport and live warning state.
 void update_device_vouchers(DeviceModel &model)
 {
     auto &vouchers = model.vouchers;
@@ -135,10 +135,8 @@ void update_device_vouchers(DeviceModel &model)
     if (source.health == LUNASHELL::DeviceHealth::Ready && source.data_valid &&
         !source.data_stale && source.last_error == ESP_OK &&
         source.series != 0 && source.series != vouchers.series) {
-        const auto retained_page = vouchers.page == VoucherPage::Details ? VoucherPage::Details : VoucherPage::Closed;
         vouchers = {};
         vouchers.series = source.series;
-        vouchers.page = retained_page;
     }
     vouchers.expiry_count = 0;
     if (device_voucher_expiries_current(model.dashboard)) {
@@ -148,21 +146,16 @@ void update_device_vouchers(DeviceModel &model)
         std::sort(vouchers.expiries.begin(), end, [](uint32_t left, uint32_t right) {
             return right == 0 ? left != 0 : left != 0 && left < right;
         });
-        const auto unique_end = std::unique(vouchers.expiries.begin(), end);
-        vouchers.expiry_count = static_cast<uint8_t>(unique_end - vouchers.expiries.begin());
+        vouchers.expiry_count = source.expiry_count;
         const auto kept = std::remove_if(vouchers.dismissed.begin(),
             vouchers.dismissed.begin() + vouchers.dismissed_count, [&](uint32_t expiry) {
-                return std::find(vouchers.expiries.begin(), unique_end, expiry) == unique_end;
+                return std::find(vouchers.expiries.begin(), end, expiry) == end;
             });
         vouchers.dismissed_count = static_cast<uint8_t>(kept - vouchers.dismissed.begin());
-        if (std::find(vouchers.expiries.begin(), unique_end, vouchers.selected_expiry) == unique_end &&
-            vouchers.expiry_count != 0) {
-            vouchers.selected_expiry = vouchers.expiries.front();
-        }
+        vouchers.first_row = std::min(vouchers.first_row, VoucherList::last_offset(vouchers.expiry_count));
     }
     // A warning can never outlive its current source, trusted clock or admission window.
-    if (vouchers.page == VoucherPage::Warning && pending_device_voucher_warning(model) != vouchers.warning_expiry) {
-        vouchers.page = VoucherPage::Closed;
+    if (vouchers.warning_expiry != 0 && pending_device_voucher_warning(model) != vouchers.warning_expiry) {
         vouchers.warning_expiry = 0;
     }
 }
@@ -179,20 +172,33 @@ void dismiss_device_voucher_warning(DeviceModel &model)
         }
     }
     vouchers.warning_expiry = 0;
-    vouchers.page = VoucherPage::Closed;
 }
 
-// model: Bounded distinct expiry cards identified by their exact UTC instant.
-// step: Direction through those cards, independently of dashboard navigation.
+// model: The bounded chronological voucher viewport.
+// step: Scroll direction, independent of horizontal dashboard navigation.
 void step_device_voucher(VoucherModel &model, WidgetStep step)
 {
     if (model.expiry_count < 2) return;
-    const auto end = model.expiries.begin() + model.expiry_count;
-    const auto selected = std::find(model.expiries.begin(), end, model.selected_expiry);
-    const size_t index = selected == end ? 0 : static_cast<size_t>(selected - model.expiries.begin());
-    const size_t next = step == WidgetStep::Previous
-        ? (index + model.expiry_count - 1U) % model.expiry_count : (index + 1U) % model.expiry_count;
-    model.selected_expiry = model.expiries[next];
+    const uint8_t last = VoucherList::last_offset(model.expiry_count);
+    if (step == WidgetStep::Previous && model.first_row > 0) --model.first_row;
+    if (step == WidgetStep::Next && model.first_row < last) ++model.first_row;
+}
+
+// model: Retains current source validity and the viewport position.
+VoucherList project_device_voucher_list(const DeviceModel &model)
+{
+    VoucherList list{};
+    list.current = device_voucher_expiries_current(model.dashboard);
+    list.stale = model.dashboard.vouchers.data_stale;
+    if (list.current) {
+        const auto &vouchers = model.vouchers;
+        list.series = vouchers.series;
+        list.first = vouchers.first_row;
+        list.count = vouchers.expiry_count;
+        const size_t visible = std::min<size_t>(list.expiries.size(), list.count - list.first);
+        std::copy_n(vouchers.expiries.begin() + list.first, visible, list.expiries.begin());
+    }
+    return list;
 }
 
 // data: Historical telemetry scoped to the retained pairing and current connection.

@@ -17,6 +17,31 @@ namespace CODY {
 
 enum class AccountDashboardPage : uint8_t { QuotaWindows, Today, LastSevenDays, Credits, Account };
 
+// Three visible dates from the same admitted live account. A zero date means no expiry.
+struct VoucherList {
+    static constexpr uint8_t kVisibleRows = 3;
+    std::array<uint32_t, kVisibleRows> expiries{};
+    uint64_t series = 0;
+    uint8_t first = 0;
+    uint8_t count = 0;
+    bool current = false;
+    bool stale = false;
+
+    // rows: Number of reported dates, including separate vouchers with the same expiry.
+    static constexpr uint8_t last_offset(uint8_t rows)
+    {
+        // A short list still lets the user bring its next entry to the first row.
+        return rows > kVisibleRows ? rows - kVisibleRows : (rows > 1 ? 1 : 0);
+    }
+
+    // other: Last retired expiry window for this account.
+    bool operator==(const VoucherList &other) const
+    {
+        return expiries == other.expiries && series == other.series && first == other.first &&
+            count == other.count && current == other.current && stale == other.stale;
+    }
+};
+
 // One display-owned view retained until its native tile callbacks retire.
 struct AccountDashboardPresentation {
     struct Caption {
@@ -32,10 +57,12 @@ struct AccountDashboardPresentation {
     enum class SourceState : uint8_t { Current, Saved, Unavailable, Stale, Elapsed, Invalid, OverLimit };
 
     std::array<Caption, 20> captions{};
-    std::array<Bar, 12> bars{};
+    // Credits uses two title marks, one divider, eight ticket strokes and two scroll marks.
+    std::array<Bar, 13> bars{};
     std::array<uint8_t, 32> plan_mask{};
     CODY2D::CapsuleControl account_status_dot{};
     CODY2D::Rect voucher_bounds{};
+    VoucherList voucher_list{};
     const CODY2D::MonoFont *title_font = nullptr;
     const CODY2D::MonoFont *body_font = nullptr;
     int64_t account_at_us = 0;
@@ -53,6 +80,7 @@ struct AccountDashboardPresentation {
     SourceState short_state = SourceState::Unavailable;
     uint8_t caption_count = 0;
     uint8_t bar_count = 0;
+    int8_t voucher_timezone = -1;
     bool context_page = false;
     bool plan_mask_valid = false;
     bool valid = false;
@@ -69,12 +97,13 @@ static_assert(sizeof(AccountDashboardPresentation) <= 2048,
 // presentation: Persistent display-owned storage, updated after the prior frame retires.
 // content: Receives the central native content without lateral navigation controls.
 // saved: Explicit historical source for a disconnected device, or null for live data.
+// vouchers: Optional live expiry window for Credits; never sourced from saved data.
 // Exception: Returns the original native text or drawing preparation error.
 esp_err_t prepare_account_dashboard(AccountDashboardPage page,
     const LUNASHELL::CodexAccountSnapshot &account, const LUNASHELL::CodexWeeklyLimitSnapshot &weekly,
     const LUNASHELL::ClockSnapshot &clock, const CODY2D::MonoFont &title_font,
     const CODY2D::MonoFont &body_font, AccountDashboardPresentation &presentation, SceneContent &content,
-    const LUNASHELL::CodexSavedSnapshot *saved = nullptr);
+    const LUNASHELL::CodexSavedSnapshot *saved = nullptr, const VoucherList &vouchers = {});
 
 // observation: Canonical chat/turn-coherent technical data with independent measurement validity.
 // title_font: Immutable native headline and numeric glyphs.

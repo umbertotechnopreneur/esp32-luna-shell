@@ -88,9 +88,10 @@ bool utc_calendar(int64_t epoch, std::tm &calendar)
 // bounds: Logical rectangle used to center the caption.
 // color: Native RGB565 foreground.
 // scale: Integer glyph enlargement admitted within the supplied logical bounds.
+// left_aligned: Places a row label at the left edge of its reserved slot.
 // Exception: Preserves native glyph errors or reports exhausted/invalid geometry.
 esp_err_t add_caption(AccountDashboardPresentation &presentation, const CODY2D::MonoFont &font,
-    const char *text, CODY2D::Rect bounds, uint16_t color, uint8_t scale = 1)
+    const char *text, CODY2D::Rect bounds, uint16_t color, uint8_t scale = 1, bool left_aligned = false)
 {
     const size_t length = std::strlen(text);
     if (presentation.caption_count >= presentation.captions.size() || length == 0 ||
@@ -105,7 +106,7 @@ esp_err_t add_caption(AccountDashboardPresentation &presentation, const CODY2D::
     std::memcpy(caption.text, text, length + 1U);
     caption.scale = scale;
     error = CODY2D::prepare_text_line(font, {caption.text, static_cast<uint16_t>(length)},
-        {static_cast<int16_t>(bounds.x + (bounds.width - width * scale) / 2U),
+        {static_cast<int16_t>(bounds.x + (left_aligned ? 0 : (bounds.width - width * scale) / 2U)),
          static_cast<int16_t>(bounds.y + (bounds.height - font.height * scale) / 2U)}, color, caption.line);
     if (error == ESP_OK) { ++presentation.caption_count; }
     return error;
@@ -467,47 +468,104 @@ void format_credits(uint64_t value, char (&text)[32])
     format_grouped_count(whole, text);
 }
 
-// presentation: Fixed owner of the label and its ticket outline inside the voucher hit area.
-// top: Upper edge of the ticket caption's 40-pixel slot.
+// presentation: Fixed owner of the section label and right-aligned ticket artwork.
+// top: Upper edge of the voucher heading slot.
 // Exception: Preserves original native glyph, geometry or bounded-capacity errors.
 esp_err_t add_voucher_label(AccountDashboardPresentation &presentation, uint16_t top)
 {
-    constexpr char label[] = "RESET VOUCHERS";
-    uint32_t width = 0;
-    esp_err_t error = CODY2D::measure_text_width(*presentation.title_font,
-        {label, static_cast<uint16_t>(sizeof(label) - 1U)}, width);
+    auto error = add_caption(presentation, *presentation.body_font, "Reset Vouchers",
+        {93, top, 168, 32}, kWhite, 1, true);
     if (error != ESP_OK) { return error; }
-    if (width + 32U > 320U) { return ESP_ERR_INVALID_SIZE; }
-    const auto left = static_cast<uint16_t>(73U + (320U - width - 32U) / 2U);
-    const auto upper = static_cast<uint16_t>(top + 15U);
+    const auto upper = static_cast<uint16_t>(top + 5U);
     const CODY2D::Rect outline[]{
-        {static_cast<uint16_t>(left + 1U), upper, 22, 2},
-        {static_cast<uint16_t>(left + 1U), static_cast<uint16_t>(upper + 14U), 22, 2},
-        {left, static_cast<uint16_t>(upper + 2U), 2, 4},
-        {left, static_cast<uint16_t>(upper + 10U), 2, 4},
-        {static_cast<uint16_t>(left + 22U), static_cast<uint16_t>(upper + 2U), 2, 4},
-        {static_cast<uint16_t>(left + 22U), static_cast<uint16_t>(upper + 10U), 2, 4},
-        {static_cast<uint16_t>(left + 16U), static_cast<uint16_t>(upper + 3U), 1, 3},
-        {static_cast<uint16_t>(left + 16U), static_cast<uint16_t>(upper + 10U), 1, 3},
+        {339, upper, 34, 2},
+        {339, static_cast<uint16_t>(upper + 20U), 34, 2},
+        {337, static_cast<uint16_t>(upper + 2U), 2, 6},
+        {337, static_cast<uint16_t>(upper + 14U), 2, 6},
+        {373, static_cast<uint16_t>(upper + 2U), 2, 6},
+        {373, static_cast<uint16_t>(upper + 14U), 2, 6},
+        {362, static_cast<uint16_t>(upper + 5U), 2, 4},
+        {362, static_cast<uint16_t>(upper + 13U), 2, 4},
     };
     for (const auto &bounds : outline) {
         error = add_bar(presentation, bounds, kGold, kGold);
         if (error != ESP_OK) { return error; }
     }
-    return add_caption(presentation, *presentation.title_font, label,
-        {static_cast<uint16_t>(left + 32U), top, static_cast<uint16_t>(width), 40}, kWhite);
+    return ESP_OK;
+}
+
+// expiry: Actual UTC instant, or zero when Codex explicitly reports no expiry.
+// clock: Canonical timezone preference for this device.
+// text: Receives the configured local date or an explicit unavailable caption.
+void format_voucher_date(uint32_t expiry, const LUNASHELL::ClockSnapshot &clock, char (&text)[32])
+{
+    if (expiry == 0) {
+        std::strcpy(text, "No expiry");
+        return;
+    }
+    constexpr const char *months[]{"January", "February", "March", "April", "May", "June",
+        "July", "August", "September", "October", "November", "December"};
+    LUNASHELL::ClockLocalCalendar calendar{};
+    const auto error = clock.preferences_valid ? LUNASHELL::project_clock_local_calendar(expiry, calendar) :
+        ESP_ERR_INVALID_STATE;
+    if (error != ESP_OK || calendar.timezone != clock.timezone || calendar.month < 1 || calendar.month > 12) {
+        ESP_LOGW(kTag, "Voucher local date unavailable (%s)",
+            esp_err_to_name(error != ESP_OK ? error : ESP_ERR_INVALID_RESPONSE));
+        std::strcpy(text, "Local date unavailable");
+        return;
+    }
+    std::snprintf(text, sizeof(text), "%u %s %u", unsigned(calendar.day),
+        months[calendar.month - 1U], unsigned(calendar.year));
+}
+
+// presentation: Owns the three complete rows and their scroll region.
+// clock: Canonical timezone preference, independent of credit freshness.
+// top: Logical first row below the heading.
+// Exception: Preserves the original formatting or native geometry error.
+esp_err_t add_voucher_rows(AccountDashboardPresentation &presentation,
+    const LUNASHELL::ClockSnapshot &clock, uint16_t top)
+{
+    const auto &list = presentation.voucher_list;
+    const auto visible = std::min<size_t>(list.expiries.size(), list.count - list.first);
+    constexpr uint16_t kRowStep = 29;
+    for (size_t index = 0; index < visible; ++index) {
+        const auto y = static_cast<uint16_t>(top + index * kRowStep);
+        char number[8]{};
+        std::snprintf(number, sizeof(number), "%u", unsigned(list.first + index + 1U));
+        auto error = add_caption(presentation, *presentation.body_font, number, {93, y, 24, 25}, kGold);
+        if (error != ESP_OK) return error;
+        char date[32]{};
+        format_voucher_date(list.expiries[index], clock, date);
+        error = add_caption(presentation, *presentation.body_font, date, {128, y, 244, 25}, kWhite, 1, true);
+        if (error != ESP_OK) return error;
+    }
+    const auto last = VoucherList::last_offset(list.count);
+    if (last == 0) return ESP_OK;
+
+    constexpr uint16_t kTrackHeight = VoucherList::kVisibleRows * kRowStep - 4U;
+    constexpr uint16_t kThumbHeight = 19;
+    const auto thumb_top = static_cast<uint16_t>(top + (kTrackHeight - kThumbHeight) * list.first / last);
+    // The heading and the complete rows share one swipe region, clear of both arrows.
+    presentation.voucher_bounds = {73, static_cast<uint16_t>(top - 40U), 320, kTrackHeight + 40U};
+    auto error = add_bar(presentation, {380, top, 2, kTrackHeight}, kDarkTrack, kDarkTrack);
+    if (error != ESP_OK) return error;
+    return add_bar(presentation, {380, thumb_top, 2, kThumbHeight}, kGold, kGold);
 }
 
 // presentation: Fixed credits page owner.
 // account: Independent reported credit kind, amount and reset vouchers.
+// clock: Canonical timezone preference used for date projection.
 // Exception: Preserves original native label or formatting errors.
-esp_err_t prepare_credits(AccountDashboardPresentation &presentation, const LUNASHELL::CodexAccountSnapshot &account)
+esp_err_t prepare_credits(AccountDashboardPresentation &presentation, const LUNASHELL::CodexAccountSnapshot &account,
+    const LUNASHELL::ClockSnapshot &clock)
 {
     const bool observed = displayable(presentation.account_state);
     const bool finite = observed && account.credits_kind == LUNASHELL::CodexCreditKind::Finite;
     const bool unlimited = observed && account.credits_kind == LUNASHELL::CodexCreditKind::Unlimited;
     const bool balance = finite || unlimited;
-    const bool vouchers = observed && account.reset_vouchers_valid;
+    const auto &list = presentation.voucher_list;
+    const bool count_valid = observed && account.reset_vouchers_valid;
+    const bool vouchers = count_valid || list.current;
     esp_err_t error = add_bar(presentation, {99, 102, 44, 2}, kCyan, kCyan);
     if (error != ESP_OK) { return error; }
     error = add_bar(presentation, {323, 102, 44, 2}, kCyan, kCyan);
@@ -521,24 +579,30 @@ esp_err_t prepare_credits(AccountDashboardPresentation &presentation, const LUNA
     if (balance) {
         char credits[32]{};
         if (finite) { format_credits(account.credit_milliunits, credits); }
-        const uint16_t top = vouchers ? 139 : 175;
+        const uint16_t top = vouchers ? 127 : 175;
         error = add_detail(presentation, "BALANCE", top, kWhite);
         if (error != ESP_OK) { return error; }
         error = add_hero(presentation, unlimited ? "Unlimited" : credits,
             {73, static_cast<uint16_t>(top + 26), 320, 80}, finite ? 2 : 1, kCyan);
         if (error != ESP_OK || !vouchers) { return error; }
-        error = add_rule(presentation, 264);
+        error = add_rule(presentation, 239);
         if (error != ESP_OK) { return error; }
     }
 
-    char count[32]{};
-    format_grouped_count(account.reset_vouchers, count);
-    error = add_voucher_label(presentation, balance ? 274 : 170);
+    const uint16_t top = balance ? 247 : 172;
+    error = add_voucher_label(presentation, top);
     if (error != ESP_OK) { return error; }
-    // The complete label/value area stays inside the safe square and clear of navigation.
-    presentation.voucher_bounds = balance ? CODY2D::Rect{73, 274, 320, 82} : CODY2D::Rect{73, 170, 320, 122};
-    return balance ? add_value(presentation, count, 314, kGold) :
-        add_hero(presentation, count, {73, 212, 320, 80}, 2, kGold);
+    if (count_valid) {
+        char count[32]{};
+        format_count(account.reset_vouchers, count);
+        error = add_caption(presentation, *presentation.body_font, count, {261, top, 68, 32}, kMuted);
+        if (error != ESP_OK) return error;
+    }
+    const auto row_top = static_cast<uint16_t>(top + 40U);
+    if (list.current && list.count != 0) return add_voucher_rows(presentation, clock, row_top);
+    const char *status = count_valid && account.reset_vouchers == 0 ? "No reset vouchers" :
+        list.current ? "No expiry dates reported" : list.stale ? "Expiry dates are stale" : "Expiry dates unavailable";
+    return add_detail(presentation, status, row_top);
 }
 
 struct PlanAppearance {
@@ -860,12 +924,13 @@ const char *compaction_text(const LUNASHELL::CodexTechnicalObservation &observat
 // presentation: Persistent owner, mutated only after the prior frame retires.
 // content: Receives the central draw callback without lateral navigation.
 // saved: Dated historical data for the retained pairing, selected only while disconnected.
+// vouchers: Current expiry viewport, independent of the observed balance.
 // Exception: Returns the original native preparation failure.
 esp_err_t prepare_account_dashboard(AccountDashboardPage page,
     const LUNASHELL::CodexAccountSnapshot &live_account, const LUNASHELL::CodexWeeklyLimitSnapshot &live_weekly,
     const LUNASHELL::ClockSnapshot &clock, const CODY2D::MonoFont &title_font,
     const CODY2D::MonoFont &body_font, AccountDashboardPresentation &presentation, SceneContent &content,
-    const LUNASHELL::CodexSavedSnapshot *saved)
+    const LUNASHELL::CodexSavedSnapshot *saved, const VoucherList &vouchers)
 {
     if (page > Page::Account) { return result("page identity", ESP_ERR_INVALID_ARG); }
     const auto &account = saved != nullptr ? saved->account : live_account;
@@ -897,10 +962,13 @@ esp_err_t prepare_account_dashboard(AccountDashboardPage page,
     const int64_t account_at_us = saved != nullptr ? saved_account_at : account.last_success_at_us;
     const int64_t weekly_at_us = page == Page::QuotaWindows
         ? (saved != nullptr ? saved_weekly_at : weekly.last_success_at_us) : 0;
+    const int8_t voucher_timezone = page == Page::Credits && clock.preferences_valid
+        ? static_cast<int8_t>(clock.timezone) : -1;
     if (presentation.valid && !presentation.context_page && presentation.page == page && presentation.account_state == account_state &&
         presentation.weekly_state == weekly_state && presentation.short_state == short_state &&
         presentation.account_at_us == account_at_us && presentation.weekly_at_us == weekly_at_us &&
-        presentation.utc_day == utc_day && presentation.title_font == &title_font && presentation.body_font == &body_font) {
+        presentation.utc_day == utc_day && presentation.title_font == &title_font && presentation.body_font == &body_font &&
+        presentation.voucher_list == vouchers && presentation.voucher_timezone == voucher_timezone) {
         attach_content(presentation, content);
         return ESP_OK;
     }
@@ -913,6 +981,8 @@ esp_err_t prepare_account_dashboard(AccountDashboardPage page,
     presentation.bar_count = 0;
     presentation.account_status_dot = {};
     presentation.voucher_bounds = {};
+    presentation.voucher_list = vouchers;
+    presentation.voucher_timezone = voucher_timezone;
     presentation.plan_icon = CODY2D::ActionIcon::None;
     presentation.plan_mask_valid = false;
     presentation.page = page;
@@ -943,7 +1013,7 @@ esp_err_t prepare_account_dashboard(AccountDashboardPage page,
         break;
     case Page::Today: error = prepare_today(presentation, account); break;
     case Page::LastSevenDays: error = prepare_history(presentation, account); break;
-    case Page::Credits: error = prepare_credits(presentation, account); break;
+    case Page::Credits: error = prepare_credits(presentation, account, clock); break;
     case Page::Account: error = prepare_account(presentation, account); break;
     }
     if (error != ESP_OK) { return result("prepare page", error); }
