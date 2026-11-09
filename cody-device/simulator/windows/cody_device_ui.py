@@ -493,6 +493,8 @@ class DeviceStudioWindow:
         if self.boot is not None:
             return
         self.standby = not self.standby
+        if self.standby and self.events:
+            self.events.hide()
         self.screensaver.active = False
         self.touch = None
         self.last_navigation = time.monotonic()
@@ -1182,15 +1184,18 @@ class DeviceStudioWindow:
         self.targets = {}
         self.event_visible = False
         event_active = not self.standby and self.events and self.events.visible(snapshot, self.endpoint)
+        if self.events and not event_active:
+            self.events.hide()
         project_link = PAGES[self.page] == "About" and self.info.page is InfoPage.PROJECT_LINK
         self.screensaver.observe(not self.standby and not event_active and self.route == "widgets" and not project_link,
                                  now - self.last_navigation)
         if self.standby:
             image.paste((0, 0, 0), (0, 0, SIZE, SIZE))
         elif event_active:
+            self.touch = None
             self.event_visible = True
             self.last_navigation = now
-            self.events.render_device(image, snapshot, label, arrow)
+            image = self.events.render_device(snapshot, now)
         elif self.screensaver.active:
             image = render_screensaver(int((now - self.last_navigation - 15.0) * 25)).copy()
         else:

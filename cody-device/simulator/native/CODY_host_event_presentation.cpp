@@ -17,6 +17,7 @@
 // SIMULATED input boundary. All presentation policy runs in the actual Cody model.
 #include "CODY_codex_event_presentation.hpp"
 #include "CODY_approval_notice.hpp"
+#include "CODY_debug_views.hpp"
 #include "scene_data.hpp"
 #include "esp_log.h"
 #include <cstring>
@@ -369,6 +370,91 @@ CODY_HOST_EXPORT int cody_host_event_paint_approval(uint16_t *pixels, uint32_t c
         error = CODY::draw_approval_notice_rows(state, surface, 0, 0);
     }
     return result("paint_approval", error);
+}
+
+extern "C" int cody_host_scene_id(const char *name, uint16_t *identity);
+extern "C" int cody_host_text(uint16_t *pixels, uint32_t capacity, const char *text,
+    uint16_t length, uint16_t top, uint16_t color, bool body, uint16_t visible, uint16_t center, uint16_t max_width);
+
+// pixels: Logical RGB565 frame, with prepainted artwork only for the legacy inspector.
+// capacity: Exact full-display pixel count.
+// plan: Shared native layout for the current simulated event.
+// elapsed_us: Active scene time, excluding standby and hidden time.
+// timed: Retain the inspector's reveal animation; device-first presents complete frames.
+// request_id: Stable event identity for the read-only PC approval artwork.
+// approval_chat: Event body used only for the PC approval artwork.
+// controls_visible: Receives the input gate only after the complete frame paints.
+// Exception: Returns the first original scene, layout or raster error.
+CODY_HOST_EXPORT int cody_host_event_paint_frame(uint16_t *pixels, uint32_t capacity,
+    const Presentation::Plan *plan, int64_t elapsed_us, bool timed, const char *request_id,
+    const char *approval_chat, bool *controls_visible)
+{
+    if (!pixels || capacity != 466U * 466U || !plan || elapsed_us < 0 || !controls_visible ||
+        !valid_text(plan->scene) || !valid_text(plan->title) || plan->line_count > 8 || plan->action_count > 3) {
+        return result("paint_frame", ESP_ERR_INVALID_ARG);
+    }
+    *controls_visible = false;
+    uint16_t scene_id = 0;
+    esp_err_t error = cody_host_scene_id(plan->scene, &scene_id);
+    const CODY::SceneDefinition *definition = nullptr;
+    if (error == ESP_OK) { error = CODY::find_scene(static_cast<CODY::SceneId>(scene_id), definition); }
+    CODY::SceneFrame frame{};
+    if (error == ESP_OK) { error = CODY::begin_scene(*definition, frame); }
+    if (error == ESP_OK && plan->title[0] != '\0') {
+        error = CODY::set_scene_title(frame, {plan->title, static_cast<uint16_t>(std::strlen(plan->title))});
+        frame.title.color = plan->title_color;
+    }
+    if (error == ESP_OK && timed) { error = CODY::advance_scene(frame, elapsed_us); }
+    if (error != ESP_OK) { return result("paint_frame", error); }
+
+    CODY2D::Surface canvas{pixels, 466, 466, 466, capacity};
+    const uint16_t title_length = definition->title_visible ? frame.title.text.length : 0;
+    if (!timed) {
+        error = CODY2D::clear(canvas, definition->background_rgb565);
+        frame.visible_characters = title_length;
+    }
+    if (error == ESP_OK && title_length != 0) {
+        error = CODY2D::draw_text_rows(frame.title, frame.visible_characters, canvas, 0, 0);
+    }
+    uint16_t narrative_length = title_length;
+    for (uint8_t index = 0; index < plan->line_count; ++index) {
+        const auto &line = plan->lines[index];
+        if (!valid_text(line.text)) { return result("paint_frame", ESP_ERR_INVALID_ARG); }
+        if (!line.instant) { narrative_length += std::strlen(line.text); }
+    }
+    const uint16_t visible = timed ? CODY::scene_content_characters(frame, narrative_length, 0) : narrative_length;
+    const bool ready = frame.visible_characters >= title_length &&
+        Presentation::controls_ready(*plan, visible, title_length);
+    if (error == ESP_OK && ready && plan->route == Presentation::Route::DecisionConfirm27) {
+        error = Presentation::draw_review_panel(canvas, 0, 0);
+    }
+    if (error == ESP_OK && plan->route == Presentation::Route::ApprovalOnPc) {
+        error = cody_host_event_paint_approval(pixels, capacity, request_id, approval_chat, elapsed_us, ready);
+    }
+    uint16_t preceding = title_length;
+    for (uint8_t index = 0; error == ESP_OK && index < plan->line_count; ++index) {
+        const auto &line = plan->lines[index];
+        const uint16_t length = static_cast<uint16_t>(std::strlen(line.text));
+        const uint16_t prefix = line.instant
+            ? (visible >= preceding && (!line.delivery_pulse || ready) ? length : 0)
+            : std::min<uint16_t>(length, visible > preceding ? visible - preceding : 0);
+        if (prefix != 0) {
+            error = cody_host_text(pixels, capacity, line.text, length, line.top,
+                Presentation::line_color(line, elapsed_us), true, prefix, 233, 300);
+        }
+        if (!line.instant) { preceding += length; }
+    }
+    if (error == ESP_OK && ready && plan->action_count != 0) {
+        error = cody_host_event_paint_actions(pixels, capacity, plan->actions, plan->action_count);
+    }
+    if (error == ESP_OK && ready && plan->back) {
+        error = CODY::draw_debug_view_back_rows(canvas, 0, 0);
+    }
+    if (error == ESP_OK) {
+        error = cody_host_text(pixels, capacity, "SIMULATED", 9, 22, 0x8410, true, 9, 233, 300);
+    }
+    if (error == ESP_OK) { *controls_visible = ready; }
+    return result("paint_frame", error);
 }
 
 // navigation: Reversible local stage receiving actual endpoint admission outcome.

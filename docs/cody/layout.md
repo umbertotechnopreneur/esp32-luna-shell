@@ -62,17 +62,22 @@ standalone icons with captions below, and Forget retains its separate confirmati
 The network label does not infer persistent storage from configured credentials.
 These layouts have been prepared in source; visual and physical acceptance remain pending.
 
-Reply rows contain one numbered line, with at most two visible rows. A vertical
+An amber heading marks a question that needs attention. The notice names the
+question and offers Open question, or Open questions when more than one is
+pending. The choice view keeps the question and its source context above the
+rows. Reply rows contain one numbered line, with at most two visible rows. A vertical
 swipe opens the page containing the third reply. Long row captions show an
 explicit ellipsis; the tap opens their complete canonical label and description,
-without sending anything. Review uses five 26-pixel-spaced lines at y=196..300.
-Swipe moves backward/forward; a tap in that text viewport advances a page and
+without sending anything. Review uses a rounded, read-only panel at
+(73,191,320,134) with five 26-pixel-spaced lines at y=196..300.
+Swipe moves backward/forward; a tap in the panel advances a page and
 returns to the first page after the last. The separate `Send reply` capsule at
 (113,352,240,72) is the only initial reply submission action. Scrolling never
 replays text audio. Orientation, source changes and hidden controls cancel
 uncompleted gestures.
 
-The pending-question view shows up to two canonical question titles. Selecting
+The pending-question view shows the owner's pending count and up to two
+canonical question titles. Selecting
 another request asks the event owner for that source and shows `Opening question...`
 until its actual event arrives. The retained question can reopen immediately;
 neither selection nor Back answers or dismisses a request. Opaque request IDs
@@ -85,8 +90,8 @@ firmware animation uses pausable scene time and 50 ms color steps; it changes
 neither the recipient acknowledgement requirement nor the request deadline.
 Offline/error states retain a steady muted indicator, with any actual error at
 y=354. The indicator has no touch target, typewriter cadence or character audio.
-Firmware and Studio use the same native color policy. Simulator and physical
-visual confirmation of this indicator remain pending.
+Firmware and Studio use the same native color policy. Device-first presents a
+complete frame; the legacy Studio inspector retains its animated reveal.
 
 A typed `ReplyReady` notification uses the compact character at (233,92), scale
 42, and one mint `Reply ready` headline at y=150. The originating chat's complete

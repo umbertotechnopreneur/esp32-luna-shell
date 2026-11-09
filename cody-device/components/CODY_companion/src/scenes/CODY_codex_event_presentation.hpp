@@ -125,6 +125,24 @@ inline Route destination(const LUNASHELL::CodexEventSnapshot &event,
 enum class ActionId : uint8_t { None, Open, Choose, Send, Dismiss, Retry, Failures, Back, SelectQuestion };
 enum class Effect : uint8_t { None, Render, Reply, Dismiss, Observe, SelectQuestion };
 struct Bounds { uint16_t x = 0, y = 0, width = 0, height = 0; };
+inline constexpr Bounds kReviewPanel{73, 191, 320, 134};
+inline constexpr uint16_t kReviewPanelRadius = 12;
+inline constexpr uint16_t kQuestionAccent = 0xFCC0;
+
+// strip: Borrowed logical tile; this read-only background is never a control.
+// first_row: Logical y origin of the tile.
+// first_column: Logical x origin of the tile.
+// Exception: Returns the original native raster error.
+inline esp_err_t draw_review_panel(CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+{
+    CODY2D::CapsuleControl panel{};
+    panel.bounds = {kReviewPanel.x, kReviewPanel.y, kReviewPanel.width, kReviewPanel.height};
+    panel.corner_radius = kReviewPanelRadius;
+    panel.top_color = 0x10C6;
+    panel.bottom_color = 0x0843;
+    panel.border_color = 0x294B;
+    return CODY2D::draw_capsule_rows(panel, strip, first_row, first_column);
+}
 struct Line {
     char text[64]{};
     uint16_t top = 0;
@@ -225,6 +243,7 @@ inline void style(Action &action)
         break;
     }
     switch (action.id) {
+    case ActionId::Open:
     case ActionId::Retry:
     case ActionId::Failures:
         action.colors[0] = 0x2924;
@@ -382,7 +401,11 @@ inline esp_err_t prepare_row_label(Action &action, uint8_t number, const char *l
     if (length + 3U > capacity) {
         // A visible ellipsis names a preview. The review page renders every
         // original label/detail character and never sends this shortened text.
-        std::memcpy(action.label + capacity - 3U, "...", 4);
+        const size_t limit = capacity - 3U;
+        size_t end = limit;
+        while (end > 4U && limit - end < 4U && action.label[end] != ' ') { --end; }
+        if (action.label[end] != ' ') { end = limit; }
+        std::memcpy(action.label + end, "...", 4);
     }
     return ESP_OK;
 }
@@ -495,7 +518,10 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         text(status, true);
         add_action(plan, ActionId::Retry, "Try again", true);
     } else if (plan.route == Route::DecisionChoices27) {
+        std::strcpy(plan.title, "Choose a reply");
+        plan.title_color = kQuestionAccent;
         text(event.title);
+        text(event.context, true);
         if (event.choice_count < 2 || event.choice_count > 3) { return ESP_ERR_INVALID_SIZE; }
         plan.page_count = (event.choice_count + 1U) / 2U;
         plan.page_index = navigation.choice_page;
@@ -520,7 +546,11 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         if (error == ESP_OK) { error = append_list_hint(plan, context.online ? status : "Offline - read replies"); }
     } else if (plan.route == Route::DecisionQueue) {
         std::strcpy(plan.title, "Pending questions");
+        plan.title_color = kQuestionAccent;
         if (event.pending_entry_count == 0) { return ESP_ERR_INVALID_STATE; }
+        std::snprintf(status, sizeof(status), "%u questions need you",
+            static_cast<unsigned>(event.pending_question_count));
+        text(status, true);
         for (uint8_t index = 0; index < event.pending_entry_count; ++index) {
             const auto &pending = event.pending_questions[index];
             if (pending.request_id[0] == '\0' || pending.title[0] == '\0') { return ESP_ERR_INVALID_ARG; }
@@ -532,11 +562,6 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
             auto &action = plan.actions[plan.action_count++];
             action.id = ActionId::SelectQuestion;
             std::memcpy(action.request_id, pending.request_id, sizeof(action.request_id));
-            if (error == ESP_OK) {
-                error = prepare_row_label(action, index + 1U,
-                    pending.context[0] != '\0' ? pending.context : "Context unavailable", capacity);
-                text(action.label);
-            }
             if (error == ESP_OK) { error = prepare_row_label(action, index + 1U, pending.title, capacity); }
             action.tone = Tone::Info;
             action.bounds = {73, static_cast<uint16_t>(256U + index * 72U), 320, 60};
@@ -545,13 +570,13 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
             action.card = action.row = true;
         }
         if (error == ESP_OK) {
-            std::snprintf(status, sizeof(status), "%u waiting; tap to open",
-                static_cast<unsigned>(event.pending_question_count));
             error = append_list_hint(plan, context.selection_pending ? "Opening question..." :
                 context.ui_error != ESP_OK ? "Selection failed - retry" :
-                context.online ? status : "Offline - pending");
+                context.online ? "Tap to open a question" : "Offline - pending");
         }
     } else if (plan.route == Route::DecisionConfirm27) {
+        std::strcpy(plan.title, "Review your reply");
+        plan.title_color = kQuestionAccent;
         const auto *choice = find_choice(event, navigation.selected_id);
         if (choice == nullptr) { return ESP_ERR_NOT_FOUND; }
         // Only this 68-byte display prefix is copied; full detail stays borrowed
@@ -579,7 +604,7 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         }
         add_action(plan, context.ui_error == ESP_OK ? ActionId::Send : ActionId::Retry,
             context.ui_error == ESP_OK ? "Send reply" : "Try again",
-            context.online && event.state == State::Pending && !context.reply_admitted, choice->tone);
+            context.online && event.state == State::Pending && !context.reply_admitted, Tone::Positive);
     } else if (plan.route == Route::CheckFailures24) {
         if (event.failure_count > 6 || navigation.failure_page > 1) { return ESP_ERR_INVALID_SIZE; }
         plan.page_index = navigation.failure_page;
@@ -674,9 +699,14 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
                 text(status, true);
             } else { text("Progress unavailable", true); }
         }
-        if (plan.route == Route::DecisionNotice26) { add_action(plan, ActionId::Open, "Open", event.state == State::Pending); }
-        else if (plan.route == Route::ChecksFailed23) { add_action(plan, ActionId::Failures, "View failures", true); }
-        else if (plan.route == Route::CodexNotice) {
+        if (plan.route == Route::DecisionNotice26) {
+            std::strcpy(plan.title, "Answer needed");
+            plan.title_color = kQuestionAccent;
+            add_action(plan, ActionId::Open, event.pending_question_count > 1 ? "Open questions" : "Open question",
+                event.state == State::Pending);
+        } else if (plan.route == Route::ChecksFailed23) {
+            add_action(plan, ActionId::Failures, "View failures", true);
+        } else if (plan.route == Route::CodexNotice) {
             add_action(plan, context.ui_error == ESP_OK ? ActionId::Dismiss : ActionId::Retry,
                 context.ui_error == ESP_OK ? "Done" : "Try again", !context.dismiss_admitted);
         } else if (event.kind == Kind::ChecksPassed && context.ui_error != ESP_OK) {
@@ -883,8 +913,8 @@ inline Effect release(const Plan &plan, Navigation &navigation, bool controls_vi
     // A diagonal drag must not slip through two independent axis thresholds.
     if (dx * dx + dy * dy >= 144) { return Effect::None; }
     if (navigation.stage == EventStage::Confirm && plan.scrollable &&
-        start_x >= 73 && start_x < 393 && end_x >= 73 && end_x < 393 &&
-        start_y >= 196 && start_y < 325 && end_y >= 196 && end_y < 325) {
+        contains(kReviewPanel, start_x, start_y, kReviewPanelRadius) &&
+        contains(kReviewPanel, end_x, end_y, kReviewPanelRadius)) {
         navigation.detail_page = (navigation.detail_page + 1U) % plan.page_count;
         return Effect::Render;
     }

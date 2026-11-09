@@ -20,12 +20,9 @@ from __future__ import annotations
 
 import time
 
-from PIL import ImageDraw
-
-from cody_native_debug import render_debug_controls
 from cody_native_behavior import CharacterActivity
 
-from cody_native_event_presentation import NativeEventPresentation, EventAction, ascii_field, paint_native_actions, paint_native_approval
+from cody_native_event_presentation import NativeEventPresentation, EventAction, ascii_field, paint_native_actions
 
 
 # image: Logical RGB framebuffer prior to rotation.
@@ -62,6 +59,13 @@ class EventView:
     # self: Event scene preempted by another Studio view; hidden wall time is excluded.
     def pause(self) -> None:
         self._sampled_at = None
+
+    # self: Hidden device view; no contact may survive a pause in presentation.
+    def hide(self) -> None:
+        self.pause()
+        self._controls_visible = False
+        self._press = None
+        self._pressed_event = None
 
     @property
     # self: Semantic stage encoded only for the existing Studio control interface.
@@ -158,31 +162,17 @@ class EventView:
         painter = window.renderer.scene_painter
         definition = painter.definition(identity)
         title = definition["title"]["text"]
-        title_color = definition["title"]["color_rgb565"]
         if self.native.output.title:
             title = self.native.output.title.decode("ascii")
-            title_color = self.native.output.title_color
         route = (snapshot.request_id, identity, self.stage, self.selected_id, self.page,
                  self.native.navigation.choice_page, self.native.navigation.detail_page)
-        now = time.monotonic()
-        if route != self._route:
-            self._route = route
-            self._elapsed_us = 0
-            self._sampled_at = None
-        if window.playing.get():
-            if self._sampled_at is not None:
-                self._elapsed_us += round(max(0.0, now - self._sampled_at) * 1000000)
-            self._sampled_at = now
-        else:
-            self.pause()
+        self.advance_scene_time(route[:3], time.monotonic(), window.playing.get())
         elapsed = self._elapsed_us / 1000
         total = len(title) + sum(len(line.text) for line in
             self.native.output.lines[:self.native.output.line_count] if not line.instant)
         if painter.native is None:
             raise RuntimeError("CCP event timing requires the actual Cody C++ scene owner")
-        timing = painter.native.scene_timing(identity, elapsed)
         visible = painter.content_characters(identity, elapsed, total, 0)
-        controls_visible = bool(timing[5]) and self.native.controls_ready(visible, len(title))
         cloud = definition["cloud"]
         if compose is None:
             raise RuntimeError("CCP event rendering requires the shared native response owner")
@@ -205,52 +195,43 @@ class EventView:
             personality(snapshot, identity, scene, cloud["scale"], rotation, elapsed, exclusions)
         image = window.renderer.draw_scene(scene, debug=False, navigation_visible=False,
                                            background_rgb565=definition["background_rgb565"]).convert("RGB")
-        painter.paint_text(image, title, definition["title"]["top"], title_color,
-                           visible=painter.content_characters(identity, elapsed, len(title), 0))
-        preceding = len(title)
-        for line in self.native.output.lines[:self.native.output.line_count]:
-            text = line.text.decode("ascii")
-            characters = (len(text) if timing[5] else 0) if line.instant else painter.content_characters(
-                identity, elapsed, len(text), preceding)
-            if line.delivery_pulse and not controls_visible:
-                characters = 0
-            painter.paint_text(image, text, line.top, body=True, max_width=300, visible=characters,
-                               color=self.native.line_color(line, round(elapsed * 1000)))
-            if not line.instant:
-                preceding += len(text)
-        if approval:
-            paint_native_approval(image, snapshot.request_id, snapshot.event_payload.body,
-                                  round(elapsed * 1000), controls_visible, painter.native.api)
-        if controls_visible:
-            paint_actions(image, painter, actions)
-        if back and controls_visible:
-            image = render_debug_controls(window.renderer.require_native(), image)
-        # Keep the synthetic identity in the unobstructed top chord rather
-        # than covering the answer paging hint or explicit Send action.
-        painter.paint_text(image, "SIMULATED", 22, color=64704, body=True)
+        image, controls_visible = self.native.paint_frame(snapshot, self._elapsed_us, artwork=image)
         key = ("ccp-event", route, min(visible, total), lines, actions, snapshot.event_fresh, rotation, round(elapsed / 33))
         self._controls_visible = controls_visible
         self._actions, self._back = actions, back
         self._rendered_event = self.rendered_identity(snapshot)
         return image, scene, key
 
-    def render_device(self, image, snapshot, label, arrow):
-        """Retire the shared event plan on the flat device-first preview."""
-        identity, lines, actions, back = self.plan(snapshot)
-        draw = ImageDraw.Draw(image)
-        title = self.native.output.title.decode("ascii") or identity.replace("-", " ").capitalize()
-        label(draw, "SIMULATED", 22, 14, (153, 168, 186))
-        label(draw, title, 75, 24)
-        for text, top in lines:
-            label(draw, text, top, 17)
-        if identity == "approval-on-pc":
-            paint_native_approval(image, snapshot.request_id, snapshot.event_payload.body, 0, True, self.native.api)
-        paint_native_actions(image, actions, self.native.api)
-        if back:
-            arrow(draw, (40, 233), -1)
-        self._controls_visible = True
+    # self: Scene clock owned by the currently displayed event view.
+    # route: Event and stage identity; changing a page does not replay the scene.
+    # now: Current monotonic host sample.
+    # playing: Whether this frame advances presentation time.
+    def advance_scene_time(self, route, now, playing=True):
+        if route != self._route:
+            self._route = route
+            self._elapsed_us = 0
+            self._sampled_at = None
+        if playing:
+            if self._sampled_at is not None:
+                self._elapsed_us += round(max(0.0, now - self._sampled_at) * 1000000)
+            self._sampled_at = now
+        else:
+            self.pause()
+
+    # self: Frame owner that publishes pointer admission only after native drawing succeeds.
+    # snapshot: Current immutable SIMULATED event.
+    # now: Monotonic host sample for a live device-first frame.
+    # capture_elapsed_us: Fixed active scene time for an offline still, if supplied.
+    # Raises the original projection or native raster error.
+    def render_device(self, snapshot, now, *, capture_elapsed_us=None):
+        self._controls_visible = False
+        identity, _, actions, back = self.plan(snapshot)
+        self.advance_scene_time((snapshot.request_id, identity, self.stage), now)
+        elapsed_us = self._elapsed_us if capture_elapsed_us is None else capture_elapsed_us
+        image, self._controls_visible = self.native.paint_frame(snapshot, elapsed_us)
         self._actions, self._back = actions, back
         self._rendered_event = self.rendered_identity(snapshot)
+        return image
 
     # self: Pointer owner retaining the exact fully drawn observation until release.
     # point: Logical coordinates using the same rotation as the rendered framebuffer.

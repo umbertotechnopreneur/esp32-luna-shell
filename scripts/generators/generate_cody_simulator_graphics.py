@@ -23,9 +23,10 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "cody-device/simulator/windows"))
 from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
 from scripts.common.cody_host_compiler import prepare_host_compiler, simulator_library_flags
-from simulator.windows.runtime_paths import simulator_library_path
+from runtime_paths import simulator_library_path
 
 SOURCES = (
     "cody-device/simulator/native/CODY_host_graphics.cpp",

@@ -87,6 +87,12 @@ function Assert-DeviceActionParameters($RequestedAction, $BoundParameters, $Cont
             $BoundParameters.CloudMaterialStudy -or $BoundParameters.CloudPngMeshStudy -or $BoundParameters.CloudJellyStudy)) {
         throw '-Ccp requires the interactive rig simulator without an output capture or rendering study.'
     }
+    if ($BoundParameters.Screen -eq 'question-flow' -and
+        (-not $BoundParameters.OutputPath -or [IO.Path]::GetExtension($BoundParameters.OutputPath) -ne '.png' -or
+            $BoundParameters.Skin -or $BoundParameters.SafeGuide -or $BoundParameters.CloudMaterialStudy -or
+            $BoundParameters.CloudPngMeshStudy -or $BoundParameters.CloudJellyStudy -or $BoundParameters.MeshOverlay)) {
+        throw '-Screen question-flow requires a PNG output and does not accept skin, guide or study options.'
+    }
     if ($BoundParameters.ActivityPreview -and -not $BoundParameters.Ccp) {
         throw '-ActivityPreview requires simulator -Ccp; it is an explicitly synthetic interactive view.'
     }

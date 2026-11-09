@@ -312,6 +312,7 @@ struct ContentView {
     uint8_t menu_page = 0;
     EventChoiceControl event_choices[3]{};
     uint8_t event_choice_count = 0;
+    bool event_review_panel = false;
     QrModules qr{};
     CODY2D::Rect qr_bounds{};
     CODY2D::Rect header_icon_bounds{};
@@ -1847,6 +1848,9 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
     if (error == ESP_OK && view.approval_notice != nullptr && view.approval_notice_visible) {
         error = draw_approval_notice_rows(*view.approval_notice, strip, first_row, first_column);
     }
+    if (error == ESP_OK && view.event_review_panel && view.actions_visible) {
+        error = event_presentation::draw_review_panel(strip, first_row, first_column);
+    }
     for (uint8_t index = 0; error == ESP_OK && index < view.line_count; ++index) {
         error = CODY2D::draw_text_rows(view.lines[index], view.visible_characters[index],
             strip, first_row, first_column);
@@ -2137,6 +2141,9 @@ esp_err_t attach_content(SceneFrame &scene)
         if (s_route == Route::DecisionQueue || s_route == Route::DecisionChoices27 || s_route == Route::DecisionConfirm27 ||
             s_route == Route::CheckFailures24) {
             content.control_bounds[0] = {10, 203, 70, 263};
+        }
+        if (s_route == Route::DecisionConfirm27) {
+            content.bounds.top = event_presentation::kReviewPanel.y;
         }
         content.control_bounds[1] = content.bottom_action_bounds;
         if (s_route == Route::ApprovalOnPc) {
@@ -2992,6 +2999,7 @@ esp_err_t prepare_event_content(SceneFrame &scene)
         ESP_LOGE(kTag, "Shared event presentation rejected (%s)", esp_err_to_name(error));
         return error;
     }
+    s_view.event_review_panel = s_event_plan.route == Route::DecisionConfirm27;
     for (uint8_t index = 0; error == ESP_OK && index < s_event_plan.line_count; ++index) {
         error = append_event_line(s_event_plan.lines[index]);
     }

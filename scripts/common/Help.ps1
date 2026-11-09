@@ -45,6 +45,7 @@ function Show-DeviceHelp {
     Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Skin assets/characters/example.yaml' -Description 'Preview an explicitly selected character skin YAML.' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Screen boot-ready -Rotation 180' -Description 'Preview a boot stage in the selected display orientation.' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Screen greeting' -Description 'Open the greeting scene with visibly synthetic host stimuli.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -Screen question-flow -OutputPath artifacts/simulator/cody-questions.png' -Description 'Save a PNG of the synthetic question, review and PC approval routes. No pairing is required.' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1 boot-screens' -Description 'Save sleeping, waking and ready PNG previews in artifacts/simulator/.' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1 simulator -OutputPath artifacts/simulator/rig.png' -Description 'Save a still preview instead of opening the interactive simulator.' -Width $width
 

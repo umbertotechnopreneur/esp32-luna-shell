@@ -22,7 +22,7 @@ from dataclasses import dataclass
 
 from ccp_interactions import EventKind, Tone
 from cody_native_runtime import load_runtime_library
-from cody_native_rgb565 import image_to_native_rgb565, native_rgb565_to_image
+from cody_native_rgb565 import LOGICAL_PIXEL_COUNT, image_to_native_rgb565, native_rgb565_to_image
 
 
 class Choice(C.Structure):
@@ -127,6 +127,9 @@ class NativeEventPresentation:
         self.api.cody_host_event_prepare.argtypes = [C.POINTER(Input), C.POINTER(Navigation),
                                                      C.POINTER(Context), C.POINTER(Plan)]
         self.api.cody_host_event_prepare.restype = C.c_int
+        self.api.cody_host_event_paint_frame.argtypes = [C.POINTER(C.c_uint16), C.c_uint32,
+            C.POINTER(Plan), C.c_int64, C.c_bool, C.c_char_p, C.c_char_p, C.POINTER(C.c_bool)]
+        self.api.cody_host_event_paint_frame.restype = C.c_int
         self.api.cody_host_event_press.argtypes = [C.POINTER(Input), C.POINTER(Navigation),
                                                   C.POINTER(Context), C.c_bool, C.c_float, C.c_float,
                                                   C.POINTER(C.c_uint8)]
@@ -221,6 +224,22 @@ class NativeEventPresentation:
                                        C.string_at(C.byref(action), C.sizeof(Action))))
         return (plan.scene.decode("ascii"), tuple((line.text.decode("ascii"), line.top)
                 for line in plan.lines[:plan.line_count]), tuple(actions), plan.back)
+
+    # self: Native projection owner holding the most recently prepared plan.
+    # snapshot: Same SIMULATED event as the prepared plan.
+    # elapsed_us: Active scene clock excluding hidden time.
+    # artwork: Existing RGB character image for the legacy inspector, or None for device-first.
+    # Raises ValueError or RuntimeError for invalid transport or original native raster errors.
+    def paint_frame(self, snapshot, elapsed_us: int, artwork=None):
+        if not 0 <= elapsed_us <= 0x7FFFFFFFFFFFFFFF:
+            raise ValueError("Event frame requires a bounded nonnegative clock")
+        pixels = ((C.c_uint16 * LOGICAL_PIXEL_COUNT)() if artwork is None
+                  else image_to_native_rgb565(artwork))
+        ready = C.c_bool()
+        checked("paint_frame", self.api.cody_host_event_paint_frame(pixels, len(pixels),
+            C.byref(self.output), elapsed_us, artwork is not None, ascii_field(snapshot.request_id, 33),
+            ascii_field(snapshot.event_payload.body, 256), C.byref(ready)))
+        return native_rgb565_to_image(pixels), ready.value
 
     # self: Native output plan with exact status/narrative distinction.
     # visible: Current narrative typewriter character budget.

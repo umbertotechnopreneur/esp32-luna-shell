@@ -2285,7 +2285,7 @@ class CodyWindow:
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--skin", default="assets/cody/cody.yaml")
-    parser.add_argument('--screen',choices=SCREEN_NAMES,default='rig')
+    parser.add_argument('--screen', choices=(*SCREEN_NAMES, 'question-flow'), default='rig')
     parser.add_argument('--rotation',type=int,choices=(0,90,180,270),default=0)
     parser.add_argument('--capture',type=Path,
                         help = 'Output PNG; relative names use artifacts/simulator, explicit paths must stay under artifacts')
@@ -2336,6 +2336,16 @@ def main(argv=None):
             args.capture = resolve_runtime_output(args.capture)
         except (OSError, RuntimeError, ValueError) as error:
             parser.error(str(error))
+    if args.screen == 'question-flow':
+        if (args.capture is None or args.capture.suffix.lower() != '.png' or args.ccp or args.safe_guide or
+                args.skin != "assets/cody/cody.yaml" or args.cloud_material_study or sprite_study):
+            parser.error('question-flow requires a PNG capture without CCP, skin, guide or study options')
+        from cody_question_preview import capture_question_flow
+
+        args.capture.parent.mkdir(parents=True, exist_ok=True)
+        capture_question_flow(args.rotation, args.at_ms).save(args.capture)
+        print(args.capture)
+        return
     artwork_view = (args.screen != Screen.RIG or args.skin != "assets/cody/cody.yaml"
                     or args.activity_preview or args.cloud_material_study or sprite_study)
     if not artwork_view and args.capture is None:

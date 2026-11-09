@@ -15,6 +15,7 @@ I always use the public console from the repository root:
 .\scripts\device.ps1 simulator -Screen boot-waking -Rotation 180
 .\scripts\device.ps1 simulator -Screen boot-vibeware -AtMs 1500 -OutputPath artifacts/simulator/boot.png
 .\scripts\device.ps1 boot-screens
+.\scripts\device.ps1 simulator -Screen question-flow -AtMs 8000 -OutputPath artifacts/simulator/cody-questions.png
 ```
 
 Cody Studio runs from source on Windows and Linux with PowerShell 7, a native C++20
@@ -146,9 +147,13 @@ The panel's explicitly synthetic activity, model prices, character and lower
 technical panels are artwork study inputs. They stay separate from the active
 endpoint and physical firmware.
 
-CCP 0.6 also supports authentic EVENT messages. A question follows 26 → 27 → 31:
-open it, select a card, review its description and press **Send**.
+CCP also supports authenticated EVENT messages. A question follows 26 → 27 → 31:
+open it, tap a numbered reply, review its full text and press **Send reply**.
 The selection stays local and reversible until Send; Back preserves the path.
+The capture-only `question-flow` screen shows the notice, pending queue, both
+choice pages, both review pages, delivery states and the read-only PC approval
+with synthetic data. It uses the device-first native renderer without pairing,
+starting an endpoint or sending replies.
 A UDP ACK alone leaves **Confirming delivery**: **Reply sent** requires the second
 recipient-confirmation poll within the 180-second TTL. A lost loopback link keeps the same question visible, with sending disabled
 until a new authenticated snapshot arrives.
