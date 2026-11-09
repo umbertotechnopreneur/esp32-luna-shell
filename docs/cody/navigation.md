@@ -22,8 +22,9 @@ for users of the App Store. **Show pairing QR** starts Bluetooth provisioning
 from either page. Scan the QR on **Scan to pair** from inside the Espressif app.
 
 On the **Wi-Fi offline** recovery screen, **Later** opens **Not connected**.
-When Cody has a saved network, the station retries about one minute after a
-failed connection. The animated Wi-Fi icon returns for each attempt while the
+When Cody loses a working link, it tries the saved network again after about
+one second. Further failures are retried about one minute apart. The animated
+Wi-Fi icon returns for each attempt while the
 setup screen is awake. **Set up Wi-Fi** opens **Wi-Fi setup** directly.
 
 In Options, Connections opens the Codex and Wi-Fi icons with PC link and Join

@@ -81,6 +81,7 @@ bool s_driver_started;
 esp_err_t s_initialization_result = ESP_ERR_INVALID_STATE;
 bool s_scan_watch_active;
 bool s_connect_requested;
+bool s_ip_timeout_rejoin_requested; // Protected by the Wi-Fi status lock.
 bool s_provisioning_owns_connection;
 std::atomic<bool> s_factory_reset_sealed{false};
 uint8_t s_consecutive_disconnects;
@@ -386,6 +387,7 @@ esp_err_t cancel_reconnect(
     if (command_accepted) {
         s_status.reconnect_pending = false;
         s_status.reconnect_delay_ms = 0;
+        s_ip_timeout_rejoin_requested = false;
     } else {
         if (clear_connection_intent &&
             restore_connection_intent_on_failure) {
@@ -458,10 +460,26 @@ esp_err_t schedule_reconnect(uint32_t delay_ms)
         );
         return ESP_OK;
     }
+    const TickType_t scheduled_tick = xTaskGetTickCount();
+    if (kCodyWifiRetry) {
+        if (s_status.ip_acquired) {
+            wifi_unlock();
+            return ESP_OK;
+        }
+        if (s_status.reconnect_pending) {
+            const TickType_t elapsed = scheduled_tick - s_reconnect_scheduled_tick;
+            const TickType_t period = pdMS_TO_TICKS(s_status.reconnect_delay_ms);
+            // A delayed IP event or timeout fallback must not postpone a nearer retry.
+            if (elapsed >= period || period - elapsed <= pdMS_TO_TICKS(delay_ms)) {
+                wifi_unlock();
+                return ESP_OK;
+            }
+        }
+    }
+
     // Publish the pending reconnect only after the timer daemon has accepted
     // the command. On failure, an already-active reconnect (if any) remains
     // represented by its previous delay instead of exposing an unscheduled one.
-    const TickType_t scheduled_tick = xTaskGetTickCount();
     const bool command_accepted = xTimerChangePeriod(
         s_reconnect_timer,
         pdMS_TO_TICKS(delay_ms),
@@ -491,6 +509,42 @@ bool reconnect_deadline_pending_locked()
     const TickType_t elapsed = xTaskGetTickCount() - s_reconnect_scheduled_tick;
     return s_status.reconnect_pending &&
         elapsed < pdMS_TO_TICKS(s_status.reconnect_delay_ms);
+}
+
+// No parameters: the lifecycle owner is held and the station was associated without IPv4 at the deadline.
+// Exception: Returns the original network-interface or driver error; only a real event confirms the rejoin.
+esp_err_t request_rejoin_after_ip_timeout()
+{
+    esp_netif_ip_info_t ip{};
+    const esp_err_t ip_error = esp_netif_get_ip_info(s_station_netif, &ip);
+    if (ip_error != ESP_OK) {
+        ESP_LOGE(TAG, "Reading station IPv4 before recovery failed (%s)", esp_err_to_name(ip_error));
+        record_error(ip_error);
+        return ip_error;
+    }
+
+    wifi_lock();
+    const bool still_without_ip = s_status.connected && !s_status.ip_acquired && ip.ip.addr == 0;
+    if (still_without_ip) {
+        s_ip_timeout_rejoin_requested = true;
+        s_status.last_error = ESP_ERR_TIMEOUT;
+        ++s_status.event_sequence;
+    }
+    wifi_unlock();
+    if (!still_without_ip) return ESP_OK;
+
+    const esp_err_t error = esp_wifi_disconnect();
+    if (error == ESP_OK) {
+        ESP_LOGW(TAG, "Station has no IPv4 lease after the retry interval; rejoining its configured network");
+        publish_snapshot();
+    } else {
+        wifi_lock();
+        s_ip_timeout_rejoin_requested = false;
+        wifi_unlock();
+        ESP_LOGE(TAG, "Disconnecting the station for IPv4 recovery failed (%s)", esp_err_to_name(error));
+        record_error(error);
+    }
+    return error;
 }
 
 // timer: Existing one-shot reconnect timer; its callback rechecks reset ownership before connecting.
@@ -542,20 +596,22 @@ void reconnect_timer_callback(TimerHandle_t timer)
         wifi_unlock();
         return;
     }
-    const bool should_connect = s_initialized && s_status.started &&
+    const bool should_retry = s_initialized && s_status.started &&
         s_connect_requested && !s_provisioning_owns_connection &&
+        (!kCodyWifiRetry || !s_status.ip_acquired) &&
         !s_factory_reset_sealed.load(std::memory_order_acquire);
+    const bool needs_rejoin = should_retry && kCodyWifiRetry && s_status.connected;
     s_status.reconnect_pending = false;
     s_status.reconnect_delay_ms = 0;
-    if (should_connect) {
+    ++s_status.event_sequence;
+    if (should_retry && !needs_rejoin) {
         ++s_status.connect_attempt_count;
         ++s_status.reconnect_attempt_count;
-        ++s_status.event_sequence;
     }
     wifi_unlock();
     publish_snapshot();
 
-    if (!should_connect) {
+    if (!should_retry) {
         return;
     }
     const esp_err_t watch_error = LUNASHELL_liveness_watch_begin(
@@ -569,9 +625,11 @@ void reconnect_timer_callback(TimerHandle_t timer)
         );
         std::abort();
     }
-    const esp_err_t error = esp_wifi_connect();
-    record_error(error);
-    if (error != ESP_OK && (kCodyWifiRetry || error == ESP_ERR_WIFI_STATE)) {
+    const esp_err_t error = needs_rejoin ? request_rejoin_after_ip_timeout() : esp_wifi_connect();
+    if (!needs_rejoin) record_error(error);
+    // A successful disconnect posts the event that schedules a quick rejoin.
+    // Keep a bounded fallback if that event is delayed or the driver call fails.
+    if (needs_rejoin || (error != ESP_OK && (kCodyWifiRetry || error == ESP_ERR_WIFI_STATE))) {
         const esp_err_t schedule_error = schedule_reconnect(
             kCodyWifiRetry ? WIFI_RECONNECT_MAX_MS : WIFI_RECONNECT_INITIAL_MS);
         if (schedule_error != ESP_OK) {
@@ -728,6 +786,8 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             s_status.channel = connected != nullptr ? connected->channel : 0;
             s_status.connection_state_valid = connected != nullptr;
             s_status.last_error = event_error;
+            const bool watch_lease = kCodyWifiRetry && event_error == ESP_OK && s_initialized &&
+                s_connect_requested && !s_provisioning_owns_connection;
             ++s_status.event_sequence;
             wifi_unlock();
             publish_snapshot();
@@ -736,6 +796,13 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             }
             ESP_LOGI(TAG, "Associated with %s on channel %u; waiting for DHCP",
                      s_status.ssid, static_cast<unsigned>(s_status.channel));
+            if (watch_lease) {
+                const esp_err_t retry_error = schedule_reconnect(WIFI_RECONNECT_MAX_MS);
+                if (retry_error != ESP_OK) {
+                    ESP_LOGE(TAG, "Waiting for the Wi-Fi lease could not be scheduled (%s)",
+                        esp_err_to_name(retry_error));
+                }
+            }
             break;
         }
 
@@ -746,6 +813,8 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             wifi_lock();
             const bool was_associated = s_status.connected;
             const bool had_ip = s_status.ip_acquired;
+            const bool timed_out_lease = s_ip_timeout_rejoin_requested;
+            s_ip_timeout_rejoin_requested = false;
             const auto previous_channel = s_status.channel;
             const bool connection_requested = s_connect_requested;
             const bool provisioning = s_provisioning_owns_connection;
@@ -771,7 +840,11 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             ++s_status.event_sequence;
             if (reconnect) {
                 const uint8_t shift = s_consecutive_disconnects < 5 ? s_consecutive_disconnects : 5;
-                delay_ms = kCodyWifiRetry ? WIFI_RECONNECT_MAX_MS : WIFI_RECONNECT_INITIAL_MS << shift;
+                if (kCodyWifiRetry) {
+                    delay_ms = had_ip || timed_out_lease ? WIFI_RECONNECT_INITIAL_MS : WIFI_RECONNECT_MAX_MS;
+                } else {
+                    delay_ms = WIFI_RECONNECT_INITIAL_MS << shift;
+                }
                 if (s_consecutive_disconnects < UINT8_MAX) {
                     ++s_consecutive_disconnects;
                 }
@@ -860,11 +933,10 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             ESP_LOGE(TAG, "Wi-Fi initial signal acquisition rejected: rssi=%d (%s)",
                 static_cast<int>(access_point.rssi), esp_err_to_name(signal_error));
         }
-        esp_err_t event_error =
-            got_ip == nullptr || got_ip->ip_info.ip.addr == 0
-                ? ESP_ERR_INVALID_RESPONSE
-                : access_point_error;
-        const esp_err_t cancel_error = cancel_reconnect(false, false);
+        const bool has_ipv4 = got_ip != nullptr && got_ip->ip_info.ip.addr != 0;
+        esp_err_t event_error = has_ipv4 ? access_point_error : ESP_ERR_INVALID_RESPONSE;
+        const esp_err_t cancel_error = !kCodyWifiRetry || has_ipv4
+            ? cancel_reconnect(false, false) : ESP_OK;
         if (event_error == ESP_OK && cancel_error != ESP_OK) {
             event_error = cancel_error;
         }
@@ -880,7 +952,7 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             return;
         }
         s_status.connected = true;
-        s_status.ip_acquired = got_ip != nullptr && got_ip->ip_info.ip.addr != 0;
+        s_status.ip_acquired = has_ipv4;
         s_status.connection_state_valid = got_ip != nullptr;
         s_status.credentials_configured = true;
         s_status.connect_requested = true;
@@ -899,7 +971,7 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
                 sizeof(access_point.ssid)
             );
         }
-        if (cancel_error == ESP_OK) {
+        if (cancel_error == ESP_OK && (!kCodyWifiRetry || has_ipv4)) {
             s_status.reconnect_pending = false;
             s_status.reconnect_delay_ms = 0;
         }
@@ -961,6 +1033,8 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
         }
     } else if (event_id == IP_EVENT_STA_LOST_IP) {
         wifi_lock();
+        const bool needs_lease = kCodyWifiRetry && s_status.connected && s_connect_requested &&
+            !s_provisioning_owns_connection && !s_factory_reset_sealed.load(std::memory_order_acquire);
         s_status.ip_acquired = false;
         s_status.ip_address[0] = '\0';
         s_status.netmask[0] = '\0';
@@ -972,6 +1046,13 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
         wifi_unlock();
         publish_snapshot();
         ESP_LOGW(TAG, "DHCP lease lost");
+        if (needs_lease) {
+            const esp_err_t retry_error = schedule_reconnect(WIFI_RECONNECT_MAX_MS);
+            if (retry_error != ESP_OK) {
+                ESP_LOGE(TAG, "Wi-Fi retry after lease loss could not be scheduled (%s)",
+                    esp_err_to_name(retry_error));
+            }
+        }
     }
 }
 

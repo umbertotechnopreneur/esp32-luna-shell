@@ -92,11 +92,16 @@ therefore does not require a new DHCP lease when the actual association survives
 Retained traffic is admitted from the valid canonical Wi-Fi state even during
 EnteringStandby/Waking; display animation is not a network-readiness condition.
 
-After a completed wake, the Wi-Fi owner may shorten one already-pending reconnect
-wait to one second. It does not change the ordinary 1/2/4/8/16/30-second backoff,
-start a new connection intent, reopen provisioning, interrupt an active connection
-or postpone a nearer/due attempt. A queued timer command owns its deadline;
-stale callbacks cannot retire a newer retry. Errors remain in the owner snapshot.
+Cody retries a dropped usable link after about one second, then waits one
+minute after each failed attempt. It reuses the station's configured profile.
+If a station association goes a minute without an IPv4 lease, the owner checks
+the interface and rejoins the same Wi-Fi when the lease is still missing. A
+valid IP event cancels the pending retry.
+
+After a completed wake, the Wi-Fi owner may shorten an already-pending
+association retry to one second when the station is disconnected. Provisioning
+and explicit stop keep their existing ownership. An earlier retry deadline
+takes precedence over delayed failure events. Errors remain in the owner snapshot.
 
 The same wake and a successful acquired-IP event prompt the existing CCP worker
 to send its next FIND without the ordinary two-second wait. Prompts coalesce and

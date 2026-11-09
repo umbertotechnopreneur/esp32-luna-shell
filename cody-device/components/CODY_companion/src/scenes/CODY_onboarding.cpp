@@ -4939,8 +4939,8 @@ bool saved_wifi_startup_grace(const LUNASHELL::WifiSnapshot &wifi, int64_t now_u
 {
     if (!wifi.credentials_configured) return false;
     if (kDeviceFirstSetup && (!wifi.data_valid || wifi.data_stale || !wifi.started ||
-        !wifi.connect_requested || wifi.reconnect_pending || wifi.connect_attempt_count == 0 ||
-        wifi.last_error != ESP_OK)) {
+        !wifi.connect_requested || (wifi.reconnect_pending && !wifi.connected) ||
+        wifi.connect_attempt_count == 0 || wifi.last_error != ESP_OK)) {
         return false;
     }
     if (s_startup_wifi_wait_started_us < 0 ||
