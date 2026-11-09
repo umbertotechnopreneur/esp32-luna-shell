@@ -108,20 +108,20 @@ def prepare_source(output: Path) -> dict:
     end = function_text(platform, 'extern "C" esp_err_t LUNASHELL_display_frame_end(')
     if end.index("bsp_display_frame_end(") >= end.index("LUNASHELL_liveness_watch_end("):
         raise ValueError("Display watchdog ends before the final DMA retires")
-    cody = (ROOT / "cody-device/components/CODY_companion/src/runtime/CODY_companion.cpp").read_text(encoding="utf-8")
-    draw = function_text(cody, "DrawResult draw_companion_frame(")
-    loop = draw[draw.index("for (uint32_t row = 0;"):]
+    cody = (ROOT / "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp").read_text(encoding="utf-8")
+    draw = function_text(cody, "esp_err_t render(")
+    loop = draw[draw.index("for (uint16_t row = top;"):]
     if loop.index("LUNASHELL_display_frame_buffer(") >= loop.index("const CODY2D::Surface strip{"):
         raise ValueError("Renderer does not reborrow an idle slot before rasterizing")
     if "LUNASHELL_display_frame_submit_rgb565(" not in loop:
         raise ValueError("Renderer no longer uses frame DMA submission")
-    if loop.index("frame.finish(") >= loop.index("*s_resources.previous_rig ="):
-        raise ValueError("Reference geometry is committed before frame retirement")
+    if loop.index("LUNASHELL_display_frame_end(") >= loop.index("old = {frame.layer"):
+        raise ValueError("Presentation state is committed before frame retirement")
     return {"production_source_sha256": hashlib.sha256(bsp.encode()).hexdigest(),
             "production_allocator_sha256": hashlib.sha256(dma.encode()).hexdigest(),
             "executed_functions": list(signatures),
             "integration": ["watchdog spans DMA drain", "idle slot reborrow before raster",
-                            "reference geometry committed after frame retirement"]}
+                            "presentation state committed after frame retirement"]}
 
 
 # argv: Literal options supplied through device.ps1 check -Check display-dma.
