@@ -4,7 +4,7 @@
 uses local MCP for Codex and CCP1 for the device. Local Wi-Fi/IP is sufficient
 for pairing; public Internet availability is a separate condition.
 
-CCP **0.6.18** provides one local owner for Codex and the Windows/Linux companion
+CCP **0.6.19** provides one local owner for Codex and the Windows/Linux companion
 control panel. Codex activity and semantic questions retain their own identities.
 The panel reads genuine native MCP presence and original activity freshness.
 Its signed READY handshake retains the 0.6.4 endpoint-binding contract. Signed READY binds a fresh
