@@ -275,10 +275,10 @@ void format_count(uint64_t value, char (&text)[24])
         ++unit;
     }
     const auto whole = static_cast<unsigned long long>(value / scale);
-    const unsigned decimal = unit == 0 ? 0 : static_cast<unsigned>(value % scale / (scale / 10U));
+    const char decimal = unit == 0 ? '0' : static_cast<char>('0' + value % scale / (scale / 10U));
     if (unit == 0) { std::snprintf(text, sizeof(text), "%llu", whole); }
-    else if (decimal == 0) { std::snprintf(text, sizeof(text), "%llu%c", whole, units[unit]); }
-    else { std::snprintf(text, sizeof(text), "%llu.%u%c", whole, decimal, units[unit]); }
+    else if (decimal == '0') { std::snprintf(text, sizeof(text), "%llu%c", whole, units[unit]); }
+    else { std::snprintf(text, sizeof(text), "%llu.%c%c", whole, decimal, units[unit]); }
 }
 
 // quarter: Real Unix 15-minute index identifying the start of a source slot.
@@ -369,7 +369,7 @@ esp_err_t prepare_plot(TokenHistoryPresentation &presentation, const LUNASHELL::
     for (size_t index = 0; index < ticks.size(); ++index) {
         char number[24]{};
         format_count(ticks[index], number);
-        const auto top = static_cast<int16_t>(kAxisRows[index] - font.height / 2U);
+        const auto top = static_cast<uint16_t>(kAxisRows[index] - font.height / 2U);
         error = add_caption(presentation, font, number, {73, top, 63, 25}, kMuted);
         if (error != ESP_OK) { return error; }
     }
