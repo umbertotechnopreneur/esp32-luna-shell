@@ -228,7 +228,10 @@ class ActivityStore:
         if name not in {"SessionStart", "SessionEnd"}:
             turn_id = require_id(event.get("turn_id"), "turn_id")
         model = hook_model(event.get("model"))
-        locator = event.get("transcript_path", "")
+        locator = event.get("transcript_path")
+        if locator is None:
+            # Explicit null has the same meaning as an omitted optional locator.
+            locator = ""
         if not isinstance(locator, str) or len(locator) > 4096 or "\x00" in locator:
             raise ValueError("Native transcript locator is invalid")
         trigger = event.get("trigger")
