@@ -12,6 +12,7 @@ enum class TurnGlyph : uint8_t { None, Shell, Web, Editing, Compacting };
 struct CodexPanelView {
     LUNASHELL::CodexInboxPage page{};
     std::array<CODY2D::TextLine, 12> lines{};
+    std::array<CODY2D::Rect, 12> line_boxes{};
     char subtitle[64]{};
     char detail[193]{};
     char elapsed[12]{};

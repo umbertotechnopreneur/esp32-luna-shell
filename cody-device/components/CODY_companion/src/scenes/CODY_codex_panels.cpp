@@ -48,11 +48,23 @@ esp_err_t add_line(CodexPanelView &view, const char *text, const CODY2D::MonoFon
     uint32_t width = 0;
     auto error = CODY2D::measure_text_width(font, span, width);
     if (error != ESP_OK) return error;
-    const int x = box.x + (center && width < box.width ? (box.width - width) / 2U : 0U);
-    error = CODY2D::prepare_text_line(font, span,
-        {static_cast<int16_t>(x - offset), static_cast<int16_t>(box.y + (box.height - font.height) / 2U)},
+    auto window = span;
+    int x = box.x;
+    if (width > box.width) {
+        int16_t origin_offset = 0;
+        error = CODY2D::select_text_window(font, span, offset, box.width, window, origin_offset);
+        if (error != ESP_OK) return error;
+        x += origin_offset;
+    } else if (center) {
+        x += (box.width - width) / 2U;
+    }
+    error = CODY2D::prepare_text_line(font, window,
+        {static_cast<int16_t>(x), static_cast<int16_t>(box.y + (box.height - font.height) / 2U)},
         color, view.lines[view.line_count]);
-    if (error == ESP_OK) ++view.line_count;
+    if (error == ESP_OK) {
+        view.line_boxes[view.line_count] = box;
+        ++view.line_count;
+    }
     return error;
 }
 
@@ -69,7 +81,7 @@ esp_err_t fill(CODY2D::Surface strip, uint16_t row, uint16_t column, CODY2D::Rec
     const int top = std::max<int>(row, box.y);
     const int bottom = std::min<int>(row + strip.height, box.y + box.height);
     if (left >= right || top >= bottom) return ESP_OK;
-    return CODY2D::fill_rect(strip, {static_cast<int16_t>(left - column), static_cast<int16_t>(top - row),
+    return CODY2D::fill_rect(strip, {static_cast<uint16_t>(left - column), static_cast<uint16_t>(top - row),
         static_cast<uint16_t>(right - left), static_cast<uint16_t>(bottom - top)}, color);
 }
 
@@ -135,17 +147,17 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
     auto error = fill(strip, row, column, {80, 153, 303, 1}, kRule);
     if (error == ESP_OK && view.kind == CodexPanelKind::Events && view.inbox_current) {
         for (uint8_t index = 0; error == ESP_OK && index < view.page.count; ++index) {
-            const auto y = static_cast<int16_t>(kList.y + index * kRowHeight);
+            const auto y = static_cast<uint16_t>(kList.y + index * kRowHeight);
             const bool question = view.page.rows[index].kind == LUNASHELL::CodexEventKind::Question;
             if (index == 0) error = fill(strip, row, column, {78, y, 302, 72}, 0x1082);
-            if (error == ESP_OK) error = fill(strip, row, column, {83, static_cast<int16_t>(y + 9), 3, 55},
+            if (error == ESP_OK) error = fill(strip, row, column, {83, static_cast<uint16_t>(y + 9), 3, 55},
                 question ? kAmber : kMint);
-            if (error == ESP_OK) error = fill(strip, row, column, {80, static_cast<int16_t>(y + 74), 303, 1}, kRule);
+            if (error == ESP_OK) error = fill(strip, row, column, {80, static_cast<uint16_t>(y + 74), 303, 1}, kRule);
         }
         if (error == ESP_OK && view.page.total > LUNASHELL::kCodexInboxRows) {
             constexpr uint16_t track_height = 192;
             const auto thumb = static_cast<uint16_t>(std::max<unsigned>(8, track_height * view.page.count / view.page.total));
-            const auto top = static_cast<int16_t>(169 + (track_height - thumb) * view.page.offset /
+            const auto top = static_cast<uint16_t>(169 + (track_height - thumb) * view.page.offset /
                 (view.page.total - view.page.count));
             error = fill(strip, row, column, {387, 169, 2, track_height}, kRule);
             if (error == ESP_OK) error = fill(strip, row, column, {387, top, 2, thumb}, kMuted);
@@ -161,29 +173,19 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
             error = CODY2D::draw_capsule_rows(action, strip, row, column);
         }
     }
-    const int left = std::max<int>(column, 73);
-    const int right = std::min<int>(column + strip.width, 380);
-    if (left >= right) return error;
-    CODY2D::Surface clipped = strip;
-    const size_t skip = left - column;
-    clipped.pixels += skip;
-    clipped.pixel_capacity -= skip;
-    clipped.width = static_cast<uint16_t>(right - left);
     for (uint8_t index = 0; error == ESP_OK && index < view.line_count; ++index) {
         const auto &line = view.lines[index];
-        auto text_tile = clipped;
-        int text_left = left;
-        if (view.kind == CodexPanelKind::Events && view.page.count > 0 &&
-            line.text.characters == view.page.rows[0].preview) {
-            text_left = std::max<int>(left, kPreview.x);
-            const int preview_right = std::min<int>(right, kPreview.x + kPreview.width);
-            if (text_left >= preview_right) continue;
-            const size_t delta = text_left - left;
-            text_tile.pixels += delta;
-            text_tile.pixel_capacity -= delta;
-            text_tile.width = static_cast<uint16_t>(preview_right - text_left);
-        }
-        error = CODY2D::draw_text_rows(line, line.text.length, text_tile, row, text_left);
+        const auto &box = view.line_boxes[index];
+        if (row >= box.y + box.height || row + strip.height <= box.y) continue;
+        const int left = std::max<int>(column, box.x);
+        const int right = std::min<int>(column + strip.width, box.x + box.width);
+        if (left >= right) continue;
+        auto clipped = strip;
+        const size_t skip = left - column;
+        clipped.pixels += skip;
+        clipped.pixel_capacity -= skip;
+        clipped.width = static_cast<uint16_t>(right - left);
+        error = CODY2D::draw_text_rows(line, line.text.length, clipped, row, left);
     }
     return error;
 }
@@ -276,11 +278,11 @@ esp_err_t prepare_codex_events(CodexPanelView &view, const LUNASHELL::CodexInbox
     for (uint8_t index = 0; error == ESP_OK && index < view.page.count; ++index) {
         const auto &entry = view.page.rows[index];
         const bool question = entry.kind == LUNASHELL::CodexEventKind::Question;
-        const auto y = static_cast<int16_t>(kList.y + index * kRowHeight);
+        const auto y = static_cast<uint16_t>(kList.y + index * kRowHeight);
         error = add_line(view, question ? "QUESTION" : "REPLY READY", HomeFonts::small_font,
-            {94, static_cast<int16_t>(y + 3), 282, 21}, question ? kAmber : kMint, false);
+            {94, static_cast<uint16_t>(y + 3), 282, 21}, question ? kAmber : kMint, false);
         if (error == ESP_OK) error = add_line(view, entry.title, SceneData::body_font,
-            {94, static_cast<int16_t>(y + 23), 282, 25}, kWhite, false);
+            {94, static_cast<uint16_t>(y + 23), 282, 25}, kWhite, false);
         if (error == ESP_OK && index == 0 && question) {
             error = add_line(view, entry.preview, HomeFonts::small_font, kPreview, kMuted, false, offset);
         }
