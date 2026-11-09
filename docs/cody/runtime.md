@@ -620,10 +620,12 @@ The first connection observation establishes a silent baseline. Generic notices,
 ongoing work, running checks, navigation and statistic refreshes are silent.
 The bounded recent-event ledger prevents repeated frames or brief reconnection
 from replaying the same event. One priority-selected request is admitted per
-update; rejected, muted or busy requests are consumed rather than queued.
-The recording and delivery path suppresses ordinary effects so they cannot be
-captured by the microphone. Sounds are neither an acknowledgement of a user
-choice nor evidence that a build or task succeeded.
+update. A new question, a ready reply or confirmed delivery can wait up to
+2.5 seconds for the shared speaker, as long as the same event is current.
+Muted, expired and failed requests are consumed. Other busy effects are
+consumed as well. Recording and delivery suppress competing effects so they
+cannot be captured by the microphone. The matching delivery acknowledgement
+remains authoritative.
 
 Studio's device-first preview shows the corresponding routes but does not
 reimplement this controller in Python or provide speaker validation. Hardware

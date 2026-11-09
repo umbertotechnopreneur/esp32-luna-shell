@@ -21,12 +21,22 @@ struct DeviceEventSoundRecord {
     bool delivery_announced = false;
 };
 
+// One current event may wait briefly for the shared speaker.
+struct DeviceEventSound {
+    char request_id[33]{};
+    LUNASHELL::CodexEventState state = LUNASHELL::CodexEventState::None;
+    CodexAudioCue cue = CodexAudioCue::None;
+    int64_t deadline_us = 0;
+    uint32_t request_sequence = 0;
+};
+
 // Retained by DeviceModel, never by a scene or a second polling task.
 // The large event observation stays off the display worker's nested call stack.
 struct DeviceEffectsModel {
     LUNASHELL::CodexEventSnapshot event{};
     LUNASHELL::PairingObservation pairing{};
     std::array<DeviceEventSoundRecord, 16> recent_events{};
+    DeviceEventSound event_sound{};
     CodexAudioStatus playback{};
     DeviceFeedback feedback = DeviceFeedback::None;
     esp_err_t boot_audio_error = ESP_ERR_INVALID_STATE;

@@ -899,6 +899,7 @@ esp_err_t apply_command(Command command)
         select_statistics();
     }
     if (command == Command::Sleep || command == Command::Shutdown) {
+        ui.model.effects.event_sound = {};
         const auto audio = CODY::set_codex_audio_suspended(true);
         if (audio != ESP_OK) ESP_LOGW(kTag, "Audio suspension status (%s)", esp_err_to_name(audio));
         esp_err_t error = ESP_OK;

@@ -22,6 +22,7 @@ constexpr size_t kTapSamples = 480;
 constexpr int64_t kDisconnectDwellUs = 3000000;
 constexpr int64_t kWifiReadyDwellUs = 500000;
 constexpr int64_t kQuestionReminderUs = 60000000;
+constexpr int64_t kEventSoundWaitUs = 2500000;
 constexpr int64_t kVoiceCountdownCueFreshnessUs = 200000;
 constexpr int64_t kVoiceCloseCueFreshnessUs = 500000;
 
@@ -56,7 +57,7 @@ static_assert(kTapSamples * 1000U / kTapRateHz == 30U && kTapPcm.front() == 0 &&
     "The tap is 30 ms of mono PCM16 with silent boundaries");
 
 enum class SoundPriority : uint8_t {
-    None, Feedback, Connection, Wifi, Battery, Confirmation, Attention, CriticalBattery
+    None, Feedback, Connection, Wifi, Battery, Confirmation, Attention, EventNotice, CriticalBattery
 };
 
 struct SoundRequest {
@@ -71,7 +72,7 @@ bool current(const LUNASHELL::ComponentSnapshot &sample)
     return sample.data_valid && !sample.data_stale && sample.last_error == ESP_OK;
 }
 
-// request: One winning request for this tick; lower priorities are consumed without a queue.
+// request: One winning request for this tick; a current event notice can wait briefly.
 // cue: Existing immutable PCM identity.
 // priority: Semantic urgency independent of any rendered route.
 // repetitions: Bounded repeated short notice, used only for low battery severity.
@@ -98,9 +99,49 @@ DeviceEventSoundRecord &event_record(DeviceEffectsModel &model, const char *requ
     return record;
 }
 
+// model: Holds the canonical event and the only pending semantic sound.
+// cue: Distinct immutable PCM identity for the observed transition.
+// now_us: First observation time; subsequent attempts preserve the original deadline.
+void schedule_event_sound(DeviceEffectsModel &model, CodexAudioCue cue, int64_t now_us)
+{
+    auto &sound = model.event_sound;
+    sound = {};
+    std::memcpy(sound.request_id, model.event.request_id, sizeof(sound.request_id));
+    sound.state = model.event.state;
+    sound.cue = cue;
+    sound.deadline_us = now_us + kEventSoundWaitUs;
+}
+
+// model: Owns the single current sound and its correlated shared-worker admission.
+// request: Receives the sound if still eligible and ready to attempt.
+// Exception: Returns the original asynchronous owner error if a status read fails.
+esp_err_t select_event_sound(DeviceEffectsModel &model, SoundRequest &request)
+{
+    auto &sound = model.event_sound;
+    if (sound.cue == CodexAudioCue::None) return ESP_OK;
+    if (sound.request_sequence != 0) {
+        CodexAudioStatus status{};
+        const auto error = get_codex_audio_status(status);
+        if (error != ESP_OK || status.request_sequence != sound.request_sequence || status.cue != sound.cue) {
+            sound = {};
+            return error;
+        }
+        if (status.state == CodexAudioState::Dispatched || status.state == CodexAudioState::Playing) {
+            return ESP_OK;
+        }
+        if (status.state != CodexAudioState::DroppedBusy) {
+            sound = {};
+            return ESP_OK;
+        }
+        sound.request_sequence = 0;
+    }
+    choose(request, sound.cue, SoundPriority::EventNotice);
+    return ESP_OK;
+}
+
 // model: Request ledger and successfully read canonical event.
-// now_us: Monotonic time for actual event expiry and the quiet reminder cadence.
-// request: Receives an eligible high-priority sound; identity is consumed even if audio is busy.
+// now_us: Monotonic time for event expiry and the quiet reminder cadence.
+// request: Receives immediate effects for notices that do not wait for the speaker.
 void observe_event(DeviceEffectsModel &model, int64_t now_us, SoundRequest &request)
 {
     using Kind = LUNASHELL::CodexEventKind;
@@ -108,16 +149,23 @@ void observe_event(DeviceEffectsModel &model, int64_t now_us, SoundRequest &requ
     const auto &event = model.event;
     if (!model.event_online || event.kind == Kind::None || event.request_id[0] == '\0' ||
         std::memchr(event.request_id, '\0', sizeof(event.request_id)) == nullptr) {
+        model.event_sound = {};
         return;
+    }
+    const bool expired = event.expires_at_us > 0 && now_us >= event.expires_at_us;
+    auto &sound = model.event_sound;
+    if (sound.cue != CodexAudioCue::None &&
+        (now_us >= sound.deadline_us || sound.state != event.state ||
+         std::strcmp(sound.request_id, event.request_id) != 0 || (expired && sound.state == State::Pending))) {
+        sound = {};
     }
     auto &record = event_record(model, event.request_id);
     if (event.kind == Kind::Question && event.state == State::Delivered &&
         event.selected_id[0] != '\0' && !record.delivery_announced) {
         record.delivery_announced = true;
-        choose(request, CodexAudioCue::AnswerReceived, SoundPriority::Confirmation);
+        schedule_event_sound(model, CodexAudioCue::AnswerReceived, now_us);
     }
-    if (event.state != State::Pending ||
-        (event.expires_at_us > 0 && now_us >= event.expires_at_us)) {
+    if (event.state != State::Pending || expired) {
         record.reminder_at_us = 0;
         return;
     }
@@ -131,7 +179,7 @@ void observe_event(DeviceEffectsModel &model, int64_t now_us, SoundRequest &requ
     if (event.kind == Kind::Question) {
         if (first) {
             record.reminder_at_us = now_us;
-            choose(request, CodexAudioCue::Question, SoundPriority::Attention);
+            schedule_event_sound(model, CodexAudioCue::Question, now_us);
         } else if (record.reminder_at_us <= 0 || now_us < record.reminder_at_us) {
             record.reminder_at_us = now_us;
         } else if (now_us - record.reminder_at_us >= kQuestionReminderUs) {
@@ -145,7 +193,7 @@ void observe_event(DeviceEffectsModel &model, int64_t now_us, SoundRequest &requ
     }
     switch (event.kind) {
     case Kind::ReplyReady:
-        choose(request, CodexAudioCue::ResponseReady, SoundPriority::Confirmation);
+        schedule_event_sound(model, CodexAudioCue::ResponseReady, now_us);
         break;
     case Kind::ApprovalOnPc:
         choose(request, CodexAudioCue::ApprovalRequired, SoundPriority::Attention);
@@ -500,11 +548,13 @@ esp_err_t update_device_effects(DeviceEffectsModel &model,
         }
     }
     if (cadence_gap) {
+        model.event_sound = {};
         model.connection_known = false;
         model.connection_lost_at_us = 0;
         model.wifi_edge_since_us = 0;
     }
     observe_event(model, now_us, request);
+    const auto event_sound_error = select_event_sound(model, request);
     observe_connection(model, status, status_valid, now_us, request);
     observe_wifi(model, status.wifi, status_valid, now_us, startup_wifi_offline, request);
     if (model.pairing_error == ESP_OK) {
@@ -517,12 +567,19 @@ esp_err_t update_device_effects(DeviceEffectsModel &model,
         ? set_codex_audio_suspended(suspended) : model.preparation_error;
     esp_err_t error = model.event_error != ESP_OK ? model.event_error : model.pairing_error;
     if (error == ESP_OK) {
-        error = suspend_error;
+        error = event_sound_error != ESP_OK ? event_sound_error : suspend_error;
     }
     if (!suspended && suspend_error == ESP_OK && request.cue != CodexAudioCue::None) {
         const auto sound_error = request.repetitions == 1
             ? notify_codex_audio(request.cue, model.playback)
             : notify_codex_audio_sequence(request.cue, request.repetitions, 150, model.playback);
+        if (request.priority == SoundPriority::EventNotice) {
+            if (sound_error == ESP_OK && model.playback.state == CodexAudioState::Dispatched) {
+                model.event_sound.request_sequence = model.playback.request_sequence;
+            } else if (sound_error != ESP_OK || model.playback.state != CodexAudioState::DroppedBusy) {
+                model.event_sound = {};
+            }
+        }
         if (error == ESP_OK) {
             error = sound_error;
         }
