@@ -313,6 +313,9 @@ def rotate(image, rotation):
 class DeviceStudioWindow:
     """A round preview with device navigation and an optional authenticated loopback link."""
 
+    # root: Tk window, or None for a deterministic capture with no endpoint.
+    # args: Initial orientation, display guide and interactive CCP admission.
+    # Raises ValueError when a capture requests a live CCP endpoint.
     def __init__(self, root, args):
         self.root = root
         self.restore_preview_defaults()
@@ -333,11 +336,18 @@ class DeviceStudioWindow:
         self.standby = False
         self.touch = None
         self.event_visible = False
+        self.available_pages = (0, PAGES.index("About"))
+        self.chat_title_key = None
+        self.chat_title_since = 0.0
         self.targets = {}
         self.acknowledged = ()
         self.photo = None
         self.timer = None
         self.started_at = self.last_navigation = time.monotonic()
+        if root is None:
+            if args.ccp:
+                raise ValueError("Cody Studio captures cannot start a CCP endpoint")
+            return
         if args.ccp:
             endpoint = SimulatorEndpoint()
             self.route = "connections"
@@ -421,6 +431,7 @@ class DeviceStudioWindow:
     # route: Requested setup, options or dashboard route.
     def open(self, route):
         self.route = route
+        self.chat_title_key = None
         self.screensaver.active = False
         self.last_navigation = time.monotonic()
 
@@ -524,8 +535,10 @@ class DeviceStudioWindow:
                     return
                 if step > 0:
                     return
-            choices = [index for index, page in enumerate(PAGES) if page in self.visible]
-            self.page = choices[(choices.index(self.page) + step) % len(choices)]
+            choices = self.available_pages
+            if self.page in choices:
+                self.page = choices[(choices.index(self.page) + step) % len(choices)]
+            self.chat_title_key = None
             self.info.page = InfoPage.SYSTEM
             self.touch = None
         self.last_navigation = time.monotonic()
@@ -648,9 +661,9 @@ class DeviceStudioWindow:
         self.open(route)
         self.start_boot()
 
-    # self: Preview owner returning to the first enabled statistics page.
+    # self: Preview owner returning to the first enabled statistics page with data.
     def open_statistics(self):
-        self.page = next((index for index, page in enumerate(PAGES) if index and page in self.visible), 0)
+        self.page = next((index for index in self.available_pages if PAGES[index] not in {"Device", "About"}), 0)
         self.info.page = InfoPage.SYSTEM
         self.screensaver.active = False
         self.touch = None
@@ -887,7 +900,7 @@ class DeviceStudioWindow:
                 ("Quick guide", self.open_quick_guide),
             )
         self.draw_option_rows(draw, rows)
-        self.button(draw, "Home", 382, self.open_statistics, width=220, height=52,
+        self.button(draw, "Home", 382, lambda: self.open("widgets"), width=220, height=52,
                     icon="home", caption_size=20)
         opacity = self.navigation_opacity(now)
         if opacity > 0:
@@ -1037,10 +1050,54 @@ class DeviceStudioWindow:
                                             (76, 99, 81, 103), (103, 99, 108, 103)):
                 draw.rectangle((left, top, right, bottom), fill=ACCENT)
 
+    # self: Studio owns the latest data-qualified navigation list.
+    # snapshot: Current loopback telemetry. Account observations are not implemented in Studio.
+    def update_available_pages(self, snapshot):
+        technical = snapshot.technical if snapshot.technical_valid else None
+        context = technical is not None and (
+            (technical.context_capacity or 0) > 0 or technical.compaction.value in {
+                "active", "refreshed", "orphaned", "interrupted",
+            })
+        supported = {"Device", "About"}
+        if context:
+            supported.add("Context")
+        self.available_pages = tuple(index for index, page in enumerate(PAGES)
+                                     if page in self.visible and page in supported)
+        if self.route == "widgets" and self.page not in self.available_pages:
+            self.page = 0
+            self.info.page = InfoPage.SYSTEM
+            self.touch = None
+
+    # self: Display owner retaining the scroll clock for this title and page.
+    # draw: Current logical canvas.
+    # snapshot: Exact title and its validity and source age from CCP.
+    # top: Top edge of the bounded title row.
+    # now: Monotonic frame time in seconds.
+    def draw_chat_title(self, draw, snapshot, top, now):
+        current = (snapshot.activity_valid and snapshot.title_state == "current" and snapshot.title_error == 0
+                   and snapshot.title_age_ms is not None and 0 <= snapshot.title_age_ms < 45000 and snapshot.title)
+        title = snapshot.title if current else "Chat title unavailable"
+        key = (self.page, snapshot.chat, title)
+        if key != self.chat_title_key:
+            self.chat_title_key = key
+            self.chat_title_since = now
+        face = font(18)
+        travel = max(0, round(draw.textlength(title, font=face)) - 320)
+        if not travel:
+            label(draw, title, top, 18, ACCENT, width=320)
+            return
+        elapsed = max(0.0, now - self.chat_title_since) % (2.8 + travel * 0.016)
+        offset = min(travel, int(max(0.0, elapsed - 1.2) / 0.016))
+        viewport = Image.new("L", (320, 24))
+        ImageDraw.Draw(viewport).text((-offset, 0), title, font=face, fill=255, anchor="lt")
+        draw.bitmap((73, top), viewport, fill=ACCENT)
+
     # self: Studio preview of the followed chat's context.
     # draw: Logical canvas before rotation.
     # snapshot: Coherence-qualified loopback observation for the followed chat.
-    def draw_context(self, draw, snapshot):
+    # now: Monotonic frame time for the title viewport.
+    def draw_context(self, draw, snapshot, now):
+        self.draw_chat_title(draw, snapshot, 128, now)
         technical = snapshot.technical if snapshot.technical_valid else None
         capacity = technical.context_capacity if technical else None
         used = technical.context_used if technical else None
@@ -1057,7 +1114,7 @@ class DeviceStudioWindow:
                 }.get(state)
         if capacity and used is not None and 0 <= used <= capacity:
             remaining = capacity - used
-            label(draw, "TOKENS REMAINING", 133, 18)
+            label(draw, "TOKENS REMAINING", 154, 18)
             label(draw, f"{remaining:,}", 177, 45, ACCENT)
             draw.rectangle((93, 244, 372, 250), fill=(24, 34, 48))
             filled = remaining * 280 // capacity
@@ -1067,7 +1124,6 @@ class DeviceStudioWindow:
             top = 178 if capacity or compaction else 207
             label(draw, "Context over limit" if capacity and used is not None and used > capacity
                   else "Context data unavailable", top, 20)
-            label(draw, "For the followed chat", top + 31, 18, MUTED)
         if capacity:
             draw.line((93, 259, 373, 259), fill=CONTROL_PALETTE[2])
             label(draw, "CONTEXT WINDOW", 266, 18)
@@ -1081,9 +1137,10 @@ class DeviceStudioWindow:
     # self: Studio owns the current loopback endpoint and Options shortcut.
     # draw: Logical canvas before display rotation.
     # snapshot: Current SIMULATED connection and authenticated activity projection.
-    def draw_device_summary(self, draw, snapshot):
+    # now: Monotonic frame time for the title viewport.
+    def draw_device_summary(self, draw, snapshot, now):
         label(draw, "Device", 86, 34)
-        observed = self.endpoint is not None and snapshot.source == "SIMULATED" and snapshot.state is not LinkState.STOPPED
+        observed = snapshot.source == "SIMULATED" and snapshot.state is not LinkState.STOPPED
         linked = (observed and snapshot.network_ready and snapshot.state is LinkState.CONNECTED
                   and snapshot.ready_age_ms is not None and 0 <= snapshot.ready_age_ms < 8000)
         presence = snapshot.app_presence
@@ -1123,11 +1180,8 @@ class DeviceStudioWindow:
         ):
             draw.text((140, y), name, fill=FOREGROUND, font=font(18), anchor="lm")
             draw.text((371, y), value, fill=color, font=font(18), anchor="rm")
-        if (codex_open and snapshot.activity_valid and snapshot.title_state == "current"
-                and snapshot.title_error == 0 and snapshot.title_age_ms is not None
-                and 0 <= snapshot.title_age_ms < 45000 and snapshot.title):
-            title = snapshot.title if len(snapshot.title) <= 29 else snapshot.title[:26] + "..."
-            label(draw, title, 291, 18, MUTED, width=320)
+        if codex_open and snapshot.activity_valid:
+            self.draw_chat_title(draw, snapshot, 291, now)
         self.button(draw, "Options", 330, self.options, width=260, height=50, caption_size=20)
 
     # self: Studio preview owning the selected dashboard page.
@@ -1145,9 +1199,9 @@ class DeviceStudioWindow:
         elif page not in ("About", "Device"):
             label(draw, page, 105, 33)
         if page == "Device":
-            self.draw_device_summary(draw, snapshot)
+            self.draw_device_summary(draw, snapshot, now)
         elif page == "Context":
-            self.draw_context(draw, snapshot)
+            self.draw_context(draw, snapshot, now)
         elif page == "About":
             self.draw_system_info(draw)
         elif page == "Reset countdown":
@@ -1167,7 +1221,7 @@ class DeviceStudioWindow:
         elif page == "Last 7 days":
             label(draw, "Daily data unavailable", 209, 20, MUTED)
         opacity = self.navigation_opacity(now)
-        if opacity > 0 and (len(self.visible) > 1 or page == "About"):
+        if opacity > 0 and (len(self.available_pages) > 1 or page == "About"):
             self.sidebar(draw, -1, (lambda: self.move(-1)) if opacity == 1 else None, opacity)
             if page != "About" or self.info.page is not InfoPage.PROJECT_LINK:
                 self.sidebar(draw, 1, (lambda: self.move(1)) if opacity == 1 else None, opacity)
@@ -1178,6 +1232,7 @@ class DeviceStudioWindow:
     # now: Monotonic frame time.
     # Exception: Propagates drawing failures to the preview tick.
     def frame(self, snapshot, code, now):
+        self.update_available_pages(snapshot)
         wifi_setup = isinstance(self.route, WifiSetupRoute)
         image = Image.new("RGB", (SIZE, SIZE), BACKGROUND)
         draw = ImageDraw.Draw(image)
@@ -1220,6 +1275,7 @@ class DeviceStudioWindow:
                 label(draw, "Display", OPTIONS_TITLE_TOP, 34)
                 self.draw_option_rows(draw, (
                     (f"Brightness  {self.brightness}%", self.change_brightness),
+                    ("Auto-rotate  N/A", None),
                     (f"Orientation  {self.rotation} deg", self.change_orientation),
                 ))
                 self.sidebar(draw, -1, self.back)
@@ -1228,8 +1284,10 @@ class DeviceStudioWindow:
                 self.draw_option_rows(draw, (
                     ("Dictation  N/A", None),
                     ("Shake to wake  " + ("On" if self.shake_to_wake else "Off"), self.change_shake_to_wake),
-                    ("More behavior", lambda: self.open("more_behavior")),
+                    ("Sounds  N/A", None),
                 ))
+                self.button(draw, "More options", 382, lambda: self.open("more_behavior"),
+                            width=220, height=52, secondary=True, caption_size=20)
                 self.sidebar(draw, -1, self.back)
             elif self.route == "more_behavior":
                 label(draw, "More behavior", OPTIONS_TITLE_TOP, 34)

@@ -60,6 +60,7 @@ uint32_t s_silence_samples = 0;
 bool s_begun, s_final;
 bool s_publication_pending = false;
 bool s_destination_refresh_requested = false;
+bool s_route_available = false;
 
 // value: Host-order counter encoded in the protocol header.
 // output: Four owned writable bytes.
@@ -292,6 +293,14 @@ esp_err_t prepare(const char *device_id, uint8_t flags)
 }
 }
 
+// available: Retained route admission from the display owner, including across standby.
+bool LUNASHELL::setVoiceInputRouteAvailable(bool available)
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    s_route_available = available;
+    return active();
+}
+
 // trigger: Explicit event identity; all triggers enter the same capture owner.
 // started: Optional output confirming this request published a Preparing session.
 // Exception: Returns original errors. An intentionally suppressed request is ESP_OK with started=false.
@@ -306,6 +315,7 @@ esp_err_t LUNASHELL::requestVoiceInput(VoiceInputTrigger trigger, bool *started)
         ESP_LOGE(kTag, "Voice input rejected unknown trigger=%u (%s)", unsigned(trigger), esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
+    if (!s_route_available) return ESP_OK;
     VoiceInputAdmissionObservation admission{};
     auto &snapshots = DeviceSnapshotService::instance();
     const esp_err_t admission_error = snapshots.readVoiceInputAdmissionObservation(admission);

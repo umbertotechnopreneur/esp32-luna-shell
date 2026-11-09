@@ -43,6 +43,8 @@ def register_fonts():
             pdfmetrics.registerFont(TTFont(name, str(path)))
         else:
             pdfmetrics.registerFont(pdfmetrics.Font(name, "Helvetica-Bold" if name.endswith("Bold") else "Helvetica", "WinAnsiEncoding"))
+    pdfmetrics.registerFontFamily("CodyDoc", normal="CodyDoc", bold="CodyDocBold",
+                                  italic="CodyDoc", boldItalic="CodyDocBold")
 
 
 # text: Plain text, escaped before ReportLab paragraph interpretation.

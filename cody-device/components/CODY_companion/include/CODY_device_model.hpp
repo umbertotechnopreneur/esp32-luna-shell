@@ -115,9 +115,22 @@ void update_device_battery(DeviceModel &model, int64_t now_us);
 // Projects the currently valid perimeter fill, in basis points.
 uint16_t device_allowance_ring(const DeviceDashboardData &data);
 
-// Reads only the canonical observations needed for the selected screen.
-// Failed projections are cleared, and the first original read error is returned.
-esp_err_t read_device_dashboard(DeviceDashboardData &data, WidgetScreen screen, TokenHistoryInterval interval);
+// data: Persistent canonical projections for the dashboard and current turn.
+void update_device_statistics(DeviceDashboardData &data);
+
+// data: Current and separately saved observations, owned by the display worker.
+// preferences: Stored user choices, copied before filtering for data availability.
+// now_us: Monotonic time for chat and context coherence.
+WidgetVisibility available_device_statistics(const DeviceDashboardData &data, WidgetVisibility preferences, int64_t now_us);
+
+// data: Dashboard observations and cached calendar conversions.
+// screen: Selected, data-qualified page.
+// interval: Selected history window.
+void project_device_statistics_calendar(DeviceDashboardData &data, WidgetScreen screen, TokenHistoryInterval interval);
+
+// data: Aged canonical history with explicit missing slots.
+// interval: Window to inspect for at least one measured count, including zero.
+bool device_history_has_data(const DeviceDashboardData &data, TokenHistoryInterval interval);
 
 // model: Retains the selected Info page and its one canonical diagnostics projection.
 // Exception: Preserves snapshot read failures; immutable Firmware/ProjectLink pages need no acquisition.

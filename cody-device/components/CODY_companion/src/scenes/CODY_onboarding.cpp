@@ -6201,7 +6201,7 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
             return show_options_page(scene, next);
         }
         if (s_view.action_id == OnboardingAction::GoHome) {
-            s_widget_open_request = WidgetOpenRequest::Statistics;
+            s_widget_open_request = kDeviceFirstSetup ? WidgetOpenRequest::Home : WidgetOpenRequest::Statistics;
             return ESP_OK;
         }
         if (s_options_page == OptionsPage::Behavior && s_view.action_id == OnboardingAction::MoreBehavior) {

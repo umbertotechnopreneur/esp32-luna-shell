@@ -3,6 +3,7 @@
 #include <array>
 
 #include "CODY2D_controls.hpp"
+#include "CODY_chat_title_view.hpp"
 #include "CODY_scene.hpp"
 
 namespace LUNASHELL {
@@ -16,6 +17,10 @@ struct CodexWeeklyLimitSnapshot;
 namespace CODY {
 
 enum class AccountDashboardPage : uint8_t { QuotaWindows, Today, LastSevenDays, Credits, Account };
+
+// observation: Canonical chat/turn-coherent technical projection.
+// now_us: Monotonic time for the original source lease.
+bool context_dashboard_has_data(const LUNASHELL::CodexTechnicalObservation &observation, int64_t now_us);
 
 // Three visible dates from the same admitted live account. A zero date means no expiry.
 struct VoucherList {
@@ -62,6 +67,7 @@ struct AccountDashboardPresentation {
     std::array<uint8_t, 32> plan_mask{};
     CODY2D::CapsuleControl account_status_dot{};
     CODY2D::Rect voucher_bounds{};
+    ChatTitleView chat_title{};
     VoucherList voucher_list{};
     const CODY2D::MonoFont *title_font = nullptr;
     const CODY2D::MonoFont *body_font = nullptr;
@@ -85,7 +91,7 @@ struct AccountDashboardPresentation {
     bool plan_mask_valid = false;
     bool valid = false;
 };
-static_assert(sizeof(AccountDashboardPresentation) <= 2048,
+static_assert(sizeof(AccountDashboardPresentation) <= 2560,
     "Account charts and labels use bounded persistent display storage");
 
 // page: Explicit account page, independent of Cody Home and display navigation.

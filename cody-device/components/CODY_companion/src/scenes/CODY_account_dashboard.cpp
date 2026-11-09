@@ -8,6 +8,7 @@
 #include <string_view>
 
 #include "LUNASHELL_device_snapshot.hpp"
+#include "CODY_home_dashboard.hpp"
 #include "CODY_technical_panels.hpp"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -854,6 +855,9 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
         error = caption.scale > 1 ? draw_scaled_caption(caption, strip, first_row, first_column) :
             CODY2D::draw_text_rows(caption.line, caption.line.text.length, strip, first_row, first_column);
     }
+    if (error == ESP_OK && presentation.context_page) {
+        error = draw_chat_title(presentation.chat_title, strip, first_row, first_column);
+    }
     return result("draw rows", error);
 }
 
@@ -914,6 +918,18 @@ const char *compaction_text(const LUNASHELL::CodexTechnicalObservation &observat
 }
 
 } // namespace
+
+// observation: Current followed-chat and technical metadata.
+// now_us: Monotonic time used to qualify the metrics and compaction.
+bool context_dashboard_has_data(const LUNASHELL::CodexTechnicalObservation &observation, int64_t now_us)
+{
+    PanelInputs inputs{};
+    if (project_companion_panel_inputs(observation.link, observation.technical, now_us,
+            observation.firmware_version, inputs) != ESP_OK) return false;
+    return (inputs.capacity.state == PanelValueState::Current && inputs.capacity.value > 0) ||
+        (inputs.compaction != LUNASHELL::CodexCompactionState::None &&
+         inputs.compaction != LUNASHELL::CodexCompactionState::Stale);
+}
 
 // page: Explicit account page independent of device navigation.
 // live_account: Aged account-level App Server observation with independent optional fields.
@@ -1033,9 +1049,10 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
     const CODY2D::MonoFont &title_font, const CODY2D::MonoFont &body_font,
     AccountDashboardPresentation &presentation, SceneContent &content)
 {
+    const int64_t now_us = esp_timer_get_time();
     PanelInputs inputs{};
     auto error = project_companion_panel_inputs(observation.link, observation.technical,
-        esp_timer_get_time(), observation.firmware_version, inputs);
+        now_us, observation.firmware_version, inputs);
     if (error != ESP_OK) { return result("context projection", error); }
     SourceState capacity_state = metric_state(inputs.capacity);
     if (capacity_state == SourceState::Current && inputs.capacity.value == 0) {
@@ -1054,7 +1071,13 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
     }
     const uint64_t capacity = capacity_state == SourceState::Current ? inputs.capacity.value : 0;
     const char *compaction = compaction_text(observation, inputs);
-    if (presentation.valid && presentation.context_page && presentation.account_state == remaining_state &&
+    const auto &activity = observation.link.activity;
+    const char *title = inputs.activity == PanelValueState::Current ? codex_chat_title_caption(activity, now_us) : "Chat unavailable";
+    bool title_changed = false;
+    error = prepare_chat_title(presentation.chat_title, title, inputs.chat_id, body_font, now_us,
+        !presentation.valid || !presentation.context_page, title_changed);
+    if (error != ESP_OK) return result("context title", error);
+    if (!title_changed && presentation.valid && presentation.context_page && presentation.account_state == remaining_state &&
         presentation.weekly_state == capacity_state && presentation.context_remaining == remaining &&
         presentation.context_capacity == capacity && presentation.compaction_label == compaction &&
         presentation.title_font == &title_font && presentation.body_font == &body_font) {
@@ -1085,8 +1108,8 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
     error = add_caption(presentation, title_font, "CONTEXT", kHeadline, kCyan);
     if (error == ESP_OK) { error = add_rule(presentation, 125); }
     if (remaining_state == SourceState::Current) {
-        if (error == ESP_OK) { error = add_detail(presentation, "TOKENS REMAINING", 133, kWhite); }
-        if (error == ESP_OK) { error = add_hero(presentation, count, {73, 159, 320, 80}, 2, kCyan); }
+        if (error == ESP_OK) { error = add_detail(presentation, "TOKENS REMAINING", 154, kWhite); }
+        if (error == ESP_OK) { error = add_hero(presentation, count, {73, 177, 320, 64}, 2, kCyan); }
         if (error == ESP_OK) { error = add_bar(presentation, {93, 244, 280, 7}, kDarkTrack, kDarkTrack); }
         const auto width = static_cast<uint16_t>(static_cast<double>(remaining) / static_cast<double>(capacity) * 280.0);
         if (error == ESP_OK && width != 0) { error = add_bar(presentation, {93, 244, width, 7}, kCyan, kCyan); }
@@ -1098,9 +1121,6 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
             remaining_state == SourceState::OverLimit ? "Context over limit" : "Context data unavailable";
         const uint16_t top = capacity_state == SourceState::Current || compaction != nullptr ? 178 : 207;
         if (error == ESP_OK) { error = add_detail(presentation, message, top, kWhite); }
-        if (error == ESP_OK) {
-            error = add_detail(presentation, "For the followed chat", static_cast<uint16_t>(top + 31U), kMuted);
-        }
     }
     if (capacity_state == SourceState::Current) {
         if (error == ESP_OK) { error = add_rule(presentation, 259); }

@@ -68,8 +68,8 @@ record is not remotely revoked by this local action.
 PWR toggles software standby. BOOT opens Options. Page 1 has Connections,
 Codex stats and Timer. Page 2 has Visible screens, Display and Behavior.
 Page 3 has Restart device, Factory reset and Quick guide. The lateral arrows move between pages. Each page
-offers **Home** to return to the first enabled statistics screen, or Device
-if all are hidden.
+offers **Home** to restore the dashboard. **Codex stats** opens the first enabled
+statistics page with data, or Device when none is available.
 The Tools, Preferences and Device pages show three position marks above the
 **Home** footer. Each destination has a colored icon, title and short description.
 Display holds brightness, rotation and orientation. Behavior holds sound,
@@ -95,11 +95,13 @@ Cody restarts into first setup after the platform verifies the reset and loads
 the running firmware's defaults. The action is available offline.
 
 The carousel order is Device, Codex reset, Context, Codex limits, Today, Last 7 days,
-Token history, Credits, Codex account and About. The arrows move
-between enabled pages. A shake returns to the first enabled statistics page.
-With the default settings that is Codex reset. Device is the fallback if all
-statistics pages are hidden. Shake preserves active pairing, voice capture
-and open Codex questions.
+Token history, Credits, Codex account and About. The arrows move between enabled
+pages with data. Device stays available, and About follows its visibility setting.
+A shake on the dashboard returns to the first eligible statistics page, or Device.
+Context and Current turn show the followed chat's title. A long title scrolls
+within the heading. Swipe left from Events to enter Current turn when observed
+activity is available. When the feed and turn are both unavailable, Device is the
+dashboard fallback.
 
 **Last 7 Days** covers the seven calendar days before the current UTC date.
 This is the Windows widget's complete-day cutoff in the time zones Cody
@@ -119,7 +121,8 @@ Provider updates can arrive late: the graph describes changes observed by the
 plugin, not the exact time of each request. It does not backfill earlier hours.
 
 **Codex account** shows the current ChatGPT plan with a standalone icon and
-label. The public US monthly list price appears when available. CCP 0.6.15 or
+label. The signed-in person's display name is outside the current CCP account
+projection. The public US monthly list price appears when available. CCP 0.6.15 or
 later refreshes the public catalog on the computer and supplies the icon, label
 and price through the authenticated link. **Workspace messages** appears only
 when the current account observation contains a count, including a measured zero.
@@ -172,6 +175,8 @@ policy in effect.
 Double-tap open dashboard space or use Record voice on Device to start
 dictation in a voice-enabled build. Dictation must be on and the paired LAN
 link must be current. The optional wake-word build can also listen for Sophia.
+Options and its child routes suppress new dictation. BOOT waits for an active
+voice session to end before opening Options.
 The default build omits microphone acquisition and its audio front end.
 
 When online, Cody asks its configured SNTP servers for time after Wi-Fi obtains

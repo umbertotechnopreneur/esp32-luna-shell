@@ -65,9 +65,12 @@ static_assert(sizeof(VoiceInputAdmissionObservation) <= 8, "Voice admission must
 
 // trigger: Explicit recognition or acquired local touch control.
 // started: Optional result, true only after this request successfully publishes Preparing.
-// Exception: Returns original errors. Dictation Off or a local touch without the LAN route
-// is an intentional ESP_OK no-op with started=false.
+// Exception: Returns original errors. An unavailable UI route, Dictation Off or a local
+// touch without the LAN route is an intentional ESP_OK no-op with started=false.
 esp_err_t requestVoiceInput(VoiceInputTrigger trigger, bool *started = nullptr);
+// available: The display owner has retired a route that admits new dictation.
+// Returns whether a voice session still needs its controls; it does not cancel that session.
+bool setVoiceInputRouteAvailable(bool available);
 // expected_started_at_us: Original identity from the retired Preparing screen showing the destination.
 // accepted: True only when that still-current session enters the three-second start countdown.
 // Exception: Stale/terminal requests return ESP_OK with accepted=false; publication errors stay real.

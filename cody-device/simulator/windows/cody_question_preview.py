@@ -13,7 +13,7 @@ from cody_device_ui import SIZE, label, rotate
 # rotation: Cardinal display orientation applied to each complete logical frame.
 # elapsed_ms: Active route time for the requested still.
 # Raises the original native presentation or raster error.
-def capture_question_flow(rotation, elapsed_ms):
+def question_frames(rotation, elapsed_ms):
     request_id, other_id = "1" * 32, "2" * 32
     question = EventPayload(
         EventKind.QUESTION, "Firmware settings", "Save device preferences?",
@@ -48,23 +48,32 @@ def capture_question_flow(rotation, elapsed_ms):
         ("08  Recipient confirmed", replace(pending, event_state="delivered", event_payload=sent), "waiting", 0, 0),
         ("09  Approval on PC", approval, "notice", 0, 0),
     )
-    gutter, heading = 24, 42
-    stride = SIZE + gutter
-    sheet = Image.new("RGB", (stride * 3 + gutter, (SIZE + heading) * 3 + gutter), (23, 28, 36))
-    draw = ImageDraw.Draw(sheet)
     view = EventView()
     mask = Image.new("L", (SIZE, SIZE))
     ImageDraw.Draw(mask).ellipse((0, 0, SIZE - 1, SIZE - 1), fill=255)
-    for index, (caption, snapshot, stage, choice_page, detail_page) in enumerate(frames):
+    for caption, snapshot, stage, choice_page, detail_page in frames:
         view.native.reset()
         view.stage = stage
         view.native.navigation.choice_page = choice_page
         view.native.navigation.detail_page = detail_page
         if stage == "confirm":
             view.selected_id = "sync"
-        image = view.render_device(snapshot, 0, capture_elapsed_us=elapsed_ms * 1000)
+        image = rotate(view.render_device(snapshot, 0, capture_elapsed_us=elapsed_ms * 1000), rotation)
+        image.putalpha(mask)
+        yield caption, image
+
+
+# rotation: Cardinal orientation applied to each complete logical frame.
+# elapsed_ms: Fixed synthetic route time.
+# Raises the original error when a native frame cannot be rendered.
+def capture_question_flow(rotation, elapsed_ms):
+    gutter, heading = 24, 42
+    stride = SIZE + gutter
+    sheet = Image.new("RGB", (stride * 3 + gutter, (SIZE + heading) * 3 + gutter), (23, 28, 36))
+    draw = ImageDraw.Draw(sheet)
+    for index, (caption, image) in enumerate(question_frames(rotation, elapsed_ms)):
         x = gutter + (index % 3) * stride
         y = gutter // 2 + (index // 3) * (SIZE + heading)
         label(draw, caption, y, 18, x=x + SIZE // 2, width=SIZE)
-        sheet.paste(rotate(image, rotation), (x, y + heading - 8), mask)
+        sheet.paste(image, (x, y + heading - 8), image)
     return sheet

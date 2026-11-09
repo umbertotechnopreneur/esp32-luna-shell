@@ -261,39 +261,103 @@ uint16_t device_allowance_ring(const DeviceDashboardData &data)
     return weekly.remaining_basis_points;
 }
 
-// data: Receives the canonical projection needed by this page.
-// screen: Visible top-level dashboard page.
-// interval: Token history range selected on the device.
-// Exception: Returns the first original observation error for the selected page.
-esp_err_t read_device_dashboard(DeviceDashboardData &data, WidgetScreen screen, TokenHistoryInterval interval)
+// data: Persistent canonical projections for the dashboard and current turn.
+void update_device_statistics(DeviceDashboardData &data)
 {
-    if (screen > WidgetScreen::About) {
-        return ESP_ERR_INVALID_ARG;
-    }
     const auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
-    if (screen == WidgetScreen::About) return ESP_OK;
-    if (screen == WidgetScreen::Context) {
-        return snapshots.readCodexTechnicalObservation(data.context);
-    }
-    if (screen == WidgetScreen::Device) {
-        if (!data.connection.codex_app_open ||
-            snapshots.readCodexTechnicalObservation(data.context) != ESP_OK) {
-            data.context = {};
-        }
-        return ESP_OK;
-    }
+    if (snapshots.readCodexAccount(data.details) != ESP_OK) data.details = {};
+    if (snapshots.readCodexTechnicalObservation(data.context) != ESP_OK) data.context = {};
+    if (snapshots.readCodexTokenIntervals(data.intervals) != ESP_OK) data.intervals = {};
+}
 
-    esp_err_t first_error = ESP_OK;
-    const auto observe = [&first_error](esp_err_t error, auto &observation) {
-        if (error != ESP_OK) {
-            observation = {};
-            if (first_error == ESP_OK) {
-                first_error = error;
-            }
-        }
+// data: Aged canonical token intervals.
+// interval: Window requiring at least one measured bucket.
+bool device_history_has_data(const DeviceDashboardData &data, TokenHistoryInterval interval)
+{
+    const auto &samples = data.intervals;
+    int64_t first_epoch = 0;
+    int64_t last_epoch = 0;
+    const bool current = samples.data_valid && samples.last_error == ESP_OK &&
+        samples.health == LUNASHELL::DeviceHealth::Ready;
+    if ((!current && !samples.data_stale) ||
+        !token_history_utc_range(interval, samples, first_epoch, last_epoch)) return false;
+    const auto first = static_cast<uint32_t>(first_epoch / 900);
+    const auto count = static_cast<uint32_t>((last_epoch - first_epoch) / 900) + 1;
+    for (uint32_t index = 0; index < count; ++index) {
+        uint64_t value = 0;
+        if (samples.read_token_delta(first + index, value)) return true;
+    }
+    return false;
+}
+
+// data: Current and separately saved observations.
+// preferences: Stored user choices, copied before filtering.
+// now_us: Monotonic time for chat and context coherence.
+WidgetVisibility available_device_statistics(const DeviceDashboardData &data, WidgetVisibility preferences, int64_t now_us)
+{
+    const auto current = [](const LUNASHELL::ComponentSnapshot &sample) {
+        return sample.health == LUNASHELL::DeviceHealth::Ready && sample.last_error == ESP_OK &&
+            sample.data_valid && !sample.data_stale;
     };
+    const int64_t now = current(data.clock) ? data.clock.utc_epoch_seconds : 0;
+    const bool live_account = current(data.details);
+    const auto has_data = [&](WidgetScreen screen) {
+        const int64_t saved_at = device_saved_page_epoch(data, screen);
+        const auto &account = saved_at > 0 ? data.saved.account : data.details;
+        const auto &weekly = saved_at > 0 ? data.saved.weekly : data.weekly;
+        const bool account_available = saved_at > 0 ? data.saved.account_observed_utc > 0 : live_account;
+        const bool weekly_available = (saved_at > 0 ? data.saved.weekly_observed_utc > 0 : current(weekly)) &&
+            weekly.reset_unix_seconds > 0 && weekly.remaining_basis_points <= 10000;
+        const int64_t day = (saved_at > 0 ? saved_at : now) / 86400;
+        switch (screen) {
+        case WidgetScreen::Device:
+        case WidgetScreen::About:
+            return true;
+        case WidgetScreen::Reset:
+            return weekly_available && (now == 0 || weekly.reset_unix_seconds > now);
+        case WidgetScreen::Context:
+            return context_dashboard_has_data(data.context, now_us);
+        case WidgetScreen::Limits:
+            return (weekly_available && weekly.reset_unix_seconds > now) ||
+                (account_available && account.short_window_minutes != 0 &&
+                 account.short_remaining_basis_points <= 10000 && account.short_reset_unix_seconds > now);
+        case WidgetScreen::Today: {
+            int64_t observed_day = 0;
+            return account_available && day > 0 &&
+                (account.tokens_for_unix_day(day) || account.latest_tokens_before(day, observed_day));
+        }
+        case WidgetScreen::LastSevenDays:
+            for (int64_t previous = day - 7; account_available && previous < day; ++previous) {
+                if (account.tokens_for_unix_day(previous)) return true;
+            }
+            return false;
+        case WidgetScreen::TokenHistory:
+            return device_history_has_data(data, TokenHistoryInterval::TwentyFourHours);
+        case WidgetScreen::Credits:
+            return (account_available &&
+                (account.credits_kind != LUNASHELL::CodexCreditKind::Unavailable || account.reset_vouchers_valid)) ||
+                device_voucher_expiries_current(data);
+        case WidgetScreen::Account:
+            return live_account && (account.plan[0] != '\0' || account.plan_label[0] != '\0' ||
+                account.workspace_messages_valid);
+        }
+        return false;
+    };
+    preferences.screen_mask |= WidgetStateDetail::bit(WidgetScreen::Device);
+    for (const auto &entry : kWidgetScreens) {
+        if (widget_visible(preferences, entry.id) && !has_data(entry.id)) {
+            preferences.screen_mask &= ~WidgetStateDetail::bit(entry.id);
+        }
+    }
+    return preferences;
+}
+
+// data: Canonical observations and cached zone projections.
+// screen: Selected visible dashboard page.
+// interval: Selected token history time window.
+void project_device_statistics_calendar(DeviceDashboardData &data, WidgetScreen screen, TokenHistoryInterval interval)
+{
     if (screen == WidgetScreen::TokenHistory) {
-        observe(snapshots.readCodexTokenIntervals(data.intervals), data.intervals);
         int64_t first = 0;
         int64_t last = 0;
         if (token_history_utc_range(interval, data.intervals, first, last)) {
@@ -302,17 +366,10 @@ esp_err_t read_device_dashboard(DeviceDashboardData &data, WidgetScreen screen, 
         } else {
             data.history_local = {};
         }
-        return first_error;
-    }
-    if (screen == WidgetScreen::Reset) {
+    } else if (screen == WidgetScreen::Reset) {
         const auto &weekly = data.saved.weekly_observed_utc > 0 ? data.saved.weekly : data.weekly;
         project_local(data.clock, weekly.reset_unix_seconds, data.reset_local);
-    } else {
-        if (device_saved_page_epoch(data, screen) == 0) {
-            observe(snapshots.readCodexAccount(data.details), data.details);
-        }
     }
-    return first_error;
 }
 
 // model: Retained child page and the diagnostics projection also used by the diagnostic overlay.

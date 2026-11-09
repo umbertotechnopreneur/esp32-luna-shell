@@ -2,6 +2,7 @@
 
 #include <array>
 #include "CODY2D_controls.hpp"
+#include "CODY_chat_title_view.hpp"
 #include "CODY_scene.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 
@@ -15,6 +16,7 @@ struct CodexPanelView {
     std::array<CODY2D::TextLine, 12> lines{};
     std::array<CODY2D::Rect, 12> line_boxes{};
     CODY2D::CapsuleControl reply_action{};
+    ChatTitleView chat_title{};
     char subtitle[64]{};
     char detail[193]{};
     char elapsed[12]{};
@@ -35,6 +37,10 @@ struct CodexPanelView {
 // Exception: Returns the original native text or geometry error.
 esp_err_t prepare_codex_events(CodexPanelView &view, const LUNASHELL::CodexInboxSnapshot &inbox,
     int64_t now_us, SceneContent &content);
+
+// observation: Authenticated activity for the currently followed chat.
+// now_us: Monotonic time for the device's link lease.
+bool current_turn_has_data(const LUNASHELL::CodexTechnicalObservation &observation, int64_t now_us);
 
 // view: Persistent panel; text belongs to the display worker.
 // observation: Coherent canonical activity and technical snapshots.

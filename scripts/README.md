@@ -272,6 +272,13 @@ handoff. Existing embedded concept artwork is retained as documentation source
 assets under `assets/cody/docs/studio/`. The earlier appendix/restoration and
 individual atlas generators are not the current authoring path.
 
+For an illustrated offline review of Cody navigation, run
+`./scripts/device.ps1 generate -Generator cody-navigation-review` with Pillow,
+ReportLab and pypdf available to the selected Python. It uses the Studio
+renderer and writes a review PDF under `artifacts/docs/navigation-review/`.
+The source route references, corrections and security records come from the
+maintained atlas.
+
 Maintain the current behavior in the PDF body and keep code history in Git.
 When needed, the final register preserves the dates, page and screen IDs, and
 evidence for errata, addenda and security corrections. See [AGENTS.md](../AGENTS.md).

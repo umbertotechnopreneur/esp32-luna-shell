@@ -167,6 +167,8 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
         error = draw_glyph(view.glyph, strip, row, column);
         if (error == ESP_OK && view.kind == CodexPanelKind::Reply) {
             error = CODY2D::draw_capsule_rows(view.reply_action, strip, row, column);
+        } else if (error == ESP_OK && view.kind == CodexPanelKind::CurrentTurn) {
+            error = draw_chat_title(view.chat_title, strip, row, column);
         }
     }
     for (uint8_t index = 0; error == ESP_OK && index < view.line_count; ++index) {
@@ -286,6 +288,16 @@ esp_err_t prepare_codex_events(CodexPanelView &view, const LUNASHELL::CodexInbox
     return finish(view, content, error);
 }
 
+// observation: Authenticated activity for the currently followed chat.
+// now_us: Monotonic time for the device's link lease.
+bool current_turn_has_data(const LUNASHELL::CodexTechnicalObservation &observation, int64_t now_us)
+{
+    using Phase = LUNASHELL::CodexActivityState;
+    const auto &activity = observation.link.activity;
+    return LUNASHELL::codex_presence::ready_current(observation.link, now_us) && current(activity) &&
+        activity.state != Phase::None && activity.state != Phase::Unavailable && activity.chat_id[0] != '\0';
+}
+
 // view: Persistent panel and text owner.
 // observation: Canonical read-only activity and technical source.
 // now_us: Monotonic time used only for freshness and elapsed duration.
@@ -296,7 +308,7 @@ esp_err_t prepare_current_turn(CodexPanelView &view, const LUNASHELL::CodexTechn
 {
     const auto &activity = observation.link.activity;
     const auto &technical = observation.technical;
-    const bool live = LUNASHELL::codex_presence::ready_current(observation.link, now_us) && current(activity);
+    const bool live = current_turn_has_data(observation, now_us);
     const char *title = live ? codex_chat_title_caption(activity, now_us) : "Chat unavailable";
     const char *detail = "";
     const char *status = "Activity unavailable";
@@ -338,10 +350,14 @@ esp_err_t prepare_current_turn(CodexPanelView &view, const LUNASHELL::CodexTechn
             detail = glyph == TurnGlyph::Web ? "" : activity.description;
         }
     }
-    if (view.valid && view.kind == CodexPanelKind::CurrentTurn && view.glyph == glyph &&
-        std::strcmp(view.subtitle, title) == 0 && std::strcmp(view.detail, detail) == 0 &&
-        std::strcmp(view.elapsed, elapsed) == 0 && view.line_count >= 3 &&
-        std::strcmp(view.lines[2].text.characters, status) == 0) {
+    const bool same_view = view.valid && view.kind == CodexPanelKind::CurrentTurn;
+    bool title_changed = false;
+    auto error = prepare_chat_title(view.chat_title, title, live ? activity.chat_id : "", SceneData::body_font,
+        now_us, !same_view, title_changed);
+    if (error != ESP_OK) return error;
+    if (same_view && !title_changed && view.glyph == glyph && std::strcmp(view.detail, detail) == 0 &&
+        std::strcmp(view.elapsed, elapsed) == 0 && view.line_count >= 2 &&
+        std::strcmp(view.lines[1].text.characters, status) == 0) {
         attach(view, content);
         return ESP_OK;
     }
@@ -349,11 +365,9 @@ esp_err_t prepare_current_turn(CodexPanelView &view, const LUNASHELL::CodexTechn
     view.kind = CodexPanelKind::CurrentTurn;
     view.glyph = glyph;
     view.line_count = 0;
-    std::snprintf(view.subtitle, sizeof(view.subtitle), "%s", title);
     std::snprintf(view.detail, sizeof(view.detail), "%s", detail);
     std::snprintf(view.elapsed, sizeof(view.elapsed), "%s", elapsed);
-    auto error = add_line(view, "Current turn", SceneData::title_font, {73, 83, 320, 48}, kWhite);
-    if (error == ESP_OK) error = add_line(view, view.subtitle, SceneData::body_font, {73, 130, 320, 25}, kMuted);
+    error = add_line(view, "Current turn", SceneData::title_font, {73, 83, 320, 46}, kWhite);
     if (error == ESP_OK) error = add_line(view, status, SceneData::body_font,
         glyph == TurnGlyph::None ? CODY2D::Rect{73, 191, 320, 44}
             : CODY2D::Rect{185, 185, 195, static_cast<uint16_t>(compacting ? 25 : 50)},
