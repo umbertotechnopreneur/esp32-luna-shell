@@ -110,7 +110,7 @@ Both QR screens keep their white area within the square code tile.
 
 | Screen | Artwork/content |
 | --- | --- |
-| 04 | Amber offline glyph above Not connected at y=180, Wi-Fi caption, and Tap to pair at (113,352,240,72) |
+| 04 | Amber offline glyph above Not connected at y=180, Previous Wi-Fi and up to two rows for the saved name, and Tap to pair at (113,352,240,72) |
 | 05 | Phone download glyph, Wi-Fi setup title, and two instructions with App download QR at (93,274,280,62) and Show pairing QR at (93,348,280,64) |
 | 06 | Phone download glyph, app name at y=139, installation QR 192 x 192 at (137,165), App Store caption at y=360, and Show pairing QR footer |
 | 07 | Bluetooth glyph, title at y=115, and session QR 204 x 204 at (131,182) while ReadyToScan |
@@ -123,8 +123,9 @@ Both QR screens keep their white area within the square code tile.
 
 During passive reconnect, the 72-pixel signal glyph animates above Wi-Fi
 connecting. Its lower rows light up in mint while the device waits for
-association and an IP. The caption names the configured network using the same
-canonical observation. The waiting page has no touch action. A usable Wi-Fi
+association and an IP. Each station attempt can reopen the same animation.
+Between attempts, the offline page shows the configured name even if the last
+association failed. The waiting page has no touch action. A usable Wi-Fi
 connection describes local network access. Codex link and relay availability
 are independent.
 

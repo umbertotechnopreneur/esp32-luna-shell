@@ -420,6 +420,8 @@ bool s_startup_pending = false;
 bool s_startup_pair_missing = false;
 esp_err_t s_startup_wifi_error = ESP_OK;
 int64_t s_startup_wifi_wait_started_us = -1;
+uint32_t s_startup_wifi_attempt = 0;
+bool s_startup_offline_home = false;
 bool s_startup_network_passive = false;
 bool s_startup_network_presented = false;
 uint32_t s_generation = 1;
@@ -978,7 +980,8 @@ esp_err_t prepare_network_name(const LUNASHELL::WifiSnapshot &wifi, uint16_t top
     const auto *end = std::find(name, name + sizeof(wifi.ssid), '\0');
     const bool printable = end != name + sizeof(wifi.ssid) &&
         std::all_of(name, end, [](char ch) { return ch >= 32 && ch <= 126; });
-    if (!wifi.data_valid || wifi.data_stale) {
+    // The saved profile is configuration, independent of a failed association or IP read.
+    if (wifi.data_stale || (!wifi.data_valid && !wifi.credentials_configured)) {
         name = wifi.data_stale ? "Network name stale" : "Network unavailable";
     } else if (!wifi.credentials_configured) {
         name = "No configured Wi-Fi";
@@ -2091,7 +2094,8 @@ esp_err_t attach_content(SceneFrame &scene)
             content.bounds.top = 139;
             content.control_bounds[0] = {10, 203, 70, 263};
         } else if (s_route == Route::Hello04) {
-            content.bounds.top = 223;
+            // The saved SSID can occupy two full rows above Tap to pair.
+            content.bounds = {83, 223, 383, kSingleActionBounds.y};
         }
     }
     if (kDeviceFirstSetup && (s_route == Route::Online09 ||
@@ -3269,9 +3273,13 @@ esp_err_t enter_route(Route route, SceneFrame &scene, const LUNASHELL::WifiSnaps
         if (error == ESP_OK && kDeviceFirstSetup) {
             s_view.header_icon = CODY2D::ActionIcon::WifiOff;
             s_view.header_icon_bounds = kOfflineGlyph;
-            error = prepare_caption("Connect Cody to Wi-Fi", 223, s_view.lines[0]);
+            const bool saved = wifi != nullptr && wifi->credentials_configured;
+            error = prepare_caption(saved ? "Previous Wi-Fi" : "Connect Cody to Wi-Fi", 223, s_view.lines[0]);
             s_view.lines[0].color = kPairingCaption;
             s_view.line_count = 1;
+            if (error == ESP_OK && saved) {
+                error = prepare_network_name(*wifi, 252, 1);
+            }
         }
         if (error == ESP_OK) {
             error = prepare_action(OnboardingAction::OpenPairingGuide, true);
@@ -4843,6 +4851,8 @@ void reset_onboarding()
     s_startup_pair_missing = false;
     s_startup_wifi_error = ESP_OK;
     s_startup_wifi_wait_started_us = -1;
+    s_startup_wifi_attempt = 0;
+    s_startup_offline_home = false;
     s_startup_network_passive = false;
     s_startup_network_presented = false;
     s_command_pending = false;
@@ -4902,8 +4912,10 @@ void request_saved_setup_startup()
 {
     s_startup_pending = true;
     s_startup_pair_missing = false;
-    // Begin the saved-network grace when the route reads its first observation.
+    // Each actual station attempt gets its own visible connection window.
     s_startup_wifi_wait_started_us = -1;
+    s_startup_wifi_attempt = 0;
+    s_startup_offline_home = false;
     s_startup_network_passive = false;
     s_startup_network_presented = false;
 }
@@ -4921,14 +4933,19 @@ esp_err_t start_device_setup(SceneFrame &scene, bool first_boot)
     return evaluate_saved_setup(scene, changed);
 }
 
-// wifi: Canonical retained credential knowledge; connection intent may arrive later.
-// now_us: Monotonic time of the first eligible startup view or a subsequent update.
+// wifi: Canonical saved profile and the station owner's current connection attempt.
+// now_us: Monotonic time for the bounded animation window.
 bool saved_wifi_startup_grace(const LUNASHELL::WifiSnapshot &wifi, int64_t now_us)
 {
-    if (!wifi.credentials_configured) {
+    if (!wifi.credentials_configured) return false;
+    if (kDeviceFirstSetup && (!wifi.data_valid || wifi.data_stale || !wifi.started ||
+        !wifi.connect_requested || wifi.reconnect_pending || wifi.connect_attempt_count == 0 ||
+        wifi.last_error != ESP_OK)) {
         return false;
     }
-    if (s_startup_wifi_wait_started_us < 0) {
+    if (s_startup_wifi_wait_started_us < 0 ||
+        (kDeviceFirstSetup && s_startup_wifi_attempt != wifi.connect_attempt_count)) {
+        s_startup_wifi_attempt = wifi.connect_attempt_count;
         s_startup_wifi_wait_started_us = now_us;
     }
     return now_us - s_startup_wifi_wait_started_us < kStartupWifiGraceUs;
@@ -5201,16 +5218,30 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
     const bool wifi_ready = wifi.data_valid && !wifi.data_stale && wifi.credentials_configured &&
         wifi.health == LUNASHELL::DeviceHealth::Ready && wifi.last_error == ESP_OK &&
         wifi.started && wifi.connected && wifi.ip_acquired && wifi.ip_address[0] != '\0';
-    const bool pair_missing = s_startup_pair_missing;
+    if (kDeviceFirstSetup && s_route == Route::Hello04) {
+        s_startup_offline_home = true;
+    }
+    const bool pair_missing = s_startup_pair_missing || s_startup_offline_home;
     if (!wifi_ready) {
-        if (kDeviceFirstSetup && s_route == Route::Hello04) {
-            // Later keeps the offline home on screen while the saved network retries.
-            return ESP_OK;
-        }
         error = wifi.last_error != ESP_OK ? wifi.last_error :
             !wifi.data_valid || wifi.data_stale ? ESP_ERR_INVALID_STATE : ESP_OK;
         if (saved_wifi_startup_grace(wifi, esp_timer_get_time())) {
+            s_startup_pending = true;
             return present_network_wait(scene, wifi, error, changed, true);
+        }
+        if (kDeviceFirstSetup && (s_startup_offline_home || (pair_missing && wifi.credentials_configured))) {
+            s_startup_offline_home = true;
+            s_startup_pending = false;
+            s_startup_wifi_error = error;
+            s_startup_network_passive = false;
+            s_startup_network_presented = false;
+            // A direct Back or Later entry is refreshed from this canonical observation.
+            const bool has_saved_caption = s_route == Route::Hello04 && s_view.line_count > 1;
+            if (s_route == Route::Hello04 && has_saved_caption == wifi.credentials_configured) {
+                return ESP_OK;
+            }
+            changed = true;
+            return enter_route(Route::Hello04, scene, &wifi);
         }
         if (pair_missing) {
             if (wifi.data_valid && !wifi.data_stale && wifi.connection_state_valid &&
@@ -5234,6 +5265,7 @@ esp_err_t evaluate_saved_setup(SceneFrame &scene, bool &changed)
     }
     s_startup_pending = false;
     s_startup_pair_missing = false;
+    s_startup_offline_home = false;
     s_startup_network_passive = false;
     s_startup_network_presented = false;
     changed = true;
@@ -5335,7 +5367,8 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             return cleanup_error;
         }
     }
-    if (s_startup_pending) {
+    const bool observing_offline_home = kDeviceFirstSetup && s_route == Route::Hello04;
+    if (s_startup_pending || observing_offline_home) {
         wipe(&result, sizeof(result));
         const esp_err_t startup_error = evaluate_saved_setup(scene, changed);
         if (startup_error != ESP_OK || changed || s_route == Route::None) {

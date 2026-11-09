@@ -47,12 +47,22 @@
 #include "nvs_flash.h"
 
 #define WIFI_RECONNECT_INITIAL_MS 1000U
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+#define WIFI_RECONNECT_MAX_MS 60000U
+#else
 #define WIFI_RECONNECT_MAX_MS 30000U
+#endif
 #define WIFI_STATE_LOCK_TIMEOUT_MS 1000U
 
 namespace {
 
 const char *TAG = "LUNASHELL_wifi";
+
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+constexpr bool kCodyWifiRetry = true;
+#else
+constexpr bool kCodyWifiRetry = false;
+#endif
 
 SemaphoreHandle_t s_lock;
 StaticSemaphore_t s_lock_storage;
@@ -560,10 +570,10 @@ void reconnect_timer_callback(TimerHandle_t timer)
         std::abort();
     }
     const esp_err_t error = esp_wifi_connect();
-    if (error == ESP_ERR_WIFI_STATE) {
-        record_error(error);
-        const esp_err_t schedule_error =
-            schedule_reconnect(WIFI_RECONNECT_INITIAL_MS);
+    record_error(error);
+    if (error != ESP_OK && (kCodyWifiRetry || error == ESP_ERR_WIFI_STATE)) {
+        const esp_err_t schedule_error = schedule_reconnect(
+            kCodyWifiRetry ? WIFI_RECONNECT_MAX_MS : WIFI_RECONNECT_INITIAL_MS);
         if (schedule_error != ESP_OK) {
             ESP_LOGE(
                 TAG,
@@ -571,8 +581,6 @@ void reconnect_timer_callback(TimerHandle_t timer)
                 esp_err_to_name(schedule_error)
             );
         }
-    } else {
-        record_error(error);
     }
     (void)LUNASHELL_liveness_watch_end(
         LUNASHELL_LIVENESS_WIFI,
@@ -763,7 +771,7 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             ++s_status.event_sequence;
             if (reconnect) {
                 const uint8_t shift = s_consecutive_disconnects < 5 ? s_consecutive_disconnects : 5;
-                delay_ms = WIFI_RECONNECT_INITIAL_MS << shift;
+                delay_ms = kCodyWifiRetry ? WIFI_RECONNECT_MAX_MS : WIFI_RECONNECT_INITIAL_MS << shift;
                 if (s_consecutive_disconnects < UINT8_MAX) {
                     ++s_consecutive_disconnects;
                 }
@@ -1156,8 +1164,16 @@ static esp_err_t wifi_init_impl(void)
                 s_initialization_result = error;
                 wifi_unlock();
                 record_error(error);
+                if (kCodyWifiRetry) {
+                    const esp_err_t retry_error = schedule_reconnect(WIFI_RECONNECT_MAX_MS);
+                    if (retry_error != ESP_OK) {
+                        ESP_LOGE(TAG, "Saved Wi-Fi retry could not be scheduled (%s)", esp_err_to_name(retry_error));
+                    }
+                }
                 return error;
             }
+            // Publish the accepted attempt even before an association event arrives.
+            return publish_snapshot();
         }
     }
     return ESP_OK;
@@ -1402,10 +1418,10 @@ static esp_err_t wifi_connect_impl(
 
     ESP_LOGI(TAG, "Connecting to SSID=%s, persistence=%s", ssid, persist ? "NVS" : "RAM");
     error = esp_wifi_connect();
-    if (error == ESP_ERR_WIFI_STATE) {
+    if (error != ESP_OK && (kCodyWifiRetry || error == ESP_ERR_WIFI_STATE)) {
         record_error(error);
-        const esp_err_t schedule_error =
-            schedule_reconnect(WIFI_RECONNECT_INITIAL_MS);
+        const esp_err_t schedule_error = schedule_reconnect(
+            kCodyWifiRetry ? WIFI_RECONNECT_MAX_MS : WIFI_RECONNECT_INITIAL_MS);
         if (schedule_error != ESP_OK) {
             ESP_LOGE(
                 TAG,

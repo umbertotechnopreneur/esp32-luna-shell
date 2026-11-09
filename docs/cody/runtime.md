@@ -114,8 +114,10 @@ Wi-Fi profile is absent. **Tap to pair** opens **Wi-Fi setup**. **App download
 QR** opens screen 06. **Show pairing QR** admits the Bluetooth session directly
 from either page. The retained-profile startup choices come from the canonical
 network and link state. See [navigation](navigation.md).
-An existing saved Wi-Fi profile receives a passive `Connecting to Wi-Fi` /
-`Please wait` presentation for up to 15 seconds before recovery choices appear.
+Each actual saved Wi-Fi attempt can show `Wi-Fi connecting` for up to 15 seconds.
+After a failed attempt the station schedules the next try for about one minute
+later. Between tries, the offline screen shows the saved network under
+`Previous Wi-Fi` and offers `Tap to pair`.
 Valid association and IP advance immediately; the interval adds no polling task
 or forced minimum delay and does not infer Internet or authenticated PC presence.
 Only explicit development force-first-boot replays 04 regardless of that state.

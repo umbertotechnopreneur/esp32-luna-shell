@@ -10,7 +10,8 @@ The first device route starts with the saved network and pairing state.
 | Current state | Device route |
 | --- | --- |
 | No saved Wi-Fi | Not connected with Tap to pair |
-| Saved Wi-Fi, association or IP pending | Wi-Fi connecting with the configured network name, then recovery if the attempt does not finish |
+| Saved Wi-Fi, association or IP pending | Wi-Fi connecting with the animated icon and configured network name |
+| Saved Wi-Fi, between attempts | Not connected with Previous Wi-Fi, the saved network name and Tap to pair |
 | Wi-Fi ready, no retained pairing | Prepare the Codex pairing code |
 | Valid retained pairing | Search for the remembered PC until authenticated presence arrives |
 | Storage or service error | Show the original failure and an available recovery action |
@@ -21,8 +22,9 @@ for users of the App Store. **Show pairing QR** starts Bluetooth provisioning
 from either page. Scan the QR on **Scan to pair** from inside the Espressif app.
 
 On the **Wi-Fi offline** recovery screen, **Later** opens **Not connected**.
-The saved network can still reconnect in the background. **Set up Wi-Fi** opens
-**Wi-Fi setup** directly.
+When Cody has a saved network, the station retries about one minute after a
+failed connection. The animated Wi-Fi icon returns for each attempt while the
+setup screen is awake. **Set up Wi-Fi** opens **Wi-Fi setup** directly.
 
 In Options, Connections opens the Codex and Wi-Fi icons with PC link and Join
 network hints. The lateral Back chevron returns to Options and preserves an already
