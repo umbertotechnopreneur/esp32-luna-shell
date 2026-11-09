@@ -2,6 +2,7 @@
 #include "LUNASHELL_acquisition_internal.hpp"
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_snapshot_internal.hpp"
+#include "../audio/LUNASHELL_pcm16_levels.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -226,36 +227,14 @@ esp_err_t capture_microphone(const char *phase, bool spectrum_requested)
         );
     }
 
-    uint32_t absolute_sum[2] = {};
-    uint32_t peak[2] = {};
+    const auto levels = audio_detail::measure_pcm16_levels(
+        s_microphone_samples, frame_count, channel_count);
     AudioSpectrumBands spectrum = {};
-    for (size_t index = 0; index < frame_count; ++index) {
-        for (size_t channel = 0; channel < channel_count; ++channel) {
-            const int16_t raw =
-                s_microphone_samples[index * channel_count + channel];
-            const uint32_t value =
-                raw < 0
-                    ? static_cast<uint32_t>(-static_cast<int32_t>(raw))
-                    : static_cast<uint32_t>(raw);
-            absolute_sum[channel] += value;
-            if (value > peak[channel]) {
-                peak[channel] = value;
-            }
-        }
-    }
     if (spectrum_requested) {
         build_audio_spectrum(spectrum, channel_count);
     }
-    const uint32_t mean =
-        (absolute_sum[0] + absolute_sum[1]) / (frame_count * channel_count);
-    const uint32_t aggregate_peak = peak[0] > peak[1] ? peak[0] : peak[1];
-    const uint32_t channel_mean0 = absolute_sum[0] / frame_count;
-    const uint32_t channel_mean1 = absolute_sum[1] / frame_count;
-    const uint32_t channel_peak0 = peak[0];
-    const uint32_t channel_peak1 = peak[1];
     const esp_err_t publication_error = update_snapshot(
-        [&spectrum, mean, aggregate_peak, channel_count, channel_mean0,
-         channel_mean1, channel_peak0, channel_peak1, spectrum_requested,
+        [&spectrum, levels, channel_count, spectrum_requested,
          attempted_at_us](LUNASHELL::DeviceSnapshot &snapshot) {
             mark_sample_success(
                 snapshot.audio.microphone,
@@ -264,12 +243,12 @@ esp_err_t capture_microphone(const char *phase, bool spectrum_requested)
             snapshot.audio.channel_count =
                 static_cast<uint8_t>(channel_count);
             snapshot.audio.sample_rate_hz = 22050;
-            snapshot.audio.microphone_mean_level = mean;
-            snapshot.audio.microphone_peak_level = aggregate_peak;
-            snapshot.audio.channel_mean_level[0] = channel_mean0;
-            snapshot.audio.channel_mean_level[1] = channel_mean1;
-            snapshot.audio.channel_peak_level[0] = channel_peak0;
-            snapshot.audio.channel_peak_level[1] = channel_peak1;
+            snapshot.audio.microphone_mean_level = levels.mean;
+            snapshot.audio.microphone_peak_level = levels.peak;
+            snapshot.audio.channel_mean_level[0] = levels.channel_mean[0];
+            snapshot.audio.channel_mean_level[1] = levels.channel_mean[1];
+            snapshot.audio.channel_peak_level[0] = levels.channel_peak[0];
+            snapshot.audio.channel_peak_level[1] = levels.channel_peak[1];
             if (spectrum_requested) {
                 std::memcpy(
                     snapshot.audio.channel_spectrum,
@@ -290,10 +269,10 @@ esp_err_t capture_microphone(const char *phase, bool spectrum_requested)
             "Microphones ES7210 %s: channels=%u ch0=%lu/%lu ch1=%lu/%lu",
             phase,
             static_cast<unsigned>(channel_count),
-            static_cast<unsigned long>(absolute_sum[0] / frame_count),
-            static_cast<unsigned long>(peak[0]),
-            static_cast<unsigned long>(absolute_sum[1] / frame_count),
-            static_cast<unsigned long>(peak[1])
+            static_cast<unsigned long>(levels.channel_mean[0]),
+            static_cast<unsigned long>(levels.channel_peak[0]),
+            static_cast<unsigned long>(levels.channel_mean[1]),
+            static_cast<unsigned long>(levels.channel_peak[1])
         );
     } else {
         ESP_LOGI(
@@ -301,10 +280,10 @@ esp_err_t capture_microphone(const char *phase, bool spectrum_requested)
             "Microphones ES7210 %s: channels=%u ch0=%lu/%lu ch1=%lu/%lu",
             phase,
             static_cast<unsigned>(channel_count),
-            static_cast<unsigned long>(absolute_sum[0] / frame_count),
-            static_cast<unsigned long>(peak[0]),
-            static_cast<unsigned long>(absolute_sum[1] / frame_count),
-            static_cast<unsigned long>(peak[1])
+            static_cast<unsigned long>(levels.channel_mean[0]),
+            static_cast<unsigned long>(levels.channel_peak[0]),
+            static_cast<unsigned long>(levels.channel_mean[1]),
+            static_cast<unsigned long>(levels.channel_peak[1])
         );
     }
     return sample_publication_result(

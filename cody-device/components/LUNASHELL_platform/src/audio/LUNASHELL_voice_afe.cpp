@@ -28,6 +28,7 @@
 #include "LUNASHELL_task_affinity.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_voice_input.hpp"
+#include "LUNASHELL_pcm16_levels.hpp"
 #include "LUNASHELL_snapshot_internal.hpp"
 #include "esp_timer.h"
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
@@ -301,26 +302,14 @@ void publish_microphones(const int16_t *samples, size_t frames, int64_t sampled_
     audio.channel_count = kMicrophoneChannels;
     audio.sample_rate_hz = kVoiceSampleRateHz;
     if (error == ESP_OK) {
-        uint64_t combined_sum = 0;
+        const auto levels = LUNASHELL::audio_detail::measure_pcm16_levels(
+            samples, frames, kMicrophoneChannels);
         for (uint8_t channel = 0; channel < kMicrophoneChannels; ++channel) {
-            uint64_t sum = 0;
-            uint32_t peak = 0;
-            for (size_t frame = 0; frame < frames; ++frame) {
-                const int32_t sample = samples[frame * kMicrophoneChannels + channel];
-                const uint32_t magnitude = static_cast<uint32_t>(sample < 0 ? -sample : sample);
-                sum += magnitude;
-                if (magnitude > peak) {
-                    peak = magnitude;
-                }
-            }
-            audio.channel_mean_level[channel] = static_cast<uint32_t>(sum / frames);
-            audio.channel_peak_level[channel] = peak;
-            combined_sum += sum;
-            if (peak > audio.microphone_peak_level) {
-                audio.microphone_peak_level = peak;
-            }
+            audio.channel_mean_level[channel] = levels.channel_mean[channel];
+            audio.channel_peak_level[channel] = levels.channel_peak[channel];
         }
-        audio.microphone_mean_level = static_cast<uint32_t>(combined_sum / (frames * kMicrophoneChannels));
+        audio.microphone_mean_level = levels.mean;
+        audio.microphone_peak_level = levels.peak;
     }
     const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportVoiceMicrophones(
         audio, sampled_at_us, error);

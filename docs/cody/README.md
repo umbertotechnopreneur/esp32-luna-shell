@@ -14,6 +14,7 @@ persistence, power and authenticated transport.
 | Display coordinates, action controls and QR | [Layout](layout.md) |
 | Power and standby | [Power management](../bsp/services/power-management.md) |
 | Native display transfers | [Display and touch runtime](../bsp/core/display-touch-runtime.md) |
+| Muse reference and board/audio differences | [Hardware and audio comparison](muse-hardware-audio-comparison.md) |
 
 Installation and PC operation belong to the [CCP guide](../../cody-desktop/plugins/cody-codex-plugin/README.md).
 Packet formats and authentication belong to [CCP1](../../cody-desktop/plugins/cody-codex-plugin/protocol/CCP1.md).
@@ -21,6 +22,15 @@ Windows controls and synthetic scenarios belong to the [simulator guide](../../c
 Use the [A4 navigation map](device-navigation-map-a4.pdf) for the device-first
 firmware. The [illustrated atlases](../README.md) also include character design
 material used in Studio.
+
+## Native updates
+
+The device renderer groups damage from the old and new content, controls, and
+live overlays into a bounded set of even-aligned panel regions. Separate
+regions stay separate when their bounding rectangle would redraw more pixels.
+Every region is composed in the original layer order and the display owner
+retires them as a single frame. A route change, rotation, or failed retirement
+requires a full redraw.
 
 ## Profile and services
 

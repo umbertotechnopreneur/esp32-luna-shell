@@ -37,6 +37,7 @@ using CODY::WidgetStep;
 using LUNASHELL::DeviceSnapshotService;
 constexpr char kTag[] = "LUNA_device_ui";
 constexpr uint16_t kCanvas = 466;
+constexpr CODY::DamageRect kNavigationDamage{0, 202, kCanvas, 264};
 constexpr uint32_t kFrameBudgetMs = 500;
 constexpr uint32_t kPollMs = 100;
 constexpr uint32_t kPowerTimeoutMs = 2500;
@@ -90,6 +91,8 @@ struct RetiredFrame {
     bool valid = false;
     CODY2D::Rect voucher_bounds{};
     int64_t voice_ribbon_at_us = 0;
+    CODY::DamageRect content_bounds{};
+    CODY::DamageRect bottom_action_bounds{};
 };
 
 struct DeviceUi {
@@ -425,6 +428,139 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
     return CODY::prepare_device_message(ui.view, frame.presentation, "Device", "Starting services");
 }
 
+// Old/new content and action bounds, navigation, battery, connection, activity and voice.
+struct DeviceDamage {
+    std::array<CODY::DamageRect, 9> regions{};
+    size_t count = 0;
+    esp_err_t error = ESP_OK;
+};
+
+// first: One half-open logical rectangle.
+// second: The corresponding rectangle from the other frame.
+bool same_damage_bounds(const CODY::DamageRect &first, const CODY::DamageRect &second)
+{
+    return first.left == second.left && first.top == second.top &&
+        first.right == second.right && first.bottom == second.bottom;
+}
+
+// bounds: Nonempty, validated logical rectangle.
+uint32_t damage_pixels(const CODY::DamageRect &bounds)
+{
+    return static_cast<uint32_t>(bounds.right - bounds.left) * (bounds.bottom - bounds.top);
+}
+
+// damage: Bounded plan for the current frame; preserves the first invalid input.
+// bounds: Half-open source rectangle, aligned outward before comparing redraw costs.
+void include_damage(DeviceDamage &damage, CODY::DamageRect bounds)
+{
+    if (damage.error != ESP_OK) return;
+    if (bounds.left > bounds.right || bounds.top > bounds.bottom ||
+        bounds.right > kCanvas || bounds.bottom > kCanvas) {
+        ESP_LOGE(kTag, "Display damage [%u,%u,%u,%u] outside the logical panel (%s)",
+            static_cast<unsigned>(bounds.left), static_cast<unsigned>(bounds.top),
+            static_cast<unsigned>(bounds.right), static_cast<unsigned>(bounds.bottom),
+            esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        damage.error = ESP_ERR_INVALID_SIZE;
+        return;
+    }
+    if (bounds.empty()) return;
+    bounds = {static_cast<uint16_t>(bounds.left & ~1U), static_cast<uint16_t>(bounds.top & ~1U),
+        static_cast<uint16_t>((bounds.right + 1U) & ~1U), static_cast<uint16_t>((bounds.bottom + 1U) & ~1U)};
+
+    // A bounding rectangle is useful only when it does not increase pixel work.
+    // Restart after a merge because the larger rectangle may also absorb an earlier one.
+    for (size_t index = 0; index < damage.count;) {
+        const auto &existing = damage.regions[index];
+        const CODY::DamageRect joined{std::min(existing.left, bounds.left), std::min(existing.top, bounds.top),
+            std::max(existing.right, bounds.right), std::max(existing.bottom, bounds.bottom)};
+        if (damage_pixels(joined) > damage_pixels(existing) + damage_pixels(bounds)) {
+            ++index;
+            continue;
+        }
+        bounds = joined;
+        for (size_t next = index + 1; next < damage.count; ++next) {
+            damage.regions[next - 1] = damage.regions[next];
+        }
+        --damage.count;
+        index = 0;
+    }
+    if (damage.count == damage.regions.size()) {
+        ESP_LOGE(kTag, "Display damage plan is full (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        damage.error = ESP_ERR_INVALID_SIZE;
+        return;
+    }
+    damage.regions[damage.count++] = bounds;
+}
+
+// ui: Display-owned native scene, chrome and scratch storage.
+// frame: Prepared immutable content for this transaction.
+// bounds: Admitted even logical region wholly inside the canvas.
+// allowance: Current allowance perimeter projection.
+// battery_percent: Current battery percent, or minus one when unavailable.
+// opacity: Current navigation visibility.
+// next_navigation: Whether the next arrow belongs to this page.
+// Exception: Returns the original buffer, raster or submission failure.
+esp_err_t draw_damage_region(DeviceUi &ui, const FrameView &frame, const CODY::DamageRect &bounds,
+    uint16_t allowance, int8_t battery_percent, uint8_t opacity, bool next_navigation)
+{
+    const uint16_t left = bounds.left;
+    const uint16_t right = bounds.right;
+    const uint16_t top = bounds.top;
+    const uint16_t bottom = bounds.bottom;
+    const uint16_t width = right - left;
+    const uint16_t background = frame.layer == Layer::Scene ? ui.scene.definition->background_rgb565 : 0;
+    const auto &content = frame.presentation.content;
+    esp_err_t error = ESP_OK;
+    for (uint16_t row = top; error == ESP_OK && row < bottom;) {
+        void *pixels = nullptr;
+        size_t capacity = 0;
+        error = LUNASHELL_display_frame_buffer(&pixels, &capacity);
+        if (error != ESP_OK) break;
+        // The driver admits rows by full panel width even for a narrow update.
+        const size_t max_rows = (capacity / (kCanvas * sizeof(uint16_t))) & ~size_t{1};
+        if (pixels == nullptr || max_rows == 0 || reinterpret_cast<uintptr_t>(pixels) % alignof(uint16_t) != 0) {
+            error = ESP_ERR_INVALID_SIZE;
+            break;
+        }
+        const auto rows = static_cast<uint16_t>(std::min<size_t>(max_rows, bottom - row));
+        const CODY2D::Surface strip{static_cast<uint16_t *>(pixels), width, rows, width,
+            static_cast<uint32_t>(capacity / sizeof(uint16_t)), CODY2D::Rgb565ByteOrder::ByteSwapped};
+        error = CODY2D::clear(strip, background);
+        if (error == ESP_OK && frame.layer == Layer::Branding) {
+            error = CODY::BootBranding::draw_rows(ui.branding, ui.branding_scratch, ui.branding_frame, strip, row);
+        } else if (error == ESP_OK && frame.layer == Layer::Scene) {
+            error = CODY::draw_scene_rows(ui.scene, strip, row, left);
+            if (error == ESP_OK && frame.connection_activity_phase != 0) {
+                error = CODY::draw_connection_activity_rows(frame.connection_activity_phase, strip, row, left);
+            }
+        } else if (error == ESP_OK && content.draw_rows != nullptr) {
+            error = content.draw_rows(content.state, strip, row, left);
+        }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        if (error == ESP_OK && frame.voice_ribbon_at_us != 0) {
+            error = CODY::draw_voice_ribbon_rows(strip, row, left, ui.voice_ribbon);
+        }
+#endif
+        if (error == ESP_OK && (allowance != 0 || battery_percent >= 0)) {
+            error = CODY::draw_device_perimeter_rows(allowance, battery_percent, strip, row, left);
+        }
+        if (error == ESP_OK && frame.layer == Layer::Scene) {
+            error = CODY::draw_onboarding_navigation(strip, row, left, opacity, background);
+        }
+        if (error == ESP_OK && frame.arrows && row < kNavigationDamage.bottom &&
+            row + rows > kNavigationDamage.top) {
+            error = CODY::draw_lateral_navigation(next_navigation, strip, row, left, opacity);
+        }
+        if (error == ESP_OK) error = CODY::draw_device_chrome(ui.view.chrome, strip, row, left);
+        if (error == ESP_OK) {
+            error = LUNASHELL_display_frame_submit_rgb565(left, row, right, row + rows, pixels);
+        }
+        row += rows;
+    }
+
+    return error;
+}
+
 // frame: Prepared view borrowed until synchronous DMA retirement.
 // force: Power handoffs always retire a complete panel frame.
 // Exception: Preserves the lease, raster, transfer or retirement error.
@@ -470,7 +606,9 @@ esp_err_t render(const FrameView &frame, bool force = false)
         frame.layer != Layer::EventReply &&
         (frame.layer != Layer::Visibility || ui.editor.page + 1U < CODY::kVisibilityPageCount);
     const bool navigation_changed = old.navigation_opacity != opacity || old.next_navigation != next_navigation;
-    const bool content_changed = old.content_revision != view.content.revision;
+    const bool content_changed = old.content_revision != view.content.revision ||
+        !same_damage_bounds(old.content_bounds, view.content.bounds) ||
+        !same_damage_bounds(old.bottom_action_bounds, view.content.bottom_action_bounds);
     const bool battery_changed = old.battery_sequence != chrome.battery_sequence;
     const bool connection_changed = old.connection_revision != chrome.connection_revision;
     const bool connection_activity_changed = old.connection_activity_phase != frame.connection_activity_phase;
@@ -492,80 +630,29 @@ esp_err_t render(const FrameView &frame, bool force = false)
 
     const uint32_t frame_revision = LUNASHELL_display_runtime_content_revision();
     const bool redraw_all = full || frame_revision != revision;
-    constexpr CODY::DamageRect navigation_bounds{0, 202, kCanvas, 264};
-    auto bounds = redraw_all ? CODY::DamageRect{0, 0, kCanvas, kCanvas} : CODY::DamageRect{};
-    const auto include_damage = [&bounds](CODY::DamageRect changed) {
-        if (changed.empty()) return;
-        if (bounds.empty()) bounds = changed;
-        else bounds = {std::min(bounds.left, changed.left), std::min(bounds.top, changed.top),
-            std::max(bounds.right, changed.right), std::max(bounds.bottom, changed.bottom)};
-    };
-    if (!redraw_all) {
+    DeviceDamage damage{};
+    if (redraw_all) {
+        include_damage(damage, {0, 0, kCanvas, kCanvas});
+    } else {
         if (content_changed) {
-            include_damage(view.content.bounds);
-            include_damage(view.content.bottom_action_bounds);
+            include_damage(damage, old.content_bounds);
+            include_damage(damage, old.bottom_action_bounds);
+            include_damage(damage, view.content.bounds);
+            include_damage(damage, view.content.bottom_action_bounds);
         }
-        if (navigation_changed) include_damage(navigation_bounds);
-        if (battery_changed) include_damage({105, 397, 361, 427});
-        if (connection_changed) include_damage({105, 37, 361, 64});
-        if (connection_activity_changed) include_damage(CODY::kConnectionActivityBounds);
+        if (navigation_changed) include_damage(damage, kNavigationDamage);
+        if (battery_changed) include_damage(damage, {105, 397, 361, 427});
+        if (connection_changed) include_damage(damage, {105, 37, 361, 64});
+        if (connection_activity_changed) include_damage(damage, CODY::kConnectionActivityBounds);
         if (voice_ribbon_changed) {
-            include_damage({CODY::kVoiceRibbonLeft, CODY::kVoiceRibbonDamageTop,
+            include_damage(damage, {CODY::kVoiceRibbonLeft, CODY::kVoiceRibbonDamageTop,
                 CODY::kVoiceRibbonLeft + CODY::kVoiceRibbonWidth, CODY::kVoiceRibbonDamageBottom});
         }
     }
-    const uint16_t left = bounds.left & ~1U;
-    const uint16_t right = (bounds.right + 1U) & ~1U;
-    const uint16_t top = bounds.top & ~1U;
-    const uint16_t bottom = (bounds.bottom + 1U) & ~1U;
-    const uint16_t width = right - left;
-    if (left >= right || right > kCanvas || top >= bottom || bottom > kCanvas) error = ESP_ERR_INVALID_SIZE;
-    for (uint16_t row = top; error == ESP_OK && row < bottom;) {
-        void *pixels = nullptr;
-        size_t capacity = 0;
-        error = LUNASHELL_display_frame_buffer(&pixels, &capacity);
-        if (error != ESP_OK) break;
-        // The driver admits rows by full panel width even for a narrow update.
-        const size_t max_rows = (capacity / (kCanvas * sizeof(uint16_t))) & ~size_t{1};
-        if (pixels == nullptr || max_rows == 0 || reinterpret_cast<uintptr_t>(pixels) % alignof(uint16_t) != 0) {
-            error = ESP_ERR_INVALID_SIZE;
-            break;
-        }
-        const auto rows = static_cast<uint16_t>(std::min<size_t>(max_rows, bottom - row));
-        const CODY2D::Surface strip{static_cast<uint16_t *>(pixels), width, rows, width,
-            static_cast<uint32_t>(capacity / sizeof(uint16_t)), CODY2D::Rgb565ByteOrder::ByteSwapped};
-        const uint16_t background = frame.layer == Layer::Scene ? ui.scene.definition->background_rgb565 : 0;
-        error = CODY2D::clear(strip, background);
-        if (error == ESP_OK && frame.layer == Layer::Branding) {
-            error = CODY::BootBranding::draw_rows(ui.branding, ui.branding_scratch, ui.branding_frame, strip, row);
-        } else if (error == ESP_OK && frame.layer == Layer::Scene) {
-            error = CODY::draw_scene_rows(ui.scene, strip, row, left);
-            if (error == ESP_OK && frame.connection_activity_phase != 0) {
-                error = CODY::draw_connection_activity_rows(frame.connection_activity_phase, strip, row, left);
-            }
-        } else if (error == ESP_OK && view.content.draw_rows != nullptr) {
-            error = view.content.draw_rows(view.content.state, strip, row, left);
-        }
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-        if (error == ESP_OK && frame.voice_ribbon_at_us != 0) {
-            error = CODY::draw_voice_ribbon_rows(strip, row, left, ui.voice_ribbon);
-        }
-#endif
-        if (error == ESP_OK && (allowance != 0 || battery_percent >= 0)) {
-            error = CODY::draw_device_perimeter_rows(allowance, battery_percent, strip, row, left);
-        }
-        if (error == ESP_OK && frame.layer == Layer::Scene) {
-            error = CODY::draw_onboarding_navigation(strip, row, left, opacity, background);
-        }
-        if (error == ESP_OK && frame.arrows && row < navigation_bounds.bottom &&
-            row + rows > navigation_bounds.top) {
-            error = CODY::draw_lateral_navigation(next_navigation, strip, row, left, opacity);
-        }
-        if (error == ESP_OK) error = CODY::draw_device_chrome(chrome, strip, row, left);
-        if (error == ESP_OK) {
-            error = LUNASHELL_display_frame_submit_rgb565(left, row, right, row + rows, pixels);
-        }
-        row += rows;
+    error = damage.error;
+    for (size_t index = 0; error == ESP_OK && index < damage.count; ++index) {
+        error = draw_damage_region(ui, frame, damage.regions[index],
+            allowance, battery_percent, opacity, next_navigation);
     }
 
     error = LUNASHELL_display_frame_end(error);
@@ -592,6 +679,8 @@ esp_err_t render(const FrameView &frame, bool force = false)
     old.voucher_bounds = frame.layer == Layer::Dashboard && screen == WidgetScreen::Credits &&
         !frame.statistics_unavailable ? ui.view.account.voucher_bounds : CODY2D::Rect{};
     old.voice_ribbon_at_us = frame.voice_ribbon_at_us;
+    old.content_bounds = view.content.bounds;
+    old.bottom_action_bounds = view.content.bottom_action_bounds;
     if (frame.layer == Layer::Scene) {
         ui.completed_scene = ui.scene;
         ui.scene_dirty = false;
