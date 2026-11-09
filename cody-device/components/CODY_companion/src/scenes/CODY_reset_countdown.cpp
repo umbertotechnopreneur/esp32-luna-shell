@@ -511,7 +511,7 @@ esp_err_t draw_device_perimeter_rows(uint16_t remaining, int8_t battery_percent,
         return countdown_result("draw perimeter bounds", ESP_ERR_INVALID_SIZE);
     }
     const float quota_start = kTau * (10000U - remaining) / 10000.f;
-    const float battery_end = kTau * battery_percent / 100.f;
+    const float battery_start = kTau * (100 - battery_percent) / 100.f;
     const float outer_edge = remaining > 0 ? kOuterEdge : kBatteryOuterEdge;
     const float inner_edge = show_battery ? kBatteryInnerEdge : kInnerEdge;
     for (int y = first_row; y < bottom; ++y) {
@@ -543,10 +543,13 @@ esp_err_t draw_device_perimeter_rows(uint16_t remaining, int8_t battery_percent,
             float alpha = std::min(coverage, 1.f);
             uint16_t foreground = kBatteryTrack;
             if (battery_pixel && battery_percent > 0) {
+                // Like the quota ring, the empty arc grows clockwise from twelve.
                 const float fill = battery_percent == 100 ? 1.f :
-                    std::clamp((battery_end - angle) * radius + .5f, 0.f, 1.f);
+                    std::clamp((angle - battery_start) * radius + .5f, 0.f, 1.f);
                 if (fill > 0.f) {
-                    const auto gradient = static_cast<uint8_t>(std::min(angle / battery_end, 1.f) * 255.f);
+                    const float counterclockwise = kTau - angle;
+                    const auto gradient = static_cast<uint8_t>(
+                        std::min(counterclockwise / (kTau - battery_start), 1.f) * 255.f);
                     const auto color = CODY2D::blend_rgb565(kBatteryYellow, kBatteryGreen, gradient);
                     foreground = CODY2D::blend_rgb565(color, kBatteryTrack, static_cast<uint8_t>(fill * 255.f));
                 }

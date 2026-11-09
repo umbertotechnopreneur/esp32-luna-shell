@@ -298,7 +298,9 @@ share the outer gradient perimeter when the weekly sample is valid. An inner
 battery ring uses a green-to-yellow fill over a graphite track while a valid
 charge reading is available. A one-pixel radial gap separates the rings, and
 navigation draws above them. The optional globe screensaver hides both rings.
-A full allowance or charge fills its circumference.
+A full allowance or charge fills its circumference. Both rings start at twelve
+o'clock and retain their filled portion counterclockwise. The empty portion
+grows clockwise from twelve o'clock.
 
 The reset instant and percentage come from the Codex App Server through the
 paired companion link. The countdown uses valid clock observations from
