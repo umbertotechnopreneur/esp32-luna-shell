@@ -81,8 +81,8 @@
 - Verify event sounds with Sounds off/on, quiet hours, microphone failure, voice
   capture, standby, battery thresholds and concurrent notifications. Measure stack
   headroom and confirm no duplicate or overdue playback after navigation/reconnect.
-- Verify the optional 15-second globe screensaver, first-touch consumption, event
-  interruption, eight-frame-per-second limit and unchanged dim/standby deadlines.
+- Verify the optional 15-second globe screensaver, the brightness pulse and its pause
+  at minimum intensity, first-touch consumption, event interruption and dim/standby deadlines.
 - Verify Options/Visible screens responsiveness during held touches and actual
   settings writes; compare display work and CPU with the screen resting.
 - Reload the updated plugin and verify context across tool working directories

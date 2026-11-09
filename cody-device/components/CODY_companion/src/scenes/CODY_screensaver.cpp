@@ -36,6 +36,19 @@ int wave(uint32_t phase)
     return (kWave[index] * (200 - fraction) + kWave[(index + 1U) & 31U] * fraction) / 200;
 }
 
+// frame: Monotonic animation frame since the saver became visible.
+unsigned glow_percent(uint32_t frame)
+{
+    constexpr uint32_t rest_frames = 2000000U / kScreensaverFrameUs;
+    constexpr uint32_t pulse_frames = 6000000U / kScreensaverFrameUs;
+    const uint32_t cycle_frame = frame % (rest_frames + pulse_frames);
+    if (cycle_frame < rest_frames) return 50U;
+
+    // Squaring the positive half-wave eases into and out of the pause at minimum intensity.
+    const int amplitude = wave((cycle_frame - rest_frames) * 3200U / pulse_frames);
+    return 50U + static_cast<unsigned>((50 * amplitude * amplitude + 127 * 127 / 2) / (127 * 127));
+}
+
 struct Lobe { int x; int y; int radius; uint8_t red; uint8_t green; uint8_t blue; };
 
 // frame: Bounded animation phase; all operations are integer and all storage is persistent.
@@ -46,6 +59,7 @@ void paint_grid(uint32_t frame, std::array<uint16_t, ScreensaverPresentation::kG
     const int drift_x = wave(phase) * (2 * kSubpixel) / 127;
     const int drift_y = wave(phase + 64U * 25U) * (2 * kSubpixel) / 127;
     const uint32_t orbit = phase * 2U;
+    const unsigned glow = glow_percent(frame);
     const Lobe lobes[] = {
         {32 * kSubpixel + drift_x + wave(orbit) * (5 * kSubpixel) / 127,
          32 * kSubpixel + drift_y + wave(orbit + 64U * 25U) * (5 * kSubpixel) / 127, 25 * kSubpixel, 35, 145, 220},
@@ -68,9 +82,9 @@ void paint_grid(uint32_t frame, std::array<uint16_t, ScreensaverPresentation::kG
                 green += lobe.green * alpha;
                 blue += lobe.blue * alpha;
             }
-            red = std::min<uint32_t>(255U, red / 255U);
-            green = std::min<uint32_t>(255U, green / 255U);
-            blue = std::min<uint32_t>(255U, blue / 255U);
+            red = (std::min<uint32_t>(255U, red / 255U) * glow + 50U) / 100U;
+            green = (std::min<uint32_t>(255U, green / 255U) * glow + 50U) / 100U;
+            blue = (std::min<uint32_t>(255U, blue / 255U) * glow + 50U) / 100U;
             pixels[static_cast<size_t>(y) * ScreensaverPresentation::kGrid + x] =
                 static_cast<uint16_t>(((red >> 3U) << 11U) | ((green >> 2U) << 5U) | (blue >> 3U));
         }
