@@ -1,5 +1,50 @@
 # Active work
 
+## Creamwork 3 reply gestures
+
+- Use the [Muse speaking gestures](https://github.com/facebookincubator/muse-gadget-sdk/blob/d0a65ab/esp32/docs/speaking-animations.md)
+  as a motion reference for the Reply pose in the [animation demo](docs/cody/creamwork-3-demo.html).
+  Explore alternating gestures, short rests and a smooth transition back to
+  listening. Drive voiced replies with playback energy and give text-only
+  replies a separate visual rhythm. Keep the original Cody character.
+
+## Creamwork 3 audio menu
+
+- Add a native Audio menu with playback volume, separate Mic 1 and Mic 2 level
+  meters, a microphone-gain slider, Close and Power off. Keep it separate from
+  the unavailable Synth Voice settings and preserve the current Home navigation.
+- Apply playback volume/gain through the audio owner, using its supported range
+  and confirmed applied value. Preserve Sounds, quiet-hours and active-playback
+  policy; codec reconfiguration must not silently overwrite the user's choice.
+- Read both microphone meters exclusively from DeviceSnapshotService, using the
+  canonical per-channel mean/peak levels, timestamps, validity and errors. Reuse
+  AFE measurements while it owns capture; request level-only acquisition when
+  needed, without UI hardware reads, duplicate capture or spectrum processing.
+- Show two independent meters only when two input channels are supported. With
+  one microphone, show one measured meter and Mic 2 unavailable; with no input,
+  show microphones unavailable and disable microphone gain. Never duplicate a
+  channel, invent a silent reading or present stale values as current.
+- Route the shared microphone-gain slider through the existing audio/capture
+  owner, with codec-supported dB steps, confirmed application and explicit errors.
+  Use the same selected policy for AFE and diagnostic capture. Define persistence
+  through the settings owner; failed reads or writes must not become defaults.
+- Close restores the previous page and releases only this menu's acquisition
+  request. Power off requires deliberate confirmation using the existing control
+  pattern, then queues the power owner's shutdown transaction; never call the
+  PMU directly from the UI. Preserve farewell, resource draining and visible errors.
+- Fit complete sliders, meter labels and actions within the circular display and
+  retain logical rotation, native CODY2D rendering and bounded update work.
+
+### Pending validation gates
+
+- Complete integration and static source review before requesting validation.
+- With fresh authorization for each exact command, validate applicable no-input,
+  single-microphone and dual-microphone compositions and the native menu layout.
+- With separate physical-device authorization, verify independent channel levels,
+  gain/volume application, playback and AFE ownership, stale/error presentation,
+  Close restoration and confirmed shutdown/cancellation. Compilation alone does
+  not establish audible output, microphone response or physical power-off.
+
 ## Cody layout refinement
 
 - Validate the Options destination cards, Behavior rows, saved-PC icon actions and full SSID

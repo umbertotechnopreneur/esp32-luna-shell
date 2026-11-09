@@ -34,6 +34,8 @@ endif()
 idf_component_register(
     SRCS
         "src/runtime/CODY_device_ui.cpp"
+        "src/rendering/CODY_pixel_avatar.cpp"
+        "src/scenes/CODY_pixel_demo.cpp"
         "../LUNASHELL_boot/src/ui/VIBEWARE_boot_animation.c"
         "../../assets/branding/VibeWare/generated/vibeware_boot_data.c"
         "src/runtime/CODY_device_model.cpp"

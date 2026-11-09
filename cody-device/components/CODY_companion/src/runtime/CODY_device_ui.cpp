@@ -12,6 +12,7 @@
 #include "CODY_device_effects.hpp"
 #include "CODY_codex_panels.hpp"
 #include "CODY_local_timer_view.hpp"
+#include "CODY_pixel_demo.hpp"
 #include "CODY_screensaver.hpp"
 #include "CODY_onboarding.hpp"
 #include "CODY_settings.hpp"
@@ -72,6 +73,7 @@ struct FrameView {
     uint8_t connection_activity_phase = 0;
     bool arrows = false;
     bool statistics_unavailable = false;
+    bool pixel_demo = false;
 };
 
 struct RetiredFrame {
@@ -90,6 +92,7 @@ struct RetiredFrame {
     bool valid = false;
     CODY2D::Rect voucher_bounds{};
     int64_t voice_ribbon_at_us = 0;
+    bool pixel_demo = false;
 };
 
 struct DeviceUi {
@@ -105,6 +108,7 @@ struct DeviceUi {
     BrandingPhase branding_phase = BrandingPhase::Inactive;
 
     CODY::DeviceView view{};
+    CODY::PixelDemoView pixel_demo{};
     CODY::CodexPanelView codex_panel{};
     LUNASHELL::CodexInboxSnapshot inbox{};
     LUNASHELL::CodexInboxRow reply{};
@@ -152,6 +156,7 @@ void invalidate()
 {
     s_ui->retired.valid = false;
     s_ui->contact = Target::None;
+    CODY::hide_pixel_demo(s_ui->pixel_demo);
     s_ui->view.account.chat_title.line.valid = false;
     s_ui->codex_panel.chat_title.line.valid = false;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
@@ -406,6 +411,13 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         const auto vouchers = screen == WidgetScreen::Credits ? CODY::project_device_voucher_list(model) : CODY::VoucherList{};
         const auto error = CODY::prepare_device_dashboard(ui.view, frame.presentation,
             screen, model.interval, model.dashboard, now_us, vouchers);
+        if (error == ESP_OK && screen == WidgetScreen::Device) {
+            // Creamwork 3 replaces only the Device content; its existing action and navigation survive.
+            const auto demo_error = CODY::prepare_pixel_demo(ui.pixel_demo, ui.view.overview.record,
+                ui.awake_us, frame.presentation.content);
+            if (demo_error != ESP_OK) return demo_error;
+            frame.pixel_demo = true;
+        }
         if (error == ESP_OK) return ESP_OK;
         // An optional data provider must leave navigation and power controls usable.
         if (!ui.retired.statistics_unavailable) {
@@ -431,6 +443,7 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
 esp_err_t render(const FrameView &frame, bool force = false)
 {
     auto &ui = *s_ui;
+    if (!frame.pixel_demo) CODY::hide_pixel_demo(ui.pixel_demo);
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     // Standby retains the route so an eligible dashboard can still wake by voice.
     const bool keep_voice_route = frame.layer == Layer::Blank && voice_route_available(ui);
@@ -460,6 +473,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const int8_t battery_percent = battery_current ? static_cast<int8_t>(battery.level_percent) : -1;
     const bool full = force || !old.valid || old.display_revision != revision ||
         old.layer != frame.layer || old.screen != screen ||
+        old.pixel_demo != frame.pixel_demo ||
         old.allowance != allowance || old.battery_percent != battery_percent ||
         old.statistics_unavailable != frame.statistics_unavailable ||
         (frame.layer == Layer::Scene && ui.scene_dirty);
@@ -475,8 +489,9 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const bool connection_changed = old.connection_revision != chrome.connection_revision;
     const bool connection_activity_changed = old.connection_activity_phase != frame.connection_activity_phase;
     const bool voice_ribbon_changed = old.voice_ribbon_at_us != frame.voice_ribbon_at_us;
+    const bool pixel_demo_changed = frame.pixel_demo && !ui.pixel_demo.damage.empty();
     if (!full && !content_changed && !navigation_changed && !battery_changed && !connection_changed &&
-        !connection_activity_changed && !voice_ribbon_changed) {
+        !connection_activity_changed && !voice_ribbon_changed && !pixel_demo_changed) {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
         if (admit_voice) LUNASHELL::setVoiceInputRouteAvailable(true);
 #endif
@@ -501,6 +516,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
             std::max(bounds.right, changed.right), std::max(bounds.bottom, changed.bottom)};
     };
     if (!redraw_all) {
+        if (pixel_demo_changed) include_damage(ui.pixel_demo.damage);
         if (content_changed) {
             include_damage(view.content.bounds);
             include_damage(view.content.bottom_action_bounds);
@@ -592,6 +608,8 @@ esp_err_t render(const FrameView &frame, bool force = false)
     old.voucher_bounds = frame.layer == Layer::Dashboard && screen == WidgetScreen::Credits &&
         !frame.statistics_unavailable ? ui.view.account.voucher_bounds : CODY2D::Rect{};
     old.voice_ribbon_at_us = frame.voice_ribbon_at_us;
+    old.pixel_demo = frame.pixel_demo;
+    if (frame.pixel_demo) CODY::retire_pixel_demo(ui.pixel_demo);
     if (frame.layer == Layer::Scene) {
         ui.completed_scene = ui.scene;
         ui.scene_dirty = false;
@@ -861,6 +879,7 @@ esp_err_t sample_touch()
     ui.pressed = sample.pressed;
     if (!ui.retired.valid || ui.retired.display_revision != LUNASHELL_display_runtime_content_revision()) {
         ui.contact = Target::None;
+        ui.pixel_demo.touch_candidate = false;
         return ESP_OK;
     }
     const CODY2D::Point point{static_cast<int16_t>(sample.x), static_cast<int16_t>(sample.y)};
@@ -883,6 +902,12 @@ esp_err_t sample_touch()
         invalidate();
         return ESP_OK;
     }
+    const auto demo_contact = sample.pressed ? target_at(point) : ui.contact;
+    const bool demo_passive_contact = demo_contact == Target::None || demo_contact == Target::VoiceGesture;
+    CODY::observe_pixel_demo_touch(ui.pixel_demo, point, sample.pressed, pressed_edge,
+        sample.sample_timestamp_us, ui.retired.display_revision,
+        ui.retired.pixel_demo && demo_passive_contact);
+    // The demo only observes: the existing release, swipe and voice handlers still own the gesture.
     if (ui.retired.layer == Layer::Scene) {
         if (ui.retired.navigation_opacity != 255 && CODY::onboarding_lateral_control_at(point)) {
             CODY::cancel_onboarding_touch();
@@ -1295,9 +1320,14 @@ void device_ui_worker(void *context)
             continue;
         }
         const bool animating = ui.retired.voice_ribbon_at_us != 0 || ui.view.countdown.animating();
-        const uint32_t wait_ms = ui.model.screensaver.phase == CODY::ScreensaverPhase::Visible
-            ? static_cast<uint32_t>(CODY::kScreensaverFrameUs / 1000)
-            : animating ? 33 : kPollMs;
+        uint32_t wait_ms = kPollMs;
+        if (ui.model.screensaver.phase == CODY::ScreensaverPhase::Visible) {
+            wait_ms = static_cast<uint32_t>(CODY::kScreensaverFrameUs / 1000);
+        } else if (animating) {
+            wait_ms = 33;
+        } else if (ui.retired.valid && ui.retired.pixel_demo) {
+            wait_ms = CODY::kPixelAvatarFrameMs;
+        }
         const auto wait = LUNASHELL_touch_wait_for_report(wait_ms);
         if (wait != ESP_OK && wait != ESP_ERR_NOT_FOUND) {
             error = wait;
