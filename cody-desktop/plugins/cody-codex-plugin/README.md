@@ -276,6 +276,39 @@ when the account's price tier cannot be established. Standard Business uses
 the monthly per-seat list price. Unpublished prices and missing counters are
 omitted. These public prices can differ from the signed-in account's billing.
 
+## Install on Linux
+
+Use a signed-in local Codex client. Both the MCP server and the hooks run
+`python`. Pairing uses `secret-tool` and an unlocked desktop Secret Service
+keyring. On Ubuntu, install the prerequisites if they are missing.
+
+```bash
+sudo apt install python-is-python3 libsecret-tools
+```
+
+From the repository root, register its local catalog and install CCP as your
+regular user.
+
+```bash
+codex plugin marketplace add .
+codex plugin add cody-codex-plugin@cody-local
+codex plugin list --marketplace cody-local
+```
+
+The list should show `cody-codex-plugin` as installed. The same catalog appears
+as **Cody local plugins** in the Codex desktop Plugins Directory. Open a new
+local chat to load CCP. If the running desktop app still does not show it,
+reopen Codex and start a new local chat.
+[Official OpenAI CLI documentation](https://learn.chatgpt.com/docs/cli/reference#codex-plugin)
+
+In the new chat, open `/hooks`, review the CCP definitions and authorize them.
+Send a real prompt in that chat so Cody has activity to follow.
+
+To pair a physical Cody, put the PC and device on the same local network and
+unlock the desktop keyring. On Cody, press **BOOT**, open **Options → Connections**
+and select the Codex icon. Ask Codex to pair with the six-character code on
+Cody's display. See [pairing and retained links](#pair-or-retain-cody).
+
 ## Install and review hooks
 
 1. Make `python` available to the desktop application's environment.

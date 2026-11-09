@@ -61,7 +61,9 @@ Standby, wake and battery behavior are described in the
 ## Pick a door
 
 - **Use Cody:** [setup and navigation](docs/cody/navigation.md), the
-  [A4 route map](docs/cody/device-navigation-map-a4.pdf) and the [PC plugin](cody-desktop/plugins/cody-codex-plugin/README.md).
+  [A4 route map](docs/cody/device-navigation-map-a4.pdf), the
+  [PC plugin](cody-desktop/plugins/cody-codex-plugin/README.md) and
+  [Linux plugin installation](cody-desktop/plugins/cody-codex-plugin/README.md#install-on-linux).
 - **Desktop widget:** [OpenAI Usage](cody-desktop/widgets/codex-status/README.md), a standalone
   Windows/Linux widget for Codex allowance, tokens, credits and reset countdown.
 - **Build something:** [Cody's native 2D interface](docs/cody/README.md),
