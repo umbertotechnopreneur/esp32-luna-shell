@@ -190,13 +190,13 @@ void hide_pixel_demo(PixelDemoView &view)
     view.motion = {};
 }
 
-// view: Serialized contact/reaction owner; no hardware is read here.
+// view: Serialized contact owner; no hardware or semantic state is changed here.
 // point: Logical position from a successful acquired report.
 // pressed: Current acquired contact state.
 // pressed_edge: First sample of a new physical contact.
 // sampled_at_us: Original acquisition timestamp, independent of animation time.
 // display_revision: Mapping generation of the completely displayed page.
-// Returns true only when a tap starts the Muse reaction.
+// Returns true once for a recognized tap, without starting its visual reaction.
 bool observe_pixel_demo_touch(PixelDemoView &view, CODY2D::Point point,
     bool pressed, bool pressed_edge, int64_t sampled_at_us, uint32_t display_revision)
 {
@@ -223,10 +223,15 @@ bool observe_pixel_demo_touch(PixelDemoView &view, CODY2D::Point point,
     if (pressed) return false;
 
     view.touch_candidate = false;
-    if (elapsed_us < 30000) return false;
+    return elapsed_us >= 30000;
+}
+
+// view: Visible mascot whose semantic tap was accepted before presentation.
+void start_pixel_demo_reaction(PixelDemoView &view)
+{
+    if (!view.visible || !view.retired_valid) return;
     view.reaction_started_us = view.elapsed_us;
     view.reaction_active = true;
-    return true;
 }
 
 } // namespace CODY

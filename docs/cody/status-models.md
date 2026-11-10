@@ -7,12 +7,18 @@ imply that all existing state has already moved.
 | Model | Current source | Boundary |
 | --- | --- | --- |
 | `HardwareStatus` | `DeviceSnapshotService::readHardwareStatus` | A bounded, coherent battery, clock, Wi-Fi and BLE projection. Original validity, age and errors stay with the measurements; it performs no hardware acquisition. |
-| `PetStatus` | `PetModel` behind `record_pet_tap` and `read_pet_status` | Session-only count and original monotonic time of recognized mascot taps. The model has no renderer, driver or assistant dependency. The service serializes access and reports contention and rejected events. |
+| `PetStatus` | `PetModel` behind `record_pet_tap` and `read_pet_status` | Session-only count and original monotonic time of recognized mascot taps. The model has no renderer, driver or assistant dependency. `PetObservation` includes the latest delivery error and original attempt time. |
 | `AssistantStatus` | `readCodexAssistantStatus` over the committed domain store | One independently identified source with provider, native namespace, epoch, revision, local generation, negotiated capabilities and evidence-qualified link. Source metadata is copied from the committed generation, not from an uncommitted offer. |
 
 The Wi-Fi setup debug path consumes the hardware-only view. A recognized tap on
-the mascot publishes one pet interaction; the view keeps its own showcase and
-animation clock. Hiding, re-creating or changing the view does not clear the pet
+the mascot publishes one pet interaction before starting its visual reaction;
+the view keeps its own showcase and animation clock. Readers and writers serialize
+the small scalar update/copy under one mutex, with no I/O, callbacks or logging
+inside the critical section. Reader contention waits instead of dropping a tap.
+A rejected event leaves accepted tap facts unchanged, is logged and remains in
+the service observation and dashboard projection. Pet delivery is optional for
+display operation: rejection suppresses that reaction and cue, not the display
+worker. Hiding, re-creating or changing the view does not clear the pet
 model. The model is memory-only and starts empty on firmware restart. It does not
 infer mood, needs or a physical interaction from a showcase pose.
 

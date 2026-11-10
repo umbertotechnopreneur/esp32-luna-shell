@@ -6,6 +6,7 @@
 #include "CODY_battery_alerts.hpp"
 #include "CODY_device_effects.hpp"
 #include "CODY_local_timer.hpp"
+#include "CODY_pet_service.hpp"
 #include "CODY_screensaver.hpp"
 #include "CODY_companion_gestures.hpp"
 #include "CODY_navigation_visibility.hpp"
@@ -19,6 +20,7 @@ namespace CODY {
 
 // Canonical model projections. The display renderer borrows these read-only.
 struct DeviceDashboardData {
+    PetObservation pet{};
     LUNASHELL::CodexWeeklyLimitSnapshot weekly{};
     LUNASHELL::CodexAccountSnapshot details{};
     LUNASHELL::CodexVoucherSnapshot vouchers{};

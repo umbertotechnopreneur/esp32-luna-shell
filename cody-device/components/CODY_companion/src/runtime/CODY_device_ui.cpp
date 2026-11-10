@@ -1402,6 +1402,7 @@ void play_touch_cue(DeviceUi &ui)
 
 // No parameters: read touch and dispatch it only to the retired visible route.
 // Exception: Returns a mandatory input acquisition or route error.
+// Pet delivery is optional for display operation; its failure remains in dashboard.pet.
 esp_err_t sample_touch()
 {
     auto &ui = *s_ui;
@@ -1476,11 +1477,13 @@ esp_err_t sample_touch()
         }
         if (CODY::observe_pixel_demo_touch(ui.pixel_demo, point, sample.pressed, pressed_edge,
                 sample.sample_timestamp_us, ui.retired.display_revision)) {
-            const auto pet_error = CODY::record_pet_tap(sample.sample_timestamp_us);
+            const auto pet_error = CODY::record_pet_tap(sample.sample_timestamp_us, ui.model.dashboard.pet);
             if (pet_error != ESP_OK) {
-                ESP_LOGE(kTag, "Pet tap publication failed (%s)", esp_err_to_name(pet_error));
-                return pet_error;
+                // The owner logs and publishes rejection. Do not acknowledge it
+                // with a reaction or stop the unrelated display worker.
+                return ESP_OK;
             }
+            CODY::start_pixel_demo_reaction(ui.pixel_demo);
             if (ui.pixel_demo.elapsed_us >= CODY::kPixelDemoWakingUs) ui.home_menu.interact(esp_timer_get_time());
             play_touch_cue(ui);
         }

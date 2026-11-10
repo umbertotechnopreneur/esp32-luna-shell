@@ -65,6 +65,7 @@ bool record_voice_available(const LUNASHELL::DeviceSnapshotService &snapshots)
 // data: Canonical weekly allowance, live vouchers and device observations shared by awake screens.
 void update_device_observations(DeviceDashboardData &data)
 {
+    read_pet_status(data.pet);
     const auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
     if (snapshots.readCodexWeeklyLimit(data.weekly) != ESP_OK) data.weekly = {};
     const auto previous_voucher_error = data.vouchers.last_error;
