@@ -649,6 +649,10 @@ foreach ($requiredIdfFile in @($IdfPy, $IdfToolsPy)) {
 }
 
 Import-FirmwareToolchainEnvironment -Toolchain $toolchain -IdfToolsPy $IdfToolsPy
+# Some ESP-IDF components invoke python by name while packing their assets.
+# Keep that invocation on the same interpreter selected for the firmware CLI.
+$pythonDirectory = Split-Path -Parent $PythonExe
+$env:PATH = $pythonDirectory + [IO.Path]::PathSeparator + $env:PATH
 
 # Parallel ccache processes intermittently exit without diagnostics on this
 # Windows workstation; deterministic firmware builds are more valuable here.
