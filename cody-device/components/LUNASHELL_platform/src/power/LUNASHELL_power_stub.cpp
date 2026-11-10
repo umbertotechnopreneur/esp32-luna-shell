@@ -31,6 +31,11 @@ extern "C" esp_err_t LUNASHELL_power_manager_set_shake_wake_enabled(bool enabled
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+extern "C" bool LUNASHELL_power_manager_shake_wake_enabled(void)
+{
+    return false;
+}
+
 // callback: Unsupported display lifecycle registration for a profile without power inputs.
 extern "C" esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
     LUNASHELL_display_lifecycle_callback_t callback)

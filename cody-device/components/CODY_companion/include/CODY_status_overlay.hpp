@@ -16,6 +16,7 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 
 #include "CODY2D.hpp"
@@ -26,6 +27,20 @@ namespace CODY {
 
 // Native status chrome reserves these logical half-open bounds on firmware and Studio.
 inline constexpr DamageRect kStatusOverlayBounds{122, 32, 365, 64};
+// Compact connection/saved caption directly beneath the shared status bar.
+inline constexpr DamageRect kStatusCaptionBounds{80, 65, 386, 72};
+
+struct StatusCaption {
+    std::array<char, 32> text{};
+    uint16_t color = 0;
+    bool valid = false;
+};
+
+// Copies and validates the bounded text and its native RGB565 color.
+esp_err_t prepare_status_caption(const char *text, uint16_t color, StatusCaption &caption);
+// Draws the prepared caption into a clipped display tile.
+esp_err_t draw_status_caption_rows(const StatusCaption &caption, CODY2D::Surface strip,
+    uint16_t first_row, uint16_t first_column);
 
 enum class StatusTone : uint8_t {
     Ready,

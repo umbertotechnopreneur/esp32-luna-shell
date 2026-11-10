@@ -39,10 +39,13 @@ void apply_pixel_demo_motion(MuseVisualStyle &style, const PixelDemoMotionState 
 
 // The display worker owns both indexed frames in PSRAM through DMA retirement.
 struct PixelDemoView {
-    // logical_viewport: Immutable artwork and tap bounds supplied by the display adapter.
-    explicit PixelDemoView(LogicalRect logical_viewport) : viewport(logical_viewport) {}
+    // logical_viewport: Immutable full-size reference supplied by the display adapter.
+    explicit PixelDemoView(LogicalRect logical_viewport)
+        : viewport(logical_viewport), visual_viewport(logical_viewport), retired_viewport(logical_viewport) {}
 
     const LogicalRect viewport;
+    LogicalRect visual_viewport;
+    LogicalRect retired_viewport;
     MuseShowcase showcase{};
     MuseVisualStyle visual_style{};
     PixelDemoMotionState motion{};
@@ -67,6 +70,10 @@ static_assert(sizeof(PixelDemoView) <= 10 * 1024, "Keep mascot frames in the dis
 // sample: Validated canonical acceleration and applied display orientation.
 // now_us: Monotonic observation time after the snapshot read.
 void observe_pixel_demo_motion(PixelDemoView &view, const PixelDemoMotion &sample, int64_t now_us);
+
+// Change the current artwork and touch bounds without discarding the animation clock.
+// Invalid square bounds leave the current viewport unchanged.
+esp_err_t set_pixel_demo_viewport(PixelDemoView &view, LogicalRect viewport);
 
 // view: Display-owned state and two indexed frames.
 // active_us: Existing awake clock, excluding standby.

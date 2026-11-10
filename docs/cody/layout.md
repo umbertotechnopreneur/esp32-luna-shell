@@ -138,6 +138,13 @@ its numeric battery percentage can be suppressed by the renderer, with a setting
 control deferred. The Home notice occupies y=70..123 and uses the reported BLE
 name, not an independently inferred identity.
 
+On the mascot Home, Cody starts at full size. A tap after the waking animation
+shrinks and moves the character upward, revealing the text-only Pair with app
+and Setup WiFi actions below. Their code-drawn Bluetooth and Wi-Fi icons scale
+with the captions. Pair with app starts the Wi-Fi Bluetooth provisioning
+session; Setup WiFi opens the setup choices. Inactivity hides these actions and
+restores the full-size character. The offline notice remains informational.
+
 The existing recovery entry retains the prior device-first pairing screens below.
 They use the same title and body fonts, left chevron, and capsule geometry as the
 dashboard and Options. The dark canvas, amber offline
@@ -279,11 +286,13 @@ into an indeterminate accent, preserving the character cue and sound admission.
 The independent fonts derive from the vendored OFL Telex face; other scenes keep
 their existing typography. No bitmap/video playback or polling task is added.
 
-The standalone status layer shows date at (122,32), local HH:MM at (122,47),
-and battery/Wi-Fi/Bluetooth at y=43-64. Seconds are omitted. Battery is gray
+The common status layer is drawn on awake content screens, including the
+screensaver, with date at (122,32), local HH:MM at (122,47),
+and Wi-Fi/Bluetooth/battery at y=43-64. Seconds are omitted. Battery is gray
 when absent, red when low, orange midrange, green healthy, and cyan/white charging.
 Flash row masks and canonical projections require no LVGL or hardware reads.
-Touch reveals the layer; five seconds without activity begins the 330-ms fade.
+Touch and valid measured IMU movement reveal the layer; inactivity starts its fade.
+The original boot animation and blank standby remain unchanged.
 Home translates its personality symbols twelve pixels downward from the standard
 anchor, retaining their scale and the complete status exclusion. A change between
 standard and Home layouts re-primes position even while animation is paused;
@@ -405,17 +414,23 @@ observation. Presentation does not sample hardware or create another collector.
 Options > Behavior > More behavior contains the Screensaver setting, initially
 Off, and a footer opening Synth Voice. Its three unavailable rows use the same
 Options geometry until a speech engine is integrated. After
-fifteen idle seconds on an unobstructed dashboard, a softly colored globe
-fills the otherwise black display. There is no text, quota perimeter or
-navigation chrome while it is active. The globe pulses from 50% to 100% of
+fifteen idle seconds on an unobstructed dashboard or after the Home waking
+animation, a softly colored globe fills the otherwise black display. The shared
+status layer appears temporarily on touch or measured motion. The globe is
+rendered into a small grid and enlarged by repeating cells, without a per-pixel
+interpolation pass. It pulses from 50% to 100% of
 its full color intensity over eight seconds, with two seconds at the minimum.
 The animation targets 25 frames per second and does not renew the power owner's
 inactivity time.
 
-The first touch is consumed to restore the retained dashboard. Shake returns
-to the first enabled statistics page. Pairing, the project QR, options, voice,
+The first touch is consumed to restore the retained surface. Shake returns
+to the first enabled statistics page when the separate shake standby/wake
+option is off. When enabled, that option instead toggles standby; its default
+for an absent preference is off. Pairing, the project QR, options, voice,
 Codex questions and battery notices preempt the screensaver. Dimming and standby
 remain owned by the existing power policy.
+The later Settings page is expected to expose on/off, brightness and the idle
+delay; brightness and delay controls are not implemented here.
 
 ## Voice recording
 

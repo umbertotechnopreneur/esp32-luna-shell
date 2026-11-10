@@ -116,7 +116,7 @@ static_assert(kTimeLeft >= kStatusOverlayBounds.left && kTimeTop >= kStatusOverl
     kWifiTop + kWifiGlyphs[2].height <= kStatusOverlayBounds.bottom,
     "Time and status icons must remain within the shared reserved footprint");
 
-// Full uppercase ASCII needed by dates and explicit unavailable states.
+// Compact status and connection captions, including their original letter case.
 constexpr MonoGlyph kGlyphs[] = {
     {' ', {0x00, 0x00, 0x00, 0x00, 0x00}},
     {'%', {0x63, 0x13, 0x08, 0x64, 0x63}},
@@ -158,6 +158,32 @@ constexpr MonoGlyph kGlyphs[] = {
     {'X', {0x63, 0x14, 0x08, 0x14, 0x63}},
     {'Y', {0x07, 0x08, 0x70, 0x08, 0x07}},
     {'Z', {0x61, 0x51, 0x49, 0x45, 0x43}},
+    {'a', {0x20, 0x54, 0x54, 0x54, 0x78}},
+    {'b', {0x7F, 0x48, 0x44, 0x44, 0x38}},
+    {'c', {0x38, 0x44, 0x44, 0x44, 0x20}},
+    {'d', {0x38, 0x44, 0x44, 0x48, 0x7F}},
+    {'e', {0x38, 0x54, 0x54, 0x54, 0x18}},
+    {'f', {0x08, 0x7E, 0x09, 0x01, 0x02}},
+    {'g', {0x0C, 0x52, 0x52, 0x52, 0x3E}},
+    {'h', {0x7F, 0x08, 0x04, 0x04, 0x78}},
+    {'i', {0x00, 0x44, 0x7D, 0x40, 0x00}},
+    {'j', {0x20, 0x40, 0x44, 0x3D, 0x00}},
+    {'k', {0x7F, 0x10, 0x28, 0x44, 0x00}},
+    {'l', {0x00, 0x41, 0x7F, 0x40, 0x00}},
+    {'m', {0x7C, 0x04, 0x18, 0x04, 0x78}},
+    {'n', {0x7C, 0x08, 0x04, 0x04, 0x78}},
+    {'o', {0x38, 0x44, 0x44, 0x44, 0x38}},
+    {'p', {0x7C, 0x14, 0x14, 0x14, 0x08}},
+    {'q', {0x08, 0x14, 0x14, 0x18, 0x7C}},
+    {'r', {0x7C, 0x08, 0x04, 0x04, 0x08}},
+    {'s', {0x48, 0x54, 0x54, 0x54, 0x20}},
+    {'t', {0x04, 0x3F, 0x44, 0x40, 0x20}},
+    {'u', {0x3C, 0x40, 0x40, 0x20, 0x7C}},
+    {'v', {0x1C, 0x20, 0x40, 0x20, 0x1C}},
+    {'w', {0x3C, 0x40, 0x30, 0x40, 0x3C}},
+    {'x', {0x44, 0x28, 0x10, 0x28, 0x44}},
+    {'y', {0x0C, 0x50, 0x50, 0x50, 0x3C}},
+    {'z', {0x44, 0x64, 0x54, 0x4C, 0x44}},
 };
 
 constexpr std::array<const char *, 7> kWeekdays = {
@@ -214,7 +240,7 @@ uint16_t tone_color(StatusTone tone)
     return kFault;
 }
 
-// character: Printable uppercase ASCII character from the bounded status alphabet.
+// character: Printable ASCII character from the bounded status alphabet.
 const MonoGlyph *find_glyph(char character)
 {
     for (const MonoGlyph &glyph : kGlyphs) {
@@ -253,6 +279,7 @@ void draw_icon_glyph(const IconGlyph &glyph, int left, int top,
                      uint16_t first_column, uint16_t stored_color)
 {
     for (uint8_t row = 0; row < glyph.height; ++row) {
+        if (top + row < first_row || top + row >= first_row + strip.height) continue;
         const uint32_t row_mask = glyph.rows[row];
         for (uint8_t column = 0; column < glyph.width; ++column) {
             if ((row_mask & (1UL << column)) != 0) {
@@ -276,7 +303,7 @@ esp_err_t draw_text(const char *text, int left, int top, uint8_t scale, CODY2D::
                     uint16_t first_row, uint16_t first_column, uint16_t stored_color)
 {
     const size_t length = std::strlen(text);
-    if (length == 0 || length > 15 || scale < 1 || scale > 2) {
+    if (length == 0 || length > 31 || scale < 1 || scale > 2) {
         ESP_LOGE(kTag, "Status text length rejected: %u (%s)",
                  static_cast<unsigned>(length), esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
@@ -300,6 +327,8 @@ esp_err_t draw_text(const char *text, int left, int top, uint8_t scale, CODY2D::
         }
         for (uint16_t column = 0; column < kGlyphColumns; ++column) {
             for (uint16_t row = 0; row < kGlyphRows; ++row) {
+                const int glyph_top = top + row * scale;
+                if (glyph_top + scale <= first_row || glyph_top >= first_row + strip.height) continue;
                 if ((glyph->columns[column] & (1U << row)) != 0) {
                     for (uint8_t dy = 0; dy < scale; ++dy) {
                         for (uint8_t dx = 0; dx < scale; ++dx) {
@@ -401,6 +430,40 @@ esp_err_t format_number(char *destination, size_t capacity, const char *format, 
 }
 
 }  // namespace
+
+esp_err_t prepare_status_caption(const char *text, uint16_t color, StatusCaption &caption)
+{
+    if (text == nullptr) return ESP_ERR_INVALID_ARG;
+    StatusCaption next{};
+    size_t length = 0;
+    while (length < next.text.size() && text[length] != '\0') {
+        if (find_glyph(text[length]) == nullptr) return ESP_ERR_NOT_SUPPORTED;
+        ++length;
+    }
+    if (length == 0 || length == next.text.size()) return ESP_ERR_INVALID_SIZE;
+    std::memcpy(next.text.data(), text, length + 1);
+    next.color = color;
+    next.valid = true;
+    caption = next;
+    return ESP_OK;
+}
+
+esp_err_t draw_status_caption_rows(const StatusCaption &caption, CODY2D::Surface strip,
+    uint16_t first_row, uint16_t first_column)
+{
+    if (!caption.valid) return ESP_ERR_INVALID_STATE;
+    const esp_err_t surface_error = CODY2D::validate_surface(strip);
+    if (surface_error != ESP_OK) return surface_error;
+    if (first_column + strip.width > kPanelSize || first_row + strip.height > kPanelSize) {
+        return ESP_ERR_INVALID_SIZE;
+    }
+    size_t length = 0;
+    while (length < caption.text.size() && caption.text[length] != '\0') ++length;
+    if (length == 0 || length == caption.text.size()) return ESP_ERR_INVALID_SIZE;
+    const int width = static_cast<int>(length * kCharacterAdvance - 1);
+    return draw_text(caption.text.data(), (kPanelSize - width) / 2, kStatusCaptionBounds.top, 1,
+        strip, first_row, first_column, CODY2D::rgb565_native_to_stored(caption.color, strip.byte_order));
+}
 
 // No parameters: return the complete half-open footprint shared by damage planning.
 DamageRect status_overlay_damage_bounds()
@@ -555,59 +618,28 @@ bool status_overlay_equal(const StatusOverlay &left, const StatusOverlay &right)
         left.bluetooth_active == right.bluetooth_active;
 }
 
-// overlay: Prepared immutable text and semantic icon state.
-// opacity: Shared touch-chrome fade from transparent zero to opaque 255.
-// background_rgb565: Authored scene color beneath the informational chrome.
-// strip: Compact RGB565 destination owned by the standalone renderer.
-// first_row: Logical row represented by the strip's first pixel row.
-// first_column: Logical column represented by the strip's first pixel.
-// Exception: Returns the real surface, geometry or glyph error.
-esp_err_t draw_status_overlay_rows(const StatusOverlay &overlay, uint8_t opacity,
-                                   uint16_t background_rgb565, CODY2D::Surface strip,
-                                   uint16_t first_row,
-                                   uint16_t first_column)
-{
-    const esp_err_t surface_error = CODY2D::validate_surface(strip);
-    if (surface_error != ESP_OK) {
-        return surface_error;
-    }
-    if (first_column + strip.width > kPanelSize || first_row + strip.height > kPanelSize) {
-        ESP_LOGE(kTag, "Status strip rejected: column=%u width=%u row=%u height=%u (%s)",
-                 first_column, strip.width, first_row, strip.height,
-                 esp_err_to_name(ESP_ERR_INVALID_SIZE));
-        return ESP_ERR_INVALID_SIZE;
-    }
-    if (opacity == 0) {
-        return ESP_OK;
-    }
+namespace {
 
+// Draw all status artwork at full opacity, including overlapping battery artwork.
+esp_err_t draw_opaque_status_rows(const StatusOverlay &overlay, uint16_t background_rgb565,
+    CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+{
     const bool white_background = background_rgb565 == 0xFFFF;
     const uint16_t date_color = CODY2D::rgb565_native_to_stored(
-        CODY2D::blend_rgb565(white_background ? kDateDark : kDateLight, background_rgb565, opacity),
-        strip.byte_order
-    );
+        white_background ? kDateDark : kDateLight, strip.byte_order);
     // Neutral pearl gives a valid clock hierarchy; errors retain their semantic color.
     const uint16_t clock_ink = overlay.clock_tone == StatusTone::Ready
         ? (white_background ? kTimeDark : kTimeLight) : tone_color(overlay.clock_tone);
     const uint16_t clock_color = CODY2D::rgb565_native_to_stored(
-        CODY2D::blend_rgb565(clock_ink, background_rgb565, opacity),
-        strip.byte_order
-    );
+        clock_ink, strip.byte_order);
     const uint16_t battery_color = CODY2D::rgb565_native_to_stored(
-        CODY2D::blend_rgb565(tone_color(overlay.battery_tone), background_rgb565, opacity),
-        strip.byte_order
-    );
+        tone_color(overlay.battery_tone), strip.byte_order);
     const uint16_t wifi_color = CODY2D::rgb565_native_to_stored(
-        CODY2D::blend_rgb565(tone_color(overlay.wifi_tone), background_rgb565, opacity),
-        strip.byte_order
-    );
+        tone_color(overlay.wifi_tone), strip.byte_order);
     const uint16_t bluetooth_color = CODY2D::rgb565_native_to_stored(
-        CODY2D::blend_rgb565(tone_color(overlay.bluetooth_tone), background_rgb565, opacity),
-        strip.byte_order
-    );
+        tone_color(overlay.bluetooth_tone), strip.byte_order);
     const uint16_t charge_color = CODY2D::rgb565_native_to_stored(
-        CODY2D::blend_rgb565(kChargeMark, background_rgb565, opacity), strip.byte_order
-    );
+        kChargeMark, strip.byte_order);
 
     esp_err_t result = draw_text(
         overlay.date, kDateLeft, kDateTop, 1,
@@ -632,6 +664,55 @@ esp_err_t draw_status_overlay_rows(const StatusOverlay &overlay, uint8_t opacity
     }
     draw_wifi(overlay.wifi_bars, overlay.wifi_tone == StatusTone::Missing, strip, first_row, first_column, wifi_color);
     draw_bluetooth(strip, first_row, first_column, bluetooth_color);
+    return ESP_OK;
+}
+
+} // namespace
+
+// overlay: Prepared immutable text and semantic icon state.
+// opacity: Shared touch-chrome fade from transparent zero to opaque 255.
+// background_rgb565: Authored scene color, used to choose light or dark text.
+// strip: Compact RGB565 destination containing the actual underlying scene.
+// first_row: Logical row represented by the strip's first pixel row.
+// first_column: Logical column represented by the strip's first pixel.
+// Exception: Returns the real surface, geometry or glyph error.
+esp_err_t draw_status_overlay_rows(const StatusOverlay &overlay, uint8_t opacity,
+                                   uint16_t background_rgb565, CODY2D::Surface strip,
+                                   uint16_t first_row, uint16_t first_column)
+{
+    const esp_err_t surface_error = CODY2D::validate_surface(strip);
+    if (surface_error != ESP_OK) return surface_error;
+    if (first_column + strip.width > kPanelSize || first_row + strip.height > kPanelSize) {
+        ESP_LOGE(kTag, "Status strip rejected: column=%u width=%u row=%u height=%u (%s)",
+                 first_column, strip.width, first_row, strip.height,
+                 esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    if (opacity == 0) return ESP_OK;
+    if (opacity == 255) {
+        return draw_opaque_status_rows(overlay, background_rgb565, strip, first_row, first_column);
+    }
+
+    // Compose the complete opaque row once over the saved scene. This avoids
+    // blending overlapping strokes twice (for example the charging bolt).
+    std::array<uint16_t, kPanelSize> scene_row{};
+    const uint16_t top = std::max<uint16_t>(first_row, kStatusOverlayBounds.top);
+    const uint16_t bottom = std::min<uint16_t>(first_row + strip.height, kStatusOverlayBounds.bottom);
+    for (uint16_t y = top; y < bottom; ++y) {
+        uint16_t *const pixels = strip.pixels + (y - first_row) * strip.stride;
+        std::copy_n(pixels, strip.width, scene_row.begin());
+        CODY2D::Surface row{pixels, strip.width, 1, strip.width, strip.width, strip.byte_order};
+        const esp_err_t result = draw_opaque_status_rows(overlay, background_rgb565, row, y, first_column);
+        for (uint16_t x = 0; x < strip.width; ++x) {
+            if (pixels[x] != scene_row[x]) {
+                const uint16_t foreground = CODY2D::rgb565_stored_to_native(pixels[x], strip.byte_order);
+                const uint16_t background = CODY2D::rgb565_stored_to_native(scene_row[x], strip.byte_order);
+                pixels[x] = CODY2D::rgb565_native_to_stored(
+                    CODY2D::blend_rgb565(foreground, background, opacity), strip.byte_order);
+            }
+        }
+        if (result != ESP_OK) return result;
+    }
     return ESP_OK;
 }
 

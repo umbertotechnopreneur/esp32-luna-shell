@@ -277,6 +277,31 @@ when the account's price tier cannot be established. Standard Business uses
 the monthly per-seat list price. Unpublished prices and missing counters are
 omitted. These public prices can differ from the signed-in account's billing.
 
+## Install on Linux
+
+Use a signed-in local Codex client. Both the MCP server and hooks run `python`.
+Pairing uses `secret-tool` and an unlocked desktop Secret Service keyring. On
+Ubuntu, install missing prerequisites with:
+
+```bash
+sudo apt install python-is-python3 libsecret-tools
+```
+
+From the repository root, register the local catalog and install the plugin as
+your regular user:
+
+```bash
+codex plugin marketplace add .
+codex plugin add cody-codex-plugin@cody-local
+codex plugin list --marketplace cody-local
+```
+
+Open a new local chat to load the plugin. Review and authorize its `/hooks`,
+then send a prompt so Cody has activity to follow. To pair a physical Cody,
+put the computer and device on the same network, unlock the desktop keyring,
+and open **Options → Connections** on Cody. Select Codex and use the code on
+the device. See [pairing and retained links](#pair-or-retain-cody).
+
 ## Install and review hooks
 
 1. Make `python` available to the desktop application's environment.

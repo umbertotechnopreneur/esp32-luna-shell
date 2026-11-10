@@ -248,11 +248,37 @@ struct WifiSnapshot : ComponentSnapshot {
     uint16_t last_disconnect_reason = 0;
     uint32_t event_sequence = 0;
     uint32_t connect_attempt_count = 0;
+    uint32_t association_count = 0;
     uint32_t reconnect_attempt_count = 0;
     uint32_t disconnect_count = 0;
+    bool bssid_valid = false;
+    uint8_t bssid[6] = {};
     char ssid[33] = {};
     char ip_address[16] = {};
     char mac_address[18] = {};
+};
+
+// One owner-acquired local scan. Passwords and other credentials never enter it.
+enum class WifiScanState : uint8_t { Idle, Scanning, Complete, Failed, Unavailable };
+enum class WifiNetworkSecurity : uint8_t {
+    Open, WpaPersonal, Wpa2Personal, Wpa3Personal, Wpa2Wpa3Personal, Enterprise, Unsupported
+};
+inline constexpr size_t kWifiScanMaxNetworks = 16;
+struct WifiScanNetwork {
+    char ssid[33] = {};
+    uint8_t bssid[6] = {};
+    int8_t rssi = 0;
+    uint8_t channel = 0;
+    WifiNetworkSecurity security = WifiNetworkSecurity::Unsupported;
+};
+struct WifiScanSnapshot {
+    WifiScanState state = WifiScanState::Idle;
+    uint32_t generation = 0;
+    uint64_t revision = 0;
+    esp_err_t error = ESP_OK;
+    int64_t completed_at_us = 0;
+    uint8_t count = 0;
+    WifiScanNetwork networks[kWifiScanMaxNetworks]{};
 };
 
 struct BleSnapshot : ComponentSnapshot {
@@ -1270,6 +1296,10 @@ public:
 #endif
     // observation: Canonical radio/session state and power state under one lock.
     esp_err_t readConnectivityObservation(ConnectivityObservation &observation) const;
+    // observation: Canonical bounded Wi-Fi scan, copied without a hardware read.
+    esp_err_t readWifiScanObservation(WifiScanSnapshot &observation) const;
+    // scan: Owner's measured scan state and networks; older revisions are ignored.
+    esp_err_t reportWifiScan(const WifiScanSnapshot &scan);
     // observation: Provisioning and verified Wi-Fi state for the pairing worker.
     // Exception: Returns the original snapshot lock or release error.
     esp_err_t readPairingObservation(PairingObservation &observation) const;

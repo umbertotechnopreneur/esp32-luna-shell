@@ -131,6 +131,8 @@ esp_err_t LUNASHELL_hardware_set_ui_motion_monitor(bool enabled);
  * Device Standby is active. The normal 10 Hz cadence is restored on wake.
  */
 esp_err_t LUNASHELL_hardware_set_ui_motion_monitor_standby(bool standby);
+// Keep the canonical IMU observer at 10 Hz during standby for enabled shake control.
+void LUNASHELL_hardware_set_standby_shake_sampling(bool enabled);
 /**
  * Quiesce optional diagnostic streams and auto-rotation during Device Standby
  * without changing their requested settings. Low-rate UI motion wake remains
@@ -287,6 +289,8 @@ esp_err_t LUNASHELL_power_manager_set_leg_mode(bool active, bool wake_on_motion)
 // enabled: Cody's non-Leg motion wake policy; does not stop orientation acquisition.
 // Exception: Returns ESP_ERR_NOT_SUPPORTED when the power owner is excluded.
 esp_err_t LUNASHELL_power_manager_set_shake_wake_enabled(bool enabled);
+// Current power-owner gesture policy; this is not a sensor read.
+bool LUNASHELL_power_manager_shake_wake_enabled(void);
 /** Enable or silence the movement cues without changing the screen policy. */
 esp_err_t LUNASHELL_power_manager_set_leg_sounds_enabled(bool enabled);
 
@@ -778,10 +782,13 @@ typedef struct {
     uint16_t last_disconnect_reason;
     uint32_t event_sequence;
     uint32_t connect_attempt_count;
+    uint32_t association_count;
     uint32_t reconnect_attempt_count;
     uint32_t disconnect_count;
     uint32_t reconnect_delay_ms;
     esp_err_t last_error;
+    bool bssid_valid;
+    uint8_t bssid[6];
     char ssid[LUNASHELL_WIFI_SSID_MAX_LEN + 1];
     char ip_address[16];
     char netmask[16];
@@ -803,6 +810,28 @@ esp_err_t LUNASHELL_wifi_stop(void);
  * When persist is true ESP-IDF stores the profile in NVS.
  */
 esp_err_t LUNASHELL_wifi_connect(const char *ssid, const char *password, bool persist);
+
+/** Authentication admitted for an explicitly selected scan result. */
+typedef enum {
+    LUNASHELL_WIFI_SELECTED_OPEN,
+    LUNASHELL_WIFI_SELECTED_WPA2,
+    LUNASHELL_WIFI_SELECTED_WPA3,
+    LUNASHELL_WIFI_SELECTED_WPA2_WPA3,
+} LUNASHELL_wifi_selected_security_t;
+
+/** An exact scanned AP, retained in the station profile when persisted. */
+typedef struct {
+    uint8_t bssid[6];
+    LUNASHELL_wifi_selected_security_t security;
+} LUNASHELL_wifi_selection_t;
+
+/**
+ * Connect to one explicitly selected AP with at least its selected security.
+ * Persisting the profile also pins the AP BSSID and therefore restricts roaming.
+ * The password is never written to logs.
+ */
+esp_err_t LUNASHELL_wifi_connect_selected(const char *ssid, const char *password,
+                                         bool persist, const LUNASHELL_wifi_selection_t *selection);
 
 /**
  * Stop reconnect attempts while leaving the station driver available.

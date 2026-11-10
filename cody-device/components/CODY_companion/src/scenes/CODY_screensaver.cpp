@@ -11,6 +11,8 @@ constexpr int16_t kOrigin = 73;
 constexpr uint16_t kExtent = 320;
 constexpr int kSubpixel = 16;
 constexpr unsigned kScale = 5;
+static_assert(kExtent == (ScreensaverPresentation::kGrid - 1U) * kScale,
+    "The display extent must exactly repeat the grid cells");
 constexpr std::array<int8_t, 32> kWave{
     0, 25, 49, 71, 90, 106, 117, 125, 127, 125, 117, 106, 90, 71, 49, 25,
     0, -25, -49, -71, -90, -106, -117, -125, -127, -125, -117, -106, -90, -71, -49, -25};
@@ -52,7 +54,7 @@ unsigned glow_percent(uint32_t frame)
 struct Lobe { int x; int y; int radius; uint8_t red; uint8_t green; uint8_t blue; };
 
 // frame: Bounded animation phase; all operations are integer and all storage is persistent.
-// pixels: Receives the small RGB565 field, later enlarged with bilinear interpolation.
+// pixels: Receives the small RGB565 field, later enlarged by repeating its cells.
 void paint_grid(uint32_t frame, std::array<uint16_t, ScreensaverPresentation::kGrid * ScreensaverPresentation::kGrid> &pixels)
 {
     const uint32_t phase = (frame % 800U) * 8U;
@@ -91,23 +93,6 @@ void paint_grid(uint32_t frame, std::array<uint16_t, ScreensaverPresentation::kG
     }
 }
 
-// a: Upper-left packed RGB565 sample.
-// b: Upper-right packed RGB565 sample.
-// c: Lower-left packed RGB565 sample.
-// d: Lower-right packed RGB565 sample.
-// x: Horizontal subpixel fraction from zero through four.
-// y: Vertical subpixel fraction from zero through four.
-uint16_t interpolate(uint16_t a, uint16_t b, uint16_t c, uint16_t d, unsigned x, unsigned y)
-{
-    const unsigned wa = (kScale - x) * (kScale - y), wb = x * (kScale - y);
-    const unsigned wc = (kScale - x) * y, wd = x * y;
-    const unsigned red = (((a >> 11U) * wa + (b >> 11U) * wb + (c >> 11U) * wc + (d >> 11U) * wd + 12U) / 25U);
-    const unsigned green = ((((a >> 5U) & 63U) * wa + ((b >> 5U) & 63U) * wb +
-        ((c >> 5U) & 63U) * wc + ((d >> 5U) & 63U) * wd + 12U) / 25U);
-    const unsigned blue = (((a & 31U) * wa + (b & 31U) * wb + (c & 31U) * wc + (d & 31U) * wd + 12U) / 25U);
-    return static_cast<uint16_t>((red << 11U) | (green << 5U) | blue);
-}
-
 // state: Immutable persistent grid borrowed through frame retirement.
 // strip: Driver-owned RGB565 tile with its actual stride and byte order.
 // first_row: Logical top coordinate of this tile.
@@ -123,17 +108,22 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
     const int bottom = std::min<int>(first_row + strip.height, kOrigin + kExtent);
     const int left = std::max<int>(first_column, kOrigin);
     const int right = std::min<int>(first_column + strip.width, kOrigin + kExtent);
+    if (top >= bottom || left >= right) return ESP_OK;
     for (int y = top; y < bottom; ++y) {
         const unsigned dy = static_cast<unsigned>(y - kOrigin);
         const size_t source_row = (dy / kScale) * ScreensaverPresentation::kGrid;
-        auto *destination = strip.pixels + static_cast<size_t>(y - first_row) * strip.stride;
-        for (int x = left; x < right; ++x) {
+        auto *destination = strip.pixels + static_cast<size_t>(y - first_row) * strip.stride + (left - first_column);
+        // Reuse the expanded row when a tile contains multiple rows of one grid cell.
+        if (y > top && dy % kScale != 0) {
+            std::copy_n(destination - strip.stride, right - left, destination);
+            continue;
+        }
+        for (int x = left; x < right;) {
             const unsigned dx = static_cast<unsigned>(x - kOrigin);
-            const auto index = source_row + (dx / kScale);
-            const auto color = interpolate(pixels[index], pixels[index + 1U],
-                pixels[index + ScreensaverPresentation::kGrid], pixels[index + ScreensaverPresentation::kGrid + 1U],
-                dx % kScale, dy % kScale);
-            destination[x - first_column] = CODY2D::rgb565_native_to_stored(color, strip.byte_order);
+            const int run = std::min<int>(right - x, kScale - dx % kScale);
+            const auto color = CODY2D::rgb565_native_to_stored(pixels[source_row + dx / kScale], strip.byte_order);
+            std::fill_n(destination + (x - left), run, color);
+            x += run;
         }
     }
     return ESP_OK;

@@ -7,6 +7,7 @@
 #include "CODY_token_history.hpp"
 #include "CODY_widget_state.hpp"
 #include "CODY_device_model.hpp"
+#include "CODY_status_overlay.hpp"
 
 namespace CODY {
 
@@ -42,11 +43,13 @@ struct DeviceOverviewView {
 };
 static_assert(sizeof(DeviceOverviewView) <= 640, "Keep the flat dashboard preparation bounded");
 
+inline constexpr DamageRect kDeviceChromeConnectionBounds = kStatusCaptionBounds;
+
 struct DeviceChrome {
     std::array<char, 32> battery_text{};
     std::array<char, 32> saved_text{};
     CODY2D::CapsuleControl battery{};
-    CODY2D::TextLine connection{};
+    StatusCaption connection{};
     const char *connection_text = nullptr;
     int64_t saved_epoch = 0;
     uint32_t connection_revision = 0;

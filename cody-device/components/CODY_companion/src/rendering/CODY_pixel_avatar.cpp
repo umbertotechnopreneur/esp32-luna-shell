@@ -18,14 +18,14 @@ constexpr char kTag[] = "CODY_muse_avatar";
 constexpr int kGridSize = kPixelAvatarGridSize;
 constexpr uint32_t kCoordinateEnd = 65536;
 
-// viewport: Integer-scaled logical bounds for the Muse grid.
+// viewport: Square logical bounds for the avatar grid.
 // Exception: Logs rejected geometry and returns ESP_ERR_INVALID_SIZE.
 esp_err_t validate_viewport(CODY2D::Rect viewport)
 {
     const uint32_t right = static_cast<uint32_t>(viewport.x) + viewport.width;
     const uint32_t bottom = static_cast<uint32_t>(viewport.y) + viewport.height;
-    if (viewport.width == 0 || viewport.width != viewport.height ||
-        viewport.width % kGridSize != 0 || viewport.width > CODY2D::kMaxDimension ||
+    if (viewport.width < kGridSize || viewport.width != viewport.height ||
+        viewport.width > CODY2D::kMaxDimension ||
         right > kCoordinateEnd || bottom > kCoordinateEnd) {
         ESP_LOGE(kTag, "Viewport rejected: x=%u y=%u width=%u height=%u (%s)",
             viewport.x, viewport.y, viewport.width, viewport.height,
@@ -74,7 +74,7 @@ void compose_pixel_avatar(PixelAvatarFrame &frame, PixelAvatarPose pose,
 
 // previous: Borrowed retired frame, including its own palettes.
 // current: Borrowed newly composed frame.
-// viewport: Integer-scaled logical square, independent of display orientation.
+// viewport: Logical square, independent of display orientation.
 // damage: Display-owned row scratch, reduced to at most eight rectangles.
 // Exception: Invalid viewport leaves the plan empty after logging its values.
 void plan_pixel_avatar_damage(const PixelAvatarFrame &previous,
@@ -82,6 +82,15 @@ void plan_pixel_avatar_damage(const PixelAvatarFrame &previous,
 {
     damage.count = 0;
     if (validate_viewport(viewport) != ESP_OK) return;
+
+    // Fractional scaling is used briefly by the Home transition. Its grid
+    // cells have different widths, so the integer damage planner below does
+    // not apply; repaint the viewport instead.
+    if (viewport.width % kGridSize != 0) {
+        damage.rectangles[0] = viewport;
+        damage.count = 1;
+        return;
+    }
 
     const int scale = viewport.width / kGridSize;
     const bool grid = scale >= 3;
@@ -140,7 +149,7 @@ void plan_pixel_avatar_damage(const PixelAvatarFrame &previous,
 }
 
 // frame: Borrowed indexed artwork; uses the retained Muse palettes.
-// viewport: Integer-scaled logical square containing the avatar.
+// viewport: Logical square containing the avatar.
 // strip: Borrowed RGB565 tile, preserving padding and storage byte order.
 // first_row: Logical row of the tile's first pixel.
 // first_column: Logical column of the tile's first pixel.
@@ -170,6 +179,50 @@ esp_err_t draw_pixel_avatar_rows(const PixelAvatarFrame &frame,
     const uint32_t right = std::min<uint32_t>(viewport.x + viewport.width, tile_right);
     const uint32_t bottom = std::min<uint32_t>(viewport.y + viewport.height, tile_bottom);
     if (left >= right || top >= bottom) {
+        return ESP_OK;
+    }
+
+    if (viewport.width % kGridSize != 0) {
+        // Expand the indexed artwork using nearest-neighbour cell boundaries.
+        // The integer fast path below remains unchanged for settled frames.
+        const uint32_t width = viewport.width;
+        const bool grid = width / kGridSize >= 3;
+        const uint32_t first_cell = (left - viewport.x) * kGridSize / width;
+        const size_t row_bytes = (right - left) * sizeof(uint16_t);
+        const uint16_t *previous = nullptr;
+        uint32_t previous_cell_row = 0;
+        bool previous_row_edge = false;
+        for (uint32_t y = top; y < bottom; ++y) {
+            const uint32_t row = y - viewport.y;
+            const uint32_t cell_row = row * kGridSize / width;
+            const uint32_t cell_bottom = ((cell_row + 1) * width + kGridSize - 1) / kGridSize;
+            const bool row_edge = grid && row + 1 == cell_bottom;
+            uint16_t *destination = strip.pixels + (y - first_row) * strip.stride + (left - first_column);
+            if (previous != nullptr && cell_row == previous_cell_row && row_edge == previous_row_edge) {
+                std::memcpy(destination, previous, row_bytes);
+                continue;
+            }
+
+            const auto *source = frame.cells.data() + cell_row * kGridSize;
+            const auto &palette = row_edge ? frame.dim_palette : frame.palette;
+            uint32_t x = left;
+            for (uint32_t cell = first_cell; x < right; ++cell) {
+                const uint32_t cell_right = viewport.x + ((cell + 1) * width + kGridSize - 1) / kGridSize;
+                const uint32_t end = std::min(right, cell_right);
+                const bool dim_last = grid && !row_edge && end == cell_right;
+                const auto color = source[cell];
+                std::fill_n(destination + (x - left), end - x - static_cast<uint32_t>(dim_last),
+                    CODY2D::rgb565_native_to_stored(palette[color], strip.byte_order));
+                if (dim_last) {
+                    destination[end - left - 1] = CODY2D::rgb565_native_to_stored(
+                        frame.dim_palette[color], strip.byte_order);
+                }
+                x = end;
+            }
+            previous = destination;
+            previous_cell_row = cell_row;
+            previous_row_edge = row_edge;
+        }
         return ESP_OK;
     }
     const uint32_t scale = viewport.width / kGridSize;

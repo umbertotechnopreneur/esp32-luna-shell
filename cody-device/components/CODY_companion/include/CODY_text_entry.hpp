@@ -30,6 +30,7 @@ struct TextEntryView {
     std::array<std::array<char, 12>, 15> labels{};
     CODY2D::CapsuleControl field{};
     CODY2D::TextLine title{};
+    CODY2D::TextLine subtitle{};
     char visible_text[kTextEntryCapacity + 1]{};
     uint32_t revision = 0;
     bool valid = false;
@@ -86,12 +87,15 @@ esp_err_t handle_text_entry_touch(TextEntryTouch &touch, TextEntry &entry, CODY2
 // entry: Active draft; never retained by the renderer.
 // title: Immutable, bounded ASCII title retained until frame retirement.
 // placeholder: Optional immutable ASCII hint retained until frame retirement.
+// submit_label: Immutable action caption retained until frame retirement.
+// subtitle: Optional immutable instruction retained until frame retirement.
 // font: Native font for the title, field and keys.
 // view: Caller-owned presentation, retained without mutation until frame retirement.
 // content: Receives the native renderer for a scene with its own title hidden; Back remains with the caller.
 // Exception: Returns the original text or layout error.
 esp_err_t prepare_text_entry_view(const TextEntry &entry, const char *title, const char *placeholder,
-    const CODY2D::MonoFont &font, TextEntryView &view, SceneContent &content);
+    const CODY2D::MonoFont &font, TextEntryView &view, SceneContent &content,
+    const char *submit_label = "Done", const char *subtitle = nullptr);
 
 // view: Retired presentation whose visible field may contain a revealed secret.
 void clear_text_entry_view(TextEntryView &view);

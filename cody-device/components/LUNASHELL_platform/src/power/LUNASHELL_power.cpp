@@ -134,7 +134,15 @@ std::atomic_bool s_local_timer_wake_requested{false};
 #endif
 std::atomic_bool s_leg_mode_enabled{false};
 std::atomic_bool s_leg_wake_enabled{true};
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+std::atomic_bool s_shake_wake_enabled{false};
+#else
 std::atomic_bool s_shake_wake_enabled{true};
+#endif
+// Preference writers only publish intents. Admission and transition remain on
+// the power owner; the revision detects even a complete off/on between polls.
+portMUX_TYPE s_shake_policy_mux = portMUX_INITIALIZER_UNLOCKED;
+uint64_t s_shake_policy_revision = 0;
 std::atomic_bool s_leg_sounds_enabled{true};
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 std::atomic<uint8_t> s_leg_pending_sound{0};
@@ -1459,9 +1467,11 @@ bool active_display_snapshot_diverged()
 // Keep PWR and motion wake responsive while allowing longer standby sleeps.
 TickType_t power_poll_delay()
 {
-    return s_state == LUNASHELL::DeviceOperatingState::Standby
-        ? kStandbyPollTicks
-        : kPollTicks;
+    if (s_state != LUNASHELL::DeviceOperatingState::Standby) return kPollTicks;
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    if (s_shake_wake_enabled.load(std::memory_order_acquire)) return pdMS_TO_TICKS(100);
+#endif
+    return kStandbyPollTicks;
 }
 
 #if CONFIG_PM_LIGHT_SLEEP_CALLBACKS
@@ -2229,6 +2239,133 @@ esp_err_t set_standby(
     );
     return optional_error;
 }
+
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+// The power task owns this recognizer. It consumes only the raw-gesture
+// projection already published by the IMU acquisition owner.
+struct PowerShakeState {
+    float baseline[3]{};
+    float previous_peak[3]{};
+    int64_t sampled_at_us = 0;
+    int64_t calm_since_us = 0;
+    int64_t burst_started_us = 0;
+    int64_t blocked_until_us = 0;
+    uint8_t alternating_peaks = 0;
+    bool baseline_valid = false;
+    bool armed = false;
+    bool above_threshold = false;
+};
+PowerShakeState s_power_shake{};
+LUNASHELL::DeviceOperatingState s_shake_observed_power_state = LUNASHELL::DeviceOperatingState::Active;
+uint64_t s_shake_applied_revision = UINT64_MAX;
+
+struct ShakePolicyRequest {
+    uint64_t revision;
+    bool enabled;
+};
+
+ShakePolicyRequest read_shake_policy_request()
+{
+    portENTER_CRITICAL(&s_shake_policy_mux);
+    const ShakePolicyRequest request{s_shake_policy_revision,
+        s_shake_wake_enabled.load(std::memory_order_relaxed)};
+    portEXIT_CRITICAL(&s_shake_policy_mux);
+    return request;
+}
+
+// The critical section orders a recognized gesture against concurrent policy
+// changes. An admitted transition precedes any subsequently published intent.
+bool admit_shake_transition(uint64_t revision)
+{
+    portENTER_CRITICAL(&s_shake_policy_mux);
+    const bool admitted = s_shake_policy_revision == revision &&
+        s_shake_wake_enabled.load(std::memory_order_relaxed);
+    portEXIT_CRITICAL(&s_shake_policy_mux);
+    return admitted;
+}
+
+void suspend_power_shake(int64_t now_us)
+{
+    s_power_shake = {};
+    s_power_shake.blocked_until_us = now_us + 2000000;
+}
+
+bool power_shake_detected(const LUNASHELL::ImuSnapshot &imu, int64_t now_us)
+{
+    const int64_t timestamp = imu.gesture_sampled_at_us;
+    const bool current = imu.health == LUNASHELL::DeviceHealth::Ready && imu.data_valid &&
+        !imu.data_stale && imu.last_error == ESP_OK && imu.gesture_acceleration_valid &&
+        timestamp == imu.last_success_at_us && timestamp > 0 && now_us >= timestamp &&
+        now_us - timestamp <= 250000;
+    if (!current) {
+        suspend_power_shake(now_us);
+        return false;
+    }
+    if (timestamp == s_power_shake.sampled_at_us) return false;
+    if (timestamp < s_power_shake.sampled_at_us ||
+        (s_power_shake.sampled_at_us > 0 && timestamp - s_power_shake.sampled_at_us > 250000)) {
+        suspend_power_shake(now_us);
+    }
+    for (float value : imu.gesture_acceleration_mps2) {
+        if (!std::isfinite(value)) {
+            suspend_power_shake(now_us);
+            return false;
+        }
+    }
+    auto &state = s_power_shake;
+    state.sampled_at_us = timestamp;
+    if (!state.baseline_valid) {
+        for (uint8_t i = 0; i < 3; ++i) state.baseline[i] = imu.gesture_acceleration_mps2[i];
+        state.baseline_valid = true;
+        state.calm_since_us = timestamp;
+        return false;
+    }
+    float dynamic[3]{};
+    float magnitude_squared = 0;
+    for (uint8_t i = 0; i < 3; ++i) {
+        dynamic[i] = imu.gesture_acceleration_mps2[i] - state.baseline[i];
+        magnitude_squared += dynamic[i] * dynamic[i];
+        state.baseline[i] += .08f * dynamic[i];
+    }
+    if (magnitude_squared < 4.f) {
+        if (state.calm_since_us == 0) state.calm_since_us = timestamp;
+        if (timestamp - state.calm_since_us >= 500000 && now_us >= state.blocked_until_us) {
+            state.armed = true;
+            state.alternating_peaks = 0;
+        }
+    } else {
+        state.calm_since_us = 0;
+    }
+    if (magnitude_squared < 16.f) state.above_threshold = false;
+    if (!state.armed || magnitude_squared < 49.f || now_us < state.blocked_until_us) return false;
+    bool opposing = false;
+    if (state.alternating_peaks != 0) {
+        float dot = 0, previous_squared = 0;
+        for (uint8_t i = 0; i < 3; ++i) {
+            dot += dynamic[i] * state.previous_peak[i];
+            previous_squared += state.previous_peak[i] * state.previous_peak[i];
+        }
+        opposing = dot < -.35f * std::sqrt(previous_squared * magnitude_squared);
+    }
+    if (state.above_threshold && !opposing) return false;
+    state.above_threshold = true;
+    if (state.alternating_peaks == 0 || timestamp - state.burst_started_us > 900000) {
+        state.burst_started_us = timestamp;
+        state.alternating_peaks = 1;
+    } else if (opposing) {
+        ++state.alternating_peaks;
+    } else {
+        return false;
+    }
+    for (uint8_t i = 0; i < 3; ++i) state.previous_peak[i] = dynamic[i];
+    if (state.alternating_peaks < 3) return false;
+    state.armed = false;
+    state.alternating_peaks = 0;
+    state.calm_since_us = 0;
+    state.blocked_until_us = now_us + 2000000;
+    return true;
+}
+#endif
 
 // imu: Original valid, fresh measured sample from the canonical snapshot owner.
 bool qualified_motion_detected(const LUNASHELL::ImuSnapshot &imu)
@@ -3070,7 +3207,7 @@ void power_task(void *argument)
                 kTag,
                 "Standby control loop active: PWR poll interval=%lu ms",
                 static_cast<unsigned long>(
-                    kStandbyPollTicks * portTICK_PERIOD_MS
+                    power_poll_delay() * portTICK_PERIOD_MS
                 )
             );
         }
@@ -3166,8 +3303,44 @@ void power_task(void *argument)
             qualified_motion_detected(snapshot.imu);
         const bool wake_on_leg_motion =
             s_leg_wake_enabled.load(std::memory_order_acquire);
-        if (!s_codex_offline_standby && ((leg_mode && wake_on_leg_motion && leg_motion.level > 0) ||
-            (!leg_mode && s_shake_wake_enabled.load(std::memory_order_acquire) && qualified_motion))) {
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+        const int64_t shake_now = esp_timer_get_time();
+        const auto shake_policy = read_shake_policy_request();
+        const bool shake_enabled = shake_policy.enabled;
+        if (shake_policy.revision != s_shake_applied_revision) {
+            // Apply cadence and reset all pre-change peaks on the power task.
+            LUNASHELL_hardware_set_standby_shake_sampling(shake_enabled);
+            suspend_power_shake(shake_now);
+            s_shake_applied_revision = shake_policy.revision;
+        }
+        if (s_shake_observed_power_state != s_state) {
+            suspend_power_shake(shake_now);
+            s_shake_observed_power_state = s_state;
+        }
+        bool shake_transition = false;
+        if (shake_enabled && s_motion_monitor_started &&
+            (s_state == LUNASHELL::DeviceOperatingState::Active ||
+             s_state == LUNASHELL::DeviceOperatingState::Standby) &&
+            power_shake_detected(snapshot.imu, shake_now) &&
+            admit_shake_transition(shake_policy.revision)) {
+            const bool enter = s_state == LUNASHELL::DeviceOperatingState::Active;
+            const auto shake_error = set_standby(enter, LUNASHELL::DeviceStateReason::ImuMotion);
+            suspend_power_shake(esp_timer_get_time());
+            s_shake_observed_power_state = s_state;
+            shake_transition = true;
+            if (shake_error != ESP_OK) ESP_LOGE(kTag, "Shake standby transition failed (%s)", esp_err_to_name(shake_error));
+        } else if (!shake_enabled) {
+            suspend_power_shake(shake_now);
+        }
+        const bool other_motion = !shake_transition && !s_codex_offline_standby &&
+            ((leg_mode && wake_on_leg_motion && leg_motion.level > 0) ||
+             (!leg_mode && shake_enabled && qualified_motion && s_state == LUNASHELL::DeviceOperatingState::Active));
+#else
+        const bool other_motion = !s_codex_offline_standby &&
+            ((leg_mode && wake_on_leg_motion && leg_motion.level > 0) ||
+             (!leg_mode && s_shake_wake_enabled.load(std::memory_order_acquire) && qualified_motion));
+#endif
+        if (other_motion) {
             if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
                 const esp_err_t wake_error = set_standby(
                     false,
@@ -3904,8 +4077,18 @@ extern "C" esp_err_t LUNASHELL_power_manager_register_shutdown_callbacks(
 // The policy is available before worker startup and does not perform hardware I/O.
 extern "C" esp_err_t LUNASHELL_power_manager_set_shake_wake_enabled(bool enabled)
 {
-    s_shake_wake_enabled.store(enabled, std::memory_order_release);
+    portENTER_CRITICAL(&s_shake_policy_mux);
+    if (s_shake_wake_enabled.load(std::memory_order_relaxed) != enabled) {
+        s_shake_wake_enabled.store(enabled, std::memory_order_release);
+        ++s_shake_policy_revision;
+    }
+    portEXIT_CRITICAL(&s_shake_policy_mux);
     return ESP_OK;
+}
+
+extern "C" bool LUNASHELL_power_manager_shake_wake_enabled(void)
+{
+    return s_shake_wake_enabled.load(std::memory_order_acquire);
 }
 
 // active: Whether the existing Leg motion policy owns power decisions.

@@ -414,7 +414,7 @@ esp_err_t prepare_device_chrome(DeviceChrome &chrome, const DeviceDashboardData 
             caption = chrome.saved_text.data();
         }
         if (caption != nullptr) {
-            const auto error = prepare_line(caption, SceneData::body_font, {105, 37, 256, 27},
+            const auto error = prepare_status_caption(caption,
                 saved_epoch > 0 ? 0xFE27 : kMuted, chrome.connection);
             if (error != ESP_OK) return error;
         }
@@ -453,7 +453,7 @@ esp_err_t draw_device_chrome(const DeviceChrome &chrome, CODY2D::Surface strip,
 {
     esp_err_t error = ESP_OK;
     if (chrome.connection.valid) {
-        error = CODY2D::draw_text_rows(chrome.connection, chrome.connection.text.length, strip, first_row, first_column);
+        error = draw_status_caption_rows(chrome.connection, strip, first_row, first_column);
     }
     if (error == ESP_OK && chrome.battery_sequence != 0) {
         error = CODY2D::draw_capsule_rows(chrome.battery, strip, first_row, first_column);

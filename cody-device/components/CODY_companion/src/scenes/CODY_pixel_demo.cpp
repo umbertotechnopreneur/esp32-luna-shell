@@ -25,7 +25,7 @@ esp_err_t draw_mascot_rows(const void *state, CODY2D::Surface strip,
 {
     const auto *view = static_cast<const PixelDemoView *>(state);
     if (view == nullptr || !view->visible) return ESP_ERR_INVALID_STATE;
-    return draw_pixel_avatar_rows(view->frames[view->write_buffer], avatar_bounds(view->viewport),
+    return draw_pixel_avatar_rows(view->frames[view->write_buffer], avatar_bounds(view->visual_viewport),
         strip, first_row, first_column);
 }
 
@@ -99,6 +99,19 @@ void observe_pixel_demo_motion(PixelDemoView &view, const PixelDemoMotion &sampl
     advance_pixel_demo_motion(view.motion, sample, now_us);
 }
 
+esp_err_t set_pixel_demo_viewport(PixelDemoView &view, LogicalRect viewport)
+{
+    if (viewport.width < kPixelAvatarGridSize || viewport.width != viewport.height ||
+        viewport.width > CODY2D::kMaxDimension ||
+        static_cast<uint32_t>(viewport.x) + viewport.width > 65535U ||
+        static_cast<uint32_t>(viewport.y) + viewport.height > 65535U) {
+        ESP_LOGE(kTag, "Mascot viewport rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    view.visual_viewport = viewport;
+    return ESP_OK;
+}
+
 // view: Display-owned state and two borrowed indexed frames.
 // active_us: Existing awake clock, excluding standby.
 // content: Mascot-only scene callback and its centered draw bounds.
@@ -127,12 +140,26 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
         static_cast<uint32_t>(view.elapsed_us / 1000U), pose.pose_ms,
         reaction_ms, 0.0f, pose.working, style);
 
-    const auto viewport = avatar_bounds(view.viewport);
+    const auto viewport = avatar_bounds(view.visual_viewport);
     const DamageRect mascot_bounds{viewport.x, viewport.y,
         static_cast<uint16_t>(viewport.x + viewport.width),
         static_cast<uint16_t>(viewport.y + viewport.height)};
     if (!view.retired_valid) {
         view.damage.rectangles[0] = viewport;
+        view.damage.count = 1;
+    } else if (view.retired_viewport.x != view.visual_viewport.x ||
+               view.retired_viewport.y != view.visual_viewport.y ||
+               view.retired_viewport.width != view.visual_viewport.width ||
+               view.retired_viewport.height != view.visual_viewport.height) {
+        // Clear both the prior presentation and the new one; changed cells
+        // alone cannot describe a translated or resized artwork.
+        const auto old = avatar_bounds(view.retired_viewport);
+        const auto left = std::min(old.x, viewport.x);
+        const auto top = std::min(old.y, viewport.y);
+        const auto right = std::max<uint32_t>(old.x + old.width, viewport.x + viewport.width);
+        const auto bottom = std::max<uint32_t>(old.y + old.height, viewport.y + viewport.height);
+        view.damage.rectangles[0] = {left, top, static_cast<uint16_t>(right - left),
+            static_cast<uint16_t>(bottom - top)};
         view.damage.count = 1;
     } else {
         plan_pixel_avatar_damage(view.frames[1U - view.write_buffer],
@@ -147,6 +174,7 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
 // view: Fully retired mascot frame whose grid becomes the damage baseline.
 void retire_pixel_demo(PixelDemoView &view)
 {
+    view.retired_viewport = view.visual_viewport;
     view.write_buffer = static_cast<uint8_t>(1U - view.write_buffer);
     view.retired_valid = true;
     view.damage.count = 0;
@@ -178,7 +206,7 @@ bool observe_pixel_demo_touch(PixelDemoView &view, CODY2D::Point point,
         view.touch_sampled_us = sampled_at_us;
         view.touch_revision = display_revision;
         view.touch_candidate = view.visible && view.retired_valid && sampled_at_us > 0 &&
-            view.viewport.contains(point.x, point.y);
+            view.retired_viewport.contains(point.x, point.y);
         return false;
     }
     if (!view.touch_candidate) return false;

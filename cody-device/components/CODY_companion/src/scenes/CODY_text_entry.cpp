@@ -17,7 +17,7 @@ CODY2D::Rect key_bounds(uint8_t key)
 {
     if (key >= 12) return {static_cast<uint16_t>(104 + (key - 12) * 88), 340, 82, 43};
     return {static_cast<uint16_t>(73 + (key % 3) * 110),
-        static_cast<uint16_t>(144 + (key / 3) * 49), 100, 43};
+        static_cast<uint16_t>(160 + (key / 3) * 45), 100, 39};
 }
 
 // entry: Active input mode.
@@ -35,6 +35,22 @@ void commit_pending(TextEntry &entry)
 {
     entry.pending_key = -1;
     entry.pending_index = 0;
+}
+
+// font: Immutable native glyphs retained through frame retirement.
+// Exception: Returns the original font or glyph error without measuring secret text.
+esp_err_t validate_secret_font(const CODY2D::MonoFont &font)
+{
+    // Probe every allowed byte, independently of the draft. The renderer logs
+    // rejected glyph bytes, so probing only the secret would disclose its content.
+    static constexpr char printable[] =
+        " !\"#$%&'()*+,-./0123456789:;<=>?@"
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`"
+        "abcdefghijklmnopqrstuvwxyz{|}~";
+    static_assert(sizeof(printable) == 96, "Secret font validation covers printable ASCII");
+    uint32_t width = 0;
+    return CODY2D::measure_text_width(font,
+        {printable, static_cast<uint16_t>(sizeof(printable) - 1U)}, width);
 }
 
 // font: Native glyphs retained by the caller.
@@ -67,6 +83,8 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
     const auto *view = static_cast<const TextEntryView *>(state);
     if (view == nullptr || !view->valid) return ESP_ERR_INVALID_STATE;
     esp_err_t error = CODY2D::draw_text_rows(view->title, view->title.text.length, strip, first_row, first_column);
+    if (error == ESP_OK && view->subtitle.valid)
+        error = CODY2D::draw_text_rows(view->subtitle, view->subtitle.text.length, strip, first_row, first_column);
     if (error == ESP_OK) error = CODY2D::draw_capsule_rows(view->field, strip, first_row, first_column);
     for (const auto &key : view->keys) {
         if (error != ESP_OK) break;
@@ -188,16 +206,20 @@ esp_err_t activate_text_entry_key(TextEntry &entry, uint8_t key, int64_t now_us,
     if (key < 9) {
         const char *group = group_for(entry, key);
         const auto count = std::strlen(group);
-        const bool cycle = entry.pending_key == static_cast<int8_t>(key) && entry.length > 0 &&
+        const bool cycle = count > 1 && entry.pending_key == static_cast<int8_t>(key) && entry.length > 0 &&
             now_us - entry.last_tap_us <= kMultiTapUs;
-        if (!cycle && entry.length == entry.limit) return ESP_OK;
+        if (!cycle && entry.length == entry.limit) {
+            commit_pending(entry);
+            return ESP_OK;
+        }
         entry.pending_index = cycle ? static_cast<uint8_t>((entry.pending_index + 1) % count) : 0;
         char character = group[entry.pending_index];
         if (entry.uppercase && character >= 'a' && character <= 'z') character -= 'a' - 'A';
         if (!cycle) ++entry.length;
         entry.text[entry.length - 1] = character;
         entry.text[entry.length] = '\0';
-        entry.pending_key = static_cast<int8_t>(key);
+        if (count > 1) entry.pending_key = static_cast<int8_t>(key);
+        else commit_pending(entry);
     } else {
         commit_pending(entry);
         switch (key) {
@@ -242,17 +264,30 @@ void clear_text_entry_view(TextEntryView &view)
 // font: Caller-owned native font for all captions.
 // view: Persistent frame storage; previous frame must have retired.
 // content: Receives the renderer and its display damage envelope.
+// submit_label: Caller-owned caption for the submission key.
+// subtitle: Optional caller-owned instruction retained through frame retirement.
 // Exception: Returns original native layout errors or invalid state.
 esp_err_t prepare_text_entry_view(const TextEntry &entry, const char *title, const char *placeholder,
-    const CODY2D::MonoFont &font, TextEntryView &view, SceneContent &content)
+    const CODY2D::MonoFont &font, TextEntryView &view, SceneContent &content, const char *submit_label,
+    const char *subtitle)
 {
     content = {};
     if (title == nullptr || entry.limit == 0 || entry.limit > kTextEntryCapacity || entry.length > entry.limit)
         return ESP_ERR_INVALID_ARG;
+    for (uint8_t i = 0; i < entry.length; ++i) {
+        const auto byte = static_cast<unsigned char>(entry.text[i]);
+        if (byte < 32 || byte > 126) return ESP_ERR_INVALID_ARG;
+    }
+    if (entry.text[entry.length] != '\0') return ESP_ERR_INVALID_ARG;
     const uint32_t revision = view.revision + 1;
     clear_text_entry_view(view);
-    esp_err_t error = centered_line(font, title, {104, 73, 258, 26}, view.title);
-    view.field.bounds = {95, 102, 276, 36};
+    // A revealed secret may be measured/drawn only after every possible byte has
+    // been checked independently, including the font's per-glyph metrics.
+    esp_err_t error = entry.secret && entry.reveal && entry.length != 0 ? validate_secret_font(font) : ESP_OK;
+    if (error == ESP_OK) error = centered_line(font, title, {104, 73, 258, 25}, view.title);
+    if (error == ESP_OK && subtitle != nullptr && subtitle[0] != '\0')
+        error = centered_line(font, subtitle, {83, 98, 300, 25}, view.subtitle);
+    view.field.bounds = {95, 125, 276, 31};
     view.field.top_color = 0x18C6;
     view.field.bottom_color = 0x0842;
     view.field.border_color = 0x4B9B;
@@ -274,7 +309,11 @@ esp_err_t prepare_text_entry_view(const TextEntry &entry, const char *title, con
                 entry.mode == TextEntryMode::Numbers ? "#+=" : "123") :
             i == 10 ? "Space" : i == 11 ? "Del" : i == 12 ?
             (entry.mode == TextEntryMode::Letters ? "123" : "ABC") : i == 13 ?
-            (entry.secret ? (entry.reveal ? "Hide" : "Show") : " ") : "Done";
+            (entry.secret ? (entry.reveal ? "Hide" : "Show") : " ") : submit_label;
+        if (label == nullptr || std::strlen(label) >= view.labels[i].size()) {
+            clear_text_entry_view(view);
+            return ESP_ERR_INVALID_SIZE;
+        }
         auto &label_storage = view.labels[i];
         std::strncpy(label_storage.data(), label, label_storage.size() - 1);
         if (entry.mode == TextEntryMode::Letters && entry.uppercase && i < 9) {

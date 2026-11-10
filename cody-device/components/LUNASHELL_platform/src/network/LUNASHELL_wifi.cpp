@@ -29,6 +29,7 @@
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <new>
 
 #include "esp_attr.h"
 #include "esp_event.h"
@@ -68,6 +69,8 @@ SemaphoreHandle_t s_lock;
 StaticSemaphore_t s_lock_storage;
 SemaphoreHandle_t s_lifecycle_lock;
 StaticSemaphore_t s_lifecycle_lock_storage;
+SemaphoreHandle_t s_scan_publication_lock;
+StaticSemaphore_t s_scan_publication_lock_storage;
 portMUX_TYPE s_lock_init_mux = portMUX_INITIALIZER_UNLOCKED;
 TimerHandle_t s_reconnect_timer;
 StaticTimer_t s_reconnect_timer_storage;
@@ -81,6 +84,10 @@ bool s_driver_started;
 esp_err_t s_initialization_result = ESP_ERR_INVALID_STATE;
 bool s_scan_watch_active;
 bool s_connect_requested;
+// Updated from driver operations and events under the Wi-Fi state lock.
+// A requested disconnect is not evidence that the old attempt has retired.
+enum class StationActivity : uint8_t { Idle, Connecting, Associated };
+StationActivity s_station_activity = StationActivity::Idle;
 bool s_ip_timeout_rejoin_requested; // Protected by the Wi-Fi status lock.
 bool s_provisioning_owns_connection;
 std::atomic<bool> s_factory_reset_sealed{false};
@@ -90,6 +97,15 @@ LUNASHELL_wifi_status_t s_status;
 EXT_RAM_BSS_ATTR LUNASHELL_wifi_network_t s_networks[LUNASHELL_WIFI_MAX_NETWORKS];
 EXT_RAM_BSS_ATTR wifi_ap_record_t s_scan_records[LUNASHELL_WIFI_MAX_NETWORKS];
 size_t s_network_count;
+static_assert(LUNASHELL::kWifiScanMaxNetworks == LUNASHELL_WIFI_MAX_NETWORKS, "Wi-Fi scan capacities must agree");
+alignas(LUNASHELL::WifiScanSnapshot) EXT_RAM_BSS_ATTR
+uint8_t s_scan_snapshot_storage[sizeof(LUNASHELL::WifiScanSnapshot)]{};
+LUNASHELL::WifiScanSnapshot &s_scan_snapshot =
+    *new (s_scan_snapshot_storage) LUNASHELL::WifiScanSnapshot{};
+alignas(LUNASHELL::WifiScanSnapshot) EXT_RAM_BSS_ATTR
+uint8_t s_scan_publication_storage[sizeof(LUNASHELL::WifiScanSnapshot)]{};
+LUNASHELL::WifiScanSnapshot &s_scan_publication =
+    *new (s_scan_publication_storage) LUNASHELL::WifiScanSnapshot{};
 
 void log_scan_heap_checkpoint(const char *stage)
 {
@@ -265,6 +281,36 @@ void wifi_unlock()
     }
 }
 
+// No parameters: start one driver-owned station attempt under the lifecycle gate.
+// Exception: Returns the original driver error, preserving uncertain old activity.
+esp_err_t start_station_connection()
+{
+    wifi_lock();
+    const auto previous = s_station_activity;
+    const uint32_t associations = s_status.association_count;
+    const uint32_t disconnects = s_status.disconnect_count;
+    const uint32_t events = s_status.event_sequence;
+    s_station_activity = StationActivity::Connecting;
+    wifi_unlock();
+
+    const esp_err_t error = esp_wifi_connect();
+    // These documented precondition errors reject this request. A known idle
+    // state is restorable only if no event has since changed the observation.
+    // WIFI_STATE/CONN are deliberately excluded: an older attempt may exist.
+    const bool rejected = error == ESP_ERR_WIFI_NOT_INIT || error == ESP_ERR_WIFI_NOT_STARTED ||
+        error == ESP_ERR_WIFI_MODE || error == ESP_ERR_WIFI_SSID;
+    if (rejected && previous == StationActivity::Idle) {
+        wifi_lock();
+        if (s_station_activity == StationActivity::Connecting &&
+            s_status.association_count == associations && s_status.disconnect_count == disconnects &&
+            s_status.event_sequence == events) {
+            s_station_activity = StationActivity::Idle;
+        }
+        wifi_unlock();
+    }
+    return error;
+}
+
 void copy_ssid(char *destination, size_t destination_size, const uint8_t *source, size_t source_size)
 {
     if (destination == nullptr || destination_size == 0 || source == nullptr) {
@@ -279,6 +325,52 @@ void copy_ssid(char *destination, size_t destination_size, const uint8_t *source
     }
     std::memcpy(destination, source, length);
     destination[length] = '\0';
+}
+
+LUNASHELL::WifiNetworkSecurity scan_security(wifi_auth_mode_t auth)
+{
+    using Security = LUNASHELL::WifiNetworkSecurity;
+    switch (auth) {
+    case WIFI_AUTH_OPEN: return Security::Open;
+    case WIFI_AUTH_WPA_PSK: return Security::WpaPersonal;
+    case WIFI_AUTH_WPA2_PSK:
+    case WIFI_AUTH_WPA_WPA2_PSK: return Security::Wpa2Personal;
+    case WIFI_AUTH_WPA3_PSK: return Security::Wpa3Personal;
+    case WIFI_AUTH_WPA2_WPA3_PSK: return Security::Wpa2Wpa3Personal;
+    case WIFI_AUTH_WPA2_ENTERPRISE:
+    case WIFI_AUTH_WPA3_ENT_192: return Security::Enterprise;
+    default: return Security::Unsupported;
+    }
+}
+
+// Snapshot only owner-retained observations; never hold both owner and service locks.
+esp_err_t publish_scan_snapshot()
+{
+    portENTER_CRITICAL(&s_lock_init_mux);
+    if (s_scan_publication_lock == nullptr) {
+        s_scan_publication_lock = xSemaphoreCreateMutexStatic(&s_scan_publication_lock_storage);
+    }
+    const auto lock = s_scan_publication_lock;
+    portEXIT_CRITICAL(&s_lock_init_mux);
+    if (lock == nullptr) return ESP_ERR_NO_MEM;
+    if (xSemaphoreTake(lock, pdMS_TO_TICKS(WIFI_STATE_LOCK_TIMEOUT_MS)) != pdTRUE) return ESP_ERR_TIMEOUT;
+    wifi_lock();
+    s_scan_publication = s_scan_snapshot;
+    wifi_unlock();
+    const auto error = LUNASHELL::DeviceSnapshotService::instance().reportWifiScan(s_scan_publication);
+    if (xSemaphoreGive(lock) != pdTRUE) std::abort();
+    if (error != ESP_OK) ESP_LOGE(TAG, "Wi-Fi scan publication failed (%s)", esp_err_to_name(error));
+    return error;
+}
+
+// Caller holds the Wi-Fi owner lock.
+void fail_scan_locked(esp_err_t error)
+{
+    s_scan_snapshot.state = LUNASHELL::WifiScanState::Failed;
+    s_scan_snapshot.error = error;
+    s_scan_snapshot.completed_at_us = esp_timer_get_time();
+    s_scan_snapshot.count = 0;
+    ++s_scan_snapshot.revision;
 }
 
 // No parameters: copy the network owner under its state lock, then publish without it.
@@ -312,8 +404,11 @@ esp_err_t publish_snapshot()
     snapshot.last_disconnect_reason = status.last_disconnect_reason;
     snapshot.event_sequence = status.event_sequence;
     snapshot.connect_attempt_count = status.connect_attempt_count;
+    snapshot.association_count = status.association_count;
     snapshot.reconnect_attempt_count = status.reconnect_attempt_count;
     snapshot.disconnect_count = status.disconnect_count;
+    snapshot.bssid_valid = status.bssid_valid && status.connected && status.ip_acquired;
+    std::memcpy(snapshot.bssid, status.bssid, sizeof(snapshot.bssid));
     strlcpy(snapshot.ssid, status.ssid, sizeof(snapshot.ssid));
     strlcpy(snapshot.ip_address, status.ip_address, sizeof(snapshot.ip_address));
     strlcpy(snapshot.mac_address, status.mac_address, sizeof(snapshot.mac_address));
@@ -625,7 +720,7 @@ void reconnect_timer_callback(TimerHandle_t timer)
         );
         std::abort();
     }
-    const esp_err_t error = needs_rejoin ? request_rejoin_after_ip_timeout() : esp_wifi_connect();
+    const esp_err_t error = needs_rejoin ? request_rejoin_after_ip_timeout() : start_station_connection();
     if (!needs_rejoin) record_error(error);
     // A successful disconnect posts the event that schedules a quick rejoin.
     // Keep a bounded fallback if that event is delayed or the driver call fails.
@@ -646,12 +741,13 @@ void reconnect_timer_callback(TimerHandle_t timer)
     );
 }
 
-// No parameters: acquire only results from a scan requested by the local Wi-Fi owner.
+// event: SDK scan completion supplied by the event owner.
 // Exception: Logs/publishes scan or cleanup failures; reset never accepts retired scan content.
-void handle_scan_done()
+void handle_scan_done(const wifi_event_sta_scan_done_t *event)
 {
     wifi_lock();
     const bool local_scan = s_status.scanning;
+    const uint32_t generation = s_scan_snapshot.generation;
     wifi_unlock();
     if (!local_scan) {
         // Reading the driver list frees it. Provisioning consumes its own results.
@@ -660,13 +756,23 @@ void handle_scan_done()
 
     uint16_t count = LUNASHELL_WIFI_MAX_NETWORKS;
     std::memset(s_scan_records, 0, sizeof(s_scan_records));
-    const esp_err_t error = esp_wifi_scan_get_ap_records(&count, s_scan_records);
+    const esp_err_t records_error = esp_wifi_scan_get_ap_records(&count, s_scan_records);
+    const esp_err_t error = records_error != ESP_OK ? records_error :
+        event == nullptr || event->status != 0 ? ESP_FAIL : ESP_OK;
 
     wifi_lock();
-    if (s_factory_reset_sealed.load(std::memory_order_acquire)) {
+    if (s_scan_snapshot.generation != generation) {
+        wifi_unlock();
+        return;
+    }
+    if (s_factory_reset_sealed.load(std::memory_order_acquire) || !s_status.scanning) {
         s_status.scanning = false;
+        if (s_scan_snapshot.generation == generation && s_scan_snapshot.state == LUNASHELL::WifiScanState::Scanning) {
+            fail_scan_locked(ESP_ERR_INVALID_STATE);
+        }
         ++s_status.event_sequence;
         wifi_unlock();
+        (void)publish_scan_snapshot();
         const esp_err_t cleanup_error = finish_scan_watch_if_active(error);
         const esp_err_t result = error != ESP_OK ? error : cleanup_error;
         if (result != ESP_OK) {
@@ -690,27 +796,46 @@ void handle_scan_done()
             s_networks[index].rssi = s_scan_records[index].rssi;
             s_networks[index].channel = s_scan_records[index].primary;
             s_networks[index].secured = s_scan_records[index].authmode != WIFI_AUTH_OPEN;
+            auto &network = s_scan_snapshot.networks[index];
+            copy_ssid(network.ssid, sizeof(network.ssid), s_scan_records[index].ssid,
+                sizeof(s_scan_records[index].ssid));
+            std::memcpy(network.bssid, s_scan_records[index].bssid, sizeof(network.bssid));
+            network.rssi = s_scan_records[index].rssi;
+            network.channel = s_scan_records[index].primary;
+            network.security = scan_security(s_scan_records[index].authmode);
         }
+        s_scan_snapshot.count = static_cast<uint8_t>(count);
+        s_scan_snapshot.state = LUNASHELL::WifiScanState::Complete;
+        s_scan_snapshot.error = ESP_OK;
+        s_scan_snapshot.completed_at_us = esp_timer_get_time();
+        ++s_scan_snapshot.revision;
         s_status.last_error = ESP_OK;
     } else {
         s_network_count = 0;
         s_status.last_error = error;
+        fail_scan_locked(error);
     }
     wifi_unlock();
 
     // Keep the scan unavailable to a new caller until its cross-task watchdog
     // user has been closed. The handler's WIFI_EVENTS watch remains active
     // until this callback exits.
-    (void)finish_scan_watch_if_active(error);
+    const esp_err_t watch_error = finish_scan_watch_if_active(error);
     wifi_lock();
     s_status.scanning = false;
+    if (error == ESP_OK && watch_error != ESP_OK) {
+        s_status.last_error = watch_error;
+        fail_scan_locked(watch_error);
+    }
     wifi_unlock();
     publish_snapshot();
+    (void)publish_scan_snapshot();
 
-    if (error == ESP_OK) {
+    const auto final_error = error != ESP_OK ? error : watch_error;
+    if (final_error == ESP_OK) {
         ESP_LOGI(TAG, "Scan complete: %u access point(s)", static_cast<unsigned>(count));
     } else {
-        ESP_LOGW(TAG, "Scan result failed: %s", esp_err_to_name(error));
+        ESP_LOGW(TAG, "Scan result failed: %s", esp_err_to_name(final_error));
     }
     log_scan_heap_checkpoint("after-scan");
 }
@@ -783,6 +908,12 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             }
             s_status.connected = true;
             s_status.ip_acquired = false;
+            s_status.bssid_valid = connected != nullptr;
+            if (connected != nullptr) {
+                s_station_activity = StationActivity::Associated;
+                std::memcpy(s_status.bssid, connected->bssid, sizeof(s_status.bssid));
+                ++s_status.association_count;
+            }
             s_status.channel = connected != nullptr ? connected->channel : 0;
             s_status.connection_state_valid = connected != nullptr;
             s_status.last_error = event_error;
@@ -820,6 +951,8 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             const bool provisioning = s_provisioning_owns_connection;
             s_status.connected = false;
             s_status.ip_acquired = false;
+            s_status.bssid_valid = false;
+            if (disconnected != nullptr) s_station_activity = StationActivity::Idle;
             s_status.rssi = 0;
             s_status.rssi_valid = false;
             s_status.channel = 0;
@@ -883,7 +1016,7 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
         }
 
         case WIFI_EVENT_SCAN_DONE:
-            handle_scan_done();
+            handle_scan_done(static_cast<const wifi_event_sta_scan_done_t *>(event_data));
             break;
 
         case WIFI_EVENT_STA_STOP: {
@@ -893,6 +1026,7 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             s_status.connection_state_valid = true;
             s_status.connected = false;
             s_status.ip_acquired = false;
+            s_station_activity = StationActivity::Idle;
             if (!s_factory_reset_sealed.load(std::memory_order_acquire)) {
                 s_status.last_error = cancel_error == ESP_OK ? ESP_ERR_INVALID_STATE : cancel_error;
             }
@@ -962,6 +1096,8 @@ void wifi_event_handler(void *arg, esp_event_base_t event_base, int32_t event_id
             s_status.rssi_sampled_at_us = esp_timer_get_time();
         }
         if (access_point_error == ESP_OK) {
+            std::memcpy(s_status.bssid, access_point.bssid, sizeof(s_status.bssid));
+            s_status.bssid_valid = true;
             s_status.rssi = access_point.rssi;
             s_status.channel = access_point.primary;
             copy_ssid(
@@ -1239,7 +1375,7 @@ static esp_err_t wifi_init_impl(void)
             wifi_lock();
             ++s_status.connect_attempt_count;
             wifi_unlock();
-            error = esp_wifi_connect();
+            error = start_station_connection();
             if (error != ESP_OK) {
                 wifi_lock();
                 s_initialization_result = error;
@@ -1432,20 +1568,55 @@ static esp_err_t wifi_stop_impl(void)
     s_initialized = false;
     s_initialization_result = ESP_ERR_INVALID_STATE;
     s_network_count = 0;
+    s_scan_snapshot.state = LUNASHELL::WifiScanState::Unavailable;
+    s_scan_snapshot.error = ESP_ERR_INVALID_STATE;
+    s_scan_snapshot.count = 0;
+    s_scan_snapshot.completed_at_us = esp_timer_get_time();
+    ++s_scan_snapshot.revision;
     wifi_unlock();
     publish_snapshot();
+    (void)publish_scan_snapshot();
     ESP_LOGI(TAG, "Wi-Fi station lifecycle stopped by explicit user action");
     return ESP_OK;
+}
+
+// No parameters: retire an old association or in-flight connection attempt.
+// Exception: Returns the original disconnect error or an actual event timeout.
+static esp_err_t disconnect_for_selected_profile()
+{
+    wifi_lock();
+    const bool idle = s_station_activity == StationActivity::Idle;
+    const uint32_t disconnect_baseline = s_status.disconnect_count;
+    wifi_unlock();
+    if (idle) return ESP_OK;
+    const esp_err_t error = esp_wifi_disconnect();
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Disconnect before selected Wi-Fi profile failed (%s)", esp_err_to_name(error));
+        return error;
+    }
+    const int64_t deadline_us = esp_timer_get_time() + 4000000LL;
+    while (esp_timer_get_time() < deadline_us) {
+        wifi_lock();
+        const bool retired = s_station_activity == StationActivity::Idle &&
+            s_status.disconnect_count != disconnect_baseline;
+        wifi_unlock();
+        if (retired) return ESP_OK;
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+    ESP_LOGE(TAG, "Disconnect before selected Wi-Fi profile timed out (%s)", esp_err_to_name(ESP_ERR_TIMEOUT));
+    return ESP_ERR_TIMEOUT;
 }
 
 // ssid: Explicit network name, validated before touching driver configuration.
 // password: Network secret; null means an open network, never logged.
 // persist: Whether ESP-IDF must write the selected profile to NVS.
+// selection: Optional exact scan result; null preserves the existing general connection behavior.
 // Exception: Returns original lifecycle/storage/driver errors, including sealed-reset rejection.
 static esp_err_t wifi_connect_impl(
     const char *ssid,
     const char *password,
-    bool persist
+    bool persist,
+    const LUNASHELL_wifi_selection_t *selection
 )
 {
     if (!s_initialized || s_provisioning_owns_connection || s_factory_reset_sealed.load(std::memory_order_acquire)) {
@@ -1453,23 +1624,70 @@ static esp_err_t wifi_connect_impl(
                  esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
+    wifi_lock();
+    const bool scanning = s_status.scanning;
+    wifi_unlock();
+    if (scanning) return ESP_ERR_INVALID_STATE;
     if (ssid == nullptr || ssid[0] == '\0' || std::strlen(ssid) > LUNASHELL_WIFI_SSID_MAX_LEN) {
         return ESP_ERR_INVALID_ARG;
     }
     const char *safe_password = password != nullptr ? password : "";
-    if (std::strlen(safe_password) > 64) {
+    const size_t ssid_length = std::strlen(ssid);
+    const size_t password_length = std::strlen(safe_password);
+    if (password_length > 64) {
         return ESP_ERR_INVALID_ARG;
+    }
+    wifi_auth_mode_t minimum_auth = safe_password[0] == '\0' ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
+    if (selection != nullptr) {
+        bool nonzero_bssid = false;
+        for (uint8_t octet : selection->bssid) nonzero_bssid = nonzero_bssid || octet != 0;
+        if (!nonzero_bssid || (selection->bssid[0] & 1U) != 0) return ESP_ERR_INVALID_ARG;
+        switch (selection->security) {
+        case LUNASHELL_WIFI_SELECTED_OPEN:
+            if (password_length != 0) return ESP_ERR_INVALID_ARG;
+            minimum_auth = WIFI_AUTH_OPEN;
+            break;
+        case LUNASHELL_WIFI_SELECTED_WPA2:
+        case LUNASHELL_WIFI_SELECTED_WPA2_WPA3:
+            if (password_length < 8) return ESP_ERR_INVALID_ARG;
+            minimum_auth = WIFI_AUTH_WPA2_PSK;
+            break;
+        case LUNASHELL_WIFI_SELECTED_WPA3:
+            if (password_length < 8 || password_length > 63) return ESP_ERR_INVALID_ARG;
+            minimum_auth = WIFI_AUTH_WPA3_PSK;
+            break;
+        default:
+            return ESP_ERR_INVALID_ARG;
+        }
+        if (password_length == 64) {
+            for (size_t index = 0; index < password_length; ++index) {
+                const char c = safe_password[index];
+                if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')))
+                    return ESP_ERR_INVALID_ARG;
+            }
+        }
     }
 
     wifi_config_t config = {};
-    strlcpy(reinterpret_cast<char *>(config.sta.ssid), ssid, sizeof(config.sta.ssid));
-    strlcpy(reinterpret_cast<char *>(config.sta.password), safe_password, sizeof(config.sta.password));
+    // SDK fields have exact byte capacities, so strlcpy would silently drop
+    // the last byte of a full-length SSID or 64-byte PSK.
+    std::memcpy(config.sta.ssid, ssid, ssid_length);
+    std::memcpy(config.sta.password, safe_password, password_length);
     config.sta.scan_method = WIFI_ALL_CHANNEL_SCAN;
     config.sta.sort_method = WIFI_CONNECT_AP_BY_SIGNAL;
-    config.sta.threshold.authmode = safe_password[0] == '\0' ? WIFI_AUTH_OPEN : WIFI_AUTH_WPA2_PSK;
+    config.sta.threshold.authmode = minimum_auth;
+    if (selection != nullptr) {
+        config.sta.bssid_set = true;
+        std::memcpy(config.sta.bssid, selection->bssid, sizeof(config.sta.bssid));
+    }
 
-    esp_err_t error = cancel_reconnect(false, false);
+    // Clear the old intent until its disconnect event retires; otherwise that
+    // event could race the selected profile and schedule an unwanted reconnect.
+    esp_err_t error = cancel_reconnect(selection != nullptr, selection != nullptr);
+    if (error == ESP_OK && selection != nullptr) error = disconnect_for_selected_profile();
     if (error != ESP_OK) {
+        volatile uint8_t *secret = config.sta.password;
+        for (size_t index = 0; index < sizeof(config.sta.password); ++index) secret[index] = 0;
         record_error(error);
         return error;
     }
@@ -1479,6 +1697,8 @@ static esp_err_t wifi_connect_impl(
     if (error == ESP_OK) {
         error = esp_wifi_set_config(WIFI_IF_STA, &config);
     }
+    volatile uint8_t *secret = config.sta.password;
+    for (size_t index = 0; index < sizeof(config.sta.password); ++index) secret[index] = 0;
     if (error != ESP_OK) {
         record_error(error);
         return error;
@@ -1490,6 +1710,7 @@ static esp_err_t wifi_connect_impl(
     s_status.connect_requested = true;
     s_status.connected = false;
     s_status.ip_acquired = false;
+    s_status.bssid_valid = false;
     strlcpy(s_status.ssid, ssid, sizeof(s_status.ssid));
     ++s_status.connect_attempt_count;
     s_status.last_error = ESP_OK;
@@ -1498,7 +1719,7 @@ static esp_err_t wifi_connect_impl(
     publish_snapshot();
 
     ESP_LOGI(TAG, "Connecting to SSID=%s, persistence=%s", ssid, persist ? "NVS" : "RAM");
-    error = esp_wifi_connect();
+    error = start_station_connection();
     if (error != ESP_OK && (kCodyWifiRetry || error == ESP_ERR_WIFI_STATE)) {
         record_error(error);
         const esp_err_t schedule_error = schedule_reconnect(
@@ -1565,9 +1786,16 @@ static esp_err_t wifi_start_scan_impl(void)
         return ESP_ERR_INVALID_STATE;
     }
     s_status.scanning = true;
+    ++s_scan_snapshot.generation;
+    ++s_scan_snapshot.revision;
+    s_scan_snapshot.state = LUNASHELL::WifiScanState::Scanning;
+    s_scan_snapshot.error = ESP_OK;
+    s_scan_snapshot.completed_at_us = 0;
+    s_scan_snapshot.count = 0;
     ++s_status.event_sequence;
     wifi_unlock();
     publish_snapshot();
+    (void)publish_scan_snapshot();
 
     const esp_err_t watch_error = LUNASHELL_liveness_watch_begin(
         LUNASHELL_LIVENESS_WIFI_SCAN
@@ -1575,8 +1803,10 @@ static esp_err_t wifi_start_scan_impl(void)
     if (watch_error != ESP_OK) {
         wifi_lock();
         s_status.scanning = false;
+        fail_scan_locked(watch_error);
         wifi_unlock();
         record_error(watch_error);
+        (void)publish_scan_snapshot();
         return watch_error;
     }
     wifi_lock();
@@ -1591,8 +1821,10 @@ static esp_err_t wifi_start_scan_impl(void)
         (void)finish_scan_watch_if_active(error);
         wifi_lock();
         s_status.scanning = false;
+        fail_scan_locked(error);
         wifi_unlock();
         record_error(error);
+        (void)publish_scan_snapshot();
     } else {
         ESP_LOGI(TAG, "Asynchronous scan started");
     }
@@ -1847,6 +2079,14 @@ extern "C" esp_err_t LUNASHELL_wifi_reset_for_factory(void)
     {
         WifiLifecycleGuard lifecycle_guard;
         s_factory_reset_sealed.store(true, std::memory_order_release);
+        wifi_lock();
+        s_scan_snapshot.state = LUNASHELL::WifiScanState::Unavailable;
+        s_scan_snapshot.error = ESP_ERR_INVALID_STATE;
+        s_scan_snapshot.count = 0;
+        s_scan_snapshot.completed_at_us = esp_timer_get_time();
+        ++s_scan_snapshot.revision;
+        wifi_unlock();
+        (void)publish_scan_snapshot();
         error = s_driver_initialized ? cancel_reconnect(true, false) : ESP_ERR_WIFI_NOT_INIT;
     }
     // Provisioning stop/deinit can synchronously hand ownership back to Wi-Fi.
@@ -1870,10 +2110,16 @@ extern "C" esp_err_t LUNASHELL_wifi_reset_for_factory(void)
     return error;
 }
 
-extern "C" esp_err_t LUNASHELL_wifi_connect(
+// ssid: Explicit network name retained by the caller until the operation returns.
+// password: Caller-owned secret, never logged.
+// persist: Whether the driver should store the profile.
+// selection: Optional exact AP identity and minimum security.
+// Exception: Preserves lifecycle, watchdog and network-owner errors.
+static esp_err_t connect_profile(
     const char *ssid,
     const char *password,
-    bool persist
+    bool persist,
+    const LUNASHELL_wifi_selection_t *selection
 )
 {
     const esp_err_t lifecycle_error = wifi_lifecycle_lock("connect");
@@ -1894,11 +2140,32 @@ extern "C" esp_err_t LUNASHELL_wifi_connect(
         return watch_error;
     }
     const esp_err_t operation_result =
-        wifi_connect_impl(ssid, password, persist);
+        wifi_connect_impl(ssid, password, persist, selection);
     return LUNASHELL_liveness_watch_end(
         LUNASHELL_LIVENESS_WIFI,
         operation_result
     );
+}
+
+// ssid: Requested network name.
+// password: Caller-owned secret, never logged.
+// persist: Whether to store the profile in NVS.
+// Exception: Preserves the network owner's original operation error.
+extern "C" esp_err_t LUNASHELL_wifi_connect(const char *ssid, const char *password, bool persist)
+{
+    return connect_profile(ssid, password, persist, nullptr);
+}
+
+// ssid: Requested network name.
+// password: Caller-owned secret, never logged.
+// persist: Whether to store the exact selected AP profile in NVS.
+// selection: Required BSSID and minimum selected security.
+// Exception: Rejects a missing selection and preserves network-owner errors.
+extern "C" esp_err_t LUNASHELL_wifi_connect_selected(const char *ssid, const char *password,
+    bool persist, const LUNASHELL_wifi_selection_t *selection)
+{
+    if (selection == nullptr) return ESP_ERR_INVALID_ARG;
+    return connect_profile(ssid, password, persist, selection);
 }
 
 static esp_err_t wifi_disconnect_impl()
@@ -1979,6 +2246,7 @@ esp_err_t credentialsReceived(const uint8_t *ssid, size_t ssid_capacity)
     s_connect_requested = true;
     s_status.connect_requested = true;
     s_status.credentials_configured = true;
+    s_station_activity = StationActivity::Connecting;
     s_status.connected = false;
     s_status.ip_acquired = false;
     s_status.ip_address[0] = '\0';

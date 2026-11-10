@@ -21,11 +21,22 @@ def wave(phase: int) -> int:
     return int((WAVE[index] * (200 - fraction) + WAVE[(index + 1) & 31] * fraction) / 200)
 
 
+# tick: The device's 25 Hz animation clock, including its glow rest and pulse.
+def glow_percent(tick: int) -> int:
+    rest_frames, pulse_frames = 50, 150
+    cycle_frame = tick % (rest_frames + pulse_frames)
+    if cycle_frame < rest_frames:
+        return 50
+    amplitude = wave((cycle_frame - rest_frames) * 3200 // pulse_frames)
+    return 50 + (50 * amplitude * amplitude + 127 * 127 // 2) // (127 * 127)
+
+
 # tick: Quantized 25-frame-per-second animation time from the preview owner.
 # Returns an RGB image borrowed by the current frame; no route or device data is mutated.
 @lru_cache(maxsize=1)
 def render_screensaver(tick: int) -> Image.Image:
     subpixel = 16
+    glow = glow_percent(tick)
     phase_time = (tick % 800) * 8
     drift_x = int(wave(phase_time) * (2 * subpixel) / 127)
     drift_y = int(wave(phase_time + 64 * 25) * (2 * subpixel) / 127)
@@ -46,10 +57,13 @@ def render_screensaver(tick: int) -> Image.Image:
                 weight = FALLOFF[distance * 255 // (radius * radius)]
                 for channel in range(3):
                     channels[channel] += color[channel] * weight
-            red, green, blue = (min(255, value // 255) for value in channels)
+            red, green, blue = ((min(255, value // 255) * glow + 50) // 100 for value in channels)
             pixels.append(((red >> 3) * 255 // 31, (green >> 2) * 255 // 63, (blue >> 3) * 255 // 31))
     image = Image.new("RGB", (GRID, GRID))
     image.putdata(pixels)
     frame = Image.new("RGB", (SIZE, SIZE))
-    frame.paste(image.resize((EXTENT, EXTENT), Image.Resampling.BILINEAR), (ORIGIN, ORIGIN))
+    # Firmware repeats the first 64 cells five times; the extra row/column
+    # remains a grid border and is not stretched into the image.
+    cells = image.crop((0, 0, GRID - 1, GRID - 1))
+    frame.paste(cells.resize((EXTENT, EXTENT), Image.Resampling.NEAREST), (ORIGIN, ORIGIN))
     return frame

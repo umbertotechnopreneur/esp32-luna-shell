@@ -138,6 +138,7 @@ std::atomic_bool s_diagnostic_microphone_active{false};
 std::atomic_bool s_diagnostic_microphone_spectrum_active{false};
 std::atomic_bool s_ui_motion_monitor_active{false};
 std::atomic_bool s_ui_motion_monitor_standby{false};
+std::atomic_bool s_standby_shake_sampling{false};
 // Device Standby preserves the user's requested diagnostics and rotation
 // preference, but must not leave their high-rate UI sampling active.
 std::atomic_bool s_ui_sampling_power_suspended{false};
@@ -187,6 +188,9 @@ OrientationState s_orientation;
 alignas(LUNASHELL::DeviceSnapshot) EXT_RAM_BSS_ATTR
 uint8_t s_snapshot_storage[sizeof(LUNASHELL::DeviceSnapshot)]{};
 LUNASHELL::DeviceSnapshot &s_snapshot = *new (s_snapshot_storage) LUNASHELL::DeviceSnapshot{};
+alignas(LUNASHELL::WifiScanSnapshot) EXT_RAM_BSS_ATTR
+uint8_t s_wifi_scan_storage[sizeof(LUNASHELL::WifiScanSnapshot)]{};
+LUNASHELL::WifiScanSnapshot &s_wifi_scan = *new (s_wifi_scan_storage) LUNASHELL::WifiScanSnapshot{};
 // The same snapshot mutex owns these personal, display-only projections. They
 // never enlarge full hardware copies or enter generic diagnostics.
 LUNASHELL::CodexWeeklyLimitSnapshot s_codex_weekly_limit{};
@@ -1311,7 +1315,8 @@ void diagnostic_monitor_task(void *arg)
             monitor_active &&
             (last_diagnostic_sample == 0 ||
              now - last_diagnostic_sample >= diagnostic_period);
-        const uint32_t ui_motion_period_ms = ui_motion_standby
+        const uint32_t ui_motion_period_ms = ui_motion_standby &&
+            !s_standby_shake_sampling.load(std::memory_order_acquire)
             ? kUiMotionStandbySamplePeriodMs
             : kUiMotionSamplePeriodMs;
         const TickType_t ui_motion_period =
@@ -3195,6 +3200,25 @@ esp_err_t DeviceSnapshotService::readConnectivityObservation(ConnectivityObserva
     return ESP_OK;
 }
 
+esp_err_t DeviceSnapshotService::readWifiScanObservation(WifiScanSnapshot &observation) const
+{
+    constexpr char operation[] = "Wi-Fi scan observation read";
+    const auto error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, operation);
+    if (error != ESP_OK) return error;
+    observation = s_wifi_scan;
+    return give_snapshot_mutex(operation);
+}
+
+esp_err_t DeviceSnapshotService::reportWifiScan(const WifiScanSnapshot &scan)
+{
+    if (scan.count > kWifiScanMaxNetworks) return ESP_ERR_INVALID_SIZE;
+    constexpr char operation[] = "Wi-Fi scan observation report";
+    const auto error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, operation);
+    if (error != ESP_OK) return error;
+    if (scan.revision >= s_wifi_scan.revision) s_wifi_scan = scan;
+    return give_snapshot_mutex(operation);
+}
+
 // wifi: Current event-owned radio snapshot, without driver access.
 static bool wifi_has_current_ip(const WifiSnapshot &wifi)
 {
@@ -4073,12 +4097,18 @@ extern "C" esp_err_t LUNASHELL_hardware_set_ui_motion_monitor_standby(bool stand
         "Adaptive UI motion cadence: %s (%lu ms)",
         standby ? "standby" : "active",
         static_cast<unsigned long>(
-            standby
+            standby && !s_standby_shake_sampling.load(std::memory_order_acquire)
                 ? kUiMotionStandbySamplePeriodMs
                 : kUiMotionSamplePeriodMs
         )
     );
     return ESP_OK;
+}
+
+extern "C" void LUNASHELL_hardware_set_standby_shake_sampling(bool enabled)
+{
+    s_standby_shake_sampling.store(enabled, std::memory_order_release);
+    notify_hardware_monitor();
 }
 
 // Preserve requested diagnostic streams and auto-rotation across Device

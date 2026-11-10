@@ -34,14 +34,14 @@ struct PixelAvatarDamage {
 
 // previous: Indexed frame from the last completed display transaction.
 // current: Newly composed indexed frame.
-// viewport: Square logical bounds, scaled by an integer multiple of 64.
+// viewport: Square logical bounds at least 64 pixels wide.
 // damage: Display-owned scratch and the resulting changed rectangles.
 // Exception: Logs invalid viewport geometry and leaves the plan empty.
 void plan_pixel_avatar_damage(const PixelAvatarFrame &previous,
     const PixelAvatarFrame &current, CODY2D::Rect viewport, PixelAvatarDamage &damage);
 
 // frame: Caller-owned indexed Muse artwork and both RGB565 palettes.
-// viewport: Square logical bounds, scaled by an integer multiple of 64.
+// viewport: Square logical bounds at least 64 pixels wide; fractional scale uses nearest-neighbour.
 // strip: Borrowed writable tile with its original capacity, stride and byte order.
 // first_row: Logical canvas row corresponding to strip row zero.
 // first_column: Logical canvas column corresponding to strip column zero.

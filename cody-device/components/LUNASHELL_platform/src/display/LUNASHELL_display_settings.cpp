@@ -37,7 +37,7 @@ namespace {
 
 constexpr char kTag[] = "LUNASHELL_display_settings";
 constexpr char kBrightnessSetting[] = "brightness";
-constexpr uint32_t kBrightnessDefaultPercent = 100;
+constexpr uint32_t kBrightnessDefaultPercent = 80;
 constexpr uint32_t kBrightnessMinPercent = 10;
 constexpr uint32_t kBrightnessMaxPercent = 100;
 constexpr uint32_t kDimmedBrightnessNumerator = 50;

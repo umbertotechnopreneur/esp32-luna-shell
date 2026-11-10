@@ -15,6 +15,7 @@
 #include "CODY_codex_panels.hpp"
 #include "CODY_codex_browser.hpp"
 #include "CODY_local_timer_view.hpp"
+#include "CODY_audio_view.hpp"
 #include "CODY_pixel_demo.hpp"
 #include "CODY_screensaver.hpp"
 #include "CODY_status_overlay.hpp"
@@ -46,7 +47,8 @@ constexpr auto kGeometry = CODY::Waveshare::kDevice.geometry;
 // The original round 1.75C layout uses a 64-cell Muse grid at five pixels per cell.
 constexpr auto kMuseViewport = kGeometry.centered_grid(CODY::kPixelAvatarGridSize, 5);
 constexpr int64_t kMuseFramePeriodUs = CODY::kPixelAvatarFrameMs * 1000LL;
-constexpr CODY2D::Rect kHomeWifiBounds{153, 396, 160, 40};
+constexpr CODY::LogicalRect kHomeCompactViewport{137, 126, 192, 192};
+constexpr CODY::DamageRect kHomeActionsBounds{80, 326, 386, 412};
 static_assert(kMuseViewport.width != 0, "The Cody display must admit a full Muse grid");
 constexpr uint32_t kFrameBudgetMs = 500;
 constexpr uint32_t kPollMs = 100;
@@ -59,7 +61,7 @@ constexpr uint32_t kWorkerStackBytes = 12288;
 
 enum class Layer : uint8_t {
     Branding, Mascot, Message, Scene, Dashboard, AboutLink, Visibility, Timer, Voice, Diagnostics,
-    VoucherWarning, Events, CurrentTurn, EventReply, CodexBrowser, Screensaver, Blank
+    VoucherWarning, Events, CurrentTurn, EventReply, CodexBrowser, Screensaver, Blank, Audio
 };
 enum class Command : uint8_t { Ready = 1, Sleep, Wake, Shutdown, ShutdownFailed };
 enum class ActivityPage : uint8_t { Events, CurrentTurn, Reply, Statistics };
@@ -69,7 +71,7 @@ enum class Target : uint8_t {
     None, Previous, Next, VisibilityFirst, VisibilitySecond, VisibilityThird,
     Interval, FirstAction, SecondAction, VoiceGesture, VoucherScroll, VoucherDismiss,
     TimerDecrease, TimerIncrease, TimerSound, TimerStart, TimerCancel, TimerDismiss,
-    EventsGesture, ActivityBack, EventDismiss, CodexBrowserControl, CodexBrowserBack, HomeWifi
+    EventsGesture, ActivityBack, EventDismiss, CodexBrowserControl, CodexBrowserBack, HomeWifi, HomePair, AudioClose
 };
 constexpr std::array<Target, CODY::kVisibilityRowsPerPage> kVisibilityTargets{
     Target::VisibilityFirst, Target::VisibilitySecond, Target::VisibilityThird,
@@ -101,6 +103,17 @@ struct RetiredFrame {
     bool valid = false;
     CODY2D::Rect voucher_bounds{};
     int64_t voice_ribbon_at_us = 0;
+    CODY::DamageRect content_bounds{};
+    CODY::DamageRect bottom_action_bounds{};
+    uint16_t selected_label_offset = UINT16_MAX;
+};
+
+struct HomeAction {
+    const char *text = nullptr;
+    CODY2D::Rect icon{};
+    CODY2D::Rect hit{};
+    CODY2D::ActionIcon kind = CODY2D::ActionIcon::None;
+    uint8_t count = 0;
 };
 
 struct DeviceUi {
@@ -109,7 +122,9 @@ struct DeviceUi {
     CODY::SceneFrame completed_scene{};
     CODY::WidgetVisibilityView editor{};
     CODY::LocalTimerView timer_view{};
-    CODY2D::CapsuleControl home_wifi{};
+    CODY::AudioView audio_view{};
+    std::array<HomeAction, 2> home_actions{};
+    CODY::NavigationVisibility home_menu{};
     CODY::StatusOverlay status{};
     CODY::StatusOverlay retired_status{};
     CODY2D::TextLine wifi_notice_title{};
@@ -121,6 +136,9 @@ struct DeviceUi {
     bool status_retired = false;
     bool show_battery_percentage = true;
     bool retired_home_wifi_enabled = false;
+    bool home_wifi_enabled = false;
+    uint8_t home_menu_opacity = 0;
+    uint8_t retired_home_menu_opacity = 0;
     int64_t home_wifi_touch_us = 0;
     int64_t chrome_imu_at_us = 0;
     float chrome_acceleration[3]{};
@@ -163,6 +181,11 @@ struct DeviceUi {
     bool asleep = false;
     bool diagnostics = false;
     bool timer_open = false;
+    bool audio_open = false;
+    bool audio_demand_requested = false;
+    bool audio_worker_started = false;
+    int64_t audio_demand_started_us = 0;
+    int64_t audio_worker_retry_at_us = 0;
     bool first_boot = false;
     bool mascot_home = false;
 };
@@ -177,23 +200,130 @@ std::atomic<uint32_t> s_command{0};
 std::atomic<uint32_t> s_ack{0};
 std::atomic<esp_err_t> s_command_result{ESP_OK};
 std::atomic<esp_err_t> s_terminal_error{ESP_OK};
+// The asynchronous selector is independent of the display worker lifetime.
+std::atomic<bool> s_audio_demand_desired{false};
+std::atomic<bool> s_audio_demand_confirmed{false};
+std::atomic<bool> s_audio_demand_may_own{false};
+std::atomic<bool> s_audio_demand_inflight{false};
+std::atomic<bool> s_audio_demand_stop{false};
+std::atomic<esp_err_t> s_audio_demand_error{ESP_OK};
+std::atomic<int64_t> s_audio_demand_confirmed_at_us{0};
 
-// ui: Display-owned Home control and borrowed static caption.
-// Exception: Returns the original text layout failure.
-esp_err_t prepare_home_wifi_control(DeviceUi &ui)
+// Seven rows of five bits for only the characters used by the two Home actions.
+// The glyphs and captions remain in flash, without a runtime font dependency.
+const std::array<uint8_t, 7> *home_pixel_glyph(char value)
 {
-    static constexpr char caption[] = "Setup WiFi";
-    const auto &font = CODY::SceneData::body_font;
-    const CODY2D::TextSpan text{caption, sizeof(caption) - 1U};
-    uint32_t width = 0;
-    auto error = CODY2D::measure_text_width(font, text, width);
-    if (error != ESP_OK) return error;
-    if (width > kHomeWifiBounds.width || font.height > kHomeWifiBounds.height) return ESP_ERR_INVALID_SIZE;
-    ui.home_wifi = {kHomeWifiBounds, {}, 0x1106, 0x08A4, true};
-    return CODY2D::prepare_text_line(font, text,
-        {static_cast<int16_t>(kHomeWifiBounds.x + (kHomeWifiBounds.width - width) / 2),
-         static_cast<int16_t>(kHomeWifiBounds.y + (kHomeWifiBounds.height - font.height) / 2)},
-        0xFFFF, ui.home_wifi.caption);
+    static constexpr std::array<uint8_t, 7> a{14, 17, 17, 31, 17, 17, 17};
+    static constexpr std::array<uint8_t, 7> e{31, 16, 16, 30, 16, 16, 31};
+    static constexpr std::array<uint8_t, 7> f{31, 16, 16, 30, 16, 16, 16};
+    static constexpr std::array<uint8_t, 7> h{17, 17, 17, 31, 17, 17, 17};
+    static constexpr std::array<uint8_t, 7> i{31, 4, 4, 4, 4, 4, 31};
+    static constexpr std::array<uint8_t, 7> p{30, 17, 17, 30, 16, 16, 16};
+    static constexpr std::array<uint8_t, 7> r{30, 17, 17, 30, 20, 18, 17};
+    static constexpr std::array<uint8_t, 7> s{15, 16, 16, 14, 1, 1, 30};
+    static constexpr std::array<uint8_t, 7> t{31, 4, 4, 4, 4, 4, 4};
+    static constexpr std::array<uint8_t, 7> u{17, 17, 17, 17, 17, 17, 14};
+    static constexpr std::array<uint8_t, 7> w{17, 17, 17, 21, 21, 21, 10};
+    switch (value) {
+    case 'A': return &a; case 'E': return &e; case 'F': return &f;
+    case 'H': return &h; case 'I': return &i; case 'P': return &p;
+    case 'R': return &r; case 'S': return &s; case 'T': return &t;
+    case 'U': return &u; case 'W': return &w; default: return nullptr;
+    }
+}
+
+constexpr uint16_t kHomePixelScale = 3;
+constexpr uint16_t kHomePixelHeight = 7 * kHomePixelScale;
+constexpr uint16_t kHomePixelAdvance = 6 * kHomePixelScale;
+
+// Prepare text-only Home actions and equal-height code-drawn icons.
+esp_err_t prepare_home_actions(DeviceUi &ui)
+{
+    static constexpr char pair[] = "PAIR WITH APP";
+    static constexpr char wifi[] = "SETUP WIFI";
+    const char *labels[]{pair, wifi};
+    constexpr uint8_t lengths[]{sizeof(pair) - 1U, sizeof(wifi) - 1U};
+    constexpr uint16_t tops[]{326, 370};
+    constexpr CODY2D::ActionIcon icons[]{CODY2D::ActionIcon::Bluetooth, CODY2D::ActionIcon::Wifi};
+    for (size_t index = 0; index < ui.home_actions.size(); ++index) {
+        auto &action = ui.home_actions[index];
+        const uint32_t width = lengths[index] * kHomePixelAdvance - kHomePixelScale;
+        const uint32_t total = kHomePixelHeight + 8U + width;
+        if (total > 300U) return ESP_ERR_INVALID_SIZE;
+        const uint16_t left = static_cast<uint16_t>((kGeometry.width - total) / 2U);
+        action.icon = {left, static_cast<uint16_t>(tops[index] + (40U - kHomePixelHeight) / 2U),
+                       kHomePixelHeight, kHomePixelHeight};
+        action.hit = {left, tops[index], static_cast<uint16_t>(total), 40};
+        if (action.hit.x < kHomeActionsBounds.left || action.hit.y < kHomeActionsBounds.top ||
+            action.hit.x + action.hit.width > kHomeActionsBounds.right ||
+            action.hit.y + action.hit.height > kHomeActionsBounds.bottom) return ESP_ERR_INVALID_SIZE;
+        const int center_x = kGeometry.width / 2;
+        const int center_y = kGeometry.height / 2;
+        const int radius = std::min(center_x, center_y);
+        for (int x : {int(action.hit.x), int(action.hit.x + action.hit.width - 1U)}) {
+            for (int y : {int(action.hit.y), int(action.hit.y + action.hit.height - 1U)}) {
+                const int dx = x - center_x, dy = y - center_y;
+                if (dx * dx + dy * dy > radius * radius) return ESP_ERR_INVALID_SIZE;
+            }
+        }
+        action.kind = icons[index];
+        action.count = lengths[index];
+        action.text = labels[index];
+        for (uint8_t glyph = 0; glyph < action.count; ++glyph) {
+            if (action.text[glyph] != ' ' && home_pixel_glyph(action.text[glyph]) == nullptr)
+                return ESP_ERR_INVALID_ARG;
+        }
+    }
+    return ESP_OK;
+}
+
+bool home_action_contains(const HomeAction &action, CODY2D::Point point)
+{
+    return point.x >= action.hit.x && point.y >= action.hit.y &&
+        point.x < action.hit.x + action.hit.width && point.y < action.hit.y + action.hit.height;
+}
+
+esp_err_t draw_home_actions(const DeviceUi &ui, CODY2D::Surface strip, uint16_t row, uint16_t left)
+{
+    // Reveal only after the shrinking artwork has cleared the text area.
+    const auto visible = static_cast<uint8_t>(std::min(255, std::max(0,
+        (int(ui.home_menu_opacity) - 210) * 255 / 45)));
+    if (visible == 0) return ESP_OK;
+    const auto surface_error = CODY2D::validate_surface(strip);
+    if (surface_error != ESP_OK) return surface_error;
+    for (const auto &action : ui.home_actions) {
+        const uint8_t effective = ui.home_wifi_enabled ? visible : static_cast<uint8_t>(visible / 3U);
+        const uint16_t top = std::max<uint16_t>(row, action.icon.y);
+        const uint16_t bottom = std::min<uint16_t>(row + strip.height, action.icon.y + kHomePixelHeight);
+        for (uint16_t y = top; y < bottom; ++y) {
+            const uint32_t position = (y - action.icon.y) * 765U / (kHomePixelHeight - 1U);
+            const uint16_t color = position <= 255U
+                ? CODY2D::blend_rgb565(0x2C7F, 0x56BF, static_cast<uint8_t>(position))
+                : position <= 510U
+                    ? CODY2D::blend_rgb565(0xA3FF, 0x2C7F, static_cast<uint8_t>(position - 255U))
+                    : CODY2D::blend_rgb565(0xFC7D, 0xA3FF, static_cast<uint8_t>(position - 510U));
+            const uint16_t faded = CODY2D::fade_rgb565_to_black(color, effective);
+            const size_t offset = static_cast<size_t>(y - row) * strip.stride;
+            CODY2D::Surface line{strip.pixels + offset, strip.width, 1, strip.stride,
+                                 strip.pixel_capacity - static_cast<uint32_t>(offset), strip.byte_order};
+            const auto error = CODY2D::draw_action_icon_rows(action.kind, action.icon, faded, line, y, left);
+            if (error != ESP_OK) return error;
+            const uint16_t stored = CODY2D::rgb565_native_to_stored(faded, strip.byte_order);
+            const uint8_t glyph_row = static_cast<uint8_t>((y - action.icon.y) / kHomePixelScale);
+            for (uint8_t glyph = 0; glyph < action.count; ++glyph) {
+                const auto *bitmap = home_pixel_glyph(action.text[glyph]);
+                if (bitmap == nullptr) continue;
+                const uint16_t glyph_x = action.icon.x + kHomePixelHeight + 8U + glyph * kHomePixelAdvance;
+                for (uint8_t column = 0; column < 5; ++column) {
+                    if (((*bitmap)[glyph_row] & (1U << (4U - column))) == 0) continue;
+                    const int start = std::max<int>(left, glyph_x + column * kHomePixelScale);
+                    const int end = std::min<int>(left + strip.width, glyph_x + (column + 1U) * kHomePixelScale);
+                    if (start < end) std::fill_n(line.pixels + (start - left), end - start, stored);
+                }
+            }
+        }
+    }
+    return ESP_OK;
 }
 
 // No parameters: retire old touch ownership before changing the visible route.
@@ -237,7 +367,7 @@ bool voice_route_available(const DeviceUi &ui)
 {
     return CODY::Waveshare::kDevice.voice_recording &&
         !ui.mascot_home && CODY::onboarding_dashboard_active() &&
-        !ui.model.editing && !ui.timer_open && !ui.diagnostics &&
+        !ui.model.editing && !ui.timer_open && !ui.audio_open && !ui.diagnostics &&
         ui.activity_page != ActivityPage::Reply && ui.model.screensaver.phase != CODY::ScreensaverPhase::Visible &&
         !(ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::ProjectLink) &&
         !s_options_requested.load(std::memory_order_acquire);
@@ -388,11 +518,92 @@ void observe_chrome_motion(DeviceUi &ui, int64_t now_us, esp_err_t motion_error)
 #endif
 }
 
+// context: Unused. The hardware selector can wait five seconds, so its retries
+// must never run on the display owner. A failed call can have changed hardware
+// before reporting an error; ownership is retained until release succeeds.
+void audio_demand_worker(void *context)
+{
+    (void)context;
+    bool previous_desired = false;
+    int64_t retry_at_us = 0;
+    esp_err_t logged_error = ESP_OK;
+    while (true) {
+        const bool desired = s_audio_demand_desired.load(std::memory_order_acquire);
+        if (desired != previous_desired) {
+            retry_at_us = 0;
+            previous_desired = desired;
+        }
+        const bool confirmed = s_audio_demand_confirmed.load(std::memory_order_acquire);
+        const bool may_own = s_audio_demand_may_own.load(std::memory_order_acquire);
+        const auto previous_error = s_audio_demand_error.load(std::memory_order_acquire);
+        const bool needs_change = desired ? (!confirmed || previous_error != ESP_OK) : may_own;
+        const int64_t now_us = esp_timer_get_time();
+        if (needs_change && now_us >= retry_at_us) {
+            if (desired) s_audio_demand_may_own.store(true, std::memory_order_release);
+            s_audio_demand_inflight.store(true, std::memory_order_release);
+            const auto error = LUNASHELL_hardware_set_diagnostic_streams(false, desired, false);
+            if (error == ESP_OK) {
+                if (desired) {
+                    s_audio_demand_confirmed_at_us.store(esp_timer_get_time(), std::memory_order_release);
+                    s_audio_demand_confirmed.store(true, std::memory_order_release);
+                } else {
+                    s_audio_demand_confirmed.store(false, std::memory_order_release);
+                    s_audio_demand_may_own.store(false, std::memory_order_release);
+                }
+                logged_error = ESP_OK;
+            } else {
+                if (desired) s_audio_demand_confirmed.store(false, std::memory_order_release);
+                if (error != logged_error) {
+                    ESP_LOGW(kTag, "Audio levels %s failed (%s); retrying",
+                        desired ? "request" : "release", esp_err_to_name(error));
+                    logged_error = error;
+                }
+            }
+            s_audio_demand_error.store(error, std::memory_order_release);
+            s_audio_demand_inflight.store(false, std::memory_order_release);
+            retry_at_us = esp_timer_get_time() + 1000000;
+        }
+        if (s_audio_demand_stop.load(std::memory_order_acquire) &&
+            !s_audio_demand_desired.load(std::memory_order_acquire) &&
+            !s_audio_demand_may_own.load(std::memory_order_acquire)) break;
+        vTaskDelay(std::max<TickType_t>(1, pdMS_TO_TICKS(100)));
+    }
+    vTaskDeleteWithCaps(nullptr);
+}
+
+// enabled: Display intent only; confirmed ownership and failures belong to the worker.
+void set_audio_demand(bool enabled)
+{
+    auto &ui = *s_ui;
+#if CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
+    (void)enabled;
+    ui.audio_demand_requested = false;
+    return;
+#endif
+    const int64_t now_us = esp_timer_get_time();
+    if (enabled != ui.audio_demand_requested) {
+        ui.audio_demand_requested = enabled;
+        if (enabled) ui.audio_demand_started_us = now_us;
+        s_audio_demand_desired.store(enabled, std::memory_order_release);
+    }
+    if (enabled && !ui.audio_worker_started && now_us >= ui.audio_worker_retry_at_us) {
+        s_audio_demand_error.store(ESP_OK, std::memory_order_release);
+        if (xTaskCreatePinnedToCoreWithCaps(audio_demand_worker, "CODY_audio_demand", 4096,
+            nullptr, 2, nullptr, LUNASHELL::task_affinity::kCodyRenderCoreId,
+            MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT) == pdPASS) {
+            ui.audio_worker_started = true;
+        } else {
+            s_audio_demand_error.store(ESP_ERR_NO_MEM, std::memory_order_release);
+            ui.audio_worker_retry_at_us = now_us + 1000000;
+        }
+    }
+}
+
 // frame: Receives one visible surface and its native content.
 // now_us: Monotonic time for the reset and recording views.
 // motion_error: Result of the canonical motion/audio read in this update, if any.
 // Exception: Returns original native preparation failures.
-esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motion_error = ESP_ERR_NOT_SUPPORTED)
+esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motion_error = ESP_ERR_NOT_FINISHED)
 {
     auto &ui = *s_ui;
     CODY::update_device_observations(ui.model.dashboard);
@@ -406,6 +617,9 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
 #else
     (void)motion_error;
 #endif
+    if (!ui.audio_open || ui.diagnostics || voice_busy) {
+        set_audio_demand(false);
+    }
     // Read an admitted alarm's result before another effect can reuse the audio mailbox.
     auto &timer = ui.model.timer;
     const bool tracking_alarm = timer.alarm_request_sequence != 0;
@@ -416,7 +630,7 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         CODY::onboarding_saved_wifi_startup_offline(now_us));
     if (!tracking_alarm) CODY::update_local_timer_alarm(timer, now_us, voice_busy);
     const bool voucher_attention_allowed = !ui.mascot_home && CODY::onboarding_dashboard_active() &&
-        !ui.model.editing && !ui.diagnostics && !ui.timer_open && !voice_busy &&
+        !ui.model.editing && !ui.diagnostics && !ui.timer_open && !ui.audio_open && !voice_busy &&
         !CODY::device_effects_require_attention(ui.model.effects) && ui.model.battery_banner.sequence == 0 &&
         !(ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::ProjectLink);
     if (voucher_attention_allowed && !ui.asleep && !ui.pressed &&
@@ -427,19 +641,24 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
             ui.model.vouchers.warning_expiry = expiry;
         }
     }
-    const bool saver_eligible = !ui.mascot_home && CODY::onboarding_dashboard_active() &&
+    const bool saver_eligible = (ui.mascot_home ? ui.pixel_demo.elapsed_us >= CODY::kPixelDemoWakingUs :
+        CODY::onboarding_dashboard_active()) &&
         !ui.model.editing && !ui.diagnostics &&
-        !ui.timer_open && !voice_busy &&
+        !ui.timer_open && !ui.audio_open && !voice_busy &&
         ui.model.vouchers.warning_expiry == 0 &&
         !CODY::device_effects_require_attention(ui.model.effects) && ui.model.battery_banner.sequence == 0 &&
         !(ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::ProjectLink);
     CODY::update_screensaver(ui.model.screensaver, saver_eligible,
         ui.model.navigation.last_touch_us, now_us);
+    ui.home_menu.update(now_us);
+    ui.home_menu_opacity = ui.home_menu.opacity(now_us);
+    frame.navigation_opacity = ui.model.navigation.opacity(now_us);
     if (ui.model.screensaver.phase == CODY::ScreensaverPhase::Visible) {
+        ui.home_menu = {};
+        ui.home_menu_opacity = 0;
         frame.layer = Layer::Screensaver;
         return CODY::prepare_screensaver(ui.model.screensaver, ui.view.screensaver, frame.presentation.content);
     }
-    frame.navigation_opacity = ui.model.navigation.opacity(now_us);
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     if (voice_visible(now_us)) {
         frame.layer = Layer::Voice;
@@ -452,6 +671,33 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         frame.layer = Layer::Diagnostics;
         const auto error = DeviceSnapshotService::instance().readDiagnosticsObservation(ui.model.diagnostics);
         return CODY::prepare_device_diagnostics(ui.view, frame.presentation, ui.model.diagnostics, error == ESP_OK);
+    }
+    if (ui.audio_open) {
+        frame.layer = Layer::Audio;
+        frame.arrows = true;
+        set_audio_demand(true);
+#if CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
+        const auto demand_error = ESP_ERR_NOT_SUPPORTED;
+#else
+        auto demand_error = s_audio_demand_error.load(std::memory_order_acquire);
+        if (demand_error == ESP_OK && (!s_audio_demand_confirmed.load(std::memory_order_acquire) ||
+            s_audio_demand_inflight.load(std::memory_order_acquire))) {
+            demand_error = ESP_ERR_NOT_FINISHED;
+        }
+#endif
+        if (demand_error == ESP_OK) {
+            motion_error = DeviceSnapshotService::instance().readMotionPowerObservation(ui.model.motion);
+        }
+        const auto &sample = ui.model.motion.audio.microphone;
+        const int64_t admitted_at = std::max(ui.audio_demand_started_us,
+            s_audio_demand_confirmed_at_us.load(std::memory_order_acquire));
+        if (demand_error == ESP_OK && motion_error == ESP_OK && sample.data_valid &&
+            sample.last_error == ESP_OK && sample.last_success_at_us <= admitted_at) {
+            motion_error = ESP_ERR_NOT_FINISHED;
+        }
+        return CODY::prepare_audio_view(ui.model.motion.audio,
+            demand_error == ESP_OK ? motion_error : demand_error, esp_timer_get_time(),
+            CODY::SceneData::title_font, CODY::SceneData::body_font, ui.audio_view, frame.presentation.content);
     }
     if (ui.timer_open) {
         frame.layer = Layer::Timer;
@@ -476,7 +722,16 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
     const bool mascot_waking = ui.pixel_demo.elapsed_us < CODY::kPixelDemoWakingUs;
     if (ui.mascot_home && (mascot_waking || !CODY::device_effects_require_attention(ui.model.effects))) {
         frame.layer = Layer::Mascot;
-        ui.home_wifi.enabled = CODY::can_open_wifi_setup_from_home();
+        ui.home_wifi_enabled = CODY::can_open_wifi_setup_from_home();
+        const uint32_t alpha = ui.home_menu_opacity;
+        const auto blend = [alpha](uint16_t from, uint16_t to) -> uint16_t {
+            return static_cast<uint16_t>((uint32_t(from) * (255U - alpha) + uint32_t(to) * alpha + 127U) / 255U);
+        };
+        const CODY::LogicalRect viewport{blend(kMuseViewport.x, kHomeCompactViewport.x),
+            blend(kMuseViewport.y, kHomeCompactViewport.y), blend(kMuseViewport.width, kHomeCompactViewport.width),
+            blend(kMuseViewport.height, kHomeCompactViewport.height)};
+        const auto viewport_error = CODY::set_pixel_demo_viewport(ui.pixel_demo, viewport);
+        if (viewport_error != ESP_OK) return viewport_error;
         ui.muse_frame_due_us = now_us + kMuseFramePeriodUs;
         CODY::PixelDemoMotion motion{};
 #if CONFIG_LUNASHELL_BUILD_ENABLE_IMU
@@ -612,8 +867,9 @@ esp_err_t render(const FrameView &frame, bool force = false)
         show_battery ? ui.model.battery_banner : CODY::BatteryAlertNotice{}, saved_epoch);
     if (chrome_error != ESP_OK) return chrome_error;
     const auto &chrome = ui.view.chrome;
-    const bool show_status = frame.layer == Layer::Mascot ||
-        (frame.layer == Layer::Scene && CODY::home_wifi_setup_active());
+    // The same status chrome belongs to every awake content surface. Branding
+    // retains its authored boot animation and Blank represents the powered-off panel.
+    const bool show_status = frame.layer != Layer::Blank && frame.layer != Layer::Branding;
     if (show_status) {
         const auto status_error = CODY::prepare_status_overlay(ui.model.dashboard.connection, ui.status, ui.show_battery_percentage);
         if (status_error != ESP_OK) return status_error;
@@ -638,21 +894,35 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const bool next_navigation = frame.arrows && dashboard_next && frame.layer != Layer::AboutLink && frame.layer != Layer::Timer &&
         frame.layer != Layer::VoucherWarning && frame.layer != Layer::CurrentTurn &&
         frame.layer != Layer::EventReply && frame.layer != Layer::CodexBrowser && frame.layer != Layer::Events &&
+        frame.layer != Layer::Audio &&
         (frame.layer != Layer::Visibility || ui.editor.page + 1U < CODY::kVisibilityPageCount);
     const bool navigation_changed = old.navigation_opacity != opacity || old.next_navigation != next_navigation;
-    const bool content_changed = old.content_revision != view.content.revision;
+    const auto same_bounds = [](const CODY::DamageRect &first, const CODY::DamageRect &second) {
+        return first.left == second.left && first.top == second.top &&
+            first.right == second.right && first.bottom == second.bottom;
+    };
+    const bool content_changed = old.content_revision != view.content.revision ||
+        !same_bounds(old.content_bounds, view.content.bounds) ||
+        !same_bounds(old.bottom_action_bounds, view.content.bottom_action_bounds);
     const bool battery_changed = old.battery_sequence != chrome.battery_sequence;
     const bool connection_changed = old.connection_revision != chrome.connection_revision;
     const bool connection_activity_changed = old.connection_activity_phase != frame.connection_activity_phase;
     const bool voice_ribbon_changed = old.voice_ribbon_at_us != frame.voice_ribbon_at_us;
     const bool pixel_demo_changed = frame.layer == Layer::Mascot && ui.pixel_demo.damage.count != 0;
     const bool home_wifi_changed = frame.layer == Layer::Mascot &&
-        ui.home_wifi.enabled != ui.retired_home_wifi_enabled;
+        (ui.home_wifi_enabled != ui.retired_home_wifi_enabled ||
+         ui.home_menu_opacity != ui.retired_home_menu_opacity);
+    CODY::DamageRect selected_label_bounds{};
+    uint16_t selected_label_offset = UINT16_MAX;
+    const bool has_selected_label = frame.layer == Layer::Scene &&
+        CODY::onboarding_selected_label_damage(selected_label_bounds, selected_label_offset);
+    const bool selected_label_changed = has_selected_label && old.selected_label_offset != selected_label_offset;
     const bool wifi_notice_changed = frame.layer == Layer::Mascot &&
         (ui.wifi_notice_opacity != ui.retired_wifi_notice_opacity ||
          std::strcmp(ui.wifi_notice_text, ui.retired_wifi_notice_text) != 0);
     if (!full && !content_changed && !navigation_changed && !battery_changed && !connection_changed &&
-        !connection_activity_changed && !voice_ribbon_changed && !pixel_demo_changed && !status_changed && !wifi_notice_changed && !home_wifi_changed) {
+        !connection_activity_changed && !voice_ribbon_changed && !pixel_demo_changed && !status_changed &&
+        !wifi_notice_changed && !home_wifi_changed && !selected_label_changed) {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
         if (admit_voice) LUNASHELL::setVoiceInputRouteAvailable(true);
 #endif
@@ -678,6 +948,8 @@ esp_err_t render(const FrameView &frame, bool force = false)
     };
     if (!redraw_all) {
         if (content_changed) {
+            include_damage(old.content_bounds);
+            include_damage(old.bottom_action_bounds);
             include_damage(view.content.bounds);
             include_damage(view.content.bottom_action_bounds);
         }
@@ -687,11 +959,12 @@ esp_err_t render(const FrameView &frame, bool force = false)
             if (frame.layer == Layer::Scene) include_damage(ui.scene.content.bottom_action_bounds);
         }
         if (battery_changed) include_damage({105, 397, 361, 427});
-        if (connection_changed) include_damage({105, 37, 361, 64});
+        if (connection_changed) include_damage(CODY::kDeviceChromeConnectionBounds);
         if (connection_activity_changed) include_damage(CODY::kConnectionActivityBounds);
         if (status_changed) include_damage(CODY::status_overlay_damage_bounds());
         if (wifi_notice_changed) include_damage({103, 70, 363, 124});
-        if (home_wifi_changed) include_damage({153, 396, 313, 436});
+        if (home_wifi_changed) include_damage(kHomeActionsBounds);
+        if (selected_label_changed) include_damage(selected_label_bounds);
         if (voice_ribbon_changed) {
             include_damage({CODY::kVoiceRibbonLeft, CODY::kVoiceRibbonDamageTop,
                 CODY::kVoiceRibbonLeft + CODY::kVoiceRibbonWidth, CODY::kVoiceRibbonDamageBottom});
@@ -753,7 +1026,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
                     ui.wifi_notice_name.text.length, strip, row, left);
             }
             if (error == ESP_OK && frame.layer == Layer::Mascot) {
-                error = CODY2D::draw_capsule_rows(ui.home_wifi, strip, row, left);
+                error = draw_home_actions(ui, strip, row, left);
             }
             if (error == ESP_OK && show_status) {
                 error = CODY::draw_status_overlay_rows(ui.status, opacity, background, strip, row, left);
@@ -780,7 +1053,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
         return error;
     }
     if (!old.valid || old.display_revision != frame_revision || old.layer != frame.layer || old.screen != screen ||
-        (old.content_revision != view.content.revision &&
+        (content_changed &&
          (frame.layer == Layer::Visibility || frame.layer == Layer::CodexBrowser ||
           ui.contact == Target::FirstAction || ui.contact == Target::SecondAction ||
           ui.contact == Target::VoucherScroll || ui.contact == Target::VoucherDismiss))) {
@@ -799,11 +1072,16 @@ esp_err_t render(const FrameView &frame, bool force = false)
     old.voucher_bounds = frame.layer == Layer::Dashboard && screen == WidgetScreen::Credits &&
         !frame.statistics_unavailable ? ui.view.account.voucher_bounds : CODY2D::Rect{};
     old.voice_ribbon_at_us = frame.voice_ribbon_at_us;
+    old.content_bounds = view.content.bounds;
+    old.bottom_action_bounds = view.content.bottom_action_bounds;
+    old.selected_label_offset = has_selected_label ? selected_label_offset : UINT16_MAX;
     if (frame.layer == Layer::Mascot) {
-        ui.retired_home_wifi_enabled = ui.home_wifi.enabled;
+        ui.retired_home_wifi_enabled = ui.home_wifi_enabled;
+        ui.retired_home_menu_opacity = ui.home_menu_opacity;
         ui.retired_wifi_notice_opacity = ui.wifi_notice_opacity;
         std::memcpy(ui.retired_wifi_notice_text, ui.wifi_notice_text, sizeof(ui.wifi_notice_text));
     } else {
+        ui.retired_home_menu_opacity = 0;
         ui.retired_wifi_notice_opacity = 0;
         ui.retired_wifi_notice_text[0] = '\0';
     }
@@ -825,6 +1103,11 @@ Target target_at(CODY2D::Point point)
 {
     const auto &ui = *s_ui;
     const auto layer = ui.retired.layer;
+    if (layer == Layer::Audio) {
+        if (ui.retired.navigation_opacity == 255 &&
+            CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::AudioClose;
+        return CODY::audio_close_at(ui.audio_view, point) ? Target::AudioClose : Target::None;
+    }
     if (layer == Layer::CodexBrowser) {
         if (ui.retired.navigation_opacity == 255 &&
             CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::CodexBrowserBack;
@@ -1017,6 +1300,11 @@ esp_err_t activate(Target target)
         }
     } else if (layer == Layer::Visibility) {
         edit_visibility(target);
+    } else if (layer == Layer::Audio) {
+        if (target == Target::AudioClose) {
+            ui.audio_open = false;
+            invalidate();
+        }
     } else if (layer == Layer::Timer) {
         switch (target) {
         case Target::Previous:
@@ -1147,27 +1435,39 @@ esp_err_t sample_touch()
         return ESP_OK;
     }
     if (ui.retired.layer == Layer::Mascot) {
-        if (pressed_edge && CODY2D::capsule_contains(ui.home_wifi, point)) {
-            ui.contact = Target::HomeWifi;
+        if (sample.pressed && ui.home_menu.primed && ui.home_menu.target_opacity == 255) {
+            ui.home_menu.interact(esp_timer_get_time());
+        }
+        const bool actions_admitted = ui.retired_home_menu_opacity == 255 && ui.retired_home_wifi_enabled;
+        if (pressed_edge && actions_admitted &&
+            (home_action_contains(ui.home_actions[0], point) || home_action_contains(ui.home_actions[1], point))) {
+            ui.contact = home_action_contains(ui.home_actions[0], point) ? Target::HomePair : Target::HomeWifi;
             ui.home_wifi_touch_us = sample.sample_timestamp_us;
             ui.activity_touch_start = point;
             ui.pixel_demo.touch_candidate = false;
             return ESP_OK;
         }
-        if (ui.contact == Target::HomeWifi) {
+        if (ui.contact == Target::HomeWifi || ui.contact == Target::HomePair) {
+            const auto target = ui.contact;
+            const auto &action = ui.home_actions[target == Target::HomePair ? 0 : 1];
             if (sample.pressed) {
                 const int dx = point.x - ui.activity_touch_start.x;
                 const int dy = point.y - ui.activity_touch_start.y;
-                if (!CODY2D::capsule_contains(ui.home_wifi, point) || dx * dx + dy * dy > 144) {
+                if (!home_action_contains(action, point) || dx * dx + dy * dy > 144 || !actions_admitted) {
                     ui.contact = Target::None;
                 }
                 return ESP_OK;
             }
             ui.contact = Target::None;
             const auto elapsed = sample.sample_timestamp_us - ui.home_wifi_touch_us;
-            if (elapsed < 30000 || elapsed > 450000) return ESP_OK;
-            const auto error = CODY::open_wifi_setup_from_home(ui.scene);
+            if (elapsed < 30000 || elapsed > 450000 || !actions_admitted) return ESP_OK;
+            const auto error = target == Target::HomePair ? CODY::open_wifi_pairing_from_home(ui.scene) :
+                CODY::open_wifi_setup_from_home(ui.scene);
+            // A pairing worker may have taken ownership since the displayed frame.
+            if (error == ESP_ERR_INVALID_STATE) return ESP_OK;
             if (error != ESP_OK) return error;
+            ui.home_menu = {};
+            ui.home_menu_opacity = 0;
             ui.mascot_home = false;
             play_touch_cue(ui);
             invalidate();
@@ -1175,6 +1475,7 @@ esp_err_t sample_touch()
         }
         if (CODY::observe_pixel_demo_touch(ui.pixel_demo, point, sample.pressed, pressed_edge,
                 sample.sample_timestamp_us, ui.retired.display_revision)) {
+            if (ui.pixel_demo.elapsed_us >= CODY::kPixelDemoWakingUs) ui.home_menu.interact(esp_timer_get_time());
             play_touch_cue(ui);
         }
         return ESP_OK;
@@ -1274,9 +1575,10 @@ esp_err_t update_navigation()
 #endif
     if (can_open_options && s_options_requested.exchange(false, std::memory_order_acq_rel)) {
         const bool already_open = ui.scene.valid && ui.scene.definition->id == CODY::SceneId::MakeItYours &&
-            !ui.model.editing && !ui.timer_open && !ui.diagnostics;
+            !ui.model.editing && !ui.timer_open && !ui.audio_open && !ui.diagnostics;
         ui.model.editing = false;
         ui.timer_open = false;
+        ui.audio_open = false;
         ui.model.vouchers.warning_expiry = 0;
         CODY::dismiss_screensaver(ui.model.screensaver, esp_timer_get_time());
         ui.diagnostics = false;
@@ -1294,6 +1596,7 @@ esp_err_t update_navigation()
     const auto request = CODY::take_widget_open_request();
     switch (request) {
     case CODY::WidgetOpenRequest::CodexBrowser:
+        ui.audio_open = false;
         if (CODY::onboarding_codex_tools_active()) {
             CODY::open_codex_browser(ui.codex_browser);
             ui.browser_destination = CODY::CodexBrowserDestination::None;
@@ -1302,6 +1605,7 @@ esp_err_t update_navigation()
         break;
     case CODY::WidgetOpenRequest::Home:
     case CODY::WidgetOpenRequest::Statistics: {
+        ui.audio_open = false;
         const auto error = CODY::open_device_dashboard(ui.scene);
         if (error == ESP_ERR_NOT_FINISHED) break;
         if (error != ESP_OK) return error;
@@ -1317,13 +1621,20 @@ esp_err_t update_navigation()
         break;
     }
     case CODY::WidgetOpenRequest::Visibility:
+        ui.audio_open = false;
         ui.model.editor_page = 0;
         ui.model.save = Save::Idle;
         ui.model.editing = true;
         invalidate();
         break;
     case CODY::WidgetOpenRequest::Timer:
+        ui.audio_open = false;
         ui.timer_open = true;
+        invalidate();
+        break;
+    case CODY::WidgetOpenRequest::Audio:
+        ui.timer_open = false;
+        ui.audio_open = true;
         invalidate();
         break;
     default: break;
@@ -1341,7 +1652,8 @@ esp_err_t update_navigation()
         invalidate();
     }
     bool changed = false;
-    const auto error = CODY::update_onboarding(ui.scene, ui.completed_scene, ui.awake_us, ui.awake_us, changed);
+    const auto error = CODY::update_onboarding(ui.scene, ui.completed_scene, ui.awake_us, ui.awake_us, changed,
+        ui.retired.valid && ui.retired.layer == Layer::Scene);
     if (changed) {
         ui.scene_dirty = true;
         if (ui.model.editing && ui.scene.valid && ui.scene.definition->id != CODY::SceneId::MakeItYours) {
@@ -1352,6 +1664,10 @@ esp_err_t update_navigation()
             (!ui.scene.valid || ui.scene.definition->id != CODY::SceneId::MakeItYours)) {
             // Remote attention or setup can replace the view without stopping the timer.
             ui.timer_open = false;
+            invalidate();
+        }
+        if (ui.audio_open && (!ui.scene.valid || ui.scene.definition->id != CODY::SceneId::MakeItYours)) {
+            ui.audio_open = false;
             invalidate();
         }
     }
@@ -1385,7 +1701,9 @@ esp_err_t apply_command(Command command)
     if (command == Command::Ready || command == Command::Wake) ui.model.navigation.interact(now_us);
     FrameView frame{};
     if (command == Command::Ready) {
-        auto error = prepare_home_wifi_control(ui);
+        ui.home_menu = {};
+        ui.home_menu_opacity = 0;
+        auto error = prepare_home_actions(ui);
         if (error == ESP_OK) error = CODY::start_device_setup(ui.scene, ui.first_boot);
         if (error != ESP_OK) return error;
         select_statistics();
@@ -1395,6 +1713,7 @@ esp_err_t apply_command(Command command)
         ui.pixel_demo.showcase.reset(static_cast<uint32_t>(now_us));
     }
     if (command == Command::Sleep || command == Command::Shutdown) {
+        set_audio_demand(false);
         ui.model.effects.event_sound = {};
         const auto audio = CODY::set_codex_audio_suspended(true);
         if (audio != ESP_OK) ESP_LOGW(kTag, "Audio suspension status (%s)", esp_err_to_name(audio));
@@ -1486,7 +1805,7 @@ esp_err_t update_and_draw(int64_t now_us)
     const auto navigation = CODY::update_device_navigation(ui.model, now_us);
     observe_chrome_motion(ui, now_us, navigation.motion_error);
     bool may_return_home = navigation.shaken && !ui.mascot_home && CODY::onboarding_dashboard_active() &&
-        !ui.model.editing && !ui.timer_open && !ui.diagnostics;
+        !ui.model.editing && !ui.timer_open && !ui.audio_open && !ui.diagnostics;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     may_return_home = may_return_home && !voice_visible(now_us);
 #endif
@@ -1630,6 +1949,8 @@ void device_ui_worker(void *context)
         if (error == ESP_OK) error = update_and_draw(esp_timer_get_time());
         if (error == ESP_ERR_NOT_FINISHED) error = ESP_OK;
     }
+    set_audio_demand(false);
+    s_audio_demand_stop.store(true, std::memory_order_release);
     s_terminal_error.store(error, std::memory_order_release);
     DeviceSnapshotService::instance().reportDisplay(false, error);
     ESP_LOGE(kTag, "Device display worker stopped (%s)", esp_err_to_name(error));

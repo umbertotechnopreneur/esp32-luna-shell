@@ -46,6 +46,11 @@ extern "C" esp_err_t LUNASHELL_wifi_init(void)
     snapshot.last_error = ESP_ERR_NOT_SUPPORTED;
     snapshot.health = LUNASHELL::DeviceHealth::Missing;
     LUNASHELL::DeviceSnapshotService::instance().reportWifi(snapshot);
+    LUNASHELL::WifiScanSnapshot scan{};
+    scan.state = LUNASHELL::WifiScanState::Unavailable;
+    scan.error = ESP_ERR_NOT_SUPPORTED;
+    scan.revision = 1;
+    (void)LUNASHELL::DeviceSnapshotService::instance().reportWifiScan(scan);
     return ESP_ERR_NOT_SUPPORTED;
 }
 
@@ -58,6 +63,21 @@ extern "C" esp_err_t LUNASHELL_wifi_connect(
     (void)ssid;
     (void)password;
     (void)persist;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// ssid: Requested network name.
+// password: Secret supplied by the caller; never logged.
+// persist: Requested persistence policy.
+// selection: Exact AP and security selected by the caller.
+// Exception: The disabled Wi-Fi owner always returns NOT_SUPPORTED.
+extern "C" esp_err_t LUNASHELL_wifi_connect_selected(const char *ssid, const char *password,
+    bool persist, const LUNASHELL_wifi_selection_t *selection)
+{
+    (void)ssid;
+    (void)password;
+    (void)persist;
+    (void)selection;
     return ESP_ERR_NOT_SUPPORTED;
 }
 
@@ -84,6 +104,11 @@ extern "C" esp_err_t LUNASHELL_wifi_reset_for_factory(void)
 
 extern "C" esp_err_t LUNASHELL_wifi_start_scan(void)
 {
+    LUNASHELL::WifiScanSnapshot scan{};
+    scan.state = LUNASHELL::WifiScanState::Unavailable;
+    scan.error = ESP_ERR_NOT_SUPPORTED;
+    scan.revision = 1;
+    (void)LUNASHELL::DeviceSnapshotService::instance().reportWifiScan(scan);
     return ESP_ERR_NOT_SUPPORTED;
 }
 

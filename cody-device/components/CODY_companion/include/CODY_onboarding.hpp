@@ -77,6 +77,10 @@ bool can_open_wifi_setup_from_home();
 // Exception: Returns the original admission or route preparation failure.
 esp_err_t open_wifi_setup_from_home(SceneFrame &scene);
 
+// scene: Home-owned frame receiving a direct Wi-Fi provisioning pairing session.
+// Exception: Returns admission or presentation errors; snapshot failures stay visible with Retry.
+esp_err_t open_wifi_pairing_from_home(SceneFrame &scene);
+
 // opacity: Last presented chrome visibility; hidden controls do not admit touch.
 void set_home_wifi_chrome_opacity(uint8_t opacity);
 
@@ -94,7 +98,7 @@ esp_err_t open_companion_options(SceneFrame &scene);
 // scene: Options frame to return to ordinary dashboard and authenticated event routing.
 esp_err_t open_device_dashboard(SceneFrame &scene);
 
-enum class WidgetOpenRequest : uint8_t { None, Home, Statistics, Visibility, Timer, CodexBrowser };
+enum class WidgetOpenRequest : uint8_t { None, Home, Statistics, Visibility, Timer, CodexBrowser, Audio };
 
 // available: True after this device has received the broker's authenticated Events projection.
 void set_onboarding_inbox_available(bool available);
@@ -143,13 +147,20 @@ void cancel_onboarding_touch();
 // No parameters: preserve Home marquee position while its route is visually preempted.
 void suspend_onboarding_command_hints();
 
+// bounds: Receives the selected network label's clipped damage rectangle.
+// offset: Receives its current pixel offset within the same retained frame.
+// Returns false when no selected network label is visible.
+bool onboarding_selected_label_damage(DamageRect &bounds, uint16_t &offset);
+
 // scene: Current worker-owned scene, replaced only by a validated route.
 // completed_scene: Last fully retired scene; typewriter evaluation alone is not completion.
 // active_time_us: Existing animation clock, excluding pause and standby.
 // inactivity_active_time_us: Awake route clock, including animation pause and excluding standby.
 // changed: Receives whether a new scene/content revision requires a frame.
+// scene_presented: Whether this scene was the last fully visible frame.
 esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene,
-                            int64_t active_time_us, int64_t inactivity_active_time_us, bool &changed);
+                            int64_t active_time_us, int64_t inactivity_active_time_us, bool &changed,
+                            bool scene_presented = true);
 
 // point: Acquired logical sample, including contacts owned by Debug controls.
 // pressed: Current hardware contact state.

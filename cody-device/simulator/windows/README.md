@@ -36,18 +36,28 @@ pwsh -NoProfile -File ./scripts/device.ps1 simulator -Screen rig -OutputPath art
 
 The default Cody Studio opens the device preview. The existing VibeWare floppy
 plays once, followed by the native Muse showcase. **BOOT / Options** opens the
-device menu. **PWR / Standby** toggles the simulated display, and **Simulate shake**
-returns to the first enabled statistics page when that dashboard is open.
-**Setup WiFi** on Muse Home opens the new Wi-Fi journey. It has separate download
-and pairing choices, an explanation page and a single Android/Apple store QR
+device menu. **PWR / Standby** toggles the simulated display. With **Shake
+standby/wake** enabled, **Simulate shake** toggles standby; otherwise it returns
+to the first enabled statistics page when that dashboard is open.
+Touching Muse Home reduces and lifts the original character to reveal **PAIR WITH
+APP** and **SETUP WIFI**; they fade away after inactivity. The first opens the
+simulated Bluetooth pairing QR directly, while the second opens the Wi-Fi journey.
+The journey offers app download, pairing and an on-device setup preview. The
+on-device page shows a synthetic scan and fixed demonstration networks with
+simulated signal strengths in dBm; selecting one opens a Studio recreation of
+the native multitap password keyboard. Connect
+changes only the optional simulated loopback state, and the password is neither
+sent nor saved. The native keyboard is not exposed through the Studio bridge.
+The app path includes an explanation page and a single Android/Apple store QR
 selected by touch. The pairing QR shown in Studio is explicitly synthetic and
 cannot pair a device. The device creates its own session-bound QR. A violet
 no-Wi-Fi notice appears after the wake and four seconds of visible Home time;
 its device name and link state are explicitly simulated in Studio. The shared
-status bar shows the PC's local date/time and unavailable physical measurements.
-The status and navigation controls fade after inactivity and return on touch or
-simulated motion. The numeric battery setting is prepared in the renderer but has
-no settings control yet.
+status bar appears across interactive screens, events and the screensaver; it
+shows the PC's local date/time and unavailable physical measurements. It is hidden
+during floppy boot and black standby. The status and navigation controls fade
+after inactivity and return on touch or simulated motion. The numeric battery
+setting is prepared in the renderer but has no settings control yet.
 
 The dashboard and Options page arrows fade after ten seconds. A touch reveals
 them again. **Options 1/3** contains **Connections**, **Codex stats** and **Timer**.
@@ -57,9 +67,9 @@ three fixed instruction pages and their lateral arrows. Restart replays the boot
 settings and the simulator association. Timer previews duration and sound selection, a running countdown
 and the finished state. Audible playback and hardware wake belong to the device.
 **Home** on any page opens Reset countdown or the first enabled statistics
-screen, with Device as the fallback. Brightness, orientation and visibility
-choices affect this preview session. **Visible screens** groups the nine
-configurable pages into three sets of full-width rows. **About** contains
+screen, with Device as the fallback. Brightness starts at 80%; brightness,
+orientation and visibility choices affect this preview session. **Visible screens**
+groups the nine configurable pages into three sets of full-width rows. **About** contains
 **System**, **Memory** and **Firmware**, followed by a scannable project QR code and an explicit
 **Open link** action. System identifies its uptime as **Studio uptime**.
 The current loopback source has no physical CPU/RAM or firmware metadata:
@@ -82,8 +92,8 @@ fifteen idle seconds on the dashboard. It is Off by default. This is a small
 procedural preview at eight frames per second, not a firmware performance
 measurement. A touch only dismisses it; shake returns Home. Options, pairing
 and active Codex events remain visible. The preview's standalone window and
-status still identify it as SIMULATED while the device area contains only the
-globe on black.
+status still identify it as SIMULATED; the globe shares its display with the
+adaptive status bar.
 
 Cody Studio uses the 466 × 466 display at integer pixel scales. Resizing affects
 presentation only. Rendering and touch share the same logical rotation.

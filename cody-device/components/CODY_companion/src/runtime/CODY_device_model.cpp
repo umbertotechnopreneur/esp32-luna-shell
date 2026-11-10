@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "LUNASHELL_platform.h"
 #include "esp_app_desc.h"
 #include "esp_attr.h"
 #include "esp_log.h"
@@ -428,7 +429,10 @@ DeviceNavigationUpdate update_device_navigation(DeviceModel &model, int64_t now_
             sample.acceleration_mps2[Axis::Z] = imu.gesture_acceleration_mps2[2];
         }
     }
-    update.shaken = observe_companion_shake(model.shake, sample, now_us, true);
+    // Power owns the gesture when shake-to-standby is selected, preventing a
+    // single physical shake from also navigating Home.
+    update.shaken = observe_companion_shake(model.shake, sample, now_us,
+        !LUNASHELL_power_manager_shake_wake_enabled());
     if (update.shaken) model.navigation.interact(now_us);
 #endif
     model.navigation.update(now_us, kNavigationTimeoutUs);

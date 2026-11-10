@@ -155,11 +155,7 @@ esp_err_t execute_user_name(LUNASHELL::CodexNameOperation operation, const char 
     return error != ESP_OK ? error : publication_error;
 }
 #endif
-#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
-constexpr bool kDefaultShake = true;
-#else
 constexpr bool kDefaultShake = false;
-#endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO && CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 constexpr bool kDefaultSounds = true;
 #else

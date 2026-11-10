@@ -31,7 +31,6 @@ from vibeware_boot import VibeWareBoot
 
 CENTER = SIZE // 2
 MUSE_OFFSET = (SIZE - MUSE_SIZE) // 2
-MUSE_BOUNDS = (MUSE_OFFSET, MUSE_OFFSET, MUSE_OFFSET + MUSE_SIZE, MUSE_OFFSET + MUSE_SIZE)
 BACKGROUND = (8, 11, 22)
 FOREGROUND = (239, 236, 224)
 MUTED = (153, 168, 186)
@@ -64,6 +63,12 @@ QUICK_GUIDE = (
 )
 NAVIGATION_IDLE_SECONDS = 10
 NAVIGATION_FADE_SECONDS = 0.35
+HOME_MENU_TRANSITION_SECONDS = 0.5
+SIMULATED_WIFI_KEYS = {
+    "letters": (".-_@", "abc", "def", "ghi", "jkl", "mno", "pqrs", "tuv", "wxyz"),
+    "numbers": ("01", "2", "3", "4", "5", "6", "7", "8", "9"),
+    "symbols": ("!\"#$", "%&'(", ")*+,", "-./:", ";<=>", "?@[\\", "]^_`", "{|}~", "@_`"),
+}
 PAGES = (
     "Device", "Reset countdown", "Context", "Codex limits", "Today", "Last 7 days",
     "Token history", "Credits", "Codex account", "About",
@@ -159,6 +164,9 @@ class WifiSetupRoute(Enum):
     HOME_INTRO = auto()
     HOME_APP = auto()
     HOME_PAIR = auto()
+    HOME_NETWORKS = auto()
+    HOME_PASSWORD = auto()
+    HOME_NETWORK_RESULT = auto()
 
 
 @lru_cache(maxsize=8)
@@ -353,6 +361,7 @@ class DeviceStudioWindow:
         self.audio = None
         self.muse = None
         self.muse_elapsed_ms = 0.0
+        self.mascot_was_waking = False
         self.muse_last_frame_at = None
         self.muse_reaction_ms = None
         self.muse_seed = 0
@@ -366,6 +375,21 @@ class DeviceStudioWindow:
         self.guide_return = WifiSetupRoute.NOT_CONNECTED
         self.pairing_return = WifiSetupRoute.PHONE_GUIDE
         self.home_wifi_apple = False
+        self.home_pair_return = WifiSetupRoute.HOME_CHOICES
+        self.home_menu_since = None
+        self.wifi_networks_scanned = False
+        self.wifi_selected_network = ""
+        self.wifi_selected_index = -1
+        self.wifi_network_scroll_elapsed = 0.0
+        self.wifi_network_scroll_last_draw = None
+        self.wifi_password = ""
+        self.wifi_key_mode = "letters"
+        self.wifi_key_uppercase = False
+        self.wifi_key_reveal = False
+        self.wifi_pending_key = None
+        self.wifi_pending_index = 0
+        self.wifi_last_key_at = 0.0
+        self.wifi_result = ""
         self.show_battery_percentage = True
         self.simulated_ble_name = f"AiGadget-{randbits(24):06X}"
         self.pairing_attempted = False
@@ -384,6 +408,7 @@ class DeviceStudioWindow:
         self.photo = None
         self.timer = None
         self.started_at = self.last_navigation = time.monotonic()
+        self.screensaver_idle_since = self.started_at
         if root is None:
             if args.ccp:
                 raise ValueError("Cody Studio captures cannot start a CCP endpoint")
@@ -463,7 +488,7 @@ class DeviceStudioWindow:
         self.auto_rotate = True
         self.history_window = 1
         self.visible = set(PAGES)
-        self.brightness = 100
+        self.brightness = 80
         self.shake_to_wake = False
         self.info = SystemInfoModel()
         self.screensaver = ScreensaverModel()
@@ -475,9 +500,11 @@ class DeviceStudioWindow:
         self.boot = self.boot_frame = None
         self.boot_error = ""
         self.muse_elapsed_ms = 0.0
+        self.mascot_was_waking = False
         self.muse_last_frame_at = None
         self.muse_reaction_ms = None
         self.muse_seed = randbits(32)
+        self.home_menu_since = None
         if self.muse is not None:
             self.muse.reset(self.muse_seed)
         self.open("mascot")
@@ -496,12 +523,17 @@ class DeviceStudioWindow:
     # self: Local route owner cancelling screensaver presentation on user navigation.
     # route: Requested setup, options or dashboard route.
     def open(self, route):
+        if self.route is WifiSetupRoute.HOME_PASSWORD and route is not self.route:
+            self.clear_simulated_wifi_secret()
         if route != "mascot":
             self.hide_mascot()
+        elif self.route != "mascot":
+            self.home_menu_since = None
         self.route = route
         self.chat_title_key = None
         self.screensaver.active = False
         self.last_navigation = time.monotonic()
+        self.screensaver_idle_since = self.last_navigation
 
     # self: Studio navigation owner preserving the menu that opened Connections.
     def open_connections(self):
@@ -522,7 +554,97 @@ class DeviceStudioWindow:
     # self: Home is the sole entry point for the new Wi-Fi setup preview.
     def open_home_wifi(self):
         self.home_wifi_apple = False
+        self.home_pair_return = WifiSetupRoute.HOME_CHOICES
         self.open(WifiSetupRoute.HOME_CHOICES)
+
+    # self: Home shortcut to the explicitly simulated Bluetooth Wi-Fi pairing QR.
+    def open_home_pairing(self):
+        self.home_pair_return = "mascot"
+        self.open(WifiSetupRoute.HOME_PAIR)
+
+    # self: Explicitly synthetic network search; never consults a host or device radio.
+    def open_home_networks(self):
+        self.wifi_networks_scanned = False
+        self.wifi_selected_index = -1
+        self.open(WifiSetupRoute.HOME_NETWORKS)
+
+    # self: Begin another explicitly synthetic scan and retire the old selection.
+    def scan_simulated_networks(self):
+        self.wifi_networks_scanned = True
+        self.wifi_selected_index = -1
+        self.wifi_network_scroll_elapsed = 0.0
+        self.wifi_network_scroll_last_draw = None
+
+    # self: Drop the transient draft when its keyboard is hidden or dismissed.
+    def clear_simulated_wifi_secret(self):
+        self.wifi_password = ""
+        self.wifi_key_reveal = False
+        self.wifi_pending_key = None
+        self.wifi_pending_index = 0
+        self.wifi_last_key_at = 0.0
+
+    # index: Stable identity of the row within this synthetic scan.
+    # name: A fixed demonstration network, never a detected SSID.
+    def select_simulated_network(self, index, name):
+        if index != self.wifi_selected_index:
+            self.wifi_selected_index = index
+            self.wifi_selected_network = name
+            self.wifi_network_scroll_elapsed = 0.0
+            self.wifi_network_scroll_last_draw = None
+            return
+        self.wifi_selected_index = -1
+        self.clear_simulated_wifi_secret()
+        self.wifi_key_mode = "letters"
+        self.wifi_key_uppercase = False
+        self.open(WifiSetupRoute.HOME_PASSWORD)
+
+    # key: Same three-column multitap keyboard positions as CODY_text_entry.
+    def activate_simulated_wifi_key(self, key):
+        now = time.monotonic()
+        if key < 9:
+            group = SIMULATED_WIFI_KEYS[self.wifi_key_mode][key]
+            cycle = (len(group) > 1 and self.wifi_pending_key == key and self.wifi_password and
+                     now - self.wifi_last_key_at <= 1.0)
+            if not cycle and len(self.wifi_password) >= 64:
+                self.wifi_pending_key = None
+                self.wifi_pending_index = 0
+                return
+            self.wifi_pending_index = (self.wifi_pending_index + 1) % len(group) if cycle else 0
+            character = group[self.wifi_pending_index]
+            if self.wifi_key_uppercase and self.wifi_key_mode == "letters":
+                character = character.upper()
+            self.wifi_password = (self.wifi_password[:-1] if cycle else self.wifi_password) + character
+            self.wifi_pending_key = key if len(group) > 1 else None
+        else:
+            self.wifi_pending_key = None
+            if key == 9:
+                if self.wifi_key_mode == "letters":
+                    self.wifi_key_uppercase = not self.wifi_key_uppercase
+                else:
+                    self.wifi_key_mode = "symbols" if self.wifi_key_mode == "numbers" else "numbers"
+            elif key == 10 and len(self.wifi_password) < 64:
+                self.wifi_password += " "
+            elif key == 11:
+                self.wifi_password = self.wifi_password[:-1]
+            elif key == 12:
+                self.wifi_key_mode = "numbers" if self.wifi_key_mode == "letters" else "letters"
+            elif key == 13:
+                self.wifi_key_reveal = not self.wifi_key_reveal
+            elif key == 14 and self.wifi_password:
+                self.connect_simulated_network()
+        self.wifi_last_key_at = now
+
+    # self: Update only the optional loopback state; never send or persist the draft.
+    def connect_simulated_network(self):
+        try:
+            if self.endpoint is not None:
+                self.endpoint.act("network", True)
+                self.wifi_result = "Loopback enabled"
+            else:
+                self.wifi_result = "Preview only"
+        finally:
+            self.clear_simulated_wifi_secret()
+        self.open(WifiSetupRoute.HOME_NETWORK_RESULT)
 
     # self: Studio navigation owner opening the physical-only pairing preview.
     def open_pairing_preview(self):
@@ -578,19 +700,23 @@ class DeviceStudioWindow:
             return
         self.standby = not self.standby
         if self.standby:
+            if self.route is WifiSetupRoute.HOME_PASSWORD:
+                self.clear_simulated_wifi_secret()
             self.hide_mascot()
         if self.standby and self.events:
             self.events.hide()
         self.screensaver.active = False
         self.touch = None
         self.last_navigation = time.monotonic()
+        self.screensaver_idle_since = self.last_navigation
 
     # self: Preview owner applying the same first-visible-statistics shortcut as firmware.
     def shake(self):
         if self.boot is not None:
             return
-        if self.standby and self.shake_to_wake:
+        if self.shake_to_wake:
             self.toggle_standby()
+            return
         if not self.standby and not self.event_visible and self.route == "widgets":
             self.open_statistics()
 
@@ -614,7 +740,7 @@ class DeviceStudioWindow:
     # self: SIMULATED source owner; no physical sensor or device is contacted.
     # direction: Unit direction in the host screen's physical coordinate frame.
     def simulate_motion(self, direction):
-        if self.boot is not None or self.standby or self.event_visible:
+        if self.boot is not None or self.standby:
             return
         self.last_navigation = time.monotonic()
         if self.route == "mascot":
@@ -671,6 +797,12 @@ class DeviceStudioWindow:
             elif self.route is WifiSetupRoute.HOME_APP:
                 self.open(WifiSetupRoute.HOME_INTRO)
             elif self.route is WifiSetupRoute.HOME_PAIR:
+                self.open(self.home_pair_return)
+            elif self.route is WifiSetupRoute.HOME_NETWORKS:
+                self.open(WifiSetupRoute.HOME_CHOICES)
+            elif self.route is WifiSetupRoute.HOME_PASSWORD:
+                self.open(WifiSetupRoute.HOME_NETWORKS)
+            elif self.route is WifiSetupRoute.HOME_NETWORK_RESULT:
                 self.open(WifiSetupRoute.HOME_CHOICES)
             elif self.route is WifiSetupRoute.PHONE_GUIDE:
                 self.open(self.guide_return)
@@ -928,23 +1060,28 @@ class DeviceStudioWindow:
         self.sidebar(draw, -1, self.back)
 
     # self: Synthetic status chrome; host clock and loopback link are never firmware observations.
-    # draw: Logical framebuffer receiving the compact toolbar.
+    # image: Logical framebuffer receiving the compact toolbar before rotation.
     # snapshot: Explicitly simulated loopback state.
     # now: Monotonic time for the visibility fade.
-    def draw_home_wifi_status(self, draw, snapshot, now):
+    def draw_status(self, image, snapshot, now):
         opacity = self.navigation_opacity(now)
         if opacity <= 0:
             return
+        # Blend the chrome over the actual pixels of every scene, including the globe.
+        layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
+        draw = ImageDraw.Draw(layer)
         wall = time.localtime()
-        draw.text((122, 31), time.strftime("%a %d %b %Y", wall).upper(), font=font(10), fill=blend(MUTED, opacity))
-        draw.text((122, 45), time.strftime("%H:%M", wall), font=font(15), fill=blend(FOREGROUND, opacity))
+        draw.text((122, 31), time.strftime("%a %d %b %Y", wall).upper(), font=font(10), fill=(*MUTED, 255))
+        draw.text((122, 45), time.strftime("%H:%M", wall), font=font(15), fill=(*FOREGROUND, 255))
         # The loopback has no measured RSSI, BLE telemetry or physical battery.
-        setup_icon(draw, "wifi", (236, 53), 20, blend(MUTED, opacity))
-        setup_icon(draw, "bluetooth", (266, 53), 18, blend(MUTED, opacity))
-        draw.rounded_rectangle((287, 46, 311, 60), radius=2, outline=blend(MUTED, opacity), width=2)
-        draw.rectangle((312, 50, 314, 56), fill=blend(MUTED, opacity))
+        setup_icon(draw, "wifi", (236, 53), 20, (*MUTED, 255))
+        setup_icon(draw, "bluetooth", (266, 53), 18, (*MUTED, 255))
+        draw.rounded_rectangle((287, 46, 311, 60), radius=2, outline=(*MUTED, 255), width=2)
+        draw.rectangle((312, 50, 314, 56), fill=(*MUTED, 255))
         if self.show_battery_percentage:
-            draw.text((319, 47), "N/A", font=font(10), fill=blend(MUTED, opacity))
+            draw.text((319, 47), "N/A", font=font(10), fill=(*MUTED, 255))
+        layer.putalpha(layer.getchannel("A").point(lambda alpha: round(alpha * opacity)))
+        image.paste(layer, (0, 0), layer)
 
     # self: Current synthetic route owner.
     # draw: Logical framebuffer receiving the Home affordance.
@@ -967,6 +1104,102 @@ class DeviceStudioWindow:
     def select_home_wifi_platform(self, apple):
         self.home_wifi_apple = apple
 
+    # draw: Simulated scan and network rows use the requested solid violet fill.
+    # name: Complete network identifier or action caption.
+    # top: Logical top of the row.
+    # action: Callback for a complete touch.
+    # height: Logical row height.
+    # rssi: Synthetic signal strength, absent for the scan action.
+    # selected: Whether this row owns the full scrolling identity.
+    # now: Monotonic frame time for the selected row.
+    # target: Unique synthetic row identity, independent of the SSID text.
+    def simulated_network_button(self, draw, name, top, action, height=44, rssi=None,
+                                 selected=False, now=0.0, target=None):
+        box = (93, top, 373, top + height)
+        draw.rounded_rectangle(box, radius=14, fill=(107, 28, 173),
+                               outline=FOREGROUND if selected else None, width=2)
+        if rssi is None:
+            label(draw, name, top + (height - 18) // 2, 18, FOREGROUND, width=256)
+        elif selected:
+            self.draw_selected_wifi_network(draw, now, top + 7)
+        else:
+            shown = name
+            while shown and draw.textlength(shown, font=font(15)) > 174:
+                shown = shown[:-1]
+            if shown != name:
+                while shown and draw.textlength(shown + "...", font=font(15)) > 174:
+                    shown = shown[:-1]
+                shown += "..."
+            draw.text((107, top + height // 2), shown, font=font(15), fill=FOREGROUND, anchor="lm")
+            draw.text((359, top + height // 2), f"{rssi} dBm", font=font(15), fill=FOREGROUND, anchor="rm")
+        self.targets[target if target is not None else name] = (box, action)
+
+    # draw: Frame receiving the selected network's clipped text.
+    # now: Monotonic frame time; selection starts a new reading cycle.
+    # top: Logical top of the selected row's text viewport.
+    def draw_selected_wifi_network(self, draw, now, top):
+        # Studio's fixture contains only an SSID and synthetic RSSI, no AP identity.
+        text = self.wifi_selected_network + "  SIMULATED AP ID unavailable"
+        if self.wifi_network_scroll_last_draw is not None:
+            delta = max(0.0, now - self.wifi_network_scroll_last_draw)
+            # Hidden routes are not drawn; do not advance their animation on return.
+            if delta <= 0.25:
+                self.wifi_network_scroll_elapsed += delta
+        self.wifi_network_scroll_last_draw = now
+        face = font(18)
+        width = 256
+        travel = max(0, round(draw.textlength(text, font=face)) - width)
+        if travel == 0:
+            label(draw, text, top, 18, FOREGROUND, width=width)
+            return
+        # Keep both ends readable, then move back rather than jumping to the start.
+        start_hold = 1.2
+        end_hold = 1.8
+        speed = 20.0
+        movement = travel / speed
+        elapsed = self.wifi_network_scroll_elapsed % (start_hold + end_hold + 2 * movement)
+        if elapsed < start_hold:
+            offset = 0
+        elif elapsed < start_hold + movement:
+            offset = round((elapsed - start_hold) * speed)
+        elif elapsed < start_hold + movement + end_hold:
+            offset = travel
+        else:
+            offset = max(0, round(travel - (elapsed - start_hold - movement - end_hold) * speed))
+        viewport = Image.new("L", (width, 25))
+        ImageDraw.Draw(viewport).text((-offset, 0), text, font=face, fill=255, anchor="lt")
+        draw.bitmap((105, top), viewport, fill=FOREGROUND)
+
+    # draw: Studio representation of the native CODY_text_entry multitap layout.
+    def draw_simulated_wifi_keyboard(self, draw):
+        label(draw, "Wi-Fi password", 72, 19)
+        label(draw, "Replaces saved Wi-Fi", 98, 15, MUTED, width=300)
+        field = (95, 125, 371, 156)
+        draw_control_pill(draw, field, ((24, 24, 49), (8, 8, 16), (74, 113, 222), FOREGROUND), 14)
+        value = self.wifi_password if self.wifi_key_reveal else "*" * len(self.wifi_password)
+        while value and draw.textlength(value, font=font(17)) > 250:
+            value = value[1:]
+        label(draw, value if value else "Enter password", 131, 17,
+              FOREGROUND if value else MUTED, width=250)
+        mode = self.wifi_key_mode
+        groups = SIMULATED_WIFI_KEYS[mode]
+        for key in range(15):
+            if key < 12:
+                left, top, width, height = 73 + (key % 3) * 110, 160 + (key // 3) * 45, 100, 39
+            else:
+                left, top, width, height = 104 + (key - 12) * 88, 340, 82, 43
+            box = (left, top, left + width, top + height)
+            draw.rounded_rectangle(box, radius=12, fill=(107, 28, 173))
+            if key < 9:
+                caption = groups[key].upper() if mode == "letters" and self.wifi_key_uppercase else groups[key]
+            else:
+                caption = ("Shift" if mode == "letters" else "#+=" if mode == "numbers" else "123") if key == 9 else (
+                    "Space" if key == 10 else "Del" if key == 11 else "123" if key == 12 and mode == "letters" else
+                    "ABC" if key == 12 else "Hide" if key == 13 and self.wifi_key_reveal else
+                    "Show" if key == 13 else "Connect")
+            label(draw, caption, top + (height - 15) // 2, 15, FOREGROUND, x=left + width // 2, width=width - 6)
+            self.targets[f"wifi-key-{key}"] = (box, lambda selected=key: self.activate_simulated_wifi_key(selected))
+
     # self: Paint the Home-launched Wi-Fi route without starting real Bluetooth.
     # draw: Logical framebuffer receiving the current route.
     # now: Monotonic clock for Back/Next/Home visibility.
@@ -975,10 +1208,12 @@ class DeviceStudioWindow:
         if self.route is WifiSetupRoute.HOME_CHOICES:
             label(draw, "Wi-Fi setup", 82, 30)
             label(draw, "Connect to the internet", 130, 17, MUTED)
-            self.button(draw, "Download app", 210, lambda: self.open(WifiSetupRoute.HOME_INTRO),
-                        width=280, height=56, caption_size=20, palette=WIFI_CONTROL_PALETTE)
-            self.button(draw, "Pair Cody", 280, lambda: self.open(WifiSetupRoute.HOME_PAIR),
-                        width=280, height=56, caption_size=20, palette=WIFI_CONTROL_PALETTE)
+            self.button(draw, "Download app", 183, lambda: self.open(WifiSetupRoute.HOME_INTRO),
+                        width=280, height=52, caption_size=20, palette=WIFI_CONTROL_PALETTE)
+            self.button(draw, "Pair Cody", 246, lambda: self.open(WifiSetupRoute.HOME_PAIR),
+                        width=280, height=52, caption_size=20, palette=WIFI_CONTROL_PALETTE)
+            self.button(draw, "On device", 309, self.open_home_networks,
+                        width=280, height=52, caption_size=20, palette=WIFI_CONTROL_PALETTE)
         elif self.route is WifiSetupRoute.HOME_INTRO:
             label(draw, "Before you start", 82, 27)
             label(draw, "Connect in three steps", 130, 17, MUTED)
@@ -1002,7 +1237,7 @@ class DeviceStudioWindow:
                 label(draw, "Store QR unavailable", 260, 18, MUTED)
             else:
                 qr_tile(draw, matrix, 205, 168)
-        else:
+        elif self.route is WifiSetupRoute.HOME_PAIR:
             label(draw, "Pair Cody", 82, 30)
             label(draw, "SIMULATED - not a device", 130, 17, MUTED)
             matrix = store_qr_matrix("SIMULATED-CODY-NOT-A-DEVICE")
@@ -1010,6 +1245,28 @@ class DeviceStudioWindow:
                 label(draw, "QR preview unavailable", 240, 17, MUTED)
             else:
                 qr_tile(draw, matrix, 164, 192)
+        elif self.route is WifiSetupRoute.HOME_NETWORKS:
+            label(draw, "Wi-Fi networks", 75, 27)
+            label(draw, "Replaces saved Wi-Fi", 106, 15, MUTED)
+            label(draw, "Tap again to select" if self.wifi_selected_index >= 0 else
+                  "SIMULATED - no radio scan", 132, 15, MUTED)
+            if self.wifi_networks_scanned:
+                for index, (name, rssi) in enumerate((("SIMULATED Home", -42),
+                                                       ("SIMULATED Office", -63),
+                                                       ("SIMULATED Guest", -78))):
+                    self.simulated_network_button(draw, name, 160 + index * 45,
+                        lambda selected_index=index, selected=name:
+                            self.select_simulated_network(selected_index, selected),
+                        39, rssi, index == self.wifi_selected_index, now, f"wifi-network-{index}")
+            self.simulated_network_button(draw, "Scan for networks", 342,
+                                          self.scan_simulated_networks, 38)
+        elif self.route is WifiSetupRoute.HOME_PASSWORD:
+            self.draw_simulated_wifi_keyboard(draw)
+        elif self.route is WifiSetupRoute.HOME_NETWORK_RESULT:
+            label(draw, "SIMULATED Wi-Fi", 82, 26)
+            label(draw, self.wifi_selected_network, 154, 19, SETUP_ACCENT)
+            label(draw, self.wifi_result, 200, 21)
+            label(draw, "No real network was used", 243, 16, MUTED)
         opacity = self.navigation_opacity(now)
         if opacity > 0:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
@@ -1024,7 +1281,8 @@ class DeviceStudioWindow:
     # now: Monotonic frame time for the shared Back fade.
     def draw_wifi_setup(self, draw, now):
         if self.route in (WifiSetupRoute.HOME_CHOICES, WifiSetupRoute.HOME_INTRO,
-                          WifiSetupRoute.HOME_APP, WifiSetupRoute.HOME_PAIR):
+                          WifiSetupRoute.HOME_APP, WifiSetupRoute.HOME_PAIR, WifiSetupRoute.HOME_NETWORKS,
+                          WifiSetupRoute.HOME_PASSWORD, WifiSetupRoute.HOME_NETWORK_RESULT):
             self.draw_home_wifi_setup(draw, now)
             return
         if self.route in (WifiSetupRoute.OFFLINE, WifiSetupRoute.NOT_CONNECTED):
@@ -1042,7 +1300,6 @@ class DeviceStudioWindow:
                             width=160, height=50, secondary=True, icon="chevron")
             return
         if self.route is WifiSetupRoute.PHONE_GUIDE:
-            setup_icon(draw, "phone", (CENTER, 89), 54, SETUP_ACCENT)
             label(draw, "Wi-Fi setup", 130, 32)
             label(draw, "Get the Espressif app", 186, 17, MUTED)
             label(draw, "Then open it and scan", 212, 17, MUTED)
@@ -1052,7 +1309,6 @@ class DeviceStudioWindow:
             self.button(draw, "Show pairing QR", 348, self.open_pairing_preview,
                         width=280, height=64, icon="bluetooth")
         elif self.route is WifiSetupRoute.INSTALL_APP:
-            setup_icon(draw, "phone", (CENTER, 72), 46, SETUP_ACCENT)
             label(draw, "Scan to install", 98, 28)
             label(draw, "ESP BLE Provisioning", 139, 16, MUTED)
             qr_tile(draw, INSTALL_APP_QR, 165, 192)
@@ -1451,6 +1707,43 @@ class DeviceStudioWindow:
             if page != "About" or self.info.page is not InfoPage.PROJECT_LINK:
                 self.sidebar(draw, 1, (lambda: self.move(1)) if opacity == 1 else None, opacity)
 
+    # image: Logical framebuffer receiving a scalable vector icon and gradient text.
+    # top: Visible top of the text; opacity follows the shared navigation timeout.
+    def draw_home_action(self, image, caption, icon, top, opacity, action):
+        renderer = DeviceStudioWindow.draw_home_action
+        face = getattr(renderer, "arcade_face", None)
+        if face is None:
+            # Use the vendored UNSCII pixel face, independently of host fonts.
+            source = Path(__file__).resolve().parents[2] / "assets/cody/muse-fonts/unscii.ttf"
+            face = ImageFont.truetype(str(source), 24)
+            renderer.arcade_face = face
+        bounds = face.getbbox(caption)
+        text_height = max(1, bounds[3] - bounds[1])
+        mask = Image.new("L", image.size, 0)
+        draw = ImageDraw.Draw(mask)
+        text_width = round(draw.textlength(caption, font=face))
+        gap = 11
+        left = CENTER - (text_height + gap + text_width) // 2
+        setup_icon(draw, icon, (left + text_height // 2, top + text_height // 2),
+                   text_height, 255)
+        draw.text((left + text_height + gap, top - bounds[1]), caption, font=face, fill=255)
+        # Hard pixel edges avoid a glow or blurred type on the small display.
+        mask = mask.point(lambda value: round(255 * opacity) if value >= 128 else 0)
+        gradient = Image.new("RGB", image.size)
+        pixels = ImageDraw.Draw(gradient)
+        width = max(1, text_height + gap + text_width)
+        cyan, violet, pink = (82, 212, 255), (166, 125, 255), (251, 143, 239)
+        for y in range(top - text_height, top + 2 * text_height + 1):
+            progress = max(0.0, min(1.0, (y - top) / max(1, text_height - 1)))
+            start, end = (cyan, violet) if progress < 0.5 else (violet, pink)
+            progress = progress * 2 if progress < 0.5 else (progress - 0.5) * 2
+            color = tuple(round(first + (last - first) * progress)
+                          for first, last in zip(start, end))
+            pixels.line((left, y, left + width, y), fill=color)
+        image.paste(gradient, (0, 0), mask)
+        if opacity >= 0.99:
+            self.targets[caption] = ((left - 12, top - 9, left + width + 12, top + text_height + 10), action)
+
     # self: Native avatar presentation with Tk-thread input and host-only audio.
     # image: Writable logical framebuffer before display rotation.
     # now: Current monotonic time, used for both animation and touch reaction.
@@ -1482,17 +1775,35 @@ class DeviceStudioWindow:
             self.motion_sample_at_us = now_us
         self.muse.motion(*self.motion_acceleration, self.motion_sample_at_us, now_us, self.rotation, True)
         image.paste((0, 0, 0), (0, 0, SIZE, SIZE))
-        image.paste(self.muse.image(elapsed_ms, reaction_ms), (MUSE_OFFSET, MUSE_OFFSET))
-        self.targets["Mascot"] = (MUSE_BOUNDS, self.pet_mascot)
+        menu_progress = 0.0
+        if self.home_menu_since is not None:
+            visibility = self.navigation_opacity(now)
+            if visibility <= 0:
+                self.home_menu_since = None
+            else:
+                menu_progress = min(1.0, max(0.0, (now - self.home_menu_since) /
+                                                  HOME_MENU_TRANSITION_SECONDS)) * visibility
+        mascot_size = round(MUSE_SIZE * (1.0 - 0.35 * menu_progress))
+        mascot_top = round(MUSE_OFFSET + 39 * menu_progress)
+        mascot = self.muse.image(elapsed_ms, reaction_ms)
+        if mascot_size != MUSE_SIZE:
+            mascot = mascot.resize((mascot_size, mascot_size), Image.Resampling.NEAREST)
+        image.paste(mascot, (CENTER - mascot_size // 2, mascot_top))
         draw = ImageDraw.Draw(image)
         snapshot, _ = self.observe()
-        if self.endpoint is not None and not snapshot.network_ready:
+        if self.endpoint is None or not snapshot.network_ready:
             opacity = max(0.0, min(1.0, (self.muse_elapsed_ms - 5500.0) / 2000.0))
             if opacity:
                 purple = tuple(round(value * opacity) for value in (199, 145, 255))
                 label(draw, "SET UP WI-FI", 70, 21, purple)
                 label(draw, self.simulated_ble_name, 98, 19, purple)
-        self.button(draw, "Setup WiFi", 396, self.open_home_wifi, width=160, height=40, caption_size=18)
+        if menu_progress > 0:
+            self.draw_home_action(image, "PAIR WITH APP", "bluetooth", 344, menu_progress,
+                                  self.open_home_pairing)
+            self.draw_home_action(image, "SETUP WIFI", "wifi", 382, menu_progress,
+                                  self.open_home_wifi)
+        # Insert the full Home target after the menu actions, which get first refusal.
+        self.targets["Mascot"] = ((0, 0, SIZE, SIZE), self.pet_mascot)
 
     # self: Preview owner excluding hidden time and retiring the visible touch reaction.
     def hide_mascot(self):
@@ -1509,6 +1820,8 @@ class DeviceStudioWindow:
         now = time.monotonic()
         if not 0.03 <= now - self.touch_pressed_at <= 0.45:
             return
+        if self.home_menu_since is None:
+            self.home_menu_since = now
         self.muse_reaction_ms = int(self.muse_elapsed_ms)
         if self.audio is not None:
             self.audio.touch()
@@ -1524,15 +1837,24 @@ class DeviceStudioWindow:
         image = Image.new("RGB", (SIZE, SIZE), BACKGROUND)
         draw = ImageDraw.Draw(image)
         self.targets = {}
+        event_was_visible = self.event_visible
         self.event_visible = False
         waking = self.route == "mascot" and self.muse_elapsed_ms < 1500
+        if self.mascot_was_waking and not waking and self.route == "mascot":
+            # Start Home's idle period once, after the initial wake completes.
+            self.screensaver_idle_since = now
+        self.mascot_was_waking = waking
         event_active = (not self.standby and not waking and self.events and
                         self.events.visible(snapshot, self.endpoint))
         if self.events and not event_active:
             self.events.hide()
+        if event_was_visible and not event_active:
+            self.screensaver_idle_since = now
         project_link = PAGES[self.page] == "About" and self.info.page is InfoPage.PROJECT_LINK
-        self.screensaver.observe(not self.standby and not event_active and self.route == "widgets" and not project_link,
-                                 now - self.last_navigation)
+        saver_route = ((self.route == "mascot" and not waking) or
+                       (self.route == "widgets" and not project_link))
+        self.screensaver.observe(not self.standby and not event_active and saver_route,
+                                 now - self.screensaver_idle_since)
         if self.standby:
             self.hide_mascot()
             image.paste((0, 0, 0), (0, 0, SIZE, SIZE))
@@ -1540,20 +1862,24 @@ class DeviceStudioWindow:
             self.hide_mascot()
             self.touch = None
             self.event_visible = True
-            self.last_navigation = now
+            if not event_was_visible:
+                if self.route is WifiSetupRoute.HOME_PASSWORD:
+                    self.clear_simulated_wifi_secret()
+                self.last_navigation = now
+                self.screensaver_idle_since = now
             image = self.events.render_device(snapshot, now)
+            # The native event renderer stamps SIMULATED here. The window and
+            # status line already identify Studio; reserve this area for chrome.
+            event_background = image.getpixel((CENTER, 20))
+            ImageDraw.Draw(image).rectangle((183, 22, 282, 46), fill=event_background)
         elif self.screensaver.active:
             self.hide_mascot()
-            image = render_screensaver(int((now - self.last_navigation - 15.0) * 25)).copy()
+            image = render_screensaver(int((now - self.screensaver_idle_since - 15.0) * 25)).copy()
         elif self.route == "mascot":
             self.draw_mascot(image, now)
             if self.safe_guide:
                 draw.rectangle((73, 73, 392, 392), outline=(62, 91, 113))
         else:
-            home_wifi = self.route in (WifiSetupRoute.HOME_CHOICES, WifiSetupRoute.HOME_INTRO,
-                                       WifiSetupRoute.HOME_APP, WifiSetupRoute.HOME_PAIR)
-            if not home_wifi:
-                label(draw, "SIMULATED", 28 if wifi_setup else 46, 14, MUTED)
             if wifi_setup:
                 self.draw_wifi_setup(draw, now)
             elif self.route == "connections":
@@ -1581,11 +1907,13 @@ class DeviceStudioWindow:
                 self.sidebar(draw, -1, self.back)
             elif self.route == "behavior":
                 label(draw, "Behavior", OPTIONS_TITLE_TOP, 34)
-                self.draw_option_rows(draw, (
-                    ("Dictation  N/A", None),
-                    ("Shake to wake  " + ("On" if self.shake_to_wake else "Off"), self.change_shake_to_wake),
-                    ("Sounds  N/A", None),
-                ))
+                self.button(draw, "Dictation  N/A", OPTIONS_ROW_TOP, None,
+                            width=OPTIONS_ROW_WIDTH, height=OPTIONS_ROW_HEIGHT, caption_size=20)
+                self.button(draw, "Shake standby/wake " + ("On" if self.shake_to_wake else "Off"),
+                            OPTIONS_ROW_TOP + OPTIONS_ROW_STEP, self.change_shake_to_wake,
+                            width=OPTIONS_ROW_WIDTH, height=OPTIONS_ROW_HEIGHT, caption_size=17)
+                self.button(draw, "Sounds  N/A", OPTIONS_ROW_TOP + 2 * OPTIONS_ROW_STEP, None,
+                            width=OPTIONS_ROW_WIDTH, height=OPTIONS_ROW_HEIGHT, caption_size=20)
                 self.button(draw, "More options", 382, lambda: self.open("more_behavior"),
                             width=220, height=52, secondary=True, caption_size=20)
                 self.sidebar(draw, -1, self.back)
@@ -1606,10 +1934,8 @@ class DeviceStudioWindow:
                 self.draw_widget(draw, snapshot, now)
             if self.safe_guide:
                 draw.rectangle((73, 73, 392, 392), outline=(62, 91, 113))
-        if not self.standby and not event_active and (
-            self.route == "mascot" or self.route in (WifiSetupRoute.HOME_CHOICES, WifiSetupRoute.HOME_INTRO,
-                                                       WifiSetupRoute.HOME_APP, WifiSetupRoute.HOME_PAIR)):
-            self.draw_home_wifi_status(draw, snapshot, now)
+        if not self.standby:
+            self.draw_status(image, snapshot, now)
         if not self.standby and self.brightness != 100:
             image = ImageEnhance.Brightness(image).enhance(self.brightness / 100)
         return self.display_image(image)
@@ -1626,10 +1952,14 @@ class DeviceStudioWindow:
             self.boot = None
             self.boot_frame = None
             self.last_navigation = now
+            self.screensaver_idle_since = now
             return None
         index = self.boot.frame_index(elapsed_ms)
         if self.boot_frame is None or self.boot_frame[0] != index:
-            self.boot_frame = (index, self.display_image(self.boot.image(elapsed_ms)))
+            image = self.boot.image(elapsed_ms)
+            if self.brightness != 100:
+                image = ImageEnhance.Brightness(image).enhance(self.brightness / 100)
+            self.boot_frame = (index, self.display_image(image))
         return self.boot_frame[1]
 
     # self: Preview scheduler publishing only observations actually supported by Studio.
@@ -1700,6 +2030,8 @@ class DeviceStudioWindow:
         point = self.point(event)
         if self.boot is not None or self.standby:
             return
+        if point is not None:
+            self.screensaver_idle_since = time.monotonic()
         if point is not None and self.screensaver.active:
             self.screensaver.active = False
             self.last_navigation = time.monotonic()
@@ -1708,6 +2040,8 @@ class DeviceStudioWindow:
             self.acknowledged = ()
             return
         if self.event_visible:
+            if point is not None:
+                self.last_navigation = time.monotonic()
             self.events.press(point, self.observe()[0], self.endpoint)
         elif point is not None:
             name, _ = self.action_at(point)
@@ -1717,8 +2051,12 @@ class DeviceStudioWindow:
     def drag(self, event):
         point = self.point(event)
         if self.event_visible:
+            if point is not None:
+                self.last_navigation = self.screensaver_idle_since = time.monotonic()
             self.events.drag(point)
         elif self.touch is not None:
+            if point is not None:
+                self.last_navigation = self.screensaver_idle_since = time.monotonic()
             origin = self.touch[3]
             if point is None or sum((end - start) ** 2 for start, end in zip(origin, point)) >= 144:
                 self.touch = None
@@ -1728,6 +2066,7 @@ class DeviceStudioWindow:
         point = self.point(event)
         if self.boot is not None or self.standby or point is None:
             return
+        self.last_navigation = self.screensaver_idle_since = time.monotonic()
         try:
             if self.event_visible:
                 self.events.release(point, self.observe()[0], self.endpoint)
@@ -1744,6 +2083,7 @@ class DeviceStudioWindow:
             messagebox.showerror("SIMULATED Cody", str(error), parent=self.root)
 
     def close(self):
+        self.clear_simulated_wifi_secret()
         if self.timer is not None:
             self.root.after_cancel(self.timer)
         try:
