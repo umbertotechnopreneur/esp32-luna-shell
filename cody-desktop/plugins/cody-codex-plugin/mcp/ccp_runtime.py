@@ -323,6 +323,12 @@ def dispatch(server: ControlServer, operation: str, payload: dict[str, Any]) -> 
         return {"status": "stopping"}
     if operation == "bridge/status":
         return bridge_status(server)
+    if operation == "animation/request":
+        if set(payload) != {"scene", "op"}:
+            raise ValueError("Animation requires exactly scene and op")
+        with server.lease_lock:
+            server.last_transport_activity = time.monotonic()
+        return server.service.responder.animations.request(payload["scene"], payload["op"])
     if operation.startswith("device/"):
         return device_control(server, operation, payload)
     if operation in {"lease", "release"}:

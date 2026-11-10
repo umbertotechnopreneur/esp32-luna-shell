@@ -118,6 +118,20 @@ The Manifesto link opens only after an explicit click.
 
 ## Muse animation conformance
 
+Studio's Animation selector exposes the 13 authored showcase combinations.
+Preview Select starts the chosen pose paused at its first frame; Play, Pause and
+Restart control its visible clock, and Showcase restores automatic playback.
+The separate Physical Cody controls send the selected identity through the
+authenticated CCP broker on the local network. Select, Play, Pause and Restart
+control the device preview; Restore returns to its retained screen. Touch,
+standby or five minutes without a command also end the device preview.
+
+Physical playback requires a paired Cody running firmware with animation control
+and a current CCP broker. The broker targets one fresh physical capability and
+reports an error if multiple physical devices are available. A timeout has an
+unknown outcome and is not retried automatically. The device confirms application;
+the confirmation does not establish physical display appearance or performance.
+
 The native preview uses the same showcase scheduler as the firmware. Each
 simulated boot resets the scheduler and its artistic seed. The clock advances
 only while Muse is displayed; standby, menus and event overlays pause it. A

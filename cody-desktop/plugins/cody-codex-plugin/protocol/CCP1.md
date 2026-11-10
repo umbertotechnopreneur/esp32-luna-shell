@@ -1012,7 +1012,7 @@ readout for measured CPU utilization, free RAM/PSRAM, FPS, IP and SD status.
 `normal` restores the retained route. The facial-channel list was removed to save
 device space; `face_channels` is rejected, without a substitute view. Internal
 animation channels remain. Wire names do not select a firmware build mode.
-No arbitrary command, channel override or settings write is admitted.
+No arbitrary command, facial-channel override or settings write is admitted.
 The diagnostic overview's local Memory action opens heap details and capacity
 bars for internal RAM/PSRAM. This does not add a wire mode or reinterpret scroll;
 Back returns to the overview, then the retained route. Existing canonical heap
@@ -1045,3 +1045,29 @@ Status is `applied` or `rejected`; error preserves signed `esp_err_t`, and count
 is the actual compiled channel count. Missing/stale/retired requests and ambiguous
 timeouts never establish success or authorize automatic replay. An authenticated
 applied ACK proves worker application, not physical display pixels.
+
+
+## Authenticated animation preview
+
+After an authenticated READY, the Cody Companion may send the optional
+`CCP1|ANIMCAP|device=...|pc=...|nonce=...|animation=1|proof=...`. The HMAC
+input is `anim-cap|device|pc|nonce|1`. Capability and request bind the same
+current peer endpoint and READY nonce. Each nonce admits one animation request.
+A later authenticated READY advertises a fresh capability.
+
+`CCP1|ANIM` has ordered fields `device`, `pc`, `nonce`, `id`, `scene`, `op`,
+`proof`. Its HMAC input is `anim|device|pc|nonce|id|scene|op`. The request ID
+is 32 lowercase hexadecimal characters. `scene` is one of `idle`, `listening_question`,
+`thinking`, `working`, `reply_idea`, `error_exclamation`, `sleep`, `waking`,
+`idle_heart`, `idle_sweat`, `error_tension`, `thinking_question` or
+`listening_exclamation`. `op` is `select`, `play`, `pause`, `restart` or
+`normal`. Select opens that animation paused at zero on an eligible character or
+dashboard view. Play and pause require the selected scene, and restart returns to
+zero playing. Normal returns to the retained view. Touch, standby, a higher-priority
+view or five minutes without a command ends the transient session.
+
+`CCP1|ANIMACK` carries `device`, `pc`, `nonce`, `id`, `scene`, `op`, `status`,
+`error`, `proof`. The HMAC input is `anim-ack|device|pc|nonce|id|scene|op|status|error`.
+`applied` means the display owner applied the command and completed rendering. `rejected`
+carries the actual error. Timeout or lost ACK is ambiguous and is not replayed.
+This is a visual preview, never a synthetic hardware observation or Codex state.

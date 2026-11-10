@@ -15,6 +15,7 @@ import webbrowser
 
 from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageTk
 
+from cody_animation_transport import AnimationTransport
 from cody_ccp_event_view import EventView
 from cody_ccp_simulator import LinkState, SimulatorEndpoint, SimulatorSnapshot
 from cody_device_state import (
@@ -63,6 +64,23 @@ QUICK_GUIDE = (
 NAVIGATION_IDLE_SECONDS = 10
 NAVIGATION_FADE_SECONDS = 0.35
 HOME_MENU_TRANSITION_SECONDS = 0.5
+# Stable identities are shared with the local-network animation command.
+# Each entry carries the existing native pose, artwork symbol, and work flag.
+ANIMATION_SCENES = (
+    ("Idle", "idle", MusePose.IDLE, 0, False),
+    ("Listening / question", "listening_question", MusePose.LISTENING, 1, False),
+    ("Thinking", "thinking", MusePose.THINKING, 4, False),
+    ("Working", "working", MusePose.THINKING, 0, True),
+    ("Reply / idea", "reply_idea", MusePose.REPLY, 3, False),
+    ("Error / exclamation", "error_exclamation", MusePose.ERROR, 2, False),
+    ("Sleep", "sleep", MusePose.SLEEP, 8, False),
+    ("Waking", "waking", MusePose.WAKING, 0, False),
+    ("Idle / heart", "idle_heart", MusePose.IDLE, 5, False),
+    ("Idle / sweat", "idle_sweat", MusePose.IDLE, 6, False),
+    ("Error / tension", "error_tension", MusePose.ERROR, 7, False),
+    ("Thinking / question", "thinking_question", MusePose.THINKING, 1, False),
+    ("Listening / exclamation", "listening_exclamation", MusePose.LISTENING, 2, False),
+)
 SIMULATED_WIFI_KEYS = {
     "letters": (".-_@", "abc", "def", "ghi", "jkl", "mno", "pqrs", "tuv", "wxyz"),
     "numbers": ("01", "2", "3", "4", "5", "6", "7", "8", "9"),
@@ -411,6 +429,13 @@ class DeviceStudioWindow:
         self.muse_last_frame_at = None
         self.muse_reaction_ms = None
         self.muse_seed = 0
+        self.animation_scene = None
+        self.animation_playing = False
+        self.animation_elapsed_ms = 0.0
+        self.animation_last_frame_at = None
+        self.animation_frame = None
+        self.animation_transport = None
+        self.animation_device_pending = False
         self.motion_until = 0.0
         self.motion_direction = (0.0, 0.0)
         self.motion_sample_at_us = 0
@@ -507,6 +532,34 @@ class DeviceStudioWindow:
             ttk.Button(simulated, text=caption, width=6,
                        command=lambda vector=direction: self.simulate_motion(vector)).pack(side="left", padx=2)
         ttk.Button(simulated, text="Turn 90°", width=9, command=self.turn_device).pack(side="left", padx=4)
+        animation = ttk.Frame(root, style="Studio.TFrame")
+        animation.pack(padx=12, pady=(0, 6))
+        ttk.Label(animation, text="Animation", style="Status.TLabel").pack(side="left", padx=4)
+        self.animation_choice = ttk.Combobox(animation, state="readonly", width=22,
+                                             values=[entry[0] for entry in ANIMATION_SCENES])
+        self.animation_choice.current(0)
+        self.animation_choice.pack(side="left", padx=4)
+        self.animation_choice.bind("<<ComboboxSelected>>", self.animation_select)
+        preview_animation = ttk.Frame(root, style="Studio.TFrame")
+        preview_animation.pack(padx=12, pady=(0, 6))
+        ttk.Label(preview_animation, text="Preview", style="Status.TLabel").pack(side="left", padx=4)
+        for caption, callback in (("Select", self.animation_select), ("Play", self.animation_play),
+                                  ("Pause", self.animation_pause), ("Restart", self.animation_restart),
+                                  ("Showcase", self.animation_normal)):
+            ttk.Button(preview_animation, text=caption, width=8, command=callback).pack(side="left", padx=2)
+        device_animation = ttk.Frame(root, style="Studio.TFrame")
+        device_animation.pack(padx=12, pady=(0, 6))
+        ttk.Label(device_animation, text="Physical Cody", style="Status.TLabel").pack(side="left", padx=4)
+        self.animation_transport = AnimationTransport(root)
+        self.animation_device_buttons = []
+        for caption, action in (("Select", "select"), ("Play", "play"), ("Pause", "pause"),
+                                ("Restart", "restart"), ("Restore", "normal")):
+            button = ttk.Button(device_animation, text=caption, width=8,
+                                command=lambda selected=action: self.animation_device_request(selected))
+            button.pack(side="left", padx=2)
+            self.animation_device_buttons.append(button)
+        self.animation_device_status = ttk.Label(root, text="Physical Cody: not contacted", style="Status.TLabel")
+        self.animation_device_status.pack(pady=(0, 6))
         status_bar = ttk.Frame(root, style="Studio.TFrame")
         status_bar.pack(pady=(0, 12))
         self.status = ttk.Label(status_bar, style="Status.TLabel")
@@ -549,6 +602,11 @@ class DeviceStudioWindow:
         self.muse_last_frame_at = None
         self.muse_reaction_ms = None
         self.muse_seed = randbits(32)
+        self.animation_scene = None
+        self.animation_playing = False
+        self.animation_elapsed_ms = 0.0
+        self.animation_last_frame_at = None
+        self.animation_frame = None
         self.home_menu_since = None
         self.setup_mascot = None
         if self.muse is not None:
@@ -1788,6 +1846,87 @@ class DeviceStudioWindow:
         self.setup_mascot = mascot
         muse.reset(self.muse_seed)
 
+    # self: Studio preview owner with an optional manually selected animation.
+    # now: Current monotonic time, used only while the mascot is visible.
+    def advance_animation_clock(self, now):
+        if self.animation_playing and self.animation_last_frame_at is not None:
+            self.animation_elapsed_ms += max(0.0, (now - self.animation_last_frame_at) * 1000)
+        self.animation_last_frame_at = now
+
+    # self: Studio preview owner selecting one authored native pose.
+    # event: Optional Tk combobox event.
+    def animation_select(self, event=None):
+        self.animation_scene = ANIMATION_SCENES[self.animation_choice.current()]
+        self.animation_playing = False
+        self.animation_elapsed_ms = 0.0
+        self.animation_last_frame_at = None
+        self.animation_frame = None
+        self.boot = self.boot_frame = None
+        self.standby = False
+        self.open("mascot")
+        self.home_menu_since = None
+        self.prepare_setup_mascot()
+        self.avatar_preview().reset(0)
+
+    # self: Studio preview owner resuming the selected pose from its paused time.
+    def animation_play(self):
+        if self.animation_scene is None:
+            self.animation_select()
+        else:
+            self.boot = self.boot_frame = None
+            self.standby = False
+            self.open("mascot")
+        self.animation_last_frame_at = None
+        self.animation_playing = True
+
+    # self: Studio preview owner freezing the selected pose at its current time.
+    def animation_pause(self):
+        if self.animation_scene is None:
+            return
+        if self.animation_playing:
+            self.advance_animation_clock(time.monotonic())
+            self.animation_frame = None
+        self.animation_playing = False
+        self.animation_last_frame_at = None
+
+    # self: Studio preview owner replaying the selected pose from its first frame.
+    def animation_restart(self):
+        self.animation_select()
+        self.animation_playing = True
+
+    # self: Studio preview owner restoring the automatic showcase from its beginning.
+    def animation_normal(self):
+        self.animation_scene = None
+        self.animation_playing = False
+        self.animation_elapsed_ms = 0.0
+        self.animation_last_frame_at = None
+        self.animation_frame = None
+        self.muse_elapsed_ms = 0.0
+        self.muse_last_frame_at = None
+        self.muse_reaction_ms = None
+        self.avatar_preview().reset(self.muse_seed)
+
+    # self: Studio owner issuing a single authenticated local-network request.
+    # action: Valid device animation operation selected by the user.
+    def animation_device_request(self, action):
+        if self.animation_device_pending:
+            return
+        scene = ANIMATION_SCENES[self.animation_choice.current()][1]
+        self.animation_device_pending = True
+        for button in self.animation_device_buttons:
+            button.configure(state="disabled")
+        self.animation_device_status.configure(text=f"Physical Cody: sending {action}...")
+        self.animation_transport.request(scene, action, self.animation_device_complete)
+
+    # self: Tk owner receiving the completed device command.
+    # success: Whether the device confirmed application of the request.
+    # message: Authenticated result or transport failure details.
+    def animation_device_complete(self, success, message):
+        self.animation_device_pending = False
+        for button in self.animation_device_buttons:
+            button.configure(state="normal")
+        self.animation_device_status.configure(text=f"Physical Cody: {message}")
+
     # self: Native avatar presentation with Tk-thread input and host-only audio.
     # image: Writable logical framebuffer before display rotation.
     # now: Current monotonic time, used for both animation and touch reaction.
@@ -1828,7 +1967,18 @@ class DeviceStudioWindow:
                                                   HOME_MENU_TRANSITION_SECONDS)) * visibility
         mascot_size = round(MUSE_SIZE * (1.0 - 0.35 * menu_progress))
         mascot_top = round(MUSE_OFFSET + 39 * menu_progress)
-        mascot = muse.image(elapsed_ms, reaction_ms)
+        if self.animation_scene is None:
+            mascot = muse.image(elapsed_ms, reaction_ms)
+        else:
+            self.advance_animation_clock(now)
+            _, _, pose, symbol, working = self.animation_scene
+            pose_ms = int(self.animation_elapsed_ms)
+            if pose == MusePose.SLEEP:
+                pose_ms = min(pose_ms, 1020)
+            if self.animation_playing or self.animation_frame is None:
+                self.animation_frame = muse.face_image(pose, int(self.animation_elapsed_ms), pose_ms,
+                                                       symbol=symbol, working=working)
+            mascot = self.animation_frame
         if mascot_size != MUSE_SIZE:
             mascot = mascot.resize((mascot_size, mascot_size), Image.Resampling.NEAREST)
         image.paste(mascot, (CENTER - mascot_size // 2, mascot_top))
@@ -1853,6 +2003,7 @@ class DeviceStudioWindow:
         if self.muse is not None and self.muse_last_frame_at is not None:
             self.muse.reset_motion()
         self.muse_last_frame_at = None
+        self.animation_last_frame_at = None
         self.muse_reaction_ms = None
         self.motion_until = 0.0
         self.motion_sample_at_us = 0

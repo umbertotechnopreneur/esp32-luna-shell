@@ -59,6 +59,12 @@ struct PixelDemoView {
     CODY2D::Point touch_origin{};
     uint32_t touch_revision = 0;
     uint8_t write_buffer = 0;
+    bool manual = false;
+    bool manual_playing = false;
+    PixelAvatarPose manual_pose = PixelAvatarPose::Idle;
+    MuseSymbol manual_symbol = MuseSymbol::None;
+    bool manual_working = false;
+    uint64_t manual_elapsed_us = 0;
     bool visible = false;
     bool retired_valid = false;
     bool reaction_active = false;
