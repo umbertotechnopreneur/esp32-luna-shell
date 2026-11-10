@@ -8,7 +8,7 @@ imply that all existing state has already moved.
 | --- | --- | --- |
 | `HardwareStatus` | `DeviceSnapshotService::readHardwareStatus` | A bounded, coherent battery, clock, Wi-Fi and BLE projection. Original validity, age and errors stay with the measurements; it performs no hardware acquisition. |
 | `PetStatus` | `PetModel` behind `record_pet_tap` and `read_pet_status` | Session-only count and original monotonic time of recognized mascot taps. The model has no renderer, driver or assistant dependency. `PetObservation` includes the latest delivery error and original attempt time. |
-| `AssistantStatus` | `readCodexAssistantStatus` over the committed domain store | One independently identified source with provider, native namespace, epoch, revision, local generation, negotiated capabilities and evidence-qualified link. Source metadata is copied from the committed generation, not from an uncommitted offer. |
+| `AssistantStatus` | `DeviceSnapshotService::readAssistantStatuses` over registered source owners | One independently identified source with provider, native namespace, epoch, revision, local generation, negotiated capabilities and evidence-qualified link. The built-in CCP adapter reads its committed domain store. |
 
 The native dashboard, battery notices, status overlay and Wi-Fi cues consume the
 hardware-only view. Legacy Codex presence is read separately through
@@ -26,18 +26,36 @@ worker. Hiding, re-creating or changing the view does not clear the pet
 model. The model is memory-only and starts empty on firmware restart. It does not
 infer mood, needs or a physical interaction from a showcase pose.
 
-`AssistantStatusPage` assembles up to three independently obtained source views
-and rejects duplicate source IDs or overflow. It is caller-owned scratch, not a
-second registry, and does not claim that a page is a complete source list or a
-cross-source atomic snapshot. Each source retains its own generation, health and
-link evidence. The current CCP owner supplies one source; additional owners,
-discovery, pagination and adapters are not implemented by this type.
+`AssistantCatalog` contains observations for up to four registered owners,
+including unavailable owners and their original errors. Registration rejects
+duplicate owner IDs, duplicate callbacks and capacity overflow. Owner IDs are
+local adapter identities, not source IDs; value one is reserved for CCP.
+Two successful readers claiming the same source ID are both marked conflicting,
+even if their providers or epochs differ. No source is selected by brand or index.
+`copy_source` selects an unambiguous source and preserves the destination on failure.
+
+The registry contains callbacks only, not copied mutable source state. A read
+captures the registry revision under its lock, releases it, then reads each owner
+under that owner's synchronization. Callbacks and their state must have process
+lifetime, including after unregister, because a captured read may still finish.
+Callbacks copy observations without network I/O. `enumerated` means the complete
+registered set at that revision was visited; it does not mean every read succeeded,
+that all possible providers were discovered, or that the sources are atomic together.
+
+The dashboard retains the catalog in its existing display-owned PSRAM storage,
+separately from hardware and pet observations, and logs per-owner error changes.
+The catalog has a 2304-byte compile-time ceiling and is filled in place. The service
+keeps only a small callback-list copy on its stack, plus bounded row temporaries;
+compiled stack frames and physical headroom still require validation.
 
 The legacy `DeviceSnapshot` and compatibility `DeviceStatusObservation` still
 contain mixed hardware and Codex/application data for remaining consumers.
-The native dashboard no longer reads that combined projection. No persistent pet
-lifecycle, multi-assistant registry or Claude, Groq or Copilot adapter is
-implemented here.
+The native dashboard no longer reads that combined projection. The registry and
+status selection support independent assistants, but only the CCP owner is
+registered by default. Claude, Groq and Copilot adapters, automatic discovery,
+multi-assistant command/question routing and a persistent pet lifecycle are not
+implemented here. Existing Codex account panels and actions remain Codex-specific;
+an assistant's domain link does not substitute for legacy Codex app presence.
 
 Further separation must retain existing acquisition owners, source identities,
 per-field freshness and errors. Do not copy a second mutable registry into the

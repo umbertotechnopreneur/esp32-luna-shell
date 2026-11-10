@@ -78,30 +78,6 @@ struct AssistantStatus {
 };
 static_assert(sizeof(AssistantStatus) <= 512, "Keep each source projection bounded");
 
-enum class AssistantPageResult : uint8_t { Ok, InvalidIdentity, DuplicateSource, Full };
-inline constexpr uint8_t kAssistantStatusPageSize = 3;
-
-// Caller-owned assembly of independent observations; never the source registry.
-struct AssistantStatusPage {
-    std::array<AssistantStatus, kAssistantStatusPageSize> rows{};
-    uint8_t count = 0;
-
-    // status: A single independently observed source with stable identity.
-    // Exception: Rejects invalid/duplicate identities or capacity without mutation.
-    AssistantPageResult append(const AssistantStatus &status)
-    {
-        if (!status.source.valid() || !status.epoch.valid()) return AssistantPageResult::InvalidIdentity;
-        if (count > rows.size()) return AssistantPageResult::Full;
-        for (uint8_t i = 0; i < count; ++i) {
-            if (rows[i].source == status.source) return AssistantPageResult::DuplicateSource;
-        }
-        if (count == rows.size()) return AssistantPageResult::Full;
-        rows[count++] = status;
-        return AssistantPageResult::Ok;
-    }
-};
-static_assert(sizeof(AssistantStatusPage) <= 1536, "Keep assistant pages out of large implicit copies");
-
 struct StateChatRow {
     ChatId id{};
     StateValueView<std::array<char, 256>> title{};

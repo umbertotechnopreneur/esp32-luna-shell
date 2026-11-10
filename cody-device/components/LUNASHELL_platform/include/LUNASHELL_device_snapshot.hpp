@@ -48,6 +48,8 @@
 
 namespace LUNASHELL {
 
+struct AssistantCatalog;
+
 struct SensorFusionResult;
 
 enum class DeviceHealth : uint8_t {
@@ -1337,6 +1339,9 @@ public:
     // status: Caller-owned metadata of the current committed CCP assistant source.
     // Exception: Returns the original owner error without changing status.
     esp_err_t readCodexAssistantStatus(CODY::Domain::AssistantStatus &status) const;
+    // catalog: Caller-owned status/error for each independently registered assistant owner.
+    // Exception: Returns the first source error while retaining all partial observations.
+    esp_err_t readAssistantStatuses(AssistantCatalog &catalog) const;
     // status: Caller-owned counts, generation and link/recovery state.
     // Exception: Returns the original owner error, including an unavailable profile.
     esp_err_t readCodexDomainStatus(CodexDomainStatus &status) const;

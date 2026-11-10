@@ -22,6 +22,7 @@
 
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_assistant_service.hpp"
 #include "LUNASHELL_snapshot_aging.hpp"
 #include "LUNASHELL_snapshot_internal.hpp"
 #include "LUNASHELL_acquisition_internal.hpp"
@@ -2842,6 +2843,13 @@ esp_err_t DeviceSnapshotService::readCodexDomainObservation(const CODY::Domain::
 esp_err_t DeviceSnapshotService::readCodexAssistantStatus(CODY::Domain::AssistantStatus &status) const
 {
     return LUNASHELL::readCodexAssistantStatus(status);
+}
+
+// catalog: Independent source observations; no canonical hardware lock is nested.
+// Exception: Preserves all row errors and returns the first failing source result.
+esp_err_t DeviceSnapshotService::readAssistantStatuses(AssistantCatalog &catalog) const
+{
+    return readAssistantCatalog(catalog);
 }
 
 // status: Copies one generation's link and recovery status.

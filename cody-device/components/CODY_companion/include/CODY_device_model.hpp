@@ -14,6 +14,7 @@
 #include "CODY_token_history.hpp"
 #include "CODY_widget_state.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_assistant_service.hpp"
 #include "LUNASHELL_build_metadata.hpp"
 
 namespace CODY {
@@ -21,6 +22,8 @@ namespace CODY {
 // Canonical model projections. The display renderer borrows these read-only.
 struct DeviceDashboardData {
     PetObservation pet{};
+    LUNASHELL::AssistantCatalog assistants{};
+    esp_err_t assistants_error = ESP_ERR_INVALID_STATE;
     LUNASHELL::CodexWeeklyLimitSnapshot weekly{};
     LUNASHELL::CodexAccountSnapshot details{};
     LUNASHELL::CodexVoucherSnapshot vouchers{};
@@ -87,7 +90,7 @@ struct DeviceModel {
     bool editing = false;
 };
 
-// data: Receives canonical weekly, voucher and clock observations shared by awake screens.
+// data: Receives independent pet, hardware, assistant and legacy account observations.
 void update_device_observations(DeviceDashboardData &data);
 
 // data: Canonical live voucher projection and authenticated app presence.

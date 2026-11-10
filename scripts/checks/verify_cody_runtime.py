@@ -227,6 +227,16 @@ def main(argv=None):
         run_stage(command, output, "compile")
         native = run_stage([str(executable)], output, "runtime")
         compare_response(json.loads(native.stdout))
+        status_models = output / "status-models-contract.exe"
+        status_sources = ("scripts/tests/cody_native/status_models_contract.cpp",
+                          "cody-device/components/CODY_companion/src/runtime/CODY_pet_service.cpp",
+                          "cody-device/components/LUNASHELL_platform/src/runtime/LUNASHELL_assistant_service.cpp")
+        status_includes = includes + ("cody-device/components/CODY_domain/include",)
+        status_command = compile_command(compiler, status_includes, status_sources, status_models, cxx_standard=17)
+        if Path(compiler).stem.lower() != "cl":
+            status_command += ["-pthread"]
+        run_stage(status_command, output, "status-models-compile")
+        run_stage([str(status_models)], output, "status-models")
         preferences = output / "preferences-contract.exe"
         preferences_sources = ("scripts/tests/cody_native/preferences_contract.cpp",
                                "cody-device/components/CODY_companion/src/runtime/CODY_settings.cpp")
@@ -285,6 +295,7 @@ def main(argv=None):
                        "scanline stroke exact parity with exhaustive reference, round caps and clipped tiles",
                        "native main HUD canonical CPU/IP/RAM/SD validity, lower-arc glyph rasterization and circular clipping",
                        "native status overlay glyph and layout contract",
+                       "pet delivery under concurrent reads and independent assistant owners, failures and identities",
                        "original tiny typewriter cue, nonblocking coalesced admission, shared audio owner and stale-scene suppression",
                        "real settings source: persistent Sounds Off, strict absence/defaults, storage/readback errors and explicit Retry"])
     except Exception as error:
