@@ -28,6 +28,7 @@ constexpr esp_err_t ESP_ERR_NOT_FOUND = 0x105;
 constexpr esp_err_t ESP_ERR_NOT_SUPPORTED = 0x106;
 constexpr esp_err_t ESP_ERR_TIMEOUT = 0x107;
 constexpr esp_err_t ESP_ERR_INVALID_RESPONSE = 0x108;
+constexpr esp_err_t ESP_ERR_NOT_FINISHED = 0x10C;
 
 // error: Real result returned by the portable code under test.
 inline const char *esp_err_to_name(esp_err_t error)
@@ -38,6 +39,7 @@ inline const char *esp_err_to_name(esp_err_t error)
     case ESP_ERR_INVALID_STATE: return "ESP_ERR_INVALID_STATE";
     case ESP_ERR_INVALID_SIZE: return "ESP_ERR_INVALID_SIZE";
     case ESP_ERR_INVALID_RESPONSE: return "ESP_ERR_INVALID_RESPONSE";
+    case ESP_ERR_NOT_FINISHED: return "ESP_ERR_NOT_FINISHED";
     default: return "HOST_ERROR";
     }
 }

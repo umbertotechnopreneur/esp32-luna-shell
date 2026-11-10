@@ -166,6 +166,16 @@ class SimulatorProtocolTests(unittest.TestCase):
             self.confirm(identity, key)
         state = Mock(pc_id=self.pc)
         state.retained_keys.return_value = protocol.RetainedKeys(None, key) if pending_restart else protocol.RetainedKeys(key, None)
+        if pending_restart:
+            # The real state owner promotes the retained candidate before the
+            # device's subsequent capability is authenticated.
+            # device_id: Paired simulator identity.
+            # confirmed_key: Key authenticated by COMMITTED.
+            # expected_pending: Candidate key that must still be retained.
+            def promote_candidate(device_id, confirmed_key, expected_pending):
+                self.assertEqual((device_id, confirmed_key, expected_pending), (self.link.device_id, key, key))
+                state.retained_keys.return_value = protocol.RetainedKeys(key, None)
+            state.confirm_device_choice.side_effect = promote_candidate
         activity = synthetic_activity("working", "SIMULATED fixture") if activity_owner is None else activity_owner
         listener = Mock()
         self.requests = interactions.InteractionStore(lambda: self.now)
@@ -344,7 +354,9 @@ class SimulatorProtocolTests(unittest.TestCase):
         replies = self.exchange_presence()
         self.send.reset_mock()
         self.link.handle_datagram(replies[0], (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
-        kind, fields = protocol.parse_datagram(self.send.call_args.args[0])
+        committed = next(call.args[0] for call in self.send.call_args_list
+                         if protocol.parse_datagram(call.args[0])[0] == "COMMITTED")
+        kind, fields = protocol.parse_datagram(committed)
         self.assertEqual(kind, "COMMITTED")
         self.assertEqual(fields["nonce"], protocol.parse_datagram(replies[0])[1]["nonce"])
         self.assertEqual(self.link.state, simulated.LinkState.CONNECTED)
@@ -1007,7 +1019,8 @@ class SimulatorProtocolTests(unittest.TestCase):
     # Raises AssertionError if the broker hides closure, a retry changes the answer, or the second ticket is rejected.
     def test_consecutive_questions_retry_terminal_ack_before_publishing_next(self):
         first = self.question()
-        payload = self.link.snapshot().event_payload
+        payload = replace(self.link.snapshot().event_payload,
+                          pending_question_count=0, pending_questions=())
         self.link.submit_reply("redis", self.send)
         self.host._handle_datagram(self.send.call_args.args[0], (simulated.LOOPBACK, protocol.DEVICE_PORT))
         self.link.handle_datagram(self.host_listener.sendto.call_args.args[0],
@@ -1056,7 +1069,8 @@ class SimulatorProtocolTests(unittest.TestCase):
     # Raises AssertionError if stale or forged metadata restores an answerable question.
     def test_event_replay_tamper_expiry_and_broker_restart_are_not_answers(self):
         self.question()
-        packet = self.host_listener.sendto.call_args.args[0]
+        packet = next(call.args[0] for call in reversed(self.host_listener.sendto.call_args_list)
+                      if protocol.parse_datagram(call.args[0])[0] == "EVENT")
         with self.assertRaisesRegex(ValueError, "one snapshot"):
             self.link.handle_datagram(packet, (simulated.LOOPBACK, protocol.PLUGIN_PORT), self.send)
         corrupted = packet[:-1] + (b"0" if packet[-1:] != b"0" else b"1")
@@ -1073,7 +1087,8 @@ class SimulatorProtocolTests(unittest.TestCase):
     def test_broker_restart_with_queued_successor_retires_old_question_first(self):
         first = self.question()
         self.link.submit_reply("memory", self.send)
-        payload = replace(self.link.snapshot().event_payload, selected_id="")
+        payload = replace(self.link.snapshot().event_payload, selected_id="",
+                          pending_question_count=0, pending_questions=())
         key = protocol.unprotect_secret(self.link.active["protected_link_key"])
         self.requests = self.host._requests = interactions.InteractionStore(lambda: self.now)
         second = self.requests.enqueue(self.link.device_id, payload, "SIMULATED",

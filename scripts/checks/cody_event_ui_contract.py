@@ -41,6 +41,7 @@ def check_event_ui(compiler: str, output: Path) -> None:
                "cody-device/components/CODY2D/src/CODY2D_text.cpp", "cody-device/components/CODY2D/src/CODY2D_controls.cpp",
                "cody-device/components/CODY_companion/src/model/CODY_rig.cpp",
                "cody-device/components/CODY_companion/src/scenes/CODY_scene.cpp",
+               "cody-device/components/CODY_companion/src/scenes/CODY_text_entry.cpp",
                "cody-device/components/CODY_companion/src/scenes/CODY_technical_panels.cpp",
                "cody-device/components/CODY_companion/src/scenes/CODY_home_dashboard.cpp",
                "cody-device/components/CODY_companion/src/scenes/CODY_home_identity.cpp",

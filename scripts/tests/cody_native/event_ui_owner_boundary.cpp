@@ -20,6 +20,8 @@
 #include "CODY_look_screen.hpp"
 #include "CODY_settings.hpp"
 #include "CODY_codex_audio.hpp"
+#include "CODY_muse_frame.hpp"
+#include "CODY_pixel_avatar.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_platform.h"
 #include "esp_timer.h"
@@ -30,9 +32,6 @@ namespace HomeFixture {
 const LUNASHELL::CodexTechnicalObservation *observation = nullptr;
 int64_t now_us = 0;
 esp_err_t read_error = ESP_OK;
-unsigned inactive_look_resets = 0;
-// No parameters: the real presenter translation unit verifies its current route.
-bool look_is_inactive();
 }
 
 namespace {
@@ -46,6 +45,33 @@ namespace {
 }
 
 namespace CODY {
+// Unnamed frame: No mascot frame is composed for event layout.
+// Unnamed input: No mascot pose is synthesized.
+// Exception: Aborts if the setup mascot route is reached.
+PixelAvatarComposeStatus compose_muse_frame(PixelAvatarFrame &, PixelAvatarInput)
+{
+    unexpected_owner(__func__);
+}
+
+// Unnamed seed: No mascot animation sequence is restarted.
+// Exception: Aborts if the setup mascot route is reached.
+void reset_muse_animation(uint32_t)
+{
+    unexpected_owner(__func__);
+}
+
+// Unnamed frame: No mascot artwork is provided.
+// Unnamed viewport: No mascot geometry is synthesized.
+// Unnamed strip: No mascot pixels are written.
+// Unnamed first_row: No mascot row is drawn.
+// Unnamed first_column: No mascot column is drawn.
+// Exception: Aborts if the setup mascot route is reached.
+esp_err_t draw_pixel_avatar_rows(const PixelAvatarFrame &, CODY2D::Rect,
+    CODY2D::Surface, uint16_t, uint16_t)
+{
+    unexpected_owner(__func__);
+}
+
 // Unnamed scene: Look selection is outside event presentation.
 // Unnamed navigation: No look navigation is admitted by this fixture.
 // Exception: Aborts on a cross-feature route.
@@ -54,14 +80,10 @@ esp_err_t open_look_screen(SceneFrame &, const LookNavigationContext &)
     unexpected_owner(__func__);
 }
 
-// No parameters: Home route changes retire an already-inactive Look view.
-// Exception: Aborts outside explicit Home fixtures or if Look is actually active.
+// No parameters: Look ownership is outside event and Home presentation coverage.
+// Exception: Aborts if a presentation unexpectedly reaches the Look owner.
 void reset_look_screen()
 {
-    if (HomeFixture::observation != nullptr && HomeFixture::look_is_inactive()) {
-        ++HomeFixture::inactive_look_resets;
-        return;
-    }
     unexpected_owner(__func__);
 }
 
@@ -197,6 +219,20 @@ DeviceSnapshotService &DeviceSnapshotService::instance()
     unexpected_owner(__func__);
 }
 
+// Unnamed observation: The event fixture cannot read hardware state.
+// Exception: Aborts instead of fabricating a snapshot.
+esp_err_t DeviceSnapshotService::readHardwareStatus(HardwareStatus &) const
+{
+    unexpected_owner(__func__);
+}
+
+// Unnamed observation: The event fixture cannot read a Wi-Fi scan.
+// Exception: Aborts instead of fabricating scan results.
+esp_err_t DeviceSnapshotService::readWifiScanObservation(WifiScanSnapshot &) const
+{
+    unexpected_owner(__func__);
+}
+
 // Unnamed observation: No radio or battery state is fabricated.
 // Exception: Aborts instead of reading or replacing the canonical snapshot.
 esp_err_t DeviceSnapshotService::readConnectivityObservation(ConnectivityObservation &) const
@@ -251,6 +287,31 @@ esp_err_t DeviceSnapshotService::reportCharacterLookSave(const CharacterLookSave
     unexpected_owner(__func__);
 }
 } // namespace LUNASHELL
+
+// No parameters: Restart is outside event layout coverage.
+// Exception: Aborts instead of invoking the physical power owner.
+extern "C" esp_err_t LUNASHELL_power_manager_request_restart()
+{
+    unexpected_owner(__func__);
+}
+
+// Unnamed ssid: No wireless network is selected by this fixture.
+// Unnamed password: No credentials are admitted.
+// Unnamed persist: No network configuration is saved.
+// Unnamed selection: No network scan identity is used.
+// Exception: Aborts instead of connecting to a network.
+extern "C" esp_err_t LUNASHELL_wifi_connect_selected(const char *, const char *,
+    bool, const LUNASHELL_wifi_selection_t *)
+{
+    unexpected_owner(__func__);
+}
+
+// No parameters: Wi-Fi scanning is outside event layout coverage.
+// Exception: Aborts instead of initiating a physical scan.
+extern "C" esp_err_t LUNASHELL_wifi_start_scan()
+{
+    unexpected_owner(__func__);
+}
 
 // Unnamed seconds: No physical device standby policy is changed.
 // Exception: Aborts instead of reporting hardware success.

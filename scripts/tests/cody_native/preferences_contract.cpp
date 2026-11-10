@@ -97,6 +97,19 @@ void expect_invalid(esp_err_t error)
     expect(preferences.last_attempt_at_us > 0, "failed attempt needs its own timestamp");
 }
 
+// error: Original failed save or readback result after a confirmed baseline.
+// Exception: Exits if the failed mutation loses its cause or the applied settings.
+void expect_failed_save(esp_err_t error)
+{
+    const auto &preferences = fixture.attempted_publication;
+    expect(preferences.data_valid && preferences.sounds_enabled && preferences.shake_to_wake,
+        "failed save must retain the previously confirmed runtime values");
+    expect(preferences.health == LUNASHELL::DeviceHealth::Degraded,
+        "failed save must publish degraded health");
+    expect(preferences.last_error == error && preferences.last_attempt_at_us > 0,
+        "failed save must publish its original error and attempt timestamp");
+}
+
 // No parameters: a persisted Off survives a new boot without rewriting either existing key.
 void check_persistent_sounds_off()
 {
@@ -123,11 +136,18 @@ void check_absence_and_strict_reads()
     reset_existing();
     fixture.keys.clear();
     expect(CODY::load_companion_preferences() == ESP_OK, "absent keys may receive authored defaults");
-    for (const auto *key : {"cody_shake", "cody_sounds"}) {
-        const auto &stored = fixture.keys.at(key);
-        expect(stored.present && stored.value == 1U && stored.writes == 1U && stored.reads == 2U,
+    struct DefaultPreference {
+        const char *key;
+        uint32_t value;
+    };
+    for (const auto &preference : {DefaultPreference{"cody_shake", 0U},
+                                   DefaultPreference{"cody_sounds", 1U}}) {
+        const auto &stored = fixture.keys.at(preference.key);
+        expect(stored.present && stored.value == preference.value && stored.writes == 1U && stored.reads == 2U,
             "default must be persisted once and read back exactly");
     }
+    expect(!fixture.shake_enabled && fixture.sounds_enabled,
+        "default shake Off and sounds On must reach their runtime owners");
 
     for (const esp_err_t error : {kStorageFailure, kTypeMismatch}) {
         reset_existing();
@@ -172,7 +192,7 @@ void check_failed_save_and_explicit_retry()
         expect(fixture.sounds_enabled && fixture.sound_calls == prior_sound_calls,
             "unconfirmed Off must not claim a runtime change");
         expect(stored.value == (readback_failure ? 0U : 1U), "fixture must expose partial persistence accurately");
-        expect_invalid(kStorageFailure);
+        expect_failed_save(kStorageFailure);
 
         // Reading the UI projection cannot retry storage or apply a failed operation.
         LUNASHELL::CodyOptionsObservation observed;
@@ -198,7 +218,7 @@ void check_failed_save_and_explicit_retry()
     expect(CODY::persist_companion_preference(CODY::PreferenceId::Sounds, 0U) == ESP_ERR_INVALID_RESPONSE,
         "mismatched save readback must fail");
     expect(fixture.sounds_enabled, "mismatched readback must not apply Off");
-    expect_invalid(ESP_ERR_INVALID_RESPONSE);
+    expect_failed_save(ESP_ERR_INVALID_RESPONSE);
 }
 
 // No parameters: independent owner/publication failures preserve their actual causes.

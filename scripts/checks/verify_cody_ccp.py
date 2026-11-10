@@ -37,7 +37,8 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "cody-desktop/plugins/cody-codex-plugin/mcp"))
-from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
+from scripts.common.cody_native_checks import compile_command, run_stage
+from scripts.common.cody_host_compiler import prepare_host_compiler
 from scripts.checks.verify_power_policy import function_text
 import ccp_server as ccp
 import ccp_activity as activity
@@ -3296,13 +3297,14 @@ class NativeTechnicalUsageTests(unittest.TestCase):
                                 ("bool parseTechnicalCount(", "bool parseTechnicalDuration("))
         (output / "technical_usage_under_test.inc").write_text(extracted, encoding="utf-8")
         executable = output / "technical-usage.exe"
-        command = compile_command(resolve_compiler(None), [str(output)],
+        command = compile_command(prepare_host_compiler(), [str(output)],
                                   ["scripts/tests/cody_native/technical_usage_contract.cpp"], executable)
         run_stage(command, output, "compile")
         run_stage([str(executable)], output, "contract")
 
 
 from cody_ccp_animation_contract import AnimationContractTests
+from cody_host_compiler_contract import HostCompilerEnvironmentTests
 
 
 if __name__ == "__main__":
