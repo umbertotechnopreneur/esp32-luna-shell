@@ -6041,6 +6041,12 @@ bool onboarding_wifi_keyboard_active()
     return s_local_wifi.page == LocalWifiPage::Password;
 }
 
+// No parameters: QR visibility follows the current scene and its prepared modules.
+bool onboarding_qr_visible()
+{
+    return (s_route == Route::Install06 || s_route == Route::Pairing07) && s_view.qr.side != 0;
+}
+
 // opacity: Last completely displayed chrome opacity for Home touch admission.
 void set_home_wifi_chrome_opacity(uint8_t opacity)
 {

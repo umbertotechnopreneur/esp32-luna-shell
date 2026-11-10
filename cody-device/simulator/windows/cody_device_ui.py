@@ -1186,15 +1186,17 @@ class DeviceStudioWindow:
         layer = Image.new("RGBA", image.size, (0, 0, 0, 0))
         draw = ImageDraw.Draw(layer)
         wall = time.localtime()
-        draw.text((122, 31), time.strftime("%a %d %b %Y", wall).upper(), font=font(10), fill=(*MUTED, 255))
-        draw.text((122, 45), time.strftime("%H:%M", wall), font=font(15), fill=(*FOREGROUND, 255))
+        draw.text((233, 20), time.strftime("%a %d %b %Y", wall).upper(), font=font(10),
+                  fill=(*MUTED, 255), anchor="mt")
+        draw.text((233, 34), time.strftime("%H:%M", wall), font=font(15),
+                  fill=(*FOREGROUND, 255), anchor="mt")
         # The loopback has no measured RSSI, BLE telemetry or physical battery.
-        setup_icon(draw, "wifi", (236, 53), 20, (*MUTED, 255))
-        setup_icon(draw, "bluetooth", (266, 53), 18, (*MUTED, 255))
-        draw.rounded_rectangle((287, 46, 311, 60), radius=2, outline=(*MUTED, 255), width=2)
-        draw.rectangle((312, 50, 314, 56), fill=(*MUTED, 255))
+        setup_icon(draw, "wifi", (110, 65), 20, (*MUTED, 255))
+        setup_icon(draw, "bluetooth", (161, 40), 18, (*MUTED, 255))
+        draw.rounded_rectangle((335, 57, 358, 72), radius=2, outline=(*MUTED, 255), width=2)
+        draw.rectangle((359, 61, 361, 68), fill=(*MUTED, 255))
         if self.show_battery_percentage:
-            draw.text((319, 47), "N/A", font=font(10), fill=(*MUTED, 255))
+            draw.text((364, 63), "N/A", font=font(10), fill=(*MUTED, 255))
         layer.putalpha(layer.getchannel("A").point(lambda alpha: round(alpha * opacity)))
         image.paste(layer, (0, 0), layer)
 
@@ -2205,7 +2207,11 @@ class DeviceStudioWindow:
                 self.draw_widget(image, draw, snapshot, now)
             if self.safe_guide:
                 draw.rectangle((73, 73, 392, 392), outline=(62, 91, 113))
-        if not self.standby:
+        qr_visible = (not event_active and not self.screensaver.active and
+                      ((wifi_setup and self.route in (WifiSetupRoute.INSTALL_APP,
+                       WifiSetupRoute.HOME_PLATFORM_QR, WifiSetupRoute.HOME_PAIR)) or
+                       (self.route == "widgets" and project_link)))
+        if not self.standby and not qr_visible:
             self.draw_status(image, snapshot, now)
         if not self.standby and self.brightness != 100:
             image = ImageEnhance.Brightness(image).enhance(self.brightness / 100)

@@ -90,6 +90,9 @@ bool home_wifi_setup_active();
 // No parameters: true while the local Wi-Fi password keyboard is shown.
 bool onboarding_wifi_keyboard_active();
 
+// No parameters: true while the current setup scene displays a QR code.
+bool onboarding_qr_visible();
+
 // scene: Display-worker-owned frame receiving the reversible setup menu.
 // Exception: Returns the original scene/content preparation error.
 esp_err_t open_setup_menu(SceneFrame &scene);

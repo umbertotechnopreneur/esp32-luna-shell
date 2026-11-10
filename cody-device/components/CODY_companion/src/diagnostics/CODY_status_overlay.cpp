@@ -36,18 +36,20 @@ using pixel_glyphs::kGlyphColumns;
 using pixel_glyphs::kGlyphRows;
 using pixel_glyphs::MonoGlyph;
 constexpr uint16_t kCharacterAdvance = 6;
-constexpr uint16_t kDateLeft = 122;
-constexpr uint16_t kDateTop = 32;
-constexpr uint16_t kTimeLeft = kDateLeft;
-constexpr uint16_t kTimeTop = 47;
-constexpr uint16_t kBatteryLeft = 286;
-constexpr uint16_t kBatteryTop = 46;
-constexpr uint16_t kBatteryTextLeft = 318;
-constexpr uint16_t kBatteryTextTop = 50;
-constexpr uint16_t kWifiLeft = 226;
-constexpr uint16_t kWifiTop = 45;
-constexpr uint16_t kBluetoothLeft = 260;
-constexpr uint16_t kBluetoothTop = 43;
+// The fixed positions follow the upper circular edge while preserving room for
+// the centered connection caption and the maximum-width status text.
+constexpr uint16_t kDateLeft = 188;
+constexpr uint16_t kDateTop = 20;
+constexpr uint16_t kTimeLeft = 204;
+constexpr uint16_t kTimeTop = 34;
+constexpr uint16_t kBatteryLeft = 335;
+constexpr uint16_t kBatteryTop = 57;
+constexpr uint16_t kBatteryTextLeft = 364;
+constexpr uint16_t kBatteryTextTop = 64;
+constexpr uint16_t kWifiLeft = 100;
+constexpr uint16_t kWifiTop = 57;
+constexpr uint16_t kBluetoothLeft = 155;
+constexpr uint16_t kBluetoothTop = 30;
 constexpr uint16_t kDateLight = 0xA577; // Quiet slate #a4adb8 on the dark scene.
 constexpr uint16_t kDateDark = 0x63B1;  // Slate #64748b on the white scene.
 constexpr uint16_t kTimeLight = 0xE75E; // Pearl #e4eaf2 on the dark scene.
@@ -103,16 +105,29 @@ constexpr IconGlyph kBluetoothGlyph = {
         0x66C, 0xC66, 0x660, 0x360, 0x1E0, 0x0E0, 0x060,
     },
 };
-static_assert(kStatusOverlayBounds.left == kDateLeft && kStatusOverlayBounds.top == kDateTop &&
+
+// x: Farthest horizontal distance from the panel center.
+// y: Farthest vertical distance from the panel center.
+constexpr bool inside_panel(int x, int y)
+{
+    return x * x + y * y < 233 * 233;
+}
+
+static_assert(inside_panel(133, 176) && inside_panel(78, 203) &&
+    inside_panel(45, 213) && inside_panel(128, 176) && inside_panel(159, 169),
+    "Status text and icons must fit every occupied circular display row");
+static_assert(kStatusOverlayBounds.left == kWifiLeft && kStatusOverlayBounds.top == kDateTop &&
     kBatteryTextLeft + 5 * kCharacterAdvance <= kStatusOverlayBounds.right &&
-    kStatusOverlayBounds.bottom == kBluetoothTop + kBluetoothGlyph.height,
+    kStatusOverlayBounds.bottom == kWifiTop + kWifiGlyphs[2].height,
     "Shared status exclusion must match the actual authored chrome footprint");
 static_assert(kTimeLeft >= kStatusOverlayBounds.left && kTimeTop >= kStatusOverlayBounds.top &&
     kTimeTop + kGlyphRows * 2 <= kStatusOverlayBounds.bottom &&
     kBatteryLeft + kBatteryGlyph.width <= kStatusOverlayBounds.right &&
     kBatteryTop + kBatteryGlyph.height <= kStatusOverlayBounds.bottom &&
     kWifiLeft + kWifiGlyphs[2].width <= kStatusOverlayBounds.right &&
-    kWifiTop + kWifiGlyphs[2].height <= kStatusOverlayBounds.bottom,
+    kWifiTop + kWifiGlyphs[2].height <= kStatusOverlayBounds.bottom &&
+    kBluetoothLeft + kBluetoothGlyph.width <= kStatusOverlayBounds.right &&
+    kBluetoothTop + kBluetoothGlyph.height <= kStatusOverlayBounds.bottom,
     "Time and status icons must remain within the shared reserved footprint");
 
 

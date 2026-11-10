@@ -921,15 +921,16 @@ esp_err_t render(const FrameView &frame, bool force = false)
         show_battery ? ui.model.battery_banner : CODY::BatteryAlertNotice{}, saved_epoch);
     if (chrome_error != ESP_OK) return chrome_error;
     const auto &chrome = ui.view.chrome;
-    // The same status chrome belongs to every awake content surface. Branding
-    // retains its authored boot animation and Blank represents the powered-off panel.
-    const bool show_status = frame.layer != Layer::Blank && frame.layer != Layer::Branding && frame.layer != Layer::Birth;
+    // QR pages reserve their complete surface for the title and scannable code.
+    const bool show_status = frame.layer != Layer::Blank && frame.layer != Layer::Branding &&
+        frame.layer != Layer::Birth && frame.layer != Layer::AboutLink &&
+        !(frame.layer == Layer::Scene && CODY::onboarding_qr_visible());
     if (show_status) {
         const auto status_error = CODY::prepare_status_overlay(ui.model.dashboard.hardware, ui.status, ui.show_battery_percentage);
         if (status_error != ESP_OK) return status_error;
     }
-    const bool status_changed = show_status && (!ui.status_retired ||
-        !CODY::status_overlay_equal(ui.status, ui.retired_status));
+    const bool status_changed = show_status != ui.status_retired ||
+        (show_status && !CODY::status_overlay_equal(ui.status, ui.retired_status));
     const uint16_t allowance = show_battery ? CODY::device_allowance_ring(ui.model.dashboard) : 0;
     const auto &battery = ui.model.dashboard.hardware.battery;
     const bool battery_current = show_battery && ui.model.dashboard.hardware_error == ESP_OK &&

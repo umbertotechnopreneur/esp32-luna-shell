@@ -4401,6 +4401,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
     const bool frame_navigation_visible = !frame_overlay && !frame_dashboard && !s_state.raster_benchmark_active && kRenderDiagnosticsEnabled && navigation_opacity != 0 &&
         lifecycle_navigation_allowed && !presentation.boot_bitmap_visible;
     const bool frame_status_visible = !frame_overlay && !s_state.raster_benchmark_active && !s_state.onboarding.effective_first_boot &&
+        !(frame_scene_visible && CODY::onboarding_qr_visible()) &&
         navigation_opacity != 0 && lifecycle_navigation_allowed && frame_was_rig;
     if (s_state.rig_visible && !frame_overlay) {
         const int64_t cue_preparation_started_us = esp_timer_get_time();

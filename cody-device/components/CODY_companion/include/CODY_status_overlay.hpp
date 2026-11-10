@@ -26,7 +26,7 @@
 namespace CODY {
 
 // Native status chrome reserves these logical half-open bounds on firmware and Studio.
-inline constexpr DamageRect kStatusOverlayBounds{122, 32, 365, 64};
+inline constexpr DamageRect kStatusOverlayBounds{100, 20, 394, 74};
 // Compact connection/saved caption directly beneath the shared status bar.
 inline constexpr DamageRect kStatusCaptionBounds{80, 65, 386, 72};
 
