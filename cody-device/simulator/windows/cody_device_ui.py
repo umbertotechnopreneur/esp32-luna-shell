@@ -325,6 +325,8 @@ class DeviceStudioWindow:
         self.root = root
         self.restore_preview_defaults()
         self.rotation = args.rotation
+        if args.rotation != 0:
+            self.auto_rotate = False
         self.safe_guide = args.safe_guide
         self.endpoint = None
         self.events = None
@@ -336,6 +338,10 @@ class DeviceStudioWindow:
         self.muse_last_frame_at = None
         self.muse_reaction_ms = None
         self.muse_seed = 0
+        self.motion_until = 0.0
+        self.motion_direction = (0.0, 0.0)
+        self.motion_sample_at_us = 0
+        self.motion_acceleration = (0.0, 0.0)
         self.touch_pressed_at = 0.0
         self.route = WifiSetupRoute.OFFLINE
         self.connections_return = "widgets"
@@ -401,6 +407,15 @@ class DeviceStudioWindow:
         ttk.Button(controls, text="BOOT / Options", command=self.options).pack(side="left", padx=4)
         ttk.Button(controls, text="PWR / Standby", command=self.toggle_standby).pack(side="left", padx=4)
         ttk.Button(controls, text="Simulate shake", command=self.shake).pack(side="left", padx=4)
+        ttk.Button(controls, text="SIM Sophia", command=self.simulate_sophia).pack(side="left", padx=4)
+        simulated = ttk.Frame(root, style="Studio.TFrame")
+        simulated.pack(padx=12, pady=(0, 6))
+        ttk.Label(simulated, text="SIMULATED motion", style="Status.TLabel").pack(side="left", padx=4)
+        for caption, direction in (("Left", (-1, 0)), ("Right", (1, 0)),
+                                   ("Up", (0, -1)), ("Down", (0, 1))):
+            ttk.Button(simulated, text=caption, width=6,
+                       command=lambda vector=direction: self.simulate_motion(vector)).pack(side="left", padx=2)
+        ttk.Button(simulated, text="Turn 90°", width=9, command=self.turn_device).pack(side="left", padx=4)
         status_bar = ttk.Frame(root, style="Studio.TFrame")
         status_bar.pack(pady=(0, 12))
         self.status = ttk.Label(status_bar, style="Status.TLabel")
@@ -412,7 +427,7 @@ class DeviceStudioWindow:
             link_menu.add_command(label="Forget pairing...", command=lambda: self.manage_simulated_link("forget"))
             link_controls.configure(menu=link_menu)
             link_controls.pack(side="left", padx=4)
-        root.minsize(SIZE + 48, SIZE + 104)
+        root.minsize(SIZE + 48, SIZE + 140)
         self.canvas.bind("<ButtonPress-1>", self.press)
         self.canvas.bind("<B1-Motion>", self.drag)
         self.canvas.bind("<ButtonRelease-1>", self.release)
@@ -423,6 +438,8 @@ class DeviceStudioWindow:
     # self: Preview window loading the same visible defaults at startup and after reset.
     def restore_preview_defaults(self):
         self.rotation = 0
+        self.device_rotation = 0
+        self.auto_rotate = True
         self.history_window = 1
         self.visible = set(PAGES)
         self.brightness = 100
@@ -550,6 +567,30 @@ class DeviceStudioWindow:
             self.toggle_standby()
         if not self.standby and not self.event_visible and self.route == "widgets":
             self.open_statistics()
+
+    # self: SIMULATED wake-only shortcut; it never opens a microphone or starts recording.
+    def simulate_sophia(self):
+        if self.boot is None and self.standby:
+            self.toggle_standby()
+
+    # self: SIMULATED device owner accepting an ideal cardinal clockwise turn.
+    def turn_device(self):
+        if self.boot is not None or self.standby:
+            return
+        self.device_rotation = (self.device_rotation + 90) % 360
+        if self.auto_rotate:
+            self.rotation = (-self.device_rotation) % 360
+        self.touch = None
+        self.targets.clear()
+        self.acknowledged = ()
+
+    # self: SIMULATED source owner; no physical sensor or device is contacted.
+    # direction: Unit direction in the host screen's physical coordinate frame.
+    def simulate_motion(self, direction):
+        if self.boot is not None or self.standby or self.route != "mascot" or self.event_visible:
+            return
+        self.motion_direction = direction
+        self.motion_until = time.monotonic() + 0.45
 
     # self: Local navigation owner retaining the typed Info subpage.
     # step: Previous (-1) or next (1) action admitted by a visible arrow.
@@ -718,8 +759,27 @@ class DeviceStudioWindow:
     def change_brightness(self):
         self.brightness = self.brightness - 10 if self.brightness > 10 else 100
 
+    # self: Simulated manual orientation, admitted only while automatic rotation is off.
     def change_orientation(self):
+        if self.auto_rotate:
+            return
         self.rotation = 0 if self.rotation == 180 else 180
+        self.touch = None
+        self.targets.clear()
+        self.acknowledged = ()
+
+    # self: Simulated automatic rotation; enabling it aligns the current ideal cardinal pose.
+    def change_auto_rotation(self):
+        self.auto_rotate = not self.auto_rotate
+        if self.auto_rotate:
+            self.rotation = (-self.device_rotation) % 360
+        self.touch = None
+        self.targets.clear()
+        self.acknowledged = ()
+
+    # self: Current simulated panel transform composed with the physical device turn.
+    def displayed_rotation(self):
+        return (self.rotation + self.device_rotation) % 360
 
     def change_shake_to_wake(self):
         self.shake_to_wake = not self.shake_to_wake
@@ -1272,14 +1332,35 @@ class DeviceStudioWindow:
         elapsed_ms = int(self.muse_elapsed_ms)
         reaction_ms = (elapsed_ms - self.muse_reaction_ms
                        if self.muse_reaction_ms is not None else NO_REACTION)
+        now_us = max(1, int(now * 1_000_000))
+        if self.motion_sample_at_us == 0 or now_us - self.motion_sample_at_us >= 100_000:
+            dx, dy = self.motion_direction if now < self.motion_until else (0.0, 0.0)
+            # Convert the visible host direction into the physical panel frame,
+            # then use the firmware's board X = panel Y and board Y = panel X.
+            if self.device_rotation == 90:
+                panel_x, panel_y = dy, -dx
+            elif self.device_rotation == 180:
+                panel_x, panel_y = -dx, -dy
+            elif self.device_rotation == 270:
+                panel_x, panel_y = -dy, dx
+            else:
+                panel_x, panel_y = dx, dy
+            self.motion_acceleration = (panel_y * 4.0, panel_x * 4.0)
+            self.motion_sample_at_us = now_us
+        self.muse.motion(*self.motion_acceleration, self.motion_sample_at_us, now_us, self.rotation, True)
         image.paste((0, 0, 0), (0, 0, SIZE, SIZE))
         image.paste(self.muse.image(elapsed_ms, reaction_ms), (MUSE_OFFSET, MUSE_OFFSET))
         self.targets["Mascot"] = (MUSE_BOUNDS, self.pet_mascot)
 
     # self: Preview owner excluding hidden time and retiring the visible touch reaction.
     def hide_mascot(self):
+        if self.muse is not None and self.muse_last_frame_at is not None:
+            self.muse.reset_motion()
         self.muse_last_frame_at = None
         self.muse_reaction_ms = None
+        self.motion_until = 0.0
+        self.motion_sample_at_us = 0
+        self.motion_acceleration = (0.0, 0.0)
 
     # self: Visible avatar receiving a complete short contact admitted by release.
     def pet_mascot(self):
@@ -1348,8 +1429,9 @@ class DeviceStudioWindow:
                 label(draw, "Display", OPTIONS_TITLE_TOP, 34)
                 self.draw_option_rows(draw, (
                     (f"Brightness  {self.brightness}%", self.change_brightness),
-                    ("Auto-rotate  N/A", None),
-                    (f"Orientation  {self.rotation} deg", self.change_orientation),
+                    ("Auto-rotate  " + ("On" if self.auto_rotate else "Off"), self.change_auto_rotation),
+                    ("Orientation  Auto" if self.auto_rotate else f"Orientation  {self.rotation} deg",
+                     None if self.auto_rotate else self.change_orientation),
                 ))
                 self.sidebar(draw, -1, self.back)
             elif self.route == "behavior":
@@ -1387,7 +1469,7 @@ class DeviceStudioWindow:
         mask = Image.new("L", (SIZE, SIZE))
         ImageDraw.Draw(mask).ellipse((0, 0, SIZE - 1, SIZE - 1), fill=255)
         image.putalpha(mask)
-        return rotate(image, self.rotation)
+        return rotate(image, self.displayed_rotation())
 
     def boot_image(self, now):
         elapsed_ms = (now - self.boot_started_at) * 1000
@@ -1423,7 +1505,7 @@ class DeviceStudioWindow:
                     status = f"Loopback Wi-Fi {wifi_state} / {snapshot.state.value}"
                 else:
                     status = "Offline preview / use -Ccp to pair Codex"
-            self.status.configure(text=f"SIMULATED / {status}")
+            self.status.configure(text=f"SIMULATED / device {self.device_rotation}° / {status}")
             image = self.boot_image(now) if self.boot else None
             if image is None:
                 image = self.frame(snapshot, code, now)
@@ -1447,7 +1529,7 @@ class DeviceStudioWindow:
         self.timer = self.root.after(40 if animated else 100, self.tick)
 
     def point(self, event):
-        point = self.layout.to_device_pixel(event.x, event.y, self.rotation)
+        point = self.layout.to_device_pixel(event.x, event.y, self.displayed_rotation())
         return point if point is not None and sum((axis - CENTER) ** 2 for axis in point) <= CENTER ** 2 else None
 
     def action_at(self, point):

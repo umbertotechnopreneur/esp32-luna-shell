@@ -28,6 +28,15 @@ struct PixelDemoMotionState {
     bool primed = false;
 };
 
+// state: Motion state owned by the physical display or a separate host preview.
+// sample: Canonical or explicitly synthetic acceleration and display orientation.
+// now_us: Monotonic observation time after the sample was obtained.
+void advance_pixel_demo_motion(PixelDemoMotionState &state, const PixelDemoMotion &sample, int64_t now_us);
+
+// style: Artwork composition receiving bounded motion and gaze offsets.
+// state: Previously advanced display-owner motion state.
+void apply_pixel_demo_motion(MuseVisualStyle &style, const PixelDemoMotionState &state);
+
 // The display worker owns both indexed frames in PSRAM through DMA retirement.
 struct PixelDemoView {
     // logical_viewport: Immutable artwork and tap bounds supplied by the display adapter.

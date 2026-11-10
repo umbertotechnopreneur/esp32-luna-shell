@@ -42,6 +42,15 @@ class NativeMusePreview:
         self.reset_native = library.cody_host_muse_reset
         self.reset_native.argtypes = (ctypes.c_uint32,)
         self.reset_native.restype = None
+        self.reset_motion_native = library.cody_host_muse_motion_reset
+        self.reset_motion_native.argtypes = ()
+        self.reset_motion_native.restype = None
+        self.motion_native = library.cody_host_muse_motion
+        self.motion_native.argtypes = (
+            ctypes.c_float, ctypes.c_float, ctypes.c_int64, ctypes.c_int64,
+            ctypes.c_uint16, ctypes.c_bool,
+        )
+        self.motion_native.restype = None
         self.render = library.cody_host_muse_frame
         self.render.argtypes = (
             ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint16), ctypes.c_size_t,
@@ -63,6 +72,20 @@ class NativeMusePreview:
     # seed: Artistic sequence seed for this simulated boot.
     def reset(self, seed):
         self.reset_native(seed)
+
+    # self: Serialized host owner of synthetic motion response.
+    def reset_motion(self):
+        self.reset_motion_native()
+
+    # self: Serialized host owner; values are simulated and never sent to firmware.
+    # acceleration_x: Simulated board X acceleration in m/s2.
+    # acceleration_y: Simulated board Y acceleration in m/s2.
+    # sampled_at_us: Original synthetic sample time.
+    # now_us: Current host monotonic time.
+    # rotation: Applied display rotation.
+    # valid: Whether the synthetic sample is available.
+    def motion(self, acceleration_x, acceleration_y, sampled_at_us, now_us, rotation, valid):
+        self.motion_native(acceleration_x, acceleration_y, sampled_at_us, now_us, rotation, valid)
 
     # self: Studio owner calling the native renderer from its serialized UI thread.
     # time_ms: Active animation time since startup.

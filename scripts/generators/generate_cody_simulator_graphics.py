@@ -41,6 +41,7 @@ SOURCES = (
     "cody-device/simulator/native/CODY_host_muse.cpp",
     "cody-device/components/CODY_companion/src/rendering/CODY_muse_frame.cpp",
     "cody-device/components/CODY_companion/src/rendering/CODY_pixel_avatar.cpp",
+    "cody-device/components/CODY_companion/src/scenes/CODY_pixel_demo.cpp",
     "cody-device/components/CODY_domain/src/CODY_state_receive.cpp",
     "cody-device/components/CODY_domain/src/CODY_state_json.cpp",
     "cody-device/components/CODY_domain/src/CODY_state_store.cpp",

@@ -31,13 +31,12 @@ esp_err_t draw_mascot_rows(const void *state, CODY2D::Surface strip,
 
 } // namespace
 
-// view: Display-owned motion response, independent of the showcase clock.
-// sample: Validated canonical acceleration and applied display orientation.
-// now_us: Monotonic observation time after the snapshot read.
-void observe_pixel_demo_motion(PixelDemoView &view, const PixelDemoMotion &sample, int64_t now_us)
+// motion: Motion state owned by the physical display or a separate host preview.
+// sample: Canonical or explicitly synthetic acceleration and display orientation.
+// now_us: Monotonic observation time after the sample was obtained.
+void advance_pixel_demo_motion(PixelDemoMotionState &motion, const PixelDemoMotion &sample, int64_t now_us)
 {
     constexpr int64_t kMaximumAgeUs = 500000;
-    auto &motion = view.motion;
     if (!sample.valid || sample.sampled_at_us <= 0 || now_us < sample.sampled_at_us ||
         now_us - sample.sampled_at_us > kMaximumAgeUs ||
         !std::isfinite(sample.acceleration_x) || !std::isfinite(sample.acceleration_y) ||
@@ -74,6 +73,32 @@ void observe_pixel_demo_motion(PixelDemoView &view, const PixelDemoMotion &sampl
     motion.sampled_at_us = sample.sampled_at_us;
 }
 
+// style: Artwork composition receiving bounded motion and gaze offsets.
+// motion: Previously advanced display-owner motion state.
+void apply_pixel_demo_motion(MuseVisualStyle &style, const PixelDemoMotionState &motion)
+{
+    float motion_x = motion.offset_x;
+    float motion_y = motion.offset_y;
+    switch (motion.rendering_rotation_degrees) {
+    case 90: motion_x = motion.offset_y; motion_y = -motion.offset_x; break;
+    case 180: motion_x = -motion.offset_x; motion_y = -motion.offset_y; break;
+    case 270: motion_x = -motion.offset_y; motion_y = motion.offset_x; break;
+    default: break;
+    }
+    style.pose.body_x = std::clamp(style.pose.body_x + motion_x, -8.0f, 8.0f);
+    style.pose.body_y = std::clamp(style.pose.body_y + motion_y, -8.0f, 8.0f);
+    style.pose.gaze_x = std::clamp(style.pose.gaze_x + motion_x * 0.15f, -1.0f, 1.0f);
+    style.pose.gaze_y = std::clamp(style.pose.gaze_y + motion_y * 0.15f, -1.0f, 1.0f);
+}
+
+// view: Display-owned motion response, independent of the showcase clock.
+// sample: Validated canonical acceleration and applied display orientation.
+// now_us: Monotonic observation time after the snapshot read.
+void observe_pixel_demo_motion(PixelDemoView &view, const PixelDemoMotion &sample, int64_t now_us)
+{
+    advance_pixel_demo_motion(view.motion, sample, now_us);
+}
+
 // view: Display-owned state and two borrowed indexed frames.
 // active_us: Existing awake clock, excluding standby.
 // content: Mascot-only scene callback and its centered draw bounds.
@@ -97,18 +122,7 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
     }
     auto style = view.visual_style;
     style.symbol.symbol = pose.symbol;
-    float motion_x = view.motion.offset_x;
-    float motion_y = view.motion.offset_y;
-    switch (view.motion.rendering_rotation_degrees) {
-    case 90: motion_x = view.motion.offset_y; motion_y = -view.motion.offset_x; break;
-    case 180: motion_x = -view.motion.offset_x; motion_y = -view.motion.offset_y; break;
-    case 270: motion_x = -view.motion.offset_y; motion_y = view.motion.offset_x; break;
-    default: break;
-    }
-    style.pose.body_x = std::clamp(style.pose.body_x + motion_x, -8.0f, 8.0f);
-    style.pose.body_y = std::clamp(style.pose.body_y + motion_y, -8.0f, 8.0f);
-    style.pose.gaze_x = std::clamp(style.pose.gaze_x + motion_x * 0.15f, -1.0f, 1.0f);
-    style.pose.gaze_y = std::clamp(style.pose.gaze_y + motion_y * 0.15f, -1.0f, 1.0f);
+    apply_pixel_demo_motion(style, view.motion);
     compose_pixel_avatar(view.frames[view.write_buffer], pose.pose,
         static_cast<uint32_t>(view.elapsed_us / 1000U), pose.pose_ms,
         reaction_ms, 0.0f, pose.working, style);

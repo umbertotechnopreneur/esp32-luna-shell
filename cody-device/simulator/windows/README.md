@@ -102,10 +102,18 @@ then Idle. At ten seconds the scheduler draws a pose
 from its shuffle bag. It never repeats the previous pose, and an exhausted bag
 starts another cycle. The bag contains the original modes plus authored manga
 symbol variations. Sleep holds the visible closed-eye stage. This showcase
-drives artwork only; it is not a real activity or sound signal. The preview does
-not yet feed synthetic IMU observations into the firmware motion response. Its
-legacy Options/CCP preview also does not yet expose the vNext native Codex
+drives artwork only; it is not a real activity or sound signal. The SIMULATED
+motion buttons provide synthetic directional impulses to the same motion filter
+and artwork composition as firmware. They never read a real IMU. Turn 90° applies
+an ideal cardinal device turn; with Auto-rotate On the preview keeps content
+upright, and with it Off the manual panel setting is retained. This does not
+simulate sensor noise, gyro drift, dwell or hardware timing. Its legacy
+Options/CCP preview also does not yet expose the vNext native Codex
 browser or the state-v1 multi-chat projection.
+
+The **SIM Sophia** button is a synthetic wake-only shortcut for simulated
+software standby. It does not listen through the PC microphone, perform speech
+recognition, start dictation or establish physical wake-word behavior.
 
 The native preview and firmware use the same C renderer and
 [CODY_muse_frame](../../components/CODY_companion/include/CODY_muse_frame.hpp)

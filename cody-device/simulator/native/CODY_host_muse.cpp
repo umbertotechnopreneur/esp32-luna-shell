@@ -1,5 +1,6 @@
 #include "CODY_pixel_avatar.hpp"
 #include "CODY_muse_showcase.hpp"
+#include "CODY_pixel_demo.hpp"
 
 #include <cstddef>
 
@@ -11,6 +12,7 @@
 
 namespace {
 CODY::MuseShowcase s_showcase{};
+CODY::PixelDemoMotionState s_motion{};
 }
 
 // seed: Artistic seed for a new scenario, with zero selecting startup defaults.
@@ -19,6 +21,27 @@ CODY_HOST_EXPORT void cody_host_muse_reset(uint32_t seed)
 {
     CODY::reset_muse_animation(seed);
     s_showcase.reset(seed);
+    s_motion = {};
+}
+
+// No parameters: discard synthetic motion while the mascot is hidden or in standby.
+CODY_HOST_EXPORT void cody_host_muse_motion_reset()
+{
+    s_motion = {};
+}
+
+// acceleration_x: SIMULATED acceleration on board X in m/s2.
+// acceleration_y: SIMULATED acceleration on board Y in m/s2.
+// sampled_at_us: Host monotonic time at which this synthetic sample was generated.
+// now_us: Host monotonic observation time, used for the same freshness gate as firmware.
+// rendering_rotation_degrees: Applied logical display rotation.
+// valid: Whether this synthetic observation is available.
+// Exception: Invalid values are rejected by the shared motion owner.
+CODY_HOST_EXPORT void cody_host_muse_motion(float acceleration_x, float acceleration_y,
+    int64_t sampled_at_us, int64_t now_us, uint16_t rendering_rotation_degrees, bool valid)
+{
+    CODY::advance_pixel_demo_motion(s_motion,
+        {acceleration_x, acceleration_y, sampled_at_us, rendering_rotation_degrees, valid}, now_us);
 }
 
 // pose: Numeric PixelAvatarPose value; the host ABI rejects unknown values.
@@ -146,6 +169,7 @@ CODY_HOST_EXPORT esp_err_t cody_host_muse_frame(uint32_t time_ms, uint32_t react
     const auto pose = s_showcase.sample(time_ms);
     CODY::MuseVisualStyle style{};
     style.symbol.symbol = pose.symbol;
+    CODY::apply_pixel_demo_motion(style, s_motion);
     return render_muse_pose(static_cast<uint32_t>(pose.pose), time_ms,
         pose.pose_ms, reaction_ms, 0.0f, pose.working ? 1U : 0U, side, pixels, count, style);
 }
