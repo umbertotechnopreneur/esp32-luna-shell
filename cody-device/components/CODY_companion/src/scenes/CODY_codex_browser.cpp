@@ -6,6 +6,8 @@
 #include <cstring>
 
 #include "LUNASHELL_device_snapshot.hpp"
+#include "CODY_flat_menu_row.hpp"
+#include "CODY_page_marks.hpp"
 #include "scene_data.hpp"
 
 namespace CODY {
@@ -444,6 +446,23 @@ void read_page(CodexBrowser &browser)
     case Route::PendingQuestions: kind = Domain::EntityKind::Question; break;
     default: break;
     }
+    // A last page establishes a total only for this complete, live generation.
+    // Unvisited cursor pages never imply an exact future total.
+    const bool complete = result.health == StateViewHealth::Live && result.generation != 0 &&
+        result.coverage[static_cast<uint8_t>(kind)].state == Domain::CoverageState::Complete;
+    if (!complete || (position.known_generation != 0 && position.known_generation != result.generation)) {
+        position.known_generation = 0;
+        position.known_page_count = 0;
+    }
+    if (complete && result.next.after == 0) {
+        position.known_generation = result.generation;
+        position.known_page_count = static_cast<uint8_t>(position.count + 1U);
+    }
+    draft.page_index = position.count;
+    if (complete && position.known_generation == result.generation &&
+        position.known_page_count > position.count) {
+        draft.known_page_count = position.known_page_count;
+    }
     if (result.health != StateViewHealth::Live) {
         copy(draft.note, "Historical / stale data");
     } else if (result.coverage[static_cast<uint8_t>(kind)].state != Domain::CoverageState::Complete) {
@@ -455,8 +474,6 @@ void read_page(CodexBrowser &browser)
         copy(draft.note, empty);
     } else if (parent[0] && header_generation == result.generation) {
         copy(draft.note, parent.data());
-    } else {
-        std::snprintf(draft.note.data(), draft.note.size(), "Page %u", static_cast<unsigned>(position.count + 1U));
     }
     if (browser.saving_bookmark.valid()) {
         Domain::ChatId saved{};
@@ -481,7 +498,8 @@ bool same_page(const CodexBrowserPage &left, const CodexBrowserPage &right)
 {
     if (left.count != right.count || std::strcmp(left.note.data(), right.note.data()) != 0 ||
         left.source != right.source || left.resume != right.resume || left.generation != right.generation ||
-        left.previous != right.previous || left.next.after != right.next.after) return false;
+        left.previous != right.previous || left.next.after != right.next.after ||
+        left.page_index != right.page_index || left.known_page_count != right.known_page_count) return false;
     for (uint8_t index = 0; index < left.count; ++index) {
         const auto &a = left.rows[index];
         const auto &b = right.rows[index];
@@ -560,6 +578,7 @@ esp_err_t prepare_layout(CodexBrowser &browser)
     browser.line_count = 0;
     browser.controls = {};
     browser.actions = {};
+    browser.paging_hint = {};
     const auto &page = browser.page;
     auto error = add_line(browser, heading(browser.route), SceneData::title_font, {73, 89, 320, 44}, kWhite, true);
     if (error == ESP_OK) error = add_line(browser, page.note.data(), SceneData::body_font,
@@ -592,11 +611,16 @@ esp_err_t prepare_layout(CodexBrowser &browser)
         if (error == ESP_OK && resume) {
             error = add_button(browser, 5, {299, 350, 80, 42}, {Action::Resume, page.resume.value}, "Resume");
         }
-    } else {
-        if (page.previous) error = add_button(browser, 3, {91, 350, 138, 42}, {Action::PreviousPage}, "Previous");
-        if (error == ESP_OK && page.next.after != 0) {
-            error = add_button(browser, 4, {237, 350, 138, 42}, {Action::NextPage}, "Next page");
-        }
+    } else if ((page.previous || page.next.after != 0) &&
+               (page.known_page_count == 0 || page.known_page_count > 16)) {
+        // Only a cursor is known; invite paging without presenting a made-up total.
+        static constexpr char text[] = "Swipe to browse";
+        const CODY2D::TextSpan span{text, sizeof(text) - 1U};
+        uint32_t width = 0;
+        error = CODY2D::measure_text_width(SceneData::body_font, span, width);
+        if (error == ESP_OK && width > 260) error = ESP_ERR_INVALID_SIZE;
+        if (error == ESP_OK) error = CODY2D::prepare_text_line(SceneData::body_font, span,
+            {static_cast<int16_t>((466U - width) / 2U), 350}, kMuted, browser.paging_hint);
     }
     return error;
 }
@@ -610,15 +634,26 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
 {
     if (!state) return ESP_ERR_INVALID_ARG;
     const auto &browser = *static_cast<const CodexBrowser *>(state);
-    for (const auto &control : browser.controls) {
+    for (size_t index = 0; index < browser.controls.size(); ++index) {
+        const auto &control = browser.controls[index];
         if (control.bounds.width == 0) continue;
-        const auto error = CODY2D::draw_capsule_rows(control, strip, row, column);
+        const auto error = index < browser.page.count ?
+            draw_flat_menu_row(control, 30, strip, row, column) :
+            CODY2D::draw_capsule_rows(control, strip, row, column);
         if (error != ESP_OK) return error;
     }
     for (uint8_t index = 0; index < browser.line_count; ++index) {
         const auto &line = browser.lines[index].line;
         const auto error = CODY2D::draw_text_rows(line, line.text.length, strip, row, column);
         if (error != ESP_OK) return error;
+    }
+    if (browser.paging_hint.valid) {
+        const auto error = CODY2D::draw_text_rows(browser.paging_hint, browser.paging_hint.text.length,
+            strip, row, column);
+        if (error != ESP_OK) return error;
+    }
+    if (browser.route != Route::Hub && browser.page.known_page_count > 1 && browser.page.known_page_count <= 16) {
+        return draw_page_marks(browser.page.page_index, browser.page.known_page_count, strip, row, column);
     }
     return ESP_OK;
 }
@@ -684,6 +719,8 @@ esp_err_t prepare_codex_browser(CodexBrowser &browser, int64_t now_us, SceneCont
         draft.next = {};
         draft.generation = 0;
         draft.count = 0;
+        draft.page_index = 0;
+        draft.known_page_count = 0;
         draft.previous = false;
         if (browser.route == Route::Hub) read_hub(browser);
         else read_page(browser);

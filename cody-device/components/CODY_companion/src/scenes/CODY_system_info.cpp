@@ -7,6 +7,7 @@
 
 #include "CODY2D_controls.hpp"
 #include "CODY2D_paths.hpp"
+#include "CODY_page_marks.hpp"
 #include "CODY_vibeware_logo.hpp"
 #include "LUNASHELL_build_metadata.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
@@ -18,7 +19,7 @@ namespace {
 using View = SystemInfoPresentation;
 using State = View::ValueState;
 constexpr char kTag[] = "CODY_system_info";
-constexpr DamageRect kBounds{73, 73, 393, 393};
+constexpr DamageRect kBounds{73, 73, 393, 400};
 constexpr uint16_t kWhite = 0xF7BE;
 constexpr uint16_t kMuted = 0x9CF3;
 constexpr uint16_t kCyan = 0x6F9E;
@@ -506,6 +507,9 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
         const auto &line = view.captions[index].line;
         error = CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
     }
+    if (error == ESP_OK) {
+        error = draw_page_marks(static_cast<uint8_t>(view.values.page), 5, strip, first_row, first_column, 396);
+    }
     return result("draw rows", error);
 }
 
@@ -581,7 +585,6 @@ esp_err_t prepare_system_info(const SystemInfoInput &input,
         return ESP_OK;
     }
     const char *title = input.page == InfoPage::System ? "SYSTEM" : input.page == InfoPage::Memory ? "MEMORY" : "FIRMWARE";
-    const char *index = input.page == InfoPage::System ? "1/3" : input.page == InfoPage::Memory ? "2/3" : "3/3";
     uint32_t width = 0;
     auto error = CODY2D::measure_text_width(title_font, {title, static_cast<uint16_t>(std::strlen(title))}, width);
     if (error != ESP_OK) { return result("heading width", error); }
@@ -590,7 +593,6 @@ esp_err_t prepare_system_info(const SystemInfoInput &input,
     presentation.icon_bounds = {group_left, 88, 28, 28};
     error = add_caption(presentation, title_font, title,
         {static_cast<uint16_t>(group_left + 38), 79, static_cast<uint16_t>(width), 46}, kCyan);
-    if (error == ESP_OK) { error = add_caption(presentation, body_font, index, {350, 89, 43, 25}, kMuted); }
     if (error == ESP_OK) { error = add_bar(presentation, {94, 125, 278, 2}, kDivider, kDivider); }
     if (error == ESP_OK) {
         switch (input.page) {

@@ -30,6 +30,7 @@ $BoardValidator = Join-Path $ProjectRoot "scripts/common/board_config.py"
 $BrandingSource = Join-Path $ProjectRoot "cody-device/assets/branding/VibeWare/source/vibeware-floppy-insert-transparent.gif"
 $BrandingManifest = Join-Path $ProjectRoot "cody-device/assets/branding/VibeWare/generated/manifest.json"
 $InitiativeLogo = Join-Path $ProjectRoot "cody-device/simulator/windows/assets/branding/vibeware-logo.png"
+$CodyTheme = Join-Path $ProjectRoot "cody-device/assets/cody/palette/theme.json"
 $ProjectLogo = Join-Path $ProjectRoot "cody-device/assets/branding/LUNASHELL/generated/LUNASHELL-boot-466x466.png"
 $MascotImage = Join-Path $ProjectRoot "cody-device\assets\mascot\generated\luna-idle-head-170x198.png"
 $BootSound = Join-Path $ProjectRoot "cody-device\assets\sfx\generated\lunashell-boot.wav"
@@ -38,7 +39,7 @@ $Dist = Join-Path $SimulatorArtifacts "dist"
 $Work = Join-Path $SimulatorArtifacts "build"
 $Executable = Join-Path $Dist "ESP32LunaShellDeviceSimulator.exe"
 
-foreach ($requiredPath in @($Simulator, $Scenarios, $BrandingSource, $BrandingManifest, $InitiativeLogo, $ProjectLogo, $MascotImage, $BootSound, $BoardYaml, $ShellView, $BoardValidator)) {
+foreach ($requiredPath in @($Simulator, $Scenarios, $BrandingSource, $BrandingManifest, $InitiativeLogo, $CodyTheme, $ProjectLogo, $MascotImage, $BootSound, $BoardYaml, $ShellView, $BoardValidator)) {
     if (-not (Test-Path -LiteralPath $requiredPath)) {
         throw "Required simulator input is missing: $requiredPath"
     }
@@ -71,6 +72,7 @@ if ($LASTEXITCODE -ne 0) {
     --add-data "$BrandingSource;assets/branding/VibeWare/source" `
     --add-data "$BrandingManifest;assets/branding/VibeWare/generated" `
     --add-data "$InitiativeLogo;simulator/windows/assets/branding" `
+    --add-data "$CodyTheme;assets/cody/palette" `
     --add-data "$ProjectLogo;assets/branding/LUNASHELL/generated" `
     --add-data "$MascotImage;assets/mascot/generated" `
     --add-data "$BootSound;assets/sfx/generated" `

@@ -1,4 +1,6 @@
 #include "CODY_widget_visibility_view.hpp"
+#include "CODY_flat_menu_row.hpp"
+#include "CODY_page_marks.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -11,9 +13,9 @@ namespace {
 
 constexpr char kTag[] = "CODY_widget_visibility";
 #if defined(CODY_DEVICE_UI_ONLY)
-constexpr DamageRect kContentBounds{73, 82, 393, 399};
+constexpr DamageRect kContentBounds{73, 82, 393, 402};
 constexpr CODY2D::Rect kHeadingBounds{73, 82, 320, 40};
-constexpr CODY2D::Rect kStatusBounds{73, 369, 320, 30};
+constexpr CODY2D::Rect kStatusBounds{103, 376, 260, 25};
 constexpr uint16_t kRowTop = 130;
 constexpr uint16_t kRowHeight = 72;
 constexpr uint16_t kRowStep = 80;
@@ -30,6 +32,26 @@ constexpr uint16_t kWhite = 0xF7BE;
 constexpr uint16_t kMuted = 0x9CF3;
 constexpr uint16_t kCyan = 0x6F9E;
 constexpr uint16_t kAmber = 0xFE27;
+
+#if defined(CODY_DEVICE_UI_ONLY)
+// screen: Stable screen identity rather than the row's current list position.
+CODY2D::ActionIcon screen_icon(WidgetScreen screen)
+{
+    using Icon = CODY2D::ActionIcon;
+    switch (screen) {
+    case WidgetScreen::Reset: return Icon::Clock;
+    case WidgetScreen::Context: return Icon::PlanAccount;
+    case WidgetScreen::Limits: return Icon::Statistics;
+    case WidgetScreen::Today: return Icon::Clock;
+    case WidgetScreen::LastSevenDays: return Icon::Statistics;
+    case WidgetScreen::TokenHistory: return Icon::Statistics;
+    case WidgetScreen::Credits: return Icon::PlanPro;
+    case WidgetScreen::Account: return Icon::PlanAccount;
+    case WidgetScreen::About: return Icon::Gear;
+    default: return Icon::None;
+    }
+}
+#endif
 
 // operation: Failed visibility editor operation.
 // error: Original error retained for the caller.
@@ -112,9 +134,11 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
         }
     }
 #if defined(CODY_DEVICE_UI_ONLY)
+    if (error == ESP_OK) error = draw_page_marks(view.page, kVisibilityPageCount, strip, first_row, first_column);
     for (const auto &row : view.rows) {
+        if (error != ESP_OK) break;
         if (row.screen == WidgetScreen::Device) continue;
-        error = CODY2D::draw_capsule_rows(row.control, strip, first_row, first_column);
+        error = draw_flat_menu_row(row.control, 30, strip, first_row, first_column);
         if (error == ESP_OK) {
             error = CODY2D::draw_text_rows(row.status, row.status.text.length, strip, first_row, first_column);
         }
@@ -171,16 +195,12 @@ esp_err_t prepare_widget_visibility_view(uint8_t page, const WidgetVisibility &v
     }
     view.valid = false;
     view.rows = {};
-    const char *status = load_failed ? "  Settings unavailable" :
-        saving ? "  Saving..." : save_failed ? "  Could not save" : "";
-    const int written = std::snprintf(view.page_index, sizeof(view.page_index), "%u/%u%s",
-        static_cast<unsigned>(page) + 1U, static_cast<unsigned>(kVisibilityPageCount), status);
-    if (written <= 0 || static_cast<size_t>(written) >= sizeof(view.page_index)) {
-        return result("format page index", ESP_ERR_INVALID_SIZE);
-    }
+    view.captions = {};
+    const char *status = load_failed ? "Settings unavailable" :
+        saving ? "Saving..." : save_failed ? "Could not save" : "";
     auto error = prepare_line(title_font, "Visible screens", kHeadingBounds, kWhite, view.captions[0]);
-    if (error == ESP_OK) {
-        error = prepare_line(body_font, view.page_index, kStatusBounds,
+    if (error == ESP_OK && status[0] != '\0') {
+        error = prepare_line(body_font, status, kStatusBounds,
             load_failed || save_failed ? kAmber : kMuted, view.captions[1]);
     }
     const size_t first = 1U + page * kVisibilityRowsPerPage;
@@ -197,11 +217,14 @@ esp_err_t prepare_widget_visibility_view(uint8_t page, const WidgetVisibility &v
         row.control.top_color = visible ? 0x1147 : 0x18E5;
         row.control.bottom_color = visible ? 0x08C4 : 0x10A3;
         row.control.border_color = visible ? 0x2B4F : 0x4A8C;
-        error = prepare_line(body_font, descriptor.label, {105, top, 174, kRowHeight},
+        row.control.icon = screen_icon(descriptor.id);
+        row.control.icon_center = {126, static_cast<int16_t>(top + 36U)};
+        row.control.icon_color = visible ? 0x7759 : 0xBD9F;
+        error = prepare_line(body_font, descriptor.label, {156, static_cast<uint16_t>(top + 5U), 207, 30},
             kWhite, row.control.caption, true);
         if (error == ESP_OK) {
             error = prepare_line(body_font, load_failed ? "N/A" : visible ? "Visible" : "Hidden",
-                {279, top, 86, kRowHeight}, visible ? 0x5FF1 : kMuted, row.status);
+                {156, static_cast<uint16_t>(top + 36U), 207, 28}, visible ? 0x5FF1 : kMuted, row.status, true);
         }
     }
     if (error != ESP_OK) return result("prepare screen list", error);

@@ -19,12 +19,13 @@ from cody_animation_transport import AnimationTransport
 from cody_ccp_event_view import EventView
 from cody_ccp_simulator import LinkState, SimulatorEndpoint, SimulatorSnapshot
 from cody_device_state import (
-    InfoPage, LocalTimerModel, LocalTimerPhase, ScreensaverModel, SystemInfoModel, SystemInfoObservation,
+    INFO_PAGES, InfoPage, LocalTimerModel, LocalTimerPhase, ScreensaverModel, SystemInfoModel, SystemInfoObservation,
     TIMER_MAX_MINUTES, TIMER_MIN_MINUTES,
 )
 from cody_fake_audio import FakeAudioDriver
 from cody_muse_preview import DISPLAY_SIZE as MUSE_SIZE, NO_REACTION, SCREEN_OFFSETS_MS, MusePose, NativeMusePreview
 from cody_preview_layout import PreviewLayout, SIZE, enlarge_framebuffer
+from cody_semantic_palette import studio_rgb
 from cody_screensaver import render_screensaver
 from cody_ui_theme import install_theme
 from vibeware_boot import VibeWareBoot
@@ -32,18 +33,18 @@ from vibeware_boot import VibeWareBoot
 
 CENTER = SIZE // 2
 MUSE_OFFSET = (SIZE - MUSE_SIZE) // 2
-BACKGROUND = (8, 11, 22)
-FOREGROUND = (239, 236, 224)
-MUTED = (153, 168, 186)
-ACCENT = (122, 218, 222)
-SETUP_ACCENT = (144, 167, 255)
-SETUP_AMBER = (255, 183, 74)
-SETUP_AMBER_FIELD = (54, 36, 14)
-CONTROL_PALETTE = ((16, 40, 58), (8, 24, 33), (41, 105, 123), (140, 226, 239))
-SECONDARY_CONTROL_PALETTE = ((25, 28, 41), (16, 20, 25), (74, 81, 99), (189, 190, 189))
-DESTRUCTIVE_CONTROL_PALETTE = ((41, 20, 33), (24, 16, 24), (123, 45, 90), (239, 170, 156))
-CODEX_CONNECTION_COLOR = (186, 178, 255)
-WIFI_CONNECTION_COLOR = (119, 233, 202)
+BACKGROUND = studio_rgb("background")
+FOREGROUND = studio_rgb("foreground")
+MUTED = studio_rgb("muted")
+ACCENT = studio_rgb("accent")
+SETUP_ACCENT = studio_rgb("setup_primary")
+SETUP_AMBER = studio_rgb("setup_warning")
+SETUP_AMBER_FIELD = studio_rgb("setup_warning_field")
+CONTROL_PALETTE = tuple(studio_rgb("primary_control", part) for part in ("top", "bottom", "border", "icon"))
+SECONDARY_CONTROL_PALETTE = tuple(studio_rgb("secondary_control", part) for part in ("top", "bottom", "border", "icon"))
+DESTRUCTIVE_CONTROL_PALETTE = tuple(studio_rgb("destructive_control", part) for part in ("top", "bottom", "border", "icon"))
+CODEX_CONNECTION_COLOR = studio_rgb("codex_connection")
+WIFI_CONNECTION_COLOR = studio_rgb("wifi_connection")
 OPTIONS_TITLE_TOP = 82
 OPTIONS_ROW_TOP = 130
 OPTIONS_ROW_STEP = 80
@@ -51,13 +52,13 @@ OPTIONS_ROW_WIDTH = 280
 OPTIONS_ROW_HEIGHT = 72
 OPTIONS_PAGE_COUNT = 3
 QUICK_GUIDE = (
-    ("Buttons 1/3", ACCENT, (
+    ("Buttons", ACCENT, (
         ("HOLD BOOT 2S", "Options / tap: Home"), ("POWER", "Standby or wake"), ("HOLD PWR 3S", "Power off"),
     ), None),
-    ("Touch 2/3", (188, 164, 255), (
-        ("TAP", "Show arrows"), ("SHAKE", "Return home"), ("DOUBLE TAP", "Record on stats"),
+    ("Touch", (188, 164, 255), (
+        ("SWIPE", "Change pages"), ("SWIPE DOWN", "Home from top edge"), ("DOUBLE TAP", "Record on stats"),
     ), "Dictation On + Codex link"),
-    ("Offline 3/3", (133, 239, 195), (
+    ("Offline", (133, 239, 195), (
         ("SAVED STATS", "Last update in UTC"), ("TIMER", "Works without PC"), ("RESTART", "Keeps settings"),
     ), None),
 )
@@ -230,6 +231,23 @@ def arrow(draw, center, step, opacity=1):
     draw.ellipse((x - 30, y - 30, x + 29, y + 29), fill=blend((43, 48, 59), opacity))
     draw.line(((x - 5 * step, y - 10), (x + 5 * step, y), (x - 5 * step, y + 10)),
               fill=blend(FOREGROUND, opacity), width=3, joint="curve")
+
+
+# draw: Logical preview surface.
+# selected: Zero-based page shown by the presenter.
+# count: Known complete number of pages.
+# top: Vertical position, kept above any footer action.
+# compact: Use narrow marks for the outer dashboard carousel.
+def page_marks(draw, selected, count, top=370, compact=False):
+    if count < 1 or not 0 <= selected < count:
+        raise ValueError("Invalid page indicator")
+    mark_width = 8 if compact else (24 if count <= 8 else 16)
+    width = count * mark_width + (count - 1) * 3
+    left = (SIZE - width) // 2
+    for index in range(count):
+        color = (165, 167, 255) if index == selected else (58, 48, 85)
+        x = left + index * (mark_width + 3)
+        draw.rounded_rectangle((x, top, x + mark_width - 1, top + 3), radius=2, fill=color)
 
 
 # draw: Logical frame receiving the native-style capsule.
@@ -448,6 +466,7 @@ class DeviceStudioWindow:
         self.visibility_page = 0
         self.standby = False
         self.touch = None
+        self.gesture = None
         self.event_visible = False
         self.available_pages = (0, PAGES.index("About"))
         self.chat_title_key = None
@@ -568,6 +587,8 @@ class DeviceStudioWindow:
         self.visible = set(PAGES)
         self.brightness = 80
         self.shake_to_wake = False
+        self.show_assistant_quota_ring = True
+        self.show_battery_ring = True
         self.info = SystemInfoModel()
         self.screensaver = ScreensaverModel()
         self.local_timer = LocalTimerModel()
@@ -890,10 +911,14 @@ class DeviceStudioWindow:
                     self.open(self.connections_return)
             elif self.route in ("visibility", "display", "behavior", "restart", "factory_reset", "timer"):
                 self.show_options_page(self.options_page)
+            elif self.route == "display_rings":
+                self.open("display")
             elif self.route == "quick_guide":
                 self.move_quick_guide(-1)
             elif self.route == "more_behavior":
                 self.open("behavior")
+            elif self.route == "synth_voice":
+                self.open("more_behavior")
             elif self.route is WifiSetupRoute.HOME_CHOICES:
                 self.open("mascot")
             elif self.route is WifiSetupRoute.HOME_INTRO:
@@ -1043,6 +1068,14 @@ class DeviceStudioWindow:
     def change_brightness(self):
         self.brightness = self.brightness - 10 if self.brightness > 10 else 100
 
+    # self: Simulated preference for displaying an available assistant quota arc.
+    def change_assistant_quota_ring(self):
+        self.show_assistant_quota_ring = not self.show_assistant_quota_ring
+
+    # self: Simulated preference for displaying an available battery arc.
+    def change_battery_ring(self):
+        self.show_battery_ring = not self.show_battery_ring
+
     # self: Simulated manual orientation, admitted only while automatic rotation is off.
     def change_orientation(self):
         if self.auto_rotate:
@@ -1099,6 +1132,40 @@ class DeviceStudioWindow:
         label(draw, name, top + (height - caption_size) // 2, caption_size, color, x=caption_x, width=width - 20)
         if action is not None:
             self.targets[name] = (box, action)
+
+    # self: Studio frame owner registering a context-specific footer action.
+    # image: Logical framebuffer before rotation.
+    # caption: Complete English action label.
+    # top: Top of the existing 220 x 52 touch target.
+    # action: Callback admitted only when the target is enabled.
+    def gradient_footer(self, image, caption, top, action):
+        box = (CENTER - 110, top, CENTER + 110, top + 52)
+        face = arcade_font(24)
+        bounds = face.getbbox(caption)
+        if bounds[2] - bounds[0] > 220:
+            face = arcade_font(18)
+            bounds = face.getbbox(caption)
+        width = bounds[2] - bounds[0]
+        height = bounds[3] - bounds[1]
+        if width > 220 or height > 52:
+            raise ValueError("Footer caption does not fit")
+        left = CENTER - width // 2
+        text_top = top + (52 - height) // 2
+        mask = Image.new("L", image.size, 0)
+        ImageDraw.Draw(mask).text((left - bounds[0], text_top - bounds[1]), caption, font=face, fill=255)
+        mask = mask.point(lambda value: 255 if value >= 128 and action is not None else 0)
+        gradient = Image.new("RGB", image.size)
+        pixels = ImageDraw.Draw(gradient)
+        cyan, violet, pink = (82, 212, 255), (166, 125, 255), (251, 143, 239)
+        for y in range(text_top, text_top + height):
+            progress = (y - text_top) / max(1, height - 1)
+            start, end = (cyan, violet) if progress < 0.5 else (violet, pink)
+            fraction = progress * 2 if progress < 0.5 else (progress - 0.5) * 2
+            color = tuple(round(first + (last - first) * fraction) for first, last in zip(start, end))
+            pixels.line((left, y, left + width, y), fill=color)
+        image.paste(gradient, (0, 0), mask)
+        if action is not None:
+            self.targets[caption] = (box, action)
 
     # self: Studio frame owner registering touch targets.
     # draw: Logical canvas before rotation.
@@ -1410,8 +1477,6 @@ class DeviceStudioWindow:
         opacity = self.navigation_opacity(now)
         if opacity > 0:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
-            if self.route is WifiSetupRoute.HOME_INTRO:
-                self.sidebar(draw, 1, (lambda: self.open(WifiSetupRoute.HOME_PAIR)) if opacity == 1 else None, opacity)
 
     # self: Studio preview owning the current Wi-Fi setup route and its touch targets.
     # image: Logical canvas before rotation.
@@ -1468,8 +1533,20 @@ class DeviceStudioWindow:
     # rows: Visible captions and actions, with at most three entries per page.
     def draw_option_rows(self, draw, rows):
         for index, (name, action) in enumerate(rows):
-            self.button(draw, name, OPTIONS_ROW_TOP + index * OPTIONS_ROW_STEP, action,
-                        width=OPTIONS_ROW_WIDTH, height=OPTIONS_ROW_HEIGHT, caption_size=20)
+            top = OPTIONS_ROW_TOP + index * OPTIONS_ROW_STEP
+            box = (93, top, 373, top + OPTIONS_ROW_HEIGHT)
+            parts = name.split("  ", 1)
+            icon = "phone" if "Orientation" in name or "rotate" in name else "motion"
+            setup_icon(draw, icon, (126, top + 36), 28, SETUP_ACCENT if action else MUTED)
+            draw.text((156, top + (23 if len(parts) > 1 else 36)), parts[0],
+                      font=font(17 if len(parts[0]) > 18 else 20), fill=FOREGROUND, anchor="lm")
+            if len(parts) > 1:
+                draw.text((156, top + 50), parts[1], font=font(18),
+                          fill=WIFI_CONNECTION_COLOR if action else MUTED, anchor="lm")
+            draw.line((141, top + OPTIONS_ROW_HEIGHT - 2, 373, top + OPTIONS_ROW_HEIGHT - 2),
+                      fill=(33, 32, 49), width=2)
+            if action is not None:
+                self.targets[name] = (box, action)
 
     # self: Studio preview of the current group of three configurable screens.
     # draw: Logical canvas before rotation.
@@ -1481,25 +1558,25 @@ class DeviceStudioWindow:
             visible = page in self.visible
             top = OPTIONS_ROW_TOP + index * OPTIONS_ROW_STEP
             box = (93, top, 373, top + OPTIONS_ROW_HEIGHT)
-            draw_control_pill(draw, box, CONTROL_PALETTE if visible else SECONDARY_CONTROL_PALETTE,
-                              corner_radius=12)
-            face = font(19)
-            draw.text((105, top + OPTIONS_ROW_HEIGHT // 2), page, font=face, fill=FOREGROUND, anchor="lm")
-            draw.text((322, top + OPTIONS_ROW_HEIGHT // 2), "Visible" if visible else "Hidden",
-                      font=face, fill=WIFI_CONNECTION_COLOR if visible else MUTED, anchor="mm")
+            setup_icon(draw, "phone", (126, top + 36), 28, SETUP_ACCENT)
+            draw.text((156, top + 23), page, font=font(19), fill=FOREGROUND, anchor="lm")
+            draw.text((156, top + 50), "Visible" if visible else "Hidden",
+                      font=font(18), fill=WIFI_CONNECTION_COLOR if visible else MUTED, anchor="lm")
+            draw.line((141, top + OPTIONS_ROW_HEIGHT - 2, 373, top + OPTIONS_ROW_HEIGHT - 2),
+                      fill=(33, 32, 49), width=2)
             self.targets[page] = (box, lambda selected=page: self.change_visibility(selected))
-        label(draw, f"{self.visibility_page + 1}/{VISIBILITY_PAGE_COUNT}", 375, 19, MUTED)
+        page_marks(draw, self.visibility_page, VISIBILITY_PAGE_COUNT)
         opacity = self.navigation_opacity(now)
-        if opacity > 0:
-            self.sidebar(draw, -1, (lambda: self.move(-1)) if opacity == 1 else None, opacity)
-            if self.visibility_page + 1 < VISIBILITY_PAGE_COUNT:
-                self.sidebar(draw, 1, (lambda: self.move(1)) if opacity == 1 else None, opacity)
+        if opacity > 0 and self.visibility_page == 0:
+            self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
 
     # self: Studio preview owning the active menu page and touch targets.
+    # image: Logical framebuffer receiving the gradient footer.
     # draw: Logical canvas before rotation.
     # now: Monotonic frame time for the lateral arrow fade.
-    def draw_options(self, draw, now):
-        label(draw, ("TOOLS", "PREFERENCES", "DEVICE")[self.options_page], OPTIONS_TITLE_TOP, 34)
+    def draw_options(self, image, draw, now):
+        draw.text((CENTER, OPTIONS_TITLE_TOP), ("TOOLS", "PREFERENCES", "DEVICE")[self.options_page],
+                  font=arcade_font(34), fill=FOREGROUND, anchor="mt")
         if self.options_page == 0:
             rows = (
                 ("Connections", self.open_connections),
@@ -1520,43 +1597,41 @@ class DeviceStudioWindow:
             )
         icons = (("link", "motion", "clock"), ("qr", "phone", "motion"),
                  ("retry", "offline", "phone"))[self.options_page]
-        palette = ((8, 8, 32), (8, 8, 32), (144, 155, 255), (165, 167, 255))
+        colors = ((186, 178, 255), (133, 239, 195), (255, 183, 74))
         for index, ((name, action), icon) in enumerate(zip(rows, icons)):
             top = OPTIONS_ROW_TOP + index * OPTIONS_ROW_STEP
             box = (93, top, 373, top + OPTIONS_ROW_HEIGHT)
-            draw_control_pill(draw, box, palette, corner_radius=12)
-            setup_icon(draw, icon, (126, top + 36), 28, palette[3])
-            draw.text((156, top + 36), name, font=font(20), fill=FOREGROUND, anchor="lm")
+            setup_icon(draw, icon, (126, top + 36), 28, colors[index])
+            words = name.split(" ", 1) if name in ("Visible screens", "Factory reset", "Quick guide", "Restart device") else (name,)
+            for line, title in enumerate(words):
+                baseline = top + 36 if len(words) == 1 else top + 23 + line * 24
+                draw.text((156, baseline), title.upper(), font=arcade_font(23), fill=FOREGROUND, anchor="lm")
+            draw.line((141, top + OPTIONS_ROW_HEIGHT - 2, 373, top + OPTIONS_ROW_HEIGHT - 2), fill=(33, 32, 49), width=2)
             self.targets[name] = (box, action)
-        for page in range(OPTIONS_PAGE_COUNT):
-            color = palette[3] if page == self.options_page else (58, 48, 85)
-            draw.rectangle((194 + page * 27, 370, 217 + page * 27, 373), fill=color)
+        page_marks(draw, self.options_page, OPTIONS_PAGE_COUNT)
         if self.options_page == OPTIONS_PAGE_COUNT - 1:
-            self.button(draw, "About", 382, self.open_about, width=220, height=52, caption_size=20)
+            self.gradient_footer(image, "About", 382, self.open_about)
         opacity = self.navigation_opacity(now)
-        if opacity > 0:
+        if opacity > 0 and self.options_page == 0:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
-            if self.options_page < OPTIONS_PAGE_COUNT - 1:
-                next_page = (lambda: self.show_options_page(self.options_page + 1)) if opacity == 1 else None
-                self.sidebar(draw, 1, next_page, opacity)
 
     # self: Studio preview of the three fixed guide pages.
+    # image: Logical framebuffer receiving the gradient footer.
     # draw: Logical canvas before rotation.
-    def draw_quick_guide(self, draw):
+    def draw_quick_guide(self, image, draw):
         title, accent, rows, note = QUICK_GUIDE[self.quick_guide_page]
         label(draw, title, OPTIONS_TITLE_TOP, 34, accent)
         for index, (action, detail) in enumerate(rows):
-            label(draw, action, 132 + index * 76, 36, accent)
-            label(draw, detail, 175 + index * 76, 19, MUTED)
+            label(draw, action, 130 + index * 68, 36, accent)
+            label(draw, detail, 173 + index * 68, 19, MUTED)
         if note is not None:
-            label(draw, note, 357, 15, MUTED)
+            label(draw, note, 340, 15, MUTED)
         last_page = self.quick_guide_page == len(QUICK_GUIDE) - 1
-        self.sidebar(draw, -1, self.back)
-        if not last_page:
-            self.sidebar(draw, 1, lambda: self.move_quick_guide(1))
-        else:
-            self.button(draw, "OK", 382, lambda: self.show_options_page(OPTIONS_PAGE_COUNT - 1),
-                        width=220, height=52, caption_size=20)
+        page_marks(draw, self.quick_guide_page, len(QUICK_GUIDE))
+        if self.quick_guide_page == 0:
+            self.sidebar(draw, -1, self.back)
+        if last_page:
+            self.gradient_footer(image, "OK", 382, lambda: self.show_options_page(OPTIONS_PAGE_COUNT - 1))
 
     # self: Studio preview drawing its independently retained timer state.
     # draw: Logical canvas before rotation.
@@ -1591,25 +1666,26 @@ class DeviceStudioWindow:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
 
     # self: Studio preview routing cancellation or confirmed restart to its owner.
+    # image: Logical framebuffer receiving the gradient footer.
     # draw: Logical canvas before rotation.
-    def draw_restart(self, draw):
+    def draw_restart(self, image, draw):
         label(draw, "Restart device", OPTIONS_TITLE_TOP, 34)
         label(draw, "Keep Wi-Fi and settings", 155, 17, MUTED)
         label(draw, "Stops any active timer", 184, 17, MUTED)
         self.button(draw, "Cancel", 270, self.back, width=280, height=64, secondary=True, caption_size=20)
-        self.button(draw, "Restart device", 382, self.restart_device, width=220, height=52, caption_size=20)
+        self.gradient_footer(image, "Restart device", 382, self.restart_device)
         self.sidebar(draw, -1, self.back)
 
     # self: Studio preview routing cancellation or an explicit reset to its owner.
+    # image: Logical framebuffer receiving the gradient footer.
     # draw: Logical canvas before rotation.
-    def draw_factory_reset(self, draw):
+    def draw_factory_reset(self, image, draw):
         label(draw, "Factory reset", OPTIONS_TITLE_TOP, 34)
         label(draw, "Clear Wi-Fi, Codex", 155, 17, MUTED)
         label(draw, "link and preferences.", 184, 17, MUTED)
         label(draw, "Restart with defaults", 213, 17, MUTED)
         self.button(draw, "Cancel", 270, self.back, width=280, height=64, secondary=True, caption_size=20)
-        self.button(draw, "Reset device", 382, self.reset_device, width=220, height=52,
-                    destructive=True, caption_size=20)
+        self.gradient_footer(image, "Reset device", 382, self.reset_device)
         self.sidebar(draw, -1, self.back)
 
     def open_about_url(self):
@@ -1624,7 +1700,8 @@ class DeviceStudioWindow:
         if matrix is None:
             label(draw, "QR preview unavailable", 240, 17, MUTED)
         else:
-            qr_tile(draw, matrix, 128, 288)
+            qr_tile(draw, matrix, 128, 264)
+        page_marks(draw, INFO_PAGES.index(InfoPage.PROJECT_LINK), len(INFO_PAGES), 397)
         self.targets["QR back"] = ((0, 0, SIZE, SIZE), lambda: self.move(-1))
 
     # self: Preview renderer borrowing the typed Info state and observation.
@@ -1639,14 +1716,15 @@ class DeviceStudioWindow:
             logo = vibeware_about_logo()
             image.paste(logo, (CENTER - logo.width // 2, 105), logo)
             label(draw, "umbertogiacobbi.biz", 355, 19, FOREGROUND)
+            page_marks(draw, INFO_PAGES.index(page), len(INFO_PAGES), 397)
             return
-        title, position = {
-            InfoPage.SYSTEM: ("SYSTEM", "1/3"),
-            InfoPage.MEMORY: ("MEMORY", "2/3"),
-            InfoPage.FIRMWARE: ("FIRMWARE", "3/3"),
+        title = {
+            InfoPage.SYSTEM: "SYSTEM",
+            InfoPage.MEMORY: "MEMORY",
+            InfoPage.FIRMWARE: "FIRMWARE",
         }[page]
         label(draw, title, 82, 30, ACCENT, width=230)
-        label(draw, position, 89, 16, MUTED, x=371, width=44)
+        page_marks(draw, INFO_PAGES.index(page), len(INFO_PAGES), 397)
         self.draw_info_icon(draw, page)
         draw.line((73, 125, 392, 125), fill=(62, 91, 113))
         if page is InfoPage.SYSTEM:
@@ -1867,11 +1945,10 @@ class DeviceStudioWindow:
         elif page == "Last 7 days":
             label(draw, "Daily data unavailable", 209, 20, MUTED)
         opacity = self.navigation_opacity(now)
-        if opacity > 0 and (len(self.available_pages) > 1 or page == "About") and not (
-                page == "About" and self.info.page is InfoPage.PROJECT_LINK):
-            self.sidebar(draw, -1, (lambda: self.move(-1)) if opacity == 1 else None, opacity)
-            if page != "About" or self.info.page is not InfoPage.PROJECT_LINK:
-                self.sidebar(draw, 1, (lambda: self.move(1)) if opacity == 1 else None, opacity)
+        if page != "About" and len(self.available_pages) > 1 and self.page in self.available_pages:
+            page_marks(draw, self.available_pages.index(self.page), len(self.available_pages), 435, compact=True)
+        if opacity > 0 and self.about_from_options and page == "About" and self.info.page is InfoPage.SYSTEM:
+            self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
 
     # image: Logical framebuffer receiving a scalable vector icon and gradient text.
     # top: Visible top of the text; opacity follows the shared navigation timeout.
@@ -2158,15 +2235,15 @@ class DeviceStudioWindow:
             elif self.route == "connections":
                 self.draw_connections(draw, snapshot, code, now)
             elif self.route == "options":
-                self.draw_options(draw, now)
+                self.draw_options(image, draw, now)
             elif self.route == "timer":
                 self.draw_local_timer(draw, now)
             elif self.route == "restart":
-                self.draw_restart(draw)
+                self.draw_restart(image, draw)
             elif self.route == "factory_reset":
-                self.draw_factory_reset(draw)
+                self.draw_factory_reset(image, draw)
             elif self.route == "quick_guide":
-                self.draw_quick_guide(draw)
+                self.draw_quick_guide(image, draw)
             elif self.route == "visibility":
                 self.draw_visibility(draw, now)
             elif self.route == "display":
@@ -2177,31 +2254,52 @@ class DeviceStudioWindow:
                     ("Orientation  Auto" if self.auto_rotate else f"Orientation  {self.rotation} deg",
                      None if self.auto_rotate else self.change_orientation),
                 ))
+                page_marks(draw, 0, 2)
+                self.gradient_footer(image, "More...", 382, lambda: self.open("display_rings"))
+                self.sidebar(draw, -1, self.back)
+            elif self.route == "display_rings":
+                label(draw, "Display rings", OPTIONS_TITLE_TOP, 34)
+                page_marks(draw, 1, 2)
+                rows = (("Assistant quota", self.show_assistant_quota_ring, self.change_assistant_quota_ring,
+                         "motion", SETUP_ACCENT),
+                        ("Battery ring", self.show_battery_ring, self.change_battery_ring,
+                         "clock", WIFI_CONNECTION_COLOR))
+                for index, (name, enabled, action, icon, color) in enumerate(rows):
+                    top = OPTIONS_ROW_TOP + index * OPTIONS_ROW_STEP
+                    box = (93, top, 373, top + OPTIONS_ROW_HEIGHT)
+                    setup_icon(draw, icon, (126, top + 36), 28, color)
+                    draw.text((156, top + 23), name, font=font(20), fill=FOREGROUND, anchor="lm")
+                    draw.text((156, top + 50), "On" if enabled else "Off", font=font(18),
+                              fill=WIFI_CONNECTION_COLOR if enabled else MUTED, anchor="lm")
+                    draw.line((141, top + OPTIONS_ROW_HEIGHT - 2, 373, top + OPTIONS_ROW_HEIGHT - 2),
+                              fill=(33, 32, 49), width=2)
+                    self.targets[name] = (box, action)
                 self.sidebar(draw, -1, self.back)
             elif self.route == "behavior":
                 label(draw, "Behavior", OPTIONS_TITLE_TOP, 34)
-                self.button(draw, "Dictation  N/A", OPTIONS_ROW_TOP, None,
-                            width=OPTIONS_ROW_WIDTH, height=OPTIONS_ROW_HEIGHT, caption_size=20)
-                self.button(draw, "Shake standby/wake " + ("On" if self.shake_to_wake else "Off"),
-                            OPTIONS_ROW_TOP + OPTIONS_ROW_STEP, self.change_shake_to_wake,
-                            width=OPTIONS_ROW_WIDTH, height=OPTIONS_ROW_HEIGHT, caption_size=17)
-                self.button(draw, "Sounds  N/A", OPTIONS_ROW_TOP + 2 * OPTIONS_ROW_STEP, None,
-                            width=OPTIONS_ROW_WIDTH, height=OPTIONS_ROW_HEIGHT, caption_size=20)
-                self.button(draw, "More options", 382, lambda: self.open("more_behavior"),
-                            width=220, height=52, secondary=True, caption_size=20)
+                self.draw_option_rows(draw, (("Dictation  N/A", None),
+                    ("Shake standby/wake  " + ("On" if self.shake_to_wake else "Off"), self.change_shake_to_wake),
+                    ("Sounds  N/A", None)))
+                self.gradient_footer(image, "More...", 382, lambda: self.open("more_behavior"))
                 self.sidebar(draw, -1, self.back)
             elif self.route == "more_behavior":
                 label(draw, "More behavior", OPTIONS_TITLE_TOP, 34)
                 setup_icon(draw, "motion", (CENTER, 169), 52, SETUP_ACCENT)
                 label(draw, "Animate while idle", 208, 18, MUTED)
                 box = (93, 273, 373, 345)
-                palette = CONTROL_PALETTE if self.screensaver.enabled else SECONDARY_CONTROL_PALETTE
-                draw_control_pill(draw, box, palette, corner_radius=12)
-                face = font(20)
-                draw.text((105, 309), "Screensaver", font=face, fill=FOREGROUND, anchor="lm")
-                draw.text((365, 309), "On" if self.screensaver.enabled else "Off",
-                          font=face, fill=FOREGROUND, anchor="rm")
+                setup_icon(draw, "motion", (126, 309), 28, SETUP_ACCENT)
+                draw.text((156, 296), "Screensaver", font=font(20), fill=FOREGROUND, anchor="lm")
+                draw.text((156, 323), "On" if self.screensaver.enabled else "Off",
+                          font=font(18), fill=WIFI_CONNECTION_COLOR if self.screensaver.enabled else MUTED, anchor="lm")
+                draw.line((141, 343, 373, 343), fill=(33, 32, 49), width=2)
                 self.targets["Screensaver"] = (box, self.screensaver.toggle)
+                self.gradient_footer(image, "Synth Voice", 382, lambda: self.open("synth_voice"))
+                self.sidebar(draw, -1, self.back)
+            elif self.route == "synth_voice":
+                label(draw, "Synth Voice", OPTIONS_TITLE_TOP, 34)
+                self.draw_option_rows(draw, (("Enable Synth Voice  N/A", None),
+                                             ("Voice volume  N/A", None),
+                                             ("Voice type  N/A", None)))
                 self.sidebar(draw, -1, self.back)
             else:
                 self.draw_widget(image, draw, snapshot, now)
@@ -2303,6 +2401,7 @@ class DeviceStudioWindow:
     # event: Tk pointer event transformed into the logical device coordinate system.
     def press(self, event):
         point = self.point(event)
+        self.gesture = None
         if self.boot is not None or self.standby:
             return
         if point is not None:
@@ -2314,6 +2413,13 @@ class DeviceStudioWindow:
             self.targets.clear()
             self.acknowledged = ()
             return
+        if point is not None:
+            self.gesture = (self.route, self.page, self.visibility_page, self.options_page,
+                            self.quick_guide_page, point, self.displayed_rotation(), self.event_visible)
+            if point[1] < 73:
+                # The top edge belongs to the global Home gesture, not a control below it.
+                self.touch = None
+                return
         if self.event_visible:
             if point is not None:
                 self.last_navigation = time.monotonic()
@@ -2323,8 +2429,12 @@ class DeviceStudioWindow:
             self.touch = (self.route, self.page, self.visibility_page, point, name)
             self.touch_pressed_at = self.last_navigation = time.monotonic()
 
+    # self: Preview input owner retaining the original gesture identity.
+    # event: Tk pointer sample in the same transformed device coordinate system.
     def drag(self, event):
         point = self.point(event)
+        if self.gesture is not None and self.gesture[5][1] < 73:
+            return
         if self.event_visible:
             if point is not None:
                 self.last_navigation = self.screensaver_idle_since = time.monotonic()
@@ -2336,13 +2446,52 @@ class DeviceStudioWindow:
             if point is None or sum((end - start) ** 2 for start, end in zip(origin, point)) >= 144:
                 self.touch = None
 
+    # self: Preview input owner admitting one completed tap or swipe.
+    # event: Tk release sample mapped through the current display orientation.
+    # Raises OSError, RuntimeError or ValueError through the existing preview error dialog.
     def release(self, event):
         touch, self.touch = self.touch, None
+        gesture, self.gesture = self.gesture, None
         point = self.point(event)
         if self.boot is not None or self.standby or point is None:
             return
         self.last_navigation = self.screensaver_idle_since = time.monotonic()
         try:
+            if gesture is not None:
+                route, page, visibility, options, guide, origin, rotation, event_visible = gesture
+                unchanged = (route, page, visibility, options, guide, rotation, event_visible) == (
+                    self.route, self.page, self.visibility_page, self.options_page,
+                    self.quick_guide_page, self.displayed_rotation(), self.event_visible)
+                dx, dy = point[0] - origin[0], point[1] - origin[1]
+                if origin[1] < 73:
+                    if unchanged and dy >= 60 and dy * 2 > abs(dx) * 3:
+                        if self.event_visible and self.events:
+                            self.events.hide()
+                            self.event_visible = False
+                        self.home()
+                    return
+                if unchanged and not self.event_visible and abs(dx) >= 48 and abs(dx) * 2 > abs(dy) * 3:
+                    step = 1 if dx < 0 else -1
+                    if self.route == "options":
+                        page = self.options_page + step
+                        if 0 <= page < OPTIONS_PAGE_COUNT:
+                            self.show_options_page(page)
+                        elif page < 0:
+                            self.back()
+                        return
+                    if self.route == "quick_guide":
+                        self.move_quick_guide(step)
+                        return
+                    if self.route in ("visibility", "widgets"):
+                        self.move(step)
+                        return
+                    if self.route is WifiSetupRoute.HOME_INTRO and step > 0:
+                        self.open(WifiSetupRoute.HOME_PAIR)
+                        return
+                    if step < 0 and self.route in ("display", "display_rings", "behavior", "more_behavior", "synth_voice",
+                                                  "connections", "timer", "restart", "factory_reset"):
+                        self.back()
+                        return
             if self.event_visible:
                 self.events.release(point, self.observe()[0], self.endpoint)
                 return

@@ -1063,6 +1063,12 @@ struct CodyPreferencesSnapshot : ComponentSnapshot {
     bool screensaver_enabled = false;
     bool screensaver_valid = false;
     esp_err_t screensaver_error = ESP_ERR_INVALID_STATE;
+    bool assistant_quota_ring_enabled = false;
+    bool assistant_quota_ring_valid = false;
+    esp_err_t assistant_quota_ring_error = ESP_ERR_INVALID_STATE;
+    bool battery_ring_enabled = false;
+    bool battery_ring_valid = false;
+    esp_err_t battery_ring_error = ESP_ERR_INVALID_STATE;
     CodyUsageMode usage_mode = CodyUsageMode::Desk;
     bool usage_mode_valid = false;
     esp_err_t usage_mode_error = ESP_ERR_INVALID_STATE;

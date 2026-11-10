@@ -34,6 +34,8 @@ constexpr char kBirthIntroKey[] = "cody_birth";
 constexpr char kShakeKey[] = "cody_shake";
 constexpr char kSoundsKey[] = "cody_sounds";
 constexpr char kScreensaverKey[] = "cody_saver";
+constexpr char kQuotaRingKey[] = "cody_qring";
+constexpr char kBatteryRingKey[] = "cody_bring";
 constexpr char kUserNameKey[] = "cody_user_name";
 constexpr char kUsageModeKey[] = "cody_usage";
 constexpr char kWidgetVisibilityKey[] = "cody_widgets";
@@ -312,6 +314,35 @@ esp_err_t persist_screensaver(uint32_t value)
     return error != ESP_OK ? error : publication_error;
 }
 
+// preference: Exact perimeter setting selected by the user.
+// value: Validated zero/one value to save and read back.
+// Exception: Returns the original projection, storage or publication error.
+esp_err_t persist_ring_preference(PreferenceId preference, uint32_t value)
+{
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    LUNASHELL::CodyOptionsObservation observed{};
+    auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+    auto error = snapshots.readCodyOptionsObservation(observed);
+    if (error != ESP_OK) return error;
+    auto &preferences = observed.preferences;
+    const bool quota = preference == PreferenceId::AssistantQuotaRing;
+    error = save_preference_uint32(quota ? kQuotaRingKey : kBatteryRingKey, value);
+    if (quota) {
+        preferences.assistant_quota_ring_valid = error == ESP_OK;
+        preferences.assistant_quota_ring_error = error;
+        if (error == ESP_OK) preferences.assistant_quota_ring_enabled = value == 1U;
+    } else {
+        preferences.battery_ring_valid = error == ESP_OK;
+        preferences.battery_ring_error = error;
+        if (error == ESP_OK) preferences.battery_ring_enabled = value == 1U;
+    }
+    const auto publication_error = snapshots.reportCodyPreferences(preferences);
+    if (publication_error != ESP_OK) {
+        ESP_LOGE(kTag, "Ring preference publication failed (%s)", esp_err_to_name(publication_error));
+    }
+    return error != ESP_OK ? error : publication_error;
+}
+
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
 // value: Exact 0/1 choice validated by the preference dispatcher.
 // Exception: Returns original snapshot, write, readback or publication errors.
@@ -353,6 +384,16 @@ static esp_err_t load_companion_preferences_locked()
     preferences.screensaver_error = storage_error == ESP_OK
         ? load_switch(kScreensaverKey, false, preferences.screensaver_enabled) : storage_error;
     preferences.screensaver_valid = preferences.screensaver_error == ESP_OK;
+    preferences.assistant_quota_ring_error = storage_error == ESP_OK
+        ? load_switch(kQuotaRingKey, true, preferences.assistant_quota_ring_enabled) : storage_error;
+    preferences.assistant_quota_ring_valid = preferences.assistant_quota_ring_error == ESP_OK;
+    preferences.battery_ring_error = storage_error == ESP_OK
+        ? load_switch(kBatteryRingKey, true, preferences.battery_ring_enabled) : storage_error;
+    preferences.battery_ring_valid = preferences.battery_ring_error == ESP_OK;
+    if (!preferences.assistant_quota_ring_valid || !preferences.battery_ring_valid) {
+        ESP_LOGE(kTag, "Optional ring preferences unavailable: quota=%s battery=%s",
+            esp_err_to_name(preferences.assistant_quota_ring_error), esp_err_to_name(preferences.battery_ring_error));
+    }
     if (!preferences.screensaver_valid) {
         ESP_LOGE(kTag, "Optional screensaver preference unavailable (%s)",
             esp_err_to_name(preferences.screensaver_error));
@@ -488,6 +529,14 @@ esp_err_t persist_companion_usage_mode(LUNASHELL::CodyUsageMode mode)
 // Exception: Returns the original validation, persistence, policy or publication error.
 esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
 {
+    if (preference == PreferenceId::AssistantQuotaRing || preference == PreferenceId::BatteryRing) {
+        if (value > 1U) {
+            ESP_LOGE(kTag, "Ring preference rejected value=%lu (%s)",
+                static_cast<unsigned long>(value), esp_err_to_name(ESP_ERR_INVALID_ARG));
+            return ESP_ERR_INVALID_ARG;
+        }
+        return persist_ring_preference(preference, value);
+    }
     if (preference == PreferenceId::Screensaver) {
         if (value > 1U) {
             ESP_LOGE(kTag, "Screensaver preference rejected value=%lu (%s)",

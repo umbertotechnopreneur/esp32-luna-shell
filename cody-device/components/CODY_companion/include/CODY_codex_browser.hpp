@@ -42,6 +42,8 @@ struct CodexBrowserPage {
     Domain::StateCursor next{};
     uint64_t generation = 0;
     uint8_t count = 0;
+    uint8_t page_index = 0;
+    uint8_t known_page_count = 0;
     bool previous = false;
 };
 
@@ -50,10 +52,12 @@ struct CodexBrowserPage {
 struct CodexBrowserTrail {
     Domain::StateCursor cursor{};
     std::array<uint64_t, 127> previous{};
+    uint64_t known_generation = 0;
     uint8_t count = 0;
+    uint8_t known_page_count = 0;
 
     // No parameters: reset a stale generation or a new scope without an array copy.
-    void reset() { cursor = {}; count = 0; }
+    void reset() { cursor = {}; count = 0; known_generation = 0; known_page_count = 0; }
 };
 
 struct CodexBrowserLine {
@@ -75,6 +79,7 @@ struct CodexBrowser {
     CodexBrowserPage page{};
     CodexBrowserPage draft{};
     std::array<CodexBrowserLine, 8> lines{};
+    CODY2D::TextLine paging_hint{};
     std::array<CODY2D::CapsuleControl, 6> controls{};
     std::array<CodexBrowserControl, 6> actions{};
     esp_err_t selection_error = ESP_OK;

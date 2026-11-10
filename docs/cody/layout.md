@@ -35,9 +35,9 @@ no typewriter timing or character audio.
 | Saved PC management | Three standalone 36-pixel icons, with 90 x 90 touch areas at x=83/188/293, y=302 |
 | Connections actions | 54-pixel glyphs at (148,219) and (318,219), with 140 × 168 touch areas |
 | Check relay, when configured | Text-only footer at (123,366,220,52). The latest check replaces the Connections hint at y=136. |
-| Options and category rows | Up to three rows at x=93, width 280, height 72, y=130/210/290. Destination cards use 12-pixel corners, an outline and a standalone icon; settings use flat rows. |
+| Options and category rows | Up to three rows at x=93, width 280, height 72, y=130/210/290. Destinations and settings use flat rows with semantic icons and separators. |
 | Visible screens | Three Options-sized rows, name on the left and visibility on the right, with page and save status below |
-| Options menu | No Home footer; lateral Back returns to the previous page or opening route |
+| Options menu | Swipe between pages; lateral Back on the first page returns to the opening route |
 | Restart / factory reset confirmation | Cancel at (93,270,280,64), confirmation at (123,382,220,52) |
 | Visibility toggle | (113,226,240,52) |
 | Ordinary single action | (113,352,240,72) |
@@ -49,10 +49,12 @@ The outer corners of each control fit within the circular chord at its row.
 Coverage is clipped to the rounded control; complete hit bounds remain admitted.
 
 Device-first Options uses named Tools, Preferences and Device pages with three
-page marks below the rows. Destination cards use a dark fill, a soft violet
-outline, a matching semantic icon and a title. Codex stats uses a bar-chart
-icon. Behavior and Display retain flat rows with the canonical setting
-value on the second line. More options uses the graphite footer palette.
+page marks below the rows. Section headings use a distinctive pixel font;
+long destination labels can occupy two lines. Destinations and settings share
+flat icon-and-divider rows. Behavior and Display show the canonical setting
+value on the second line. Contextual footer actions use large gradient text.
+Other known multipage views use the same page marks; the dashboard uses compact
+marks below its content. Cursor-based views do not invent an unknown page count.
 
 Saved PC uses a link glyph above the title, an explicit PC-name-unavailable
 caption, and the canonical configured Wi-Fi name. The current link projection has no
@@ -118,8 +120,9 @@ capsule shows a check mark and returns to Events after the broker confirms
 read dismissal. A question caption comes from
 its declared source context when one is supplied.
 
-Swipe left on Events for Current turn, and right for statistics. Swipe right
-on a statistics page to return to Events. Current turn uses the lateral Back
+Swipe left on Events for Current turn, and right for statistics. Swipe horizontally
+between statistics pages; swipe right from the first page to return to Events.
+Current turn uses the lateral Back
 control. It shows the currently followed chat, an observed Shell, Web search
 or Editing identity when available, and a separate compaction icon and measured
 elapsed time. A hosted web search without a native hook remains unavailable.
@@ -164,7 +167,7 @@ Both QR screens keep their white area within the square code tile.
 | 06 | Title and installation QR in a 288 x 288 tile at (89,128); tap returns to the guide |
 | 07 | Title and session QR in the same 288 x 288 tile while ReadyToScan; tap closes the owned session and returns |
 | 09 / Wi-Fi result | Mint Wi-Fi glyph for a usable connection, amber offline glyph otherwise. Title at y=200, status detail at y=248, and up to two SSID rows from y=280. Continue at (113,352,240,72). |
-| 10 / Options | Title at y=82, up to three enlarged rows, lateral paging arrows, and Back to the opening route |
+| 10 / Options | Title at y=82, up to three enlarged rows, swipe paging, and Back to the opening route |
 | 12 / Pair Codex | Title at y=88, link glyph at (205,148,56,56), and the six-character code at y=236 when ready |
 | 14 / Waiting for PC | Same heading and glyph slot as Pair Codex, with two status lines and Later |
 | 11 / Skin | Preview (233,172,44), title y=78, viewport (117,226,232,126), OK (123,386,220,48) |

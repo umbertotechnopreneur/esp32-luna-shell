@@ -28,6 +28,7 @@
 #include "CODY_wifi_menu_art.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -42,7 +43,10 @@
 #endif
 
 #include "CODY2D_controls.hpp"
+#include "CODY_flat_menu_row.hpp"
 #include "CODY_settings.hpp"
+#include "CODY_page_marks.hpp"
+#include "CODY_gradient_text.hpp"
 #include "CODY_widget_state.hpp"
 #include "CODY_codex_audio.hpp"
 #include "LUNASHELL_build_mode.hpp"
@@ -163,6 +167,51 @@ constexpr uint16_t kPreferenceTop = kDeviceFirstSetup ? 130 : 194;
 constexpr uint16_t kPreferenceHeight = kDeviceFirstSetup ? 72 : 50;
 constexpr uint16_t kPreferenceStep = kDeviceFirstSetup ? 80 : 60;
 constexpr uint8_t kPreferencesPerPage = 3;
+
+// letter: Uppercase Options-section title glyph.
+// row: Zero-based row of the five-by-seven pixel source.
+constexpr uint8_t options_title_glyph(char letter, size_t row)
+{
+    switch (letter) {
+    case 'C': return std::array<uint8_t, 7>{15,16,16,16,16,16,15}[row];
+    case 'D': return std::array<uint8_t, 7>{30,17,17,17,17,17,30}[row];
+    case 'E': return std::array<uint8_t, 7>{31,16,16,30,16,16,31}[row];
+    case 'F': return std::array<uint8_t, 7>{31,16,16,30,16,16,16}[row];
+    case 'I': return std::array<uint8_t, 7>{31,4,4,4,4,4,31}[row];
+    case 'L': return std::array<uint8_t, 7>{16,16,16,16,16,16,31}[row];
+    case 'N': return std::array<uint8_t, 7>{17,25,21,19,17,17,17}[row];
+    case 'O': return std::array<uint8_t, 7>{14,17,17,17,17,17,14}[row];
+    case 'P': return std::array<uint8_t, 7>{30,17,17,30,16,16,16}[row];
+    case 'R': return std::array<uint8_t, 7>{30,17,17,30,20,18,17}[row];
+    case 'S': return std::array<uint8_t, 7>{15,16,16,14,1,1,30}[row];
+    case 'T': return std::array<uint8_t, 7>{31,4,4,4,4,4,4}[row];
+    case 'V': return std::array<uint8_t, 7>{17,17,17,17,17,10,4}[row];
+    default: return 0;
+    }
+}
+
+// No parameters: produce immutable native two-bit coverage at four pixels per source cell.
+constexpr std::array<uint8_t, 26U * 28U * 5U> make_options_title_coverage()
+{
+    std::array<uint8_t, 26U * 28U * 5U> coverage{};
+    for (size_t glyph = 0; glyph < 26; ++glyph) {
+        for (size_t y = 0; y < 28; ++y) {
+            const auto source = options_title_glyph(static_cast<char>('A' + glyph), y / 4U);
+            for (size_t x = 0; x < 20; ++x) {
+                if ((source & (1U << (4U - x / 4U))) != 0) {
+                    coverage[(glyph * 28U + y) * 5U + x / 4U] |=
+                        static_cast<uint8_t>(3U << (6U - 2U * (x % 4U)));
+                }
+            }
+        }
+    }
+    return coverage;
+}
+
+constexpr auto kOptionsTitleCoverage = make_options_title_coverage();
+const CODY2D::MonoFont kOptionsTitleFont{
+    kOptionsTitleCoverage.data(), static_cast<uint32_t>(kOptionsTitleCoverage.size()), 'A', 26, 20, 28, 24, 5,
+};
 static_assert(kPreferenceTop + (kPreferencesPerPage - 1U) * kPreferenceStep +
     kPreferenceHeight < kOptionsFooterBounds.y);
 constexpr uint16_t kEventCaptionWidth = 300;
@@ -218,7 +267,7 @@ enum class CodexCleanup : uint8_t { None, Cancel, Forget };
 enum class OnboardingAction : uint8_t {
     None, ShowQr, PairCody, Cancel, Retry, Continue, Next, Done, LetsGo,
     AcceptCodex, DeclineCodex, ConnectCodex, NetworkSetup, Later, Options, KeepPairing, ReplacePairing,
-    ForgetPairing, ConfirmForget, KeepSaved, DisplayOptions, BehaviorOptions, MoreBehavior,
+    ForgetPairing, ConfirmForget, KeepSaved, DisplayOptions, BehaviorOptions, MoreBehavior, MoreDisplay,
     Connections, CodexStatistics, VisibleScreens, OpenPairingGuide,
     FactoryReset, ConfirmFactoryReset, LocalTimer, RestartDevice, ConfirmRestart, QuickGuide,
     CheckRelay, SynthOptions, BrowseCodex, AndroidApp, AppleApp, LocalWifi, AudioLevels, OpenAbout,
@@ -226,7 +275,7 @@ enum class OnboardingAction : uint8_t {
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
 enum class OptionsPage : uint8_t {
-    Menu, MenuMore, MenuMaintenance, Display, Behavior, BehaviorMore,
+    Menu, MenuMore, MenuMaintenance, Display, DisplayRings, Behavior, BehaviorMore,
     RestartConfirm, RestartPending, ResetConfirm, ResetPending, ResetFailed,
     GuideButtons, GuideTouch, GuideOffline, SynthVoice
 };
@@ -367,8 +416,6 @@ struct LocalWifiView {
     CODY2D::TextLine detail{};
     CODY2D::CapsuleControl rows[4]{};
     CODY2D::CapsuleControl scan{};
-    CODY2D::CapsuleControl previous{};
-    CODY2D::CapsuleControl next{};
     CODY2D::CapsuleControl confirm{};
     char labels[4][34]{};
     char detail_text[64]{};
@@ -394,6 +441,7 @@ struct LocalWifiView {
     int8_t selected_network = -1;
     int8_t touch_control = -1;
     CODY2D::Point touch_start{};
+    CODY2D::Point touch_last{};
     uint16_t touch_rotation = 0;
     LocalWifiPage page = LocalWifiPage::None;
     bool scanning_requested = false;
@@ -593,7 +641,8 @@ QrModules *s_encoding_target = nullptr;
 #if defined(CODY_DEVICE_UI_ONLY)
 constexpr char kAboutProjectUrl[] = "https://github.com/umbertotechnopreneur/esp32-luna-shell";
 constexpr char kAboutProjectHeading[] = "Scan for more info";
-constexpr CODY2D::Rect kAboutProjectBounds = kLargeQrBounds;
+// Leave the shared page marks below the complete four-module QR quiet zone.
+constexpr CODY2D::Rect kAboutProjectBounds{117, 128, 232, 232};
 QrModules s_about_project_qr{};
 CODY2D::TextLine s_about_project_heading{};
 esp_err_t s_about_project_error = ESP_ERR_INVALID_STATE;
@@ -1262,7 +1311,8 @@ bool options_previous_page_by_swipe()
 {
     return s_route == Route::MakeItYours10 &&
         (s_options_page == OptionsPage::MenuMore || s_options_page == OptionsPage::MenuMaintenance ||
-         s_options_page == OptionsPage::GuideTouch || s_options_page == OptionsPage::GuideOffline);
+         s_options_page == OptionsPage::GuideTouch || s_options_page == OptionsPage::GuideOffline ||
+         s_options_page == OptionsPage::DisplayRings);
 }
 
 // action: Footer identity that requires a complete, released Options gesture.
@@ -1277,7 +1327,8 @@ bool options_next_page_available()
 {
     return s_route == Route::MakeItYours10 && s_preference_error == ESP_OK &&
         (s_options_page == OptionsPage::Menu || (kDeviceFirstSetup && s_options_page == OptionsPage::MenuMore) ||
-         s_options_page == OptionsPage::GuideButtons || s_options_page == OptionsPage::GuideTouch);
+         s_options_page == OptionsPage::GuideButtons || s_options_page == OptionsPage::GuideTouch ||
+         (kDeviceFirstSetup && s_options_page == OptionsPage::Display));
 }
 
 // action: Stable action identity; the returned English label has flash lifetime.
@@ -1327,7 +1378,8 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         label = "Behavior";
         break;
     case OnboardingAction::MoreBehavior:
-        label = "More options";
+    case OnboardingAction::MoreDisplay:
+        label = "More...";
         break;
     case OnboardingAction::SynthOptions:
         label = "Synth Voice";
@@ -1456,11 +1508,13 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
     case OnboardingAction::Later:
     case OnboardingAction::Options:
     case OnboardingAction::MoreBehavior:
+    case OnboardingAction::MoreDisplay:
     case OnboardingAction::SynthOptions:
     case OnboardingAction::CheckRelay:
         control.top_color = 0x18E5;
         control.bottom_color = 0x10A3;
-        control.border_color = 0x4A8C;
+        control.border_color = action == OnboardingAction::MoreBehavior || action == OnboardingAction::MoreDisplay || action == OnboardingAction::SynthOptions
+            ? 0 : 0x4A8C;
         control.icon_color = 0xBDF7;
         break;
     case OnboardingAction::Cancel:
@@ -1874,8 +1928,10 @@ esp_err_t draw_about_project_rows(const void *state, CODY2D::Surface strip,
                                  uint16_t first_row, uint16_t first_column)
 {
     const auto &heading = *static_cast<const CODY2D::TextLine *>(state);
-    const auto error = draw_qr_rows(s_about_project_qr, kAboutProjectBounds, strip, first_row, first_column);
-    return error == ESP_OK ? CODY2D::draw_text_rows(heading, heading.text.length, strip, first_row, first_column) : error;
+    auto error = draw_qr_rows(s_about_project_qr, kAboutProjectBounds, strip, first_row, first_column);
+    if (error == ESP_OK) error = CODY2D::draw_text_rows(heading, heading.text.length, strip, first_row, first_column);
+    if (error == ESP_OK) error = draw_page_marks(4, 5, strip, first_row, first_column, 396);
+    return error;
 }
 #endif
 
@@ -1903,6 +1959,54 @@ esp_err_t draw_action_visual(const CODY2D::CapsuleControl &control, uint16_t ico
     return CODY2D::draw_capsule_rows(capsule, strip, first_row, first_column);
 }
 
+// line: Prepared caption with flash-owned glyphs.
+// visible: Number of characters admitted by the current presentation.
+// enabled: Whether the action accepts input.
+// bounds: Existing action and complete touch bounds.
+// strip: Borrowed RGB565 tile.
+// first_row: Logical tile y origin.
+// first_column: Logical tile x origin.
+// Exception: Preserves the original surface and text drawing errors.
+esp_err_t draw_gradient_action_caption(const CODY2D::TextLine &line, uint16_t visible, bool enabled,
+    CODY2D::Rect bounds, CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+{
+    auto error = CODY2D::validate_surface(strip);
+    if (error != ESP_OK) return error;
+    if (!line.valid || line.text.characters == nullptr || line.text.length == 0 || visible > line.text.length)
+        return ESP_ERR_INVALID_ARG;
+    for (uint16_t index = 0; index < line.text.length; ++index) {
+        if (line.text.characters[index] != ' ' && gradient_pixel_glyph(line.text.characters[index]) == nullptr)
+            return ESP_ERR_INVALID_ARG;
+    }
+    const uint32_t columns = 6U * line.text.length - 1U;
+    const uint16_t scale = columns * 3U <= bounds.width ? 3 : 2;
+    const uint32_t width = columns * scale;
+    const uint16_t height = 7U * scale;
+    if (width > bounds.width || height > bounds.height) return ESP_ERR_INVALID_SIZE;
+    const int origin_x = bounds.x + (bounds.width - width) / 2U;
+    const int origin_y = bounds.y + (bounds.height - height) / 2U;
+    const int top = std::max<int>(first_row, origin_y);
+    const int bottom = std::min<int>(first_row + strip.height, origin_y + height);
+    for (int y = top; y < bottom; ++y) {
+        const auto color = gradient_action_color(static_cast<uint16_t>(y - origin_y), height, enabled ? 255 : 128);
+        const auto stored = CODY2D::rgb565_native_to_stored(color, strip.byte_order);
+        auto *row = strip.pixels + static_cast<size_t>(y - first_row) * strip.stride;
+        const uint8_t glyph_row = static_cast<uint8_t>((y - origin_y) / scale);
+        for (uint16_t index = 0; index < visible; ++index) {
+            const auto *glyph = gradient_pixel_glyph(line.text.characters[index]);
+            if (glyph == nullptr) continue; // Space was admitted during validation.
+            for (uint8_t column = 0; column < 5; ++column) {
+                if (((*glyph)[glyph_row] & (1U << (4U - column))) == 0) continue;
+                const int x = origin_x + (index * 6U + column) * scale;
+                const int left = std::max<int>(first_column, x);
+                const int right = std::min<int>(first_column + strip.width, x + scale);
+                if (left < right) std::fill_n(row + left - first_column, right - left, stored);
+            }
+        }
+    }
+    return ESP_OK;
+}
+
 // preference: Prepared menu or setting row, sharing its existing touch rectangle.
 // strip: Caller-owned content tile.
 // first_row: Logical tile y origin.
@@ -1916,18 +2020,7 @@ esp_err_t draw_preference_row(const PreferenceControl &preference, CODY2D::Surfa
         return CODY2D::draw_capsule_rows(control, strip, first_row, first_column);
     }
     const auto &bounds = control.bounds;
-    if (preference.action != OnboardingAction::None) {
-        auto panel = control;
-        panel.caption = {};
-        panel.icon = CODY2D::ActionIcon::None;
-        auto error = CODY2D::draw_capsule_rows(panel, strip, first_row, first_column);
-        if (error == ESP_OK) error = draw_action_visual(control, 28, strip, first_row, first_column);
-        if (error == ESP_OK) error = CODY2D::draw_text_rows(control.caption, control.caption.text.length,
-            strip, first_row, first_column);
-        return error;
-    }
-
-    // Setting values retain their flat two-line rows.
+    // Menu destinations and setting values share the same flat icon-and-divider style.
     auto error = draw_action_visual(control, 30, strip, first_row, first_column);
     if (error == ESP_OK) {
         error = CODY2D::draw_text_rows(control.caption, control.caption.text.length,
@@ -1940,24 +2033,6 @@ esp_err_t draw_preference_row(const PreferenceControl &preference, CODY2D::Surfa
         error = CODY2D::draw_capsule_rows(divider, strip, first_row, first_column);
     }
     return error;
-}
-
-// page: One-based Options section; zero means this route has no page marks.
-// strip: Borrowed content tile.
-// first_row: Logical tile y origin.
-// first_column: Logical tile x origin.
-// Exception: Returns the original native draw failure.
-esp_err_t draw_menu_page_marks(uint8_t page, CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
-{
-    if (page == 0) return ESP_OK;
-    for (uint8_t mark = 1; mark <= 3; ++mark) {
-        const auto color = static_cast<uint16_t>(mark == page ? 0xA53F : 0x422A);
-        const auto x = static_cast<uint16_t>(194U + (mark - 1U) * 27U);
-        const CODY2D::CapsuleControl indicator{{x, 370, 24, 4}, {}, color, color, true};
-        const auto error = CODY2D::draw_capsule_rows(indicator, strip, first_row, first_column);
-        if (error != ESP_OK) return error;
-    }
-    return ESP_OK;
 }
 
 // view: Display-owned menu text that is retained through frame retirement.
@@ -2087,10 +2162,16 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
         (view.action.caption.valid || view.action.icon != CODY2D::ActionIcon::None) &&
         !(s_home_wifi_flow && s_route == Route::Pairing07)) {
         // Reveal the complete action atomically after the main line finishes.
-        error = draw_action_visual(view.action, view.action_icon_size, strip, first_row, first_column);
-        if (error == ESP_OK && view.action.caption.valid) {
-            error = CODY2D::draw_text_rows(view.action.caption, view.action_visible_characters,
-                strip, first_row, first_column);
+        const bool settings_footer = s_route == Route::MakeItYours10 && view.action.caption.valid;
+        if (settings_footer) {
+            error = draw_gradient_action_caption(view.action.caption, view.action_visible_characters,
+                view.action.enabled, view.action.bounds, strip, first_row, first_column);
+        } else {
+            error = draw_action_visual(view.action, view.action_icon_size, strip, first_row, first_column);
+            if (error == ESP_OK && view.action.caption.valid) {
+                error = CODY2D::draw_text_rows(view.action.caption, view.action_visible_characters,
+                    strip, first_row, first_column);
+            }
         }
         if (error == ESP_OK && view.action_second_line.valid) {
             error = CODY2D::draw_text_rows(view.action_second_line, view.action_second_visible,
@@ -2124,9 +2205,11 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
                 strip, first_row, first_column);
         }
     }
-    if (error == ESP_OK && view.actions_visible && view.preference_count != 0) {
-        error = draw_menu_page_marks(view.menu_page, strip, first_row, first_column);
-    }
+    if (error == ESP_OK && view.actions_visible && view.menu_page != 0)
+        error = draw_page_marks(view.menu_page - 1U, 3, strip, first_row, first_column);
+    if (error == ESP_OK && view.actions_visible && kDeviceFirstSetup && s_route == Route::MakeItYours10 &&
+        (s_options_page == OptionsPage::Display || s_options_page == OptionsPage::DisplayRings))
+        error = draw_page_marks(s_options_page == OptionsPage::Display ? 0 : 1, 2, strip, first_row, first_column);
     for (uint8_t index = 0; error == ESP_OK && view.actions_visible && index < view.event_choice_count; ++index) {
         const auto &choice = view.event_choices[index];
         error = CODY2D::draw_capsule_rows(choice.control, strip, first_row, first_column);
@@ -2425,6 +2508,10 @@ esp_err_t attach_content(SceneFrame &scene)
         if (options_previous_page_by_swipe()) content.control_bounds[0] = {};
         content.control_bounds[1] = content.bottom_action_bounds;
     }
+    if (content.control_bounds[1].left == 396 && content.control_bounds[1].top == 203 &&
+        content.control_bounds[1].right == 456 && content.control_bounds[1].bottom == 263) {
+        content.control_bounds[1] = {};
+    }
     return set_scene_content(scene, content);
 }
 
@@ -2602,6 +2689,7 @@ const char *options_title()
     case OptionsPage::MenuMore: return kDeviceFirstSetup ? "PREFERENCES" : "Options 2/2";
     case OptionsPage::MenuMaintenance: return "DEVICE";
     case OptionsPage::Display: return "Display";
+    case OptionsPage::DisplayRings: return "Display rings";
     case OptionsPage::Behavior: return "Behavior";
     case OptionsPage::BehaviorMore: return "More behavior";
     case OptionsPage::SynthVoice: return "Synth Voice";
@@ -2610,9 +2698,9 @@ const char *options_title()
     case OptionsPage::ResetConfirm: return "Factory reset";
     case OptionsPage::ResetPending: return "Resetting...";
     case OptionsPage::ResetFailed: return "Reset failed";
-    case OptionsPage::GuideButtons: return "Buttons 1/3";
-    case OptionsPage::GuideTouch: return "Touch 2/3";
-    case OptionsPage::GuideOffline: return "Offline 3/3";
+    case OptionsPage::GuideButtons: return "Buttons";
+    case OptionsPage::GuideTouch: return "Touch";
+    case OptionsPage::GuideOffline: return "Offline";
     }
     return "Options";
 }
@@ -2644,7 +2732,7 @@ esp_err_t prepare_quick_guide_content(SceneFrame &scene)
         {"HOLD BOOT 2S", "Options / tap: Home"}, {"POWER", "Standby or wake"}, {"HOLD PWR 3S", "Power off"},
     };
     constexpr GuideCommand touch[] = {
-        {"TAP", "Show arrows"}, {"SHAKE", "Return home"},
+        {"SWIPE", "Change pages"}, {"SWIPE DOWN", "Home from top edge"},
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
         {"DOUBLE TAP", "Record on stats"},
 #else
@@ -2662,11 +2750,12 @@ esp_err_t prepare_quick_guide_content(SceneFrame &scene)
     constexpr uint16_t kGuideDetail = 0xC65B;
     const bool touch_page = s_options_page == OptionsPage::GuideTouch;
     const bool last_page = s_options_page == OptionsPage::GuideOffline;
+    s_view.menu_page = touch_page ? 2U : last_page ? 3U : 1U;
     const auto *commands = touch_page ? touch : last_page ? offline : buttons;
     const uint16_t accent = touch_page ? kGuideViolet : last_page ? kGuideMint : kGuideCyan;
     scene.title.color = accent;
     for (size_t index = 0; index < std::size(buttons); ++index) {
-        const auto top = static_cast<uint16_t>(132U + index * 76U);
+        const auto top = static_cast<uint16_t>(130U + index * 68U);
         auto error = append_guide_line(commands[index].label, top, SceneData::title_font, accent);
         if (error == ESP_OK) {
             error = append_guide_line(commands[index].detail, static_cast<uint16_t>(top + 43U),
@@ -2676,7 +2765,7 @@ esp_err_t prepare_quick_guide_content(SceneFrame &scene)
     }
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     if (touch_page) {
-        const auto error = append_guide_line("Dictation On + Codex link", 357, SceneData::body_font, kGuideDetail);
+        const auto error = append_guide_line("Dictation On + Codex link", 340, SceneData::body_font, kGuideDetail);
         if (error != ESP_OK) return error;
     }
 #endif
@@ -2770,6 +2859,14 @@ PreferencePresentation project_preference(PreferenceId identity,
         result.available = preferences.screensaver_valid && preferences.screensaver_error == ESP_OK;
         result.active = preferences.screensaver_enabled;
         break;
+    case PreferenceId::AssistantQuotaRing:
+        result.available = preferences.assistant_quota_ring_valid && preferences.assistant_quota_ring_error == ESP_OK;
+        result.active = preferences.assistant_quota_ring_enabled;
+        break;
+    case PreferenceId::BatteryRing:
+        result.available = preferences.battery_ring_valid && preferences.battery_ring_error == ESP_OK;
+        result.active = preferences.battery_ring_enabled;
+        break;
     case PreferenceId::Dictation:
         result.available = preferences.dictation_valid && preferences.dictation_error == ESP_OK;
         result.active = preferences.dictation_enabled;
@@ -2855,45 +2952,61 @@ MenuAppearance menu_appearance(OnboardingAction action)
 
 // label: Complete destination title.
 // appearance: Semantic icon, accent color and complete supporting description.
-// control: Receives the card and its shared raster/touch rectangle.
-// detail: Receives the smaller second line.
+// control: Receives the flat row and its shared raster/touch rectangle.
+// detail: Receives the optional second line of the same destination label.
 // Exception: Returns the original glyph error or an overflowing label.
 esp_err_t prepare_menu_row(const char *label, const MenuAppearance &appearance,
     CODY2D::CapsuleControl &control, CODY2D::TextLine &detail)
 {
     constexpr uint16_t kTextInset = 63;
-    constexpr uint16_t kChevronSpace = 37;
+    constexpr uint16_t kTrailingSpace = 10;
     const auto &bounds = control.bounds;
     control.corner_radius = 12;
     control.top_color = 0x0844;
     control.bottom_color = 0x0844;
     control.border_color = 0x8CFF;
     control.icon = appearance.icon;
-    control.icon_color = 0xA53F;
+    control.icon_color = appearance.color;
     control.icon_center = {static_cast<int16_t>(bounds.x + 33U), static_cast<int16_t>(bounds.y + 36U)};
 
-    // caption: Full printable label or hint.
+    // text: Borrowed printable portion of the original label.
     // font: Immutable face for that line.
-    // offset: Logical y relative to the card top.
+    // offset: Logical y relative to the row top.
     // color: Native foreground.
     // line: Receives the prepared left-aligned caption.
     // Exception: Preserves the original glyph error or rejects an overflowing caption.
-    const auto prepare_line = [&](const char *caption, const CODY2D::MonoFont &font,
+    const auto prepare_line = [&](CODY2D::TextSpan text, const CODY2D::MonoFont &font,
                                   uint16_t offset, uint16_t color, CODY2D::TextLine &line) {
-        const CODY2D::TextSpan text{caption, static_cast<uint16_t>(std::strlen(caption))};
         uint32_t width = 0;
         const auto error = CODY2D::measure_text_width(font, text, width);
         if (error != ESP_OK) return error;
-        if (width + kTextInset + kChevronSpace > bounds.width || offset + font.height > bounds.height) {
-            ESP_LOGE(kTag, "Options card caption does not fit: %s", caption);
+        if (width + kTextInset + kTrailingSpace > bounds.width || offset + font.height > bounds.height) {
+            ESP_LOGE(kTag, "Options row caption does not fit: %s", label);
             return ESP_ERR_INVALID_SIZE;
         }
         return CODY2D::prepare_text_line(font, text,
             {static_cast<int16_t>(bounds.x + kTextInset), static_cast<int16_t>(bounds.y + offset)}, color, line);
     };
     detail = {};
-    return prepare_line(label, HomeFonts::heading_font,
-        static_cast<uint16_t>((bounds.height - HomeFonts::heading_font.height) / 2U), kPairingTitle, control.caption);
+    const auto length = static_cast<uint16_t>(std::strlen(label));
+    const char *space = std::strchr(label, ' ');
+    if (length == 0) return ESP_ERR_INVALID_ARG;
+    if (space == nullptr || space == label || space[1] == '\0') {
+        return prepare_line({label, length}, HomeFonts::heading_font,
+            static_cast<uint16_t>((bounds.height - HomeFonts::heading_font.height) / 2U),
+            kPairingTitle, control.caption);
+    }
+    const auto first_length = static_cast<uint16_t>(space - label);
+    const auto second_length = static_cast<uint16_t>(length - first_length - 1U);
+    constexpr uint16_t kLineGap = 2;
+    const auto total_height = static_cast<uint16_t>(2U * HomeFonts::heading_font.height + kLineGap);
+    if (total_height > bounds.height) return ESP_ERR_INVALID_SIZE;
+    const auto first_top = static_cast<uint16_t>((bounds.height - total_height) / 2U);
+    auto error = prepare_line({label, first_length}, HomeFonts::heading_font, first_top,
+        kPairingTitle, control.caption);
+    if (error == ESP_OK) error = prepare_line({space + 1, second_length}, HomeFonts::heading_font,
+        static_cast<uint16_t>(first_top + HomeFonts::heading_font.height + kLineGap), kPairingTitle, detail);
+    return error;
 }
 
 // scene: Screen 10 receiving actual canonical values or a visible write failure.
@@ -2919,6 +3032,16 @@ esp_err_t prepare_options_content(SceneFrame &scene,
     }
     if (error != ESP_OK) {
         return error;
+    }
+    if (kDeviceFirstSetup && on_options_menu()) {
+        const uint32_t width = (title_length - 1U) * kOptionsTitleFont.advance + kOptionsTitleFont.width;
+        if (width > 320U) return ESP_ERR_INVALID_SIZE;
+        CODY2D::TextLine heading{};
+        error = CODY2D::prepare_text_line(kOptionsTitleFont, {title, title_length},
+            {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(kOptionsTitleTop)},
+            scene.definition->title_color, heading);
+        if (error != ESP_OK) return error;
+        scene.title = heading;
     }
     scene.title.color = scene.definition->title_color;
     if (on_maintenance_page()) {
@@ -3006,6 +3129,10 @@ esp_err_t prepare_options_content(SceneFrame &scene,
         {PreferenceId::AutoRotate, "Auto-rotate", Icon::Rotate, 0x7759},
         {PreferenceId::Orientation, "Orientation", Icon::Orientation, 0x6F9E},
     };
+    static constexpr Row ring_rows[] = {
+        {PreferenceId::AssistantQuotaRing, "Assistant quota", Icon::Statistics, 0x7759},
+        {PreferenceId::BatteryRing, "Battery ring", Icon::PlanPro, 0x6F9E},
+    };
     static constexpr Row synth_rows[] = {
         {PreferenceId::SynthEnabled, kDeviceFirstSetup ? "Enable Synth Voice" : "Synth voice", Icon::Sound, 0xFDA9},
         {PreferenceId::SynthVolume, "Voice volume", Icon::Sound, 0xFDA9},
@@ -3037,6 +3164,9 @@ esp_err_t prepare_options_content(SceneFrame &scene,
     if (s_options_page == OptionsPage::Display) {
         rows = display_rows;
         row_count = std::size(display_rows);
+    } else if (s_options_page == OptionsPage::DisplayRings) {
+        rows = ring_rows;
+        row_count = std::size(ring_rows);
     } else if (s_options_page == OptionsPage::SynthVoice) {
         rows = synth_rows;
         row_count = std::size(synth_rows);
@@ -3110,6 +3240,12 @@ esp_err_t prepare_options_content(SceneFrame &scene,
             return error;
         }
         ++s_view.preference_count;
+    }
+    if (s_options_page == OptionsPage::Display && kDeviceFirstSetup) {
+        return prepare_action(OnboardingAction::MoreDisplay, !s_command_pending);
+    }
+    if (s_options_page == OptionsPage::DisplayRings) {
+        return prepare_action(OnboardingAction::None, false);
     }
     if (s_options_page == OptionsPage::Behavior) {
         return prepare_action(OnboardingAction::MoreBehavior, !s_command_pending);
@@ -5523,6 +5659,11 @@ esp_err_t draw_wifi_hourglass(CODY2D::Surface strip, uint16_t first_row, uint16_
     return ESP_OK;
 }
 
+// state: Retained local Wi-Fi view, including selected-label scrolling state.
+// strip: Borrowed RGB565 tile.
+// first_row: Logical y origin of the tile.
+// first_column: Logical x origin of the tile.
+// Exception: Returns the original text, icon, keyboard or control drawing error.
 // These screens retain their own complete title and input view below the shared status bar.
 esp_err_t draw_local_wifi_rows(const void *state, CODY2D::Surface strip,
     uint16_t first_row, uint16_t first_column)
@@ -5543,17 +5684,25 @@ esp_err_t draw_local_wifi_rows(const void *state, CODY2D::Surface strip,
         };
         for (size_t i = 0; i < 4 && error == ESP_OK; ++i) {
             const auto &row = view.rows[i];
-            if (view.page == LocalWifiPage::Networks && view.selected_network >= 0 &&
-                view.selected_network == view.offset + static_cast<int>(i) && row.caption.valid) {
-                auto selected = row;
-                selected.caption = {};
-                error = CODY2D::draw_capsule_rows(selected, strip, first_row, first_column);
+            if (view.page == LocalWifiPage::Networks && row.caption.valid) {
+                auto visual = row;
+                const bool selected = view.selected_network >= 0 &&
+                    view.selected_network == view.offset + static_cast<int>(i);
+                visual.icon = selected ? CODY2D::ActionIcon::Check : CODY2D::ActionIcon::Wifi;
+                visual.icon_center = {120, static_cast<int16_t>(row.bounds.y + row.bounds.height / 2U)};
+                visual.icon_color = selected ? 0x5FF1 : 0x7759;
+                if (selected) visual.caption = {}; // The full selected SSID is drawn in its scrolling viewport.
+                error = draw_flat_menu_row(visual, 24, strip, first_row, first_column);
             } else {
                 error = draw(row);
             }
         }
-        if (error == ESP_OK) error = draw(view.previous);
-        if (error == ESP_OK) error = draw(view.next);
+        if (error == ESP_OK && view.page == LocalWifiPage::Networks && !view.scanning_requested &&
+            view.scan_observation.count > 0) {
+            const auto pages = static_cast<uint8_t>((view.scan_observation.count + 2U) / 3U);
+            const auto selected = static_cast<uint8_t>(view.offset / 3U);
+            error = draw_page_marks(selected, pages, strip, first_row, first_column, 310);
+        }
         if (error == ESP_OK) error = draw(view.scan);
         if (error == ESP_OK) error = draw(view.confirm);
     }
@@ -5575,6 +5724,8 @@ esp_err_t prepare_local_wifi_button(const char *label, CODY2D::Rect bounds, bool
     return ESP_OK;
 }
 
+// scene: Receives the retained Wi-Fi view and its complete control bounds.
+// Exception: Preserves the original selected-label, layout or control error.
 esp_err_t attach_local_wifi(SceneFrame &scene)
 {
     auto &view = s_local_wifi;
@@ -5588,8 +5739,6 @@ esp_err_t attach_local_wifi(SceneFrame &scene)
     view.subtitle = {};
     view.detail = {};
     for (auto &row : view.rows) row = {};
-    view.previous = {};
-    view.next = {};
     view.scan = {};
     view.confirm = {};
     esp_err_t error = ESP_OK;
@@ -5612,7 +5761,7 @@ esp_err_t attach_local_wifi(SceneFrame &scene)
         if (length <= 0 || static_cast<size_t>(length) >= sizeof(selected_caption)) return ESP_ERR_INVALID_SIZE;
         const auto row = static_cast<uint16_t>(view.selected_network - view.offset);
         error = set_selected_label(view.selected_label, selected_caption, SceneData::body_font,
-            {105, static_cast<uint16_t>(167 + row * 45), 256, 25});
+            {141, static_cast<uint16_t>(167 + row * 45), 220, 25});
     } else {
         view.selected_label = {};
     }
@@ -5643,7 +5792,7 @@ esp_err_t attach_local_wifi(SceneFrame &scene)
             for (uint8_t i = 0; i < 3 && view.offset + i < view.scan_observation.count; ++i) {
                 const auto &network = view.scan_observation.networks[view.offset + i];
                 size_t len = 0;
-                while (len < 11 && network.ssid[len] != '\0') {
+                while (len < 6 && network.ssid[len] != '\0') {
                     const unsigned char c = static_cast<unsigned char>(network.ssid[len]);
                     view.labels[i][len] = c >= 32 && c <= 126 ? static_cast<char>(c) : '?';
                     ++len;
@@ -5661,14 +5810,20 @@ esp_err_t attach_local_wifi(SceneFrame &scene)
                 std::snprintf(view.labels[i] + len, sizeof(view.labels[i]) - len, " %d dBm", static_cast<int>(network.rssi));
                 error = prepare_local_wifi_button(view.labels[i], {93, static_cast<uint16_t>(160 + i * 45), 280, 39},
                     !view.scanning_requested, view.rows[i]);
-                if (error == ESP_OK && view.selected_network == view.offset + i) {
-                    view.rows[i].border_color = 0xF7BE;
+                if (error == ESP_OK) {
+                    auto &caption = view.rows[i].caption;
+                    const CODY2D::TextSpan text{view.labels[i], static_cast<uint16_t>(std::strlen(view.labels[i]))};
+                    uint32_t width = 0;
+                    error = CODY2D::measure_text_width(SceneData::body_font, text, width);
+                    if (error == ESP_OK && width > 220U) {
+                        ESP_LOGE(kTag, "Wi-Fi row caption does not fit (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+                        error = ESP_ERR_INVALID_SIZE;
+                    }
+                    if (error == ESP_OK) error = CODY2D::prepare_text_line(SceneData::body_font, text,
+                        {141, static_cast<int16_t>(167 + i * 45)}, caption.color, caption);
                 }
                 if (error != ESP_OK) break;
             }
-            if (error == ESP_OK && view.offset > 0) error = prepare_local_wifi_button("Previous", {103, 298, 125, 37}, true, view.previous);
-            if (error == ESP_OK && view.offset + 3 < view.scan_observation.count)
-                error = prepare_local_wifi_button("Next", {238, 298, 125, 37}, true, view.next);
             if (error == ESP_OK) error = prepare_local_wifi_button("Scan for networks", {93, 342, 280, 38},
                 !view.scanning_requested && !s_command_pending, view.scan);
         } else if (error == ESP_OK && view.page == LocalWifiPage::ConfirmOpen) {
@@ -5928,8 +6083,6 @@ esp_err_t handle_local_wifi_touch(SceneFrame &scene, CODY2D::Point point, bool p
         if (view.page == LocalWifiPage::Networks) {
             for (int8_t i = 0; i < 3; ++i) if (view.rows[i].caption.valid && view.rows[i].enabled &&
                 CODY2D::capsule_contains(view.rows[i], p)) return i;
-            if (view.previous.caption.valid && CODY2D::capsule_contains(view.previous, p)) return 3;
-            if (view.next.caption.valid && CODY2D::capsule_contains(view.next, p)) return 4;
             if (view.scan.caption.valid && view.scan.enabled && CODY2D::capsule_contains(view.scan, p)) return 5;
         }
         if (view.page == LocalWifiPage::ConfirmOpen && view.confirm.caption.valid &&
@@ -5938,13 +6091,17 @@ esp_err_t handle_local_wifi_touch(SceneFrame &scene, CODY2D::Point point, bool p
     };
     if (pressed_edge) {
         view.touch_control = hit(point);
+        if (view.page == LocalWifiPage::Networks && !view.scanning_requested && view.touch_control < 0 &&
+            point.x >= 73 && point.x < 393 && point.y >= 145 && point.y < 298) view.touch_control = -2;
         view.touch_start = point;
+        view.touch_last = point;
         view.touch_rotation = rotation;
         view.touch_moved = false;
     }
-    if (view.touch_control < 0) return ESP_OK;
+    if (view.touch_control == -1) return ESP_OK;
     consumed = true;
     if (pressed) {
+        view.touch_last = point;
         const int dx = point.x - view.touch_start.x;
         const int dy = point.y - view.touch_start.y;
         if (rotation != view.touch_rotation || dx * dx + dy * dy > 144 || hit(point) != view.touch_control)
@@ -5953,7 +6110,20 @@ esp_err_t handle_local_wifi_touch(SceneFrame &scene, CODY2D::Point point, bool p
     }
     const int8_t control = view.touch_control;
     view.touch_control = -1;
+    const int swipe_x = view.touch_last.x - view.touch_start.x;
+    const int swipe_y = view.touch_last.y - view.touch_start.y;
+    if (view.page == LocalWifiPage::Networks && !view.scanning_requested && rotation == view.touch_rotation &&
+        (control == -2 || (control >= 0 && control < 3)) &&
+        std::abs(swipe_x) >= 48 && std::abs(swipe_x) * 2 > std::abs(swipe_y) * 3) {
+        if (swipe_x > 0 && view.offset > 0) view.offset = static_cast<uint8_t>(view.offset - 3);
+        else if (swipe_x < 0 && view.offset + 3 < view.scan_observation.count)
+            view.offset = static_cast<uint8_t>(view.offset + 3);
+        else return ESP_OK;
+        view.selected_network = -1;
+        return attach_local_wifi(scene);
+    }
     if (view.touch_moved || rotation != view.touch_rotation) return ESP_OK;
+    if (control == -2) return ESP_OK;
     if (control == 11) {
         clear_text_entry(view.entry);
         clear_text_entry_view(view.keyboard);
@@ -5964,11 +6134,6 @@ esp_err_t handle_local_wifi_touch(SceneFrame &scene, CODY2D::Point point, bool p
         view.page = LocalWifiPage::Networks;
         view.connect_submitted = false;
         view.detail_text[0] = '\0';
-        return attach_local_wifi(scene);
-    }
-    if (control == 3 || control == 4) {
-        view.selected_network = -1;
-        view.offset = control == 3 ? static_cast<uint8_t>(view.offset - 3) : static_cast<uint8_t>(view.offset + 3);
         return attach_local_wifi(scene);
     }
     if (control == 5) {
@@ -6081,34 +6246,49 @@ esp_err_t open_setup_menu(SceneFrame &scene)
 }
 
 // scene: Worker-owned scene receiving Options from the physical button.
-// Exception: Returns the original preparation failure from the existing routes.
+// Exception: Returns NOT_FINISHED while a device route is busy, or the original preparation failure.
 esp_err_t open_companion_options(SceneFrame &scene)
 {
     if (maintenance_pending() || s_command_pending ||
         s_work_busy.load(std::memory_order_acquire)) {
-        return ESP_OK;
+        return kDeviceFirstSetup ? ESP_ERR_NOT_FINISHED : ESP_OK;
     }
     if (s_route == Route::MakeItYours10) {
         return s_options_page == OptionsPage::Menu ? ESP_OK : show_options_page(scene, OptionsPage::Menu);
     }
-    if (s_route != Route::SetupMenu) {
+    const bool entered_from_setup = s_route == Route::SetupMenu;
+    if (!entered_from_setup) {
         if (!can_open_setup_menu()) {
-            return ESP_OK;
+            return kDeviceFirstSetup ? ESP_ERR_NOT_FINISHED : ESP_OK;
         }
         const esp_err_t error = open_setup_menu(scene);
         if (error != ESP_OK) {
             return error;
         }
     }
-    s_options_from_setup = true;
+    s_options_from_setup = !kDeviceFirstSetup || entered_from_setup;
     return enter_route(Route::MakeItYours10, scene);
+}
+
+// scene: Restores Tools without losing the route retained by the original Options entry.
+// Exception: Returns the original route or presentation error.
+esp_err_t return_to_options_tools(SceneFrame &scene)
+{
+    const bool from_setup = s_options_from_setup;
+    const auto setup_return = s_setup_return;
+    const auto error = open_companion_options(scene);
+    if (error == ESP_OK) {
+        s_options_from_setup = from_setup;
+        s_setup_return = setup_return;
+    }
+    return error;
 }
 
 // scene: Restores the Device section that opened About.
 // Exception: Returns the original route or presentation error.
 esp_err_t return_to_options_device(SceneFrame &scene)
 {
-    const auto error = open_companion_options(scene);
+    const auto error = return_to_options_tools(scene);
     if (error != ESP_OK) return error;
     return s_route == Route::MakeItYours10 ? show_options_page(scene, OptionsPage::MenuMaintenance) :
         ESP_ERR_INVALID_STATE;
@@ -7107,16 +7287,10 @@ bool previous_control_visible()
         (previous_navigation_available() && s_route != Route::Install06 && !uses_footer_action());
 }
 
-// No parameters: a captioned footer replaces the setup journey's right chevron.
+// No parameters: forward paging is available through a left swipe.
 bool next_control_visible()
 {
-    if ((s_route == Route::Install06 || s_route == Route::Pairing07) && s_view.qr.side != 0) return false;
-    if (s_local_wifi.page != LocalWifiPage::None) return false;
-    if (s_route == Route::MakeItYours10) return false;
-    if (s_home_wifi_flow && (s_route == Route::Install06 ||
-        (s_route == Route::Invitation05 && s_home_wifi_intro))) return s_view.actions_visible && !s_command_pending;
-    return (options_next_page_available() && s_view.actions_visible) ||
-        (next_navigation_available() && !uses_footer_action());
+    return false;
 }
 
 // scene: Current route, never advanced on unconfirmed cancellation/cleanup.
@@ -7238,6 +7412,7 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
             auto parent = OptionsPage::MenuMore;
             if (s_options_page == OptionsPage::MenuMore) parent = OptionsPage::Menu;
             if (s_options_page == OptionsPage::BehaviorMore) parent = OptionsPage::Behavior;
+            if (s_options_page == OptionsPage::DisplayRings) parent = OptionsPage::Display;
             if (s_options_page == OptionsPage::SynthVoice) parent = OptionsPage::BehaviorMore;
             if (on_maintenance_page()) parent = OptionsPage::MenuMaintenance;
             if (s_options_page == OptionsPage::GuideButtons) parent = OptionsPage::MenuMaintenance;
@@ -7246,8 +7421,12 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
             return show_options_page(scene, parent);
         }
         if (kDeviceFirstSetup && !s_options_from_setup) {
-            s_widget_open_request = WidgetOpenRequest::Home;
-            return ESP_OK;
+            if (s_setup_return == Route::None || is_companion_route(s_setup_return)) {
+                s_widget_open_request = WidgetOpenRequest::ReturnFromOptions;
+                return ESP_OK;
+            }
+            if (s_setup_return == Route::Install06) return open_installation_qr(scene);
+            return enter_route(s_setup_return, scene);
         }
         return enter_route(Route::SetupMenu, scene);
     }
@@ -7303,6 +7482,7 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
             return ESP_OK;
         }
         if (s_preference_error != ESP_OK) {
+            if (!from_footer) return ESP_OK;
             esp_err_t error = enqueue_preference(s_requested_preference, s_requested_preference_value);
             if (error == ESP_OK) {
                 s_preference_error = ESP_OK;
@@ -7314,6 +7494,10 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
             if (!options_next_page_available()) return ESP_OK;
             const auto next = s_options_page == OptionsPage::Menu ? OptionsPage::MenuMore : OptionsPage::MenuMaintenance;
             return show_options_page(scene, next);
+        }
+        if (s_options_page == OptionsPage::Display &&
+            (page_forward || s_view.action_id == OnboardingAction::MoreDisplay)) {
+            return show_options_page(scene, OptionsPage::DisplayRings);
         }
         if (s_options_page == OptionsPage::Behavior && s_view.action_id == OnboardingAction::MoreBehavior) {
             return show_options_page(scene, OptionsPage::BehaviorMore);

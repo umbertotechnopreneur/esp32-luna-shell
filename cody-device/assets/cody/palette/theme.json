@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "name": "Cody semantic theme",
+  "purpose": "Central reference for Cody application color roles, states, surfaces and gradients.",
+  "format": {
+    "firmware": "Native RGB565 words are authoritative for device tokens.",
+    "srgb": "Device token sRGB values expand the RGB565 channels by bit replication; authored RGB888 may differ slightly.",
+    "studio": "Studio preview colors are authored RGB888 and are identified separately where they differ from device tokens.",
+    "transparency": "Alpha and compositing are supplied by the renderer; black is a color, not a transparency key."
+  },
+  "device": {
+    "primary": {
+      "default": {"rgb565": "0x953F", "srgb": "#94A6FF", "role": "Pairing and setup accent"},
+      "muted": {"rgb565": "0xBD9F", "srgb": "#BDB2FF", "role": "Behavior and Codex connection accent"},
+      "indicator_active": {"rgb565": "0xA53F", "srgb": "#A5A6FF", "role": "Selected page mark"},
+      "indicator_inactive": {"rgb565": "0x422A", "srgb": "#424552", "role": "Unselected page mark"}
+    },
+    "secondary": {
+      "default": {"rgb565": "0x7759", "srgb": "#73EBCE", "role": "Connected Wi-Fi and positive setting accent"},
+      "bright": {"rgb565": "0x5FF1", "srgb": "#5AFF8C", "role": "Visible or enabled setting"},
+      "muted": {"rgb565": "0x67F0", "srgb": "#63FF84", "role": "Codex browser mint accent"}
+    },
+    "accent": {
+      "cyan": {"rgb565": "0x6F9E", "srgb": "#6BF3F7", "role": "Informational text and icons"},
+      "active": {"rgb565": "0x07FF", "srgb": "#00FFFF", "role": "Active, charging and pairing code"},
+      "violet": {"rgb565": "0xBD1F", "srgb": "#BDA2FF", "role": "Guide and secondary accent"},
+      "warm": {"rgb565": "0xFDA9", "srgb": "#FFB64A", "role": "Timer and offline setting accents"},
+      "question": {"rgb565": "0xFCC0", "srgb": "#FF9A00", "role": "Question attention accent"},
+      "error_icon": {"rgb565": "0xED53", "srgb": "#EFAA9C", "role": "Destructive action icon"},
+      "home_notice": {"rgb565": "0xCCFF", "srgb": "#CE9EFF", "role": "Offline Home notice"}
+    },
+    "surface": {
+      "canvas": {"rgb565": "0x0000", "srgb": "#000000", "role": "Default dark canvas"},
+      "pairing": {"rgb565": "0x0842", "srgb": "#080810", "role": "Pairing background"},
+      "menu_card_legacy": {"rgb565": "0x0844", "srgb": "#080821", "role": "Prior options card fill"},
+      "keyboard": {"rgb565": "0x68F5", "srgb": "#6B1CAD", "role": "Local Wi-Fi controls"},
+      "review_top": {"rgb565": "0x10C6", "srgb": "#101831", "role": "Question review panel top"},
+      "review_bottom": {"rgb565": "0x0843", "srgb": "#080818", "role": "Question review panel bottom"},
+      "offline_disc": {"rgb565": "0x3122", "srgb": "#312410", "role": "Offline symbol background"}
+    },
+    "text": {
+      "primary": {"rgb565": "0xF7BF", "srgb": "#F7F7FF", "role": "Pairing and options titles"},
+      "default": {"rgb565": "0xF7BE", "srgb": "#F7F7F7", "role": "General foreground"},
+      "bright": {"rgb565": "0xFFFF", "srgb": "#FFFFFF", "role": "Bright foreground and charge mark"},
+      "secondary": {"rgb565": "0xADB9", "srgb": "#ADB6CE", "role": "Pairing supporting text"},
+      "muted": {"rgb565": "0x9CF3", "srgb": "#9C9E9C", "role": "Unavailable or secondary text"},
+      "detail": {"rgb565": "0xC65B", "srgb": "#C6CBDE", "role": "Quick guide detail"}
+    },
+    "status": {
+      "ready": {"rgb565": "0x3E8A", "srgb": "#39D352", "role": "Confirmed ready/connected state"},
+      "active": {"rgb565": "0x07FF", "srgb": "#00FFFF", "role": "Active or charging state"},
+      "warning": {"rgb565": "0xF5A9", "srgb": "#F7B64A", "role": "Warning status chrome"},
+      "warning_content": {"rgb565": "0xFE27", "srgb": "#FFC739", "role": "Warning in content views"},
+      "missing": {"rgb565": "0xEA6B", "srgb": "#EF4D5A", "role": "Observed missing state"},
+      "error": {"rgb565": "0xF9CB", "srgb": "#FF385A", "role": "Observed fault"},
+      "unavailable": {"rgb565": "0x63F2", "srgb": "#637D94", "role": "Unavailable or muted status"}
+    },
+    "chrome": {
+      "date_on_dark": {"rgb565": "0xA577", "srgb": "#A5AEBD"},
+      "date_on_light": {"rgb565": "0x63B1", "srgb": "#63758C"},
+      "time_on_dark": {"rgb565": "0xE75E", "srgb": "#E7EBF7"},
+      "time_on_light": {"rgb565": "0x3A2A", "srgb": "#394552"},
+      "row_separator": {"rgb565": "0x2106", "srgb": "#212031"},
+      "wifi_search_muted": {"rgb565": "0x39AB", "srgb": "#39345A"}
+    },
+    "controls": {
+      "primary": {
+        "top": {"rgb565": "0x1147", "srgb": "#102839"},
+        "bottom": {"rgb565": "0x08C4", "srgb": "#081821"},
+        "border": {"rgb565": "0x2B4F", "srgb": "#29697B"},
+        "icon": {"rgb565": "0x8F1D", "srgb": "#8CE3EF"}
+      },
+      "secondary": {
+        "top": {"rgb565": "0x18E5", "srgb": "#181C29"},
+        "bottom": {"rgb565": "0x10A3", "srgb": "#101418"},
+        "border": {"rgb565": "0x4A8C", "srgb": "#4A5163"},
+        "icon": {"rgb565": "0xBDF7", "srgb": "#BDBEBD"}
+      },
+      "attention": {
+        "top": {"rgb565": "0x2924", "srgb": "#292421"},
+        "bottom": {"rgb565": "0x18C3", "srgb": "#181818"},
+        "border": {"rgb565": "0x7BEF", "srgb": "#7B7D7B"},
+        "icon": {"rgb565": "0xE5F1", "srgb": "#E7BE8C"}
+      },
+      "destructive": {
+        "top": {"rgb565": "0x28A4", "srgb": "#291421"},
+        "bottom": {"rgb565": "0x1883", "srgb": "#181018"},
+        "border": {"rgb565": "0x796B", "srgb": "#7B2C5A"},
+        "icon": {"rgb565": "0xED53", "srgb": "#EFAA9C"}
+      },
+      "browser_row": {
+        "top": {"rgb565": "0x2125", "srgb": "#212429"},
+        "bottom": {"rgb565": "0x1082", "srgb": "#101010"},
+        "border": {"rgb565": "0x31A6", "srgb": "#313431"}
+      }
+    },
+    "perimeter": {
+      "assistant_quota": {
+        "role": "Outer allowance arc, interpolated clockwise from twelve o'clock; the measured remaining quota controls its visible extent.",
+        "stops": [
+          {"rgb565": "0x4F9B", "srgb": "#4AF3DE"},
+          {"rgb565": "0x651F", "srgb": "#63A2FF"},
+          {"rgb565": "0xB37F", "srgb": "#B56DFF"},
+          {"rgb565": "0xE39B", "srgb": "#E771DE"},
+          {"rgb565": "0x4F9B", "srgb": "#4AF3DE"}
+        ]
+      },
+      "battery": {
+        "role": "Inner battery arc: dark track and a green-to-yellow fill reflecting measured charge.",
+        "track": {"rgb565": "0x18C3", "srgb": "#181818"},
+        "green": {"rgb565": "0x366A", "srgb": "#31CF52"},
+        "yellow": {"rgb565": "0xCF25", "srgb": "#CEE729"}
+      }
+    },
+    "gradients": {
+      "home_action_text": {
+        "role": "Seven-row Home action text and icon color; interpolation follows gradient_action_color in native RGB565.",
+        "segments": [
+          {"foreground": "0x2C7F", "background": "0x56BF"},
+          {"foreground": "0xA3FF", "background": "0x2C7F"},
+          {"foreground": "0xFC7D", "background": "0xA3FF"}
+        ]
+      },
+      "codex_waiting": {
+        "role": "Connecting icon pulse frames in native RGB565 order.",
+        "frames": ["0x634D", "0x8CB4", "0xB5BB", "0x8CB4"]
+      }
+    }
+  },
+  "studio_preview": {
+    "background": "#080B16",
+    "foreground": "#EFECE0",
+    "muted": "#99A8BA",
+    "accent": "#7ADADE",
+    "setup_primary": "#90A7FF",
+    "setup_warning": "#FFB74A",
+    "setup_warning_field": "#36240E",
+    "codex_connection": "#BAB2FF",
+    "wifi_connection": "#77E9CA",
+    "primary_control": {"top": "#10283A", "bottom": "#081821", "border": "#29697B", "icon": "#8CE2EF"},
+    "secondary_control": {"top": "#191C29", "bottom": "#101419", "border": "#4A5163", "icon": "#BDBEBD"},
+    "destructive_control": {"top": "#291421", "bottom": "#181018", "border": "#7B2D5A", "icon": "#EFAA9C"}
+  }
+}

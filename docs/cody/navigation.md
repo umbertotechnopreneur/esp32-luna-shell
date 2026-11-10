@@ -11,7 +11,7 @@ the character to trigger its reaction and the optional Cody touch sound.
 The **Setup WiFi** button on Muse Home opens the Wi-Fi setup journey. Choose
 **Pair with Bluetooth** for the introduction, then tap the Apple or Android
 icon to show that platform's app QR. Tap the QR screen to return to the
-introduction; use its Next arrow to start the BLE pairing session and show
+introduction; follow its pairing action to start the BLE pairing session and show
 the session QR. Tapping that screen returns after the owned session is closed.
 The public BLE name is `AiGadget-`
 with a boot-scoped random suffix, shared by the radio and the pairing QR.
@@ -100,23 +100,28 @@ record is not remotely revoked by this local action.
 ## Dashboard and Options
 
 PWR toggles software standby and wake. A short BOOT press returns to Home; a
-two-second BOOT hold opens Options. Page 1 has Connections,
+two-second BOOT hold opens Options. Swipe down from the top status area to return
+to Home; this leaves the rest of the screen available for vertical list scrolling.
+Existing pairing and pending-operation exit rules still apply. Page 1 has Connections,
 Codex stats and Timer. Page 2 has Visible screens, Display and Behavior.
 Page 3 has Restart device, Factory reset and Quick guide, plus an About action.
-The lateral arrows move between pages; Back from
+Swipe left or right to move between these pages; Back from
 the first page returns to the opening route. **Codex stats** opens the first enabled
 statistics page with data, or Device when none is available.
 The Tools, Preferences and Device pages show three position marks without a Home
-footer. Each destination uses an icon and title with a restrained violet-blue
-palette inspired by retro interfaces.
-Display holds brightness, rotation and orientation. Behavior holds sound,
+footer. Each destination uses an icon, title and separator. Footer actions use
+the Home gradient text, with a label appropriate to the current action.
+Display holds brightness, rotation and orientation. **Display > More... >
+Display rings** independently controls the assistant quota and battery arcs.
+Both default to On, survive restart, and return to On after a factory reset.
+The battery status and alerts remain available when its arc is hidden. Behavior holds sound,
 shake-to-wake and, in the voice-enabled profile, Dictation. **More behavior**
 contains **Screensaver**, disabled by default, and opens **Synth Voice**. The
 Synth Voice page presents Enable Synth Voice, Voice volume and Voice type as
 unavailable until a speech engine is integrated; these rows cannot be activated.
 
 **Quick guide** has three color-coded pages for the physical buttons, display
-gestures and offline features. Available arrows stay visible while reading.
+gestures and offline features. Swipe left or right to change guide pages.
 The button page explains the short BOOT press and two-second BOOT hold, along
 with the PWR standby, wake and power-off actions.
 The left arrow on the first page and **OK** on the last page return to Options
@@ -136,7 +141,7 @@ Cody restarts into first setup after the platform verifies the reset and loads
 the running firmware's defaults. The action is available offline.
 
 The carousel order is Device, Codex reset, Context, Codex limits, Today, Last 7 days,
-Token history, Credits, Codex account and About. The arrows move between enabled
+Token history, Credits, Codex account and About. Horizontal swipes move between enabled
 pages with data. Device stays available, and About follows its visibility setting.
 A shake on the dashboard returns to the first eligible statistics page, or Device.
 Context and Current turn show the followed chat's title. A long title scrolls
@@ -177,8 +182,8 @@ dismissible visual notice on the awake dashboard. Setup, questions and recording
 take priority. Dates and notices use current observations from CCP 0.6.18 or later
 and a valid device clock for the 24-hour check.
 
-After ten seconds without touch, the lateral arrows fade. Touch or shake
-reveals them. A hidden arrow requires a new touch once it is visible. Token
+After ten seconds without touch, navigation chrome fades. Touch or shake
+reveals it. A hidden Back control requires a new touch once it is visible. Token
 history switches among 1, 5 and 24 hours, using fifteen-minute observations
 and identifying measurement gaps. The reset date switches between UTC and the
 configured local offset every five seconds when local time is available. The
@@ -191,13 +196,14 @@ carousel. It contains three Info pages followed by VibeWare and the repository Q
 
 | Page | Content |
 | --- | --- |
-| System 1/3 | Measured CPU use for both cores, current and last observed uptime, and used/total internal RAM and PSRAM |
-| Memory 2/3 | Internal RAM and PSRAM as separate allocatable heaps: used, free and largest free block |
-| Firmware 3/3 | Firmware version, compilation date/time, build timezone and build host |
+| System | Measured CPU use for both cores, current and last observed uptime, and used/total internal RAM and PSRAM |
+| Memory | Internal RAM and PSRAM as separate allocatable heaps: used, free and largest free block |
+| Firmware | Firmware version, compilation date/time, build timezone and build host |
 | VibeWare | VibeWare logo and umbertogiacobbi.biz |
 | Scan for more info | QR for the [GitHub repository](https://github.com/umbertotechnopreneur/esp32-luna-shell); a tap returns to VibeWare |
 
-The same lateral arrows move through these pages. Back from System returns to
+Horizontal swipes move through these pages, with marks indicating the current
+position. Back from System returns to
 the page that opened About. The child page belongs to the device model; the QR
 is not a separate item in the top-level carousel. Invalid or stale measurements
 retain their status and never display an invented percentage or empty bar.

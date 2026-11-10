@@ -6130,6 +6130,14 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         case CODY::WidgetOpenRequest::Statistics: open_statistics(); break;
         case CODY::WidgetOpenRequest::Visibility: open_widget_visibility(); break;
         case CODY::WidgetOpenRequest::None: break;
+        case CODY::WidgetOpenRequest::Home:
+        case CODY::WidgetOpenRequest::Timer:
+        case CODY::WidgetOpenRequest::CodexBrowser:
+        case CODY::WidgetOpenRequest::Audio:
+        case CODY::WidgetOpenRequest::About:
+        case CODY::WidgetOpenRequest::ReturnFromOptions:
+            ESP_LOGE(kTag, "Device-only Options destination rejected by the companion presenter");
+            break;
         }
         const esp_err_t policy_error = apply_scene_standby_policy(s_state.scene);
         if (policy_error != ESP_OK) {

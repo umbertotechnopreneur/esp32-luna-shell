@@ -28,6 +28,7 @@
 #endif
 
 #include "CODY2D_controls.hpp"
+#include "CODY_flat_menu_row.hpp"
 #include "CODY_jelly.hpp"
 #include "scene_data.hpp"
 #include "esp_log.h"
@@ -39,7 +40,7 @@ constexpr uint16_t kSelectedTop = 0x1147;
 constexpr uint16_t kSelectedBottom = 0x08C4;
 constexpr uint16_t kLookNeutralTop = 0x18E5;
 constexpr uint16_t kLookNeutralBottom = 0x10A3;
-constexpr uint16_t kCaptionWidth = 232;
+constexpr uint16_t kCaptionWidth = 182;
 constexpr CODY2D::Rect kLookItemBase{117, 226, 220, 38};
 constexpr uint16_t kLookItemStep = 44;
 constexpr uint16_t kLookVisibleRows = 3;
@@ -191,7 +192,7 @@ esp_err_t prepare_caption(const char *text, uint16_t top, CODY2D::TextLine &line
         return ESP_ERR_INVALID_SIZE;
     }
     return CODY2D::prepare_text_line(font, {text, static_cast<uint16_t>(length)},
-        {static_cast<int16_t>((466U - width) / 2U), static_cast<int16_t>(top)}, 0xFFFF, line);
+        {static_cast<int16_t>(kLookItemBase.x + 38U), static_cast<int16_t>(top)}, 0xFFFF, line);
 }
 
 // label: Bounded retained text for the footer's current OK, Saving or error state.
@@ -358,14 +359,15 @@ esp_err_t draw_look_list(const LookView &view, CODY2D::Surface strip,
         row.caption.origin.y = static_cast<int16_t>(row.caption.origin.y - view.look_scroll);
         row.caption.bounds.y = static_cast<uint16_t>(row.caption.bounds.y - view.look_scroll);
         const bool selected = std::strcmp(item.id, view.selected_look_id) == 0;
-        row.top_color = selected ? kSelectedTop : kLookNeutralTop;
-        row.bottom_color = selected ? kSelectedBottom : kLookNeutralBottom;
-        row.border_color = selected ? 0x2B4F : 0x4A8C;
+        row.icon = selected ? CODY2D::ActionIcon::Check : CODY2D::ActionIcon::PlanPro;
+        row.icon_center = {static_cast<int16_t>(row.bounds.x + 17U),
+            static_cast<int16_t>(row.bounds.y + row.bounds.height / 2U)};
+        row.icon_color = selected ? 0x5FF1 : 0xBD9F;
         row.caption.color = 0xFFFF;
         // Complete control captions share the title's reveal gate without typewriter timing.
         const CODY2D::TextLine caption = row.caption;
         row.caption = {};
-        esp_err_t error = CODY2D::draw_capsule_rows(row, list_strip, clipped_top, clipped_left);
+        esp_err_t error = draw_flat_menu_row(row, 24, list_strip, clipped_top, clipped_left);
         if (error == ESP_OK) {
             error = CODY2D::draw_text_rows(caption, item.visible_characters,
                 list_strip, clipped_top, clipped_left);
