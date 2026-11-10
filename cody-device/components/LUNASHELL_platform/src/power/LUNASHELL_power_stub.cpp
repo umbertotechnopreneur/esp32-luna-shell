@@ -44,9 +44,17 @@ extern "C" esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
     return ESP_ERR_NOT_SUPPORTED;
 }
 
-// request: Excluded profile cannot dispatch physical BOOT short presses.
+// request: Excluded profile cannot dispatch physical BOOT holds.
 // Exception: Always returns ESP_ERR_NOT_SUPPORTED.
 extern "C" esp_err_t LUNASHELL_power_manager_register_boot_options(void (*request)(void))
+{
+    (void)request;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// request: Excluded profile cannot dispatch physical BOOT presses.
+// Exception: Always returns ESP_ERR_NOT_SUPPORTED.
+extern "C" esp_err_t LUNASHELL_power_manager_register_boot_home(void (*request)(void))
 {
     (void)request;
     return ESP_ERR_NOT_SUPPORTED;

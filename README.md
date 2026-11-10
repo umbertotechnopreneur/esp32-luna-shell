@@ -9,8 +9,9 @@ and check usage without picking up a phone. The device talks to the Codex plugin
 on the same local Wi-Fi network.
 
 The VibeWare floppy animation hands off to the Muse character. Tap the
-character for a playful reaction with Cody's touch sound when enabled. Press
-BOOT to open Options and use Connections for Wi-Fi setup and Codex pairing.
+character for a playful reaction with Cody's touch sound when enabled. Hold
+BOOT for two seconds to open Options and use Connections for Wi-Fi setup and
+Codex pairing. A short BOOT press returns to Home.
 
 - **Codex at a glance.** The dashboard distinguishes a connected app, a linked
   PC and active discovery. Authenticated questions and turn-ready events can
@@ -18,7 +19,8 @@ BOOT to open Options and use Connections for Wi-Fi setup and Codex pairing.
 - **Account and device screens.** Browse reset, limits, usage, credits, context
   and About. A five-pixel perimeter shows the current weekly allowance on the statistics
   screens when a valid sample is available. About includes build details and a project QR.
-- **Physical controls.** PWR toggles standby, BOOT opens Options and a shake
+- **Physical controls.** PWR toggles standby and wake; a short BOOT press returns
+  to Home, while holding BOOT for two seconds opens Options. A shake
   returns to the first enabled statistics page. Optional voice input uses the
   paired local link. The standard profile keeps the microphone pipeline disabled.
 

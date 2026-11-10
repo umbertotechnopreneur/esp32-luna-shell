@@ -114,7 +114,7 @@ cannot accidentally reuse a Release build.
 | Cody frame diagnostics | Authored execution timings, frame distributions and FPS/CPU HUD | No frame-distribution/raster profiling collection; explicitly opened diagnostic screens still show the canonical readout |
 | Cody device diagnostics | Character with canonical CPU/free RAM/PSRAM, FPS, IP and SD readout, plus local Memory details | The same overview, Memory page and Back; no build-mode choice is required |
 | Cody PWR | Short click enters/wakes standby; valid continuous 3-second hold requests farewell and PMU shutdown | Same dedicated power controls; no PWR screenshot or software reset |
-| BOOT software reset | 3-second BOOT hold | Excluded; ordinary BOOT controls remain |
+| BOOT software reset | A 3-second hold resets Luna; Cody uses short BOOT for Home and a 2-second hold for Options | Excluded; Cody retains the same Home and Options controls |
 | Cody static/parked worker | Existing 50 ms/200 ms waits; paused HUD refresh | 1000 ms functional gate checks; touch IRQ wakes immediately; an explicit diagnostic view retains live refresh |
 | Active animation | Existing selected 40 ms or 33 ms target | Same target |
 | Compiler optimization | Performance optimization (`-O2`); existing activity/control-plane size policy remains | Same optimization for comparable rendering behavior |

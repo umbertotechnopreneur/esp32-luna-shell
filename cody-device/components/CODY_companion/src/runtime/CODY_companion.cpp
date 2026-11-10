@@ -468,11 +468,19 @@ struct WidgetRuntime {
 alignas(WidgetFrame) EXT_RAM_BSS_ATTR uint8_t s_widget_frame_storage[sizeof(WidgetFrame)]{};
 WidgetRuntime s_widget;
 std::atomic<bool> s_boot_options_pending{false};
+std::atomic<bool> s_boot_home_pending{false};
 
 // No parameters: the power owner only queues the edge. The display owner navigates.
 void queue_boot_options()
 {
     s_boot_options_pending.store(true, std::memory_order_release);
+    s_state.frame_dirty.store(true, std::memory_order_release);
+}
+
+// No parameters: the power owner queues Home for the display worker.
+void queue_boot_home()
+{
+    s_boot_home_pending.store(true, std::memory_order_release);
     s_state.frame_dirty.store(true, std::memory_order_release);
 }
 
@@ -4080,6 +4088,31 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_widget.route.return_route = CODY::WidgetReturnRoute::None;
         close_widget_overlay();
     }
+    if (s_widget.editor.save != WidgetSave::Pending && s_boot_home_pending.load(std::memory_order_acquire) &&
+        s_state.rig_visible && s_state.boot_phase == BootPhase::Ready &&
+        CODY::lifecycle_is_resting(s_state.lifecycle) && !s_state.resume_scene_pending &&
+        !s_greeting_scheduled.load(std::memory_order_acquire) && !debug_view_active() &&
+        s_power_presentation.load(std::memory_order_acquire) == PowerPresentation::None) {
+        const esp_err_t error = CODY::open_device_home(s_state.scene);
+        if (error != ESP_ERR_NOT_FINISHED) {
+            s_boot_home_pending.store(false, std::memory_order_release);
+            if (error != ESP_OK) {
+                ESP_LOGE(kTag, "BOOT Home request could not close current route (%s)", esp_err_to_name(error));
+            } else {
+                s_boot_options_pending.store(false, std::memory_order_release);
+                if (s_widget.overlay != WidgetOverlay::None) {
+                    s_widget.route.return_route = CODY::WidgetReturnRoute::None;
+                    close_widget_overlay();
+                }
+                const esp_err_t policy_error = apply_scene_standby_policy(s_state.scene);
+                if (policy_error != ESP_OK) return frame.finish({policy_error, false, 0});
+                CODY::cancel_companion_tap(s_state.companion_tap);
+                CODY::cancel_onboarding_touch();
+                cancel_transient_affection();
+                s_resources.previous_frame_valid = false;
+            }
+        }
+    }
     if (s_widget.editor.save != WidgetSave::Pending &&
         s_boot_options_pending.exchange(false, std::memory_order_acq_rel) &&
         s_state.rig_visible && s_state.boot_phase == BootPhase::Ready &&
@@ -4124,7 +4157,8 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         if (completed.error == ESP_OK) {
             s_widget.presented = candidate;
             s_state.frame_dirty.store(s_widget.editor.save != WidgetSave::Pending &&
-                s_boot_options_pending.load(std::memory_order_acquire), std::memory_order_release);
+                (s_boot_options_pending.load(std::memory_order_acquire) ||
+                 s_boot_home_pending.load(std::memory_order_acquire)), std::memory_order_release);
             const bool flipping = s_widget.overlay != WidgetOverlay::Visibility &&
                 s_widget.route.selected_screen == WidgetScreen::Reset && s_widget.frame->reset.animating();
             s_state.next_frame_us = now_us + (flipping ? 33333 : 150000);
@@ -6513,6 +6547,7 @@ void companion_worker(void *context)
             (paused_release_frame || esp_timer_get_time() < s_state.next_frame_us) &&
             !s_state.frame_dirty.load(std::memory_order_acquire) &&
             !s_boot_options_pending.load(std::memory_order_acquire) &&
+            !s_boot_home_pending.load(std::memory_order_acquire) &&
             revision == s_rendered_revision.load(std::memory_order_acquire)) {
             continue;
         }
@@ -6913,6 +6948,11 @@ extern "C" esp_err_t CODY_companion_start(void)
     if (boot_options_error != ESP_OK) {
         release_companion_resources();
         return fail_consumer("BOOT Options owner registration", boot_options_error, false);
+    }
+    const esp_err_t boot_home_error = LUNASHELL_power_manager_register_boot_home(queue_boot_home);
+    if (boot_home_error != ESP_OK) {
+        release_companion_resources();
+        return fail_consumer("BOOT Home owner registration", boot_home_error, false);
     }
     const esp_err_t shutdown_error = LUNASHELL_power_manager_register_shutdown_callbacks(
         CODY_companion_prepare_shutdown, CODY_companion_report_shutdown_error);

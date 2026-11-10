@@ -51,7 +51,7 @@ OPTIONS_ROW_HEIGHT = 72
 OPTIONS_PAGE_COUNT = 3
 QUICK_GUIDE = (
     ("Buttons 1/3", ACCENT, (
-        ("BOOT", "Open Options"), ("POWER", "Standby or wake"), ("HOLD PWR 3S", "Power off"),
+        ("HOLD BOOT 2S", "Options / tap: Home"), ("POWER", "Standby or wake"), ("HOLD PWR 3S", "Power off"),
     ), None),
     ("Touch 2/3", (188, 164, 255), (
         ("TAP", "Show arrows"), ("SHAKE", "Return home"), ("DOUBLE TAP", "Record on stats"),
@@ -498,7 +498,8 @@ class DeviceStudioWindow:
         self.layout = PreviewLayout.fit(SIZE + 24, SIZE + 24, False)
         controls = ttk.Frame(root, style="Studio.TFrame")
         controls.pack(padx=12, pady=12)
-        ttk.Button(controls, text="BOOT / Options", command=self.options).pack(side="left", padx=4)
+        ttk.Button(controls, text="BOOT / Home", command=self.home).pack(side="left", padx=4)
+        ttk.Button(controls, text="BOOT 2s / Options", command=self.options).pack(side="left", padx=4)
         ttk.Button(controls, text="PWR / Standby", command=self.toggle_standby).pack(side="left", padx=4)
         ttk.Button(controls, text="Simulate shake", command=self.shake).pack(side="left", padx=4)
         ttk.Button(controls, text="SIM Sophia", command=self.simulate_sophia).pack(side="left", padx=4)
@@ -706,7 +707,14 @@ class DeviceStudioWindow:
         self.pairing_return = self.route
         self.open(WifiSetupRoute.SCAN_TO_PAIR)
 
-    # self: Active Studio preview receiving the BOOT shortcut.
+    # self: Active Studio preview receiving the short BOOT Home shortcut.
+    def home(self):
+        if self.boot is None and not self.standby and not self.event_visible:
+            if self.route is WifiSetupRoute.HOME_PASSWORD:
+                self.clear_simulated_wifi_secret()
+            self.open("mascot")
+
+    # self: Active Studio preview receiving the long BOOT Options shortcut.
     def options(self):
         if self.boot is None and not self.standby and not self.event_visible:
             self.show_options_page(0)
@@ -854,7 +862,7 @@ class DeviceStudioWindow:
             elif self.route is WifiSetupRoute.HOME_PLATFORM_QR:
                 self.open(WifiSetupRoute.HOME_INTRO)
             elif self.route is WifiSetupRoute.HOME_PAIR:
-                self.open(self.home_pair_return)
+                self.open(WifiSetupRoute.HOME_INTRO)
             elif self.route is WifiSetupRoute.HOME_NETWORKS:
                 self.open(WifiSetupRoute.HOME_CHOICES)
             elif self.route is WifiSetupRoute.HOME_PASSWORD:
@@ -1289,21 +1297,21 @@ class DeviceStudioWindow:
             self.targets["Apple"] = ((112, 305, 222, 375), lambda: self.open_platform_qr(True))
             self.targets["Android"] = ((244, 305, 354, 375), lambda: self.open_platform_qr(False))
         elif self.route is WifiSetupRoute.HOME_PLATFORM_QR:
-            label(draw, "Get the app", 82, 30)
-            label(draw, "SIMULATED - app QR", 130, 17, MUTED)
+            label(draw, "SIMULATED app QR", 82, 26)
             matrix = store_qr_matrix("SIMULATED-APP-QR-NOT-A-DEVICE")
             if matrix is not None:
-                qr_tile(draw, matrix, 205, 168)
-            if self.navigation_opacity(now) == 1:
-                self.sidebar(draw, 1, lambda: self.open(WifiSetupRoute.HOME_PAIR), 1)
+                qr_tile(draw, matrix, 128, 288)
+            self.targets["QR back"] = ((0, 0, SIZE, SIZE), self.back)
+            return
         elif self.route is WifiSetupRoute.HOME_PAIR:
-            label(draw, "Pair Cody", 82, 30)
-            label(draw, "SIMULATED - not a device", 130, 17, MUTED)
+            label(draw, "SIMULATED pairing", 82, 26)
             matrix = store_qr_matrix("SIMULATED-CODY-NOT-A-DEVICE")
             if matrix is None:
                 label(draw, "QR preview unavailable", 240, 17, MUTED)
             else:
-                qr_tile(draw, matrix, 164, 192)
+                qr_tile(draw, matrix, 128, 288)
+            self.targets["QR back"] = ((0, 0, SIZE, SIZE), self.back)
+            return
         elif self.route is WifiSetupRoute.HOME_NETWORKS:
             label(draw, "Wi-Fi networks", 75, 27)
             label(draw, "Replaces saved Wi-Fi", 106, 15, MUTED)
@@ -1350,6 +1358,8 @@ class DeviceStudioWindow:
         opacity = self.navigation_opacity(now)
         if opacity > 0:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
+            if self.route is WifiSetupRoute.HOME_INTRO:
+                self.sidebar(draw, 1, (lambda: self.open(WifiSetupRoute.HOME_PAIR)) if opacity == 1 else None, opacity)
 
     # self: Studio preview owning the current Wi-Fi setup route and its touch targets.
     # image: Logical canvas before rotation.
@@ -1386,12 +1396,10 @@ class DeviceStudioWindow:
             self.button(draw, "Show pairing QR", 348, self.open_pairing_preview,
                         width=280, height=64, icon="bluetooth")
         elif self.route is WifiSetupRoute.INSTALL_APP:
-            label(draw, "Scan to install", 98, 28)
-            label(draw, "ESP BLE Provisioning", 139, 16, MUTED)
-            qr_tile(draw, INSTALL_APP_QR, 165, 192)
-            label(draw, "Find on the App Store", 360, 16, MUTED)
-            self.button(draw, "Show pairing QR", 390, self.open_pairing_preview,
-                        width=220, height=44, icon="bluetooth")
+            label(draw, "Scan to install", 82, 28)
+            qr_tile(draw, INSTALL_APP_QR, 128, 288)
+            self.targets["QR back"] = ((0, 0, SIZE, SIZE), self.back)
+            return
         elif self.route is WifiSetupRoute.SCAN_TO_PAIR:
             setup_icon(draw, "bluetooth", (CENTER, 121), 54, SETUP_ACCENT)
             label(draw, "Scan to pair", 180, 32)
@@ -1439,7 +1447,7 @@ class DeviceStudioWindow:
     # draw: Logical canvas before rotation.
     # now: Monotonic frame time for the lateral arrow fade.
     def draw_options(self, draw, now):
-        label(draw, f"Options {self.options_page + 1}/{OPTIONS_PAGE_COUNT}", OPTIONS_TITLE_TOP, 34)
+        label(draw, ("TOOLS", "PREFERENCES", "DEVICE")[self.options_page], OPTIONS_TITLE_TOP, 34)
         if self.options_page == 0:
             rows = (
                 ("Connections", self.open_connections),
@@ -1458,7 +1466,19 @@ class DeviceStudioWindow:
                 ("Factory reset", lambda: self.open("factory_reset")),
                 ("Quick guide", self.open_quick_guide),
             )
-        self.draw_option_rows(draw, rows)
+        icons = (("link", "motion", "clock"), ("qr", "phone", "motion"),
+                 ("retry", "offline", "phone"))[self.options_page]
+        palette = ((8, 8, 32), (8, 8, 32), (144, 155, 255), (165, 167, 255))
+        for index, ((name, action), icon) in enumerate(zip(rows, icons)):
+            top = OPTIONS_ROW_TOP + index * OPTIONS_ROW_STEP
+            box = (93, top, 373, top + OPTIONS_ROW_HEIGHT)
+            draw_control_pill(draw, box, palette, corner_radius=12)
+            setup_icon(draw, icon, (126, top + 36), 28, palette[3])
+            draw.text((156, top + 36), name, font=font(20), fill=FOREGROUND, anchor="lm")
+            self.targets[name] = (box, action)
+        for page in range(OPTIONS_PAGE_COUNT):
+            color = palette[3] if page == self.options_page else (58, 48, 85)
+            draw.rectangle((194 + page * 27, 370, 217 + page * 27, 373), fill=color)
         opacity = self.navigation_opacity(now)
         if opacity > 0:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
@@ -1545,9 +1565,9 @@ class DeviceStudioWindow:
     # self: Studio preview registering the project link action.
     # draw: Logical canvas before rotation.
     def draw_about_qr(self, draw):
-        label(draw, ABOUT_INFO, 105, 27)
-        qr_tile(draw, ABOUT_QR, 147, 205)
-        self.button(draw, "Open link", 370, self.open_about_url, width=155, height=33)
+        label(draw, ABOUT_INFO, 89, 27)
+        qr_tile(draw, ABOUT_QR, 128, 288)
+        self.targets["QR back"] = ((0, 0, SIZE, SIZE), lambda: self.move(-1))
 
     # self: Preview renderer borrowing the typed Info state and observation.
     # draw: Logical canvas before rotation, with central content clear of both arrows.
@@ -1778,7 +1798,8 @@ class DeviceStudioWindow:
         elif page == "Last 7 days":
             label(draw, "Daily data unavailable", 209, 20, MUTED)
         opacity = self.navigation_opacity(now)
-        if opacity > 0 and (len(self.available_pages) > 1 or page == "About"):
+        if opacity > 0 and (len(self.available_pages) > 1 or page == "About") and not (
+                page == "About" and self.info.page is InfoPage.PROJECT_LINK):
             self.sidebar(draw, -1, (lambda: self.move(-1)) if opacity == 1 else None, opacity)
             if page != "About" or self.info.page is not InfoPage.PROJECT_LINK:
                 self.sidebar(draw, 1, (lambda: self.move(1)) if opacity == 1 else None, opacity)

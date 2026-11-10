@@ -222,7 +222,8 @@ validity, or timestamps.
 Cody reserves PWR in both Debug and Release: one completed short click enters
 standby or wakes software standby. A valid continuous three-second hold requests
 shutdown. Screenshot, double-click restart and PWR restart no longer consume this
-key. BOOT diagnostics retain their existing behavior. Failed/stale/unknown key
+key. In Cody, a short BOOT press requests Home and a two-second hold requests
+Options. Failed/stale/unknown key
 samples invalidate the hold until a fresh release; long IRQs suppress short-click
 actions but do not independently prove a valid continuous hold.
 

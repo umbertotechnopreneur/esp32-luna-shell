@@ -230,9 +230,12 @@ typedef esp_err_t (*LUNASHELL_display_lifecycle_callback_t)(bool sleeping);
 esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
     LUNASHELL_display_lifecycle_callback_t callback
 );
-// request: Optional UI owner that queues the physical BOOT short press.
+// request: Optional UI owner that queues a two-second physical BOOT hold.
 // Exception: Rejects null, duplicate or late registration.
 esp_err_t LUNASHELL_power_manager_register_boot_options(void (*request)(void));
+// request: Optional UI owner that queues a short physical BOOT press.
+// Exception: Rejects null, duplicate or late registration.
+esp_err_t LUNASHELL_power_manager_register_boot_home(void (*request)(void));
 // prepare: Retires Cody's offline farewell and sound before the shared panel fade.
 // Exception: Rejects a missing, duplicate or late owner; excluded profiles return NOT_SUPPORTED.
 esp_err_t LUNASHELL_power_manager_register_offline_farewell(esp_err_t (*prepare)(void));

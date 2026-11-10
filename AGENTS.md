@@ -64,10 +64,17 @@ before layout changes and [Cody layout](docs/cody/layout.md) for control details
   320 x 320 at (73,73), half-open [73,393). Admit artwork and complete hit bounds
   against every occupied row's circular chord; rounded margins are not strips.
   Preserve QR quiet zones and navigation clearance.
+- QR screens show only a title and the largest readable QR that fits the display,
+  including its complete quiet zone and any required navigation clearance. Do not
+  show a subtitle. A tap returns to the actual previous screen; do not submit an
+  action or end a pairing session without applying its existing exit semantics.
 - Back: left lateral circle at (10,203), 60 x 60, radius 30; one centered left
   chevron, no text, full touch target, only with a previous route. Keep it separate
   from content and primary/footer actions, never beside or below a footer.
-- Product pages use a title and subtitle. Home is an icon-only filled house on
+- The Wi-Fi and Bluetooth setup journey and the Tools, Preferences and Device
+  options menu pages do not show a Home button. Back navigation returns to the
+  previous page or the route that opened them, respecting pairing cleanup.
+- Product pages use a title and subtitle, except QR screens. Home is an icon-only filled house on
   dark orange; Back and Next are lateral chevrons where those routes exist.
   Status and navigation chrome fade after inactivity and reappear for touch or
   valid measured IMU movement; hidden controls cannot activate. Status uses
@@ -96,6 +103,9 @@ before layout changes and [Cody layout](docs/cody/layout.md) for control details
   `selected-single-action.png` in the same directory.
 - Reveal complete controls after title/main body finish; admit touch only while
   visible. Captions have no typewriter timing or character-audio counts.
+- Each manga-style icon shown as an overlay has its own matching sound cue, played
+  once when the icon appears, subject to the user's sound and quiet-hours settings.
+  Do not replay it for each redraw or invent a system event from artwork.
 
 ## Code and data
 

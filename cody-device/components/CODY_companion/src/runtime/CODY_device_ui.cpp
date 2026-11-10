@@ -197,6 +197,7 @@ alignas(DeviceUi) EXT_RAM_BSS_ATTR uint8_t s_ui_storage[sizeof(DeviceUi)]{};
 DeviceUi *s_ui = nullptr;
 std::atomic<bool> s_ready{false};
 std::atomic<bool> s_options_requested{false};
+std::atomic<bool> s_home_requested{false};
 std::atomic<bool> s_boot_activity{false};
 std::atomic<uint32_t> s_ticket{0};
 std::atomic<uint32_t> s_command{0};
@@ -361,6 +362,13 @@ void queue_options()
 {
     s_boot_activity.store(true, std::memory_order_release);
     s_options_requested.store(true, std::memory_order_release);
+}
+
+// No parameters: physical BOOT posts Home intent for the display owner.
+void queue_home()
+{
+    s_boot_activity.store(true, std::memory_order_release);
+    s_home_requested.store(true, std::memory_order_release);
 }
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
@@ -812,7 +820,7 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         if (ui.model.widgets.selected_screen == WidgetScreen::About &&
             ui.model.info_page == CODY::InfoPage::ProjectLink) {
             frame.layer = Layer::AboutLink;
-            frame.arrows = true;
+            frame.arrows = false;
             const auto error = CODY::prepare_about_project_link(frame.presentation.content);
             if (error == ESP_OK) return ESP_OK;
             return CODY::prepare_device_message(ui.view, frame.presentation, "Scan for more info", "QR unavailable");
@@ -1115,6 +1123,7 @@ Target target_at(CODY2D::Point point)
 {
     const auto &ui = *s_ui;
     const auto layer = ui.retired.layer;
+    if (layer == Layer::AboutLink) return Target::Previous;
     if (layer == Layer::Audio) {
         if (ui.retired.navigation_opacity == 255 &&
             CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::AudioClose;
@@ -1595,11 +1604,34 @@ esp_err_t update_navigation()
     }
     bool can_open_options = ui.model.save != Save::Pending;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-    if (can_open_options && s_options_requested.load(std::memory_order_acquire)) {
+    if (can_open_options && (s_options_requested.load(std::memory_order_acquire) ||
+        s_home_requested.load(std::memory_order_acquire))) {
         // An ongoing recording retains its Cancel/Send controls before BOOT opens Options.
         can_open_options = !LUNASHELL::setVoiceInputRouteAvailable(false);
     }
 #endif
+    if (can_open_options && s_home_requested.load(std::memory_order_acquire)) {
+        const auto error = CODY::open_device_home(ui.scene);
+        if (error != ESP_ERR_NOT_FINISHED) {
+            s_home_requested.store(false, std::memory_order_release);
+            if (error != ESP_OK) {
+                ESP_LOGE(kTag, "BOOT Home request could not close current route (%s)", esp_err_to_name(error));
+                return ESP_OK;
+            }
+            s_options_requested.store(false, std::memory_order_release);
+            ui.model.editing = false;
+            ui.timer_open = false;
+            ui.audio_open = false;
+            ui.diagnostics = false;
+            ui.model.vouchers.warning_expiry = 0;
+            CODY::dismiss_screensaver(ui.model.screensaver, esp_timer_get_time());
+            ui.codex_browser.route = CODY::CodexBrowserRoute::Closed;
+            ui.browser_destination = CODY::CodexBrowserDestination::None;
+            ui.mascot_home = true;
+            if (ui.activity_page == ActivityPage::Reply) ui.activity_page = ActivityPage::Events;
+            invalidate();
+        }
+    }
     if (can_open_options && s_options_requested.exchange(false, std::memory_order_acq_rel)) {
         const int64_t button_at_us = esp_timer_get_time();
         const bool already_open = ui.scene.valid && ui.scene.definition->id == CODY::SceneId::MakeItYours &&
@@ -2051,6 +2083,7 @@ extern "C" esp_err_t CODY_companion_start(void)
     }
     if (error == ESP_OK) error = LUNASHELL_power_manager_register_display_lifecycle(prepare_lifecycle);
     if (error == ESP_OK) error = LUNASHELL_power_manager_register_boot_options(queue_options);
+    if (error == ESP_OK) error = LUNASHELL_power_manager_register_boot_home(queue_home);
 #if CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
     if (error == ESP_OK) error = LUNASHELL_power_manager_register_offline_farewell(prepare_offline_standby);
 #endif

@@ -287,7 +287,7 @@ def verify_firmware_contract() -> None:
     http = read("cody-device/components/LUNASHELL_platform/src/http/LUNASHELL_http_json.cpp")
 
     require(snapshot, "bool fullscreen_active = false;", "snapshot")
-    require(power, "handle_boot_short_press()", "BOOT toggle")
+    require(power, "handle_boot_press(false)", "BOOT toggle")
     require(power, "s_fullscreen_active = true;", "BOOT toggle")
     require(power, "kBootArmReleaseTicks", "BOOT release guard")
     require(power, "s_pending_wakeup_cause", "light-sleep BOOT rearm")

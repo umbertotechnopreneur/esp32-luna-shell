@@ -118,8 +118,8 @@ voice capture and timer alarm playback.
 
 The device-first firmware enters **Not connected** on screen 04 when a saved
 Wi-Fi profile is absent. **Tap to pair** opens **Wi-Fi setup**. **App download
-QR** opens screen 06. **Show pairing QR** admits the Bluetooth session directly
-from either page. The retained-profile startup choices come from the canonical
+QR** opens screen 06. A tap returns to the guide, where **Show pairing QR**
+admits the Bluetooth session. The retained-profile startup choices come from the canonical
 network and link state. See [navigation](navigation.md).
 Each actual saved Wi-Fi attempt can show `Wi-Fi connecting` for up to 15 seconds.
 After a failed attempt the station schedules the next try for about one minute
@@ -742,8 +742,8 @@ Power is dedicated to standby/wake and deliberate shutdown in Debug and Release.
 A short click toggles software standby; a valid three-second continuous hold
 presents `Good night` with `Release Power` directly below it, retires the complete
 Sleep presentation, and requests the
-power owner's gradual fade and coordinated PMU shutdown. BOOT retains its
-diagnostics. The Power-screenshot setter returns `ESP_ERR_NOT_SUPPORTED` and
+power owner's gradual fade and coordinated PMU shutdown. A short BOOT press
+requests Home and a two-second hold requests Options. The Power-screenshot setter returns `ESP_ERR_NOT_SUPPORTED` and
 its getter reports disabled.
 SD-backed screenshot diagnostics apply only to removable-storage profiles and
 retain the existing storage owner and real failures. They do not establish an

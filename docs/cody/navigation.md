@@ -8,11 +8,12 @@ The VibeWare floppy animation plays once after a cold boot or software reset.
 The display then shows Muse waking. The showcase changes its pose every ten
 seconds while Muse is visible. Tap
 the character to trigger its reaction and the optional Cody touch sound.
-The **Setup WiFi** button on Muse Home opens the new Wi-Fi setup journey. It
-starts with Download app and Pair Cody. Download app leads through a short
-explanation to a single QR with Android and Apple selectors; Pair Cody starts
-the existing BLE provisioning owner and shows its session QR. Home and Back
-cancel an owned session before leaving. The public BLE name is `AiGadget-`
+The **Setup WiFi** button on Muse Home opens the Wi-Fi setup journey. Choose
+**Pair with Bluetooth** for the introduction, then tap the Apple or Android
+icon to show that platform's app QR. Tap the QR screen to return to the
+introduction; use its Next arrow to start the BLE pairing session and show
+the session QR. Tapping that screen returns after the owned session is closed.
+The public BLE name is `AiGadget-`
 with a boot-scoped random suffix, shared by the radio and the pairing QR.
 After waking, when a current Wi-Fi observation confirms the device is offline,
 Home waits four seconds and fades in a violet setup notice over two seconds;
@@ -20,8 +21,10 @@ the name comes from the canonical BLE observation. Status and navigation chrome
 hide after inactivity and return on touch or measured IMU motion. Battery
 percentage display is prepared as a renderer option; its settings UI is deferred.
 
-Press BOOT to open Options and choose Connections or Codex.
-If setup is already active, BOOT reveals that journey. Home returns to Muse.
+Hold BOOT for two seconds to open Options and choose Connections or Codex.
+A short BOOT press returns to Muse Home. PWR puts the device in standby or
+wakes it. Pending setup, pairing and other owned operations retain their
+normal cleanup and admission rules when changing screens.
 
 The native **Codex** hub in Options opens **Chats**, **Active calls**,
 **Events** and **Statistics**. Open a chat to see its turns, then open a turn
@@ -47,9 +50,10 @@ Connection status follows the saved network and pairing state.
 | Storage or service error | Show the original failure and an available recovery action |
 
 **Tap to pair** opens **Wi-Fi setup**. **App download QR** opens the installation
-screen. Its QR links to Google Play and the caption names **ESP BLE Provisioning**
-for users of the App Store. **Show pairing QR** starts Bluetooth provisioning
-from either page. Scan the QR on **Scan to pair** from inside the Espressif app.
+screen. Tap the QR screen to return to the guide, then choose **Show pairing QR**
+to start Bluetooth provisioning. Scan the session QR from inside the Espressif
+app. QR screens show a title and a large code with its complete quiet zone; a
+tap returns to the previous screen through the existing session cleanup path.
 
 On the **Wi-Fi offline** recovery screen, **Later** opens **Not connected**.
 When Cody loses a working link, it tries the saved network again after about
@@ -73,7 +77,7 @@ WebSocket frame and close handshake. Enrollment and event delivery remain pendin
 
 ## Manage the retained PC
 
-Open BOOT, Options, Connections and Codex. The saved link is
+Hold BOOT for two seconds, then open Options, Connections and Codex. The saved link is
 reused when available. Replacing or forgetting it requires the corresponding
 explicit confirmation.
 
@@ -95,13 +99,15 @@ record is not remotely revoked by this local action.
 
 ## Dashboard and Options
 
-PWR toggles software standby. BOOT opens Options. Page 1 has Connections,
+PWR toggles software standby and wake. A short BOOT press returns to Home; a
+two-second BOOT hold opens Options. Page 1 has Connections,
 Codex stats and Timer. Page 2 has Visible screens, Display and Behavior.
-Page 3 has Restart device, Factory reset and Quick guide. The lateral arrows move between pages. Each page
-offers **Home** to restore the dashboard. **Codex stats** opens the first enabled
+Page 3 has Restart device, Factory reset and Quick guide. The lateral arrows move between pages; Back from
+the first page returns to the opening route. **Codex stats** opens the first enabled
 statistics page with data, or Device when none is available.
-The Tools, Preferences and Device pages show three position marks above the
-**Home** footer. Each destination has a colored icon, title and short description.
+The Tools, Preferences and Device pages show three position marks without a Home
+footer. Each destination uses an icon and title with a restrained violet-blue
+palette inspired by retro interfaces.
 Display holds brightness, rotation and orientation. Behavior holds sound,
 shake-to-wake and, in the voice-enabled profile, Dictation. **More behavior**
 contains **Screensaver**, disabled by default, and opens **Synth Voice**. The
@@ -110,6 +116,8 @@ unavailable until a speech engine is integrated; these rows cannot be activated.
 
 **Quick guide** has three color-coded pages for the physical buttons, display
 gestures and offline features. Available arrows stay visible while reading.
+The button page explains the short BOOT press and two-second BOOT hold, along
+with the PWR standby, wake and power-off actions.
 The left arrow on the first page and **OK** on the last page return to Options
 page 3. The voice instruction reflects the firmware profile.
 
@@ -184,7 +192,7 @@ About contains three Info pages followed by the existing project QR:
 | System 1/3 | Measured CPU 1/core 0 and CPU 2/core 1, current uptime and last observed uptime from the previous boot when retained |
 | Memory 2/3 | Internal RAM and PSRAM as separate allocatable heaps: used, free and largest free block |
 | Firmware 3/3 | Firmware version, compilation date/time, build timezone and build host |
-| Scan for more info | The project QR; Back returns to Firmware and there is no Next action |
+| Scan for more info | The project QR; a tap returns to Firmware |
 
 The same lateral arrows move through these pages. Back from System returns to
 the previous enabled widget. The child page belongs to the device model; the QR
@@ -207,7 +215,7 @@ policy in effect.
 Double-tap open dashboard space or use Record voice on Device to start
 dictation in a voice-enabled build. Dictation must be on and the paired LAN
 link must be current. The optional wake-word build can also listen for Sophia.
-Options and its child routes suppress new dictation. BOOT waits for an active
+Options and its child routes suppress new dictation. A BOOT hold waits for an active
 voice session to end before opening Options.
 The default build omits microphone acquisition and its audio front end.
 
@@ -296,7 +304,7 @@ shows the pairing error and its retry action. QR copying requires current
 ReadyToScan and attempt ID;
 ownership and DMA handoff are in [provisioning](../bsp/services/connectivity-pairing.md).
 
-Short PWR/BOOT, screenshot and sleep behavior follow the power owner and
+PWR, BOOT and sleep behavior follow the power owner and
 [runtime](runtime.md). HTTP remains a separately enabled service and never
 exposes CCP secrets. Remote restart and factory reset require explicit current
 intent and the exact confirmation string; syntax, ambiguous results and retained

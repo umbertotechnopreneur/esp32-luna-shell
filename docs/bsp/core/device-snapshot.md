@@ -150,11 +150,12 @@ display fade/panel output, and pauses or resumes the voice AFE. The hardware
 service queues decoded PKEY events under a PMU-only mutex before it clears and
 verifies the PMIC IRQ registers; Full Snapshot, rotation, and panel I/O cannot
 block that wake channel. PWR short press toggles software standby. After a
-stable 500 ms release guard, BOOT short press toggles manual Fullscreen while
-the display is active: both arcs are hidden on the first press and restored on
-the second. A dimmed/off display is restored first instead of immediately
-entering Fullscreen, and software standby ignores BOOT. BOOT held for three
-seconds requests `esp_restart()`. The Brookesia timer only synchronizes the
+stable 500 ms release guard, Cody uses a short BOOT press for Home and a
+two-second hold for Options. In Luna, a short BOOT press toggles manual
+Fullscreen while the display is active: both arcs are hidden on the first press
+and restored on the second. A dimmed/off display is restored first instead of
+immediately entering Fullscreen, and software standby ignores BOOT. A three-second
+BOOT hold requests `esp_restart()` in Debug Luna. The Brookesia timer only synchronizes the
 published power snapshot into GUI animations and the route viewport; it never
 owns power-policy timing.
 

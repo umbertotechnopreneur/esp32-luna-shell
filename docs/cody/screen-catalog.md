@@ -49,12 +49,12 @@ identify the owning journey; exact current controls remain in navigation.md.
 | atlas-v1:01-03 / character-boot | Original character introduction | AT; retained character/rig sources | Boot concept -> Home | Retained, replaced by VibeWare/Muse; E |
 | atlas-v1:04 / welcome | Welcome / Not connected | ON + SC; Wi-Fi/pairing | Setup state -> network setup | Active; S |
 | atlas-v1:05 / wifi-guide | Wi-Fi setup | ON + SC; provisioning | Not connected/Connections -> app QR or provisioning; Back to caller | Active; S |
-| atlas-v1:06 / install-app | App download QR | ON + SC; installation QR | Guide -> provisioning; Back to guide | Active; S |
+| atlas-v1:06 / install-app | App download QR | ON + SC; installation QR | Guide -> app QR; tap returns to guide | Active; S |
 | atlas-v1:06-bis / provisioning-preparation | Provisioning preparation | ON; current state of 07 | Start -> ready QR or error | Retained alias, not another route; S |
 | atlas-v1:07 / provision | Scan to pair / Connecting | ON + SC; BLE session | Start provisioning -> result; Cancel waits for cleanup | Active; S |
 | atlas-v1:08 / provisioning-error | Pairing failed | ON + SC; provisioning error | Failed stage -> Retry/cancel through owner | Active; S |
 | atlas-v1:09 / wifi-result | You're online / Wi-Fi result | ON + SC; valid network/IP | Provisioning -> continue setup | Active; S |
-| atlas-v1:10 / options | Make it yours / Options | ON + SC; settings | BOOT -> Tools/Preferences/Device pages; Home restores Muse | Active; S; distinct from next-v1:10 |
+| atlas-v1:10 / options | Make it yours / Options | ON + SC; settings | Hold BOOT 2 s -> Tools/Preferences/Device pages; short BOOT returns to Muse | Active; S; distinct from next-v1:10 |
 | atlas-v1:11 / skin | Cody's look | ON + SC; legacy character settings | Legacy personalization -> caller | Retained; S; not a Muse skin picker |
 | atlas-v1:12 / pair-pc | Pair Codex | ON + SC; CCP pairing transaction | Explicit connect/replace -> confirmed 13; Cancel retains old association | Active; S |
 | atlas-v1:13 / pairing-complete | You're all set | ON + SC; committed pairing | Two-sided confirmation -> saved-PC discovery | Active; S |
@@ -94,7 +94,7 @@ identify the owning journey; exact current controls remain in navigation.md.
 
 | Stable key | Source/identity | Entry and return / data | Availability |
 | --- | --- | --- | --- |
-| next-v1:16 / muse-home | MU; UI `Layer::Mascot` | VibeWare or Home -> BOOT Options; touch reaction | Active source; two-page swipe navigation remains phase 09 |
+| next-v1:16 / muse-home | MU; UI `Layer::Mascot` | VibeWare or Home -> BOOT hold for Options; touch reaction | Active source; two-page swipe navigation remains phase 09 |
 | next-v1:10 / tools | ON `OptionsPage::Menu` is reusable source | Proposed top-level peer of Muse Home | Planned exposure; current Tools is inside Options |
 | ui-v1:branding | `VIBEWARE_boot_animation.c`, `assets/branding/VibeWare` | Cold boot/software restart -> Muse | Active source |
 | ui-v1:options-preferences, options-device | ON `MenuMore`, `MenuMaintenance` | Options pages -> child setting or Home | Active source |

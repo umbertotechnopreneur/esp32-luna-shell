@@ -65,7 +65,7 @@ Service value.
 | `LUNASHELL_storage_*` | Mount asynchronously; retry only explicit transient failures; format only after an explicit API call |
 | `LUNASHELL_wifi_*` | Event-driven ESP-IDF station lifecycle and asynchronous scans |
 | `LUNASHELL_provisioning_*` | Security 1 BLE provisioning with explicit lifecycle state |
-| `LUNASHELL_power_*` / `LUNASHELL_display_set_power_mode` | Native inactivity policy, guarded BOOT Fullscreen/reset input, PKEY input inventory, transient Active/Dimmed/DisplayOff transitions, software Device Standby, and separately callable explicit SoC sleep entry |
+| `LUNASHELL_power_*` / `LUNASHELL_display_set_power_mode` | Native inactivity policy, guarded BOOT Home/Options or Luna Fullscreen/reset input, PKEY input inventory, transient Active/Dimmed/DisplayOff transitions, software Device Standby, and separately callable explicit SoC sleep entry |
 
 ## Bounded behavior
 

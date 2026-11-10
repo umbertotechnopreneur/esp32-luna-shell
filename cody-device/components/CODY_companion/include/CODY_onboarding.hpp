@@ -94,12 +94,16 @@ bool onboarding_wifi_keyboard_active();
 // Exception: Returns the original scene/content preparation error.
 esp_err_t open_setup_menu(SceneFrame &scene);
 
-// scene: Stable route receiving Options after a physical BOOT short press.
+// scene: Stable route receiving Options after a two-second physical BOOT hold.
 // Exception: Returns the original route preparation error.
 esp_err_t open_companion_options(SceneFrame &scene);
 
 // scene: Options frame to return to ordinary dashboard and authenticated event routing.
 esp_err_t open_device_dashboard(SceneFrame &scene);
+
+// scene: Display-owned route retained until pairing cleanup has completed.
+// Exception: Returns NOT_FINISHED while an owned operation closes or the original error.
+esp_err_t open_device_home(SceneFrame &scene);
 
 enum class WidgetOpenRequest : uint8_t { None, Home, Statistics, Visibility, Timer, CodexBrowser, Audio };
 
