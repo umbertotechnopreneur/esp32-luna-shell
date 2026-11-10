@@ -165,7 +165,7 @@ esp_err_t handle_text_entry_touch(TextEntryTouch &touch, TextEntry &entry, CODY2
         touch.last = point;
         const int dx = point.x - touch.start.x;
         const int dy = point.y - touch.start.y;
-        if (dx * dx + dy * dy > 12 * 12) touch.moved = true;
+        if (dx * dx + dy * dy > 12 * 12 || text_entry_key_at(point) != touch.key) touch.moved = true;
         return ESP_OK;
     }
     const int key = touch.key;
