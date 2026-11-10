@@ -93,12 +93,11 @@ Starting points are `CODY_pixel_avatar.cpp`, `CODY_pixel_demo.cpp`,
 the companion's `third_party/muse/`, the native/Windows simulators, and the plugin's
 `hooks/hooks.json`, `mcp/ccp_activity.py` and `protocol/CCP1.md`.
 
-The inspected source connects waking, idle and touch to Muse. Its current viewport
-is 192 x 192 at (137,137); the display safe square is 320 x 320, not the current
-avatar viewport. Two indexed frames including their palettes occupy 8,448 bytes.
-The 40 ms interval is requested pacing, not measured performance. The PC registry
-admits 64 sessions, while ACTIVITY/TECH project the followed chat. Recheck these
-facts at activation because the worktree already contains local changes.
+The native 1.75C Muse scene uses the original 64 x 64 artwork at five pixels per
+cell. The 320 x 320 viewport begins at (73,73) on the 466 x 466 panel. Two indexed
+frames including their palettes occupy 8,448 bytes. The 40 ms frame interval is
+a target. Completed-frame cadence requires a hardware measurement. The PC registry
+admits 64 sessions, while ACTIVITY/TECH project the followed chat.
 
 Reuse the existing display/touch owner, completed-frame retirement, RGB565 strips,
 pairing, authenticated transport, semantic response acknowledgements and audio
@@ -136,15 +135,15 @@ their exact filenames in 01 while retaining the ownership boundaries below.
 | CODY-NEXT-00 | Baseline, screen catalog and ownership map | None | 🟢 Accepted · document review |
 | CODY-NEXT-01 | Domain schema, invariants and capacity policy | 00 | 🟡 Design reviewed · validation pending |
 | CODY-NEXT-02 | Versioned JSON, wire mapping and synchronization rules | 01 | 🟡 Design reviewed · validation pending |
-| CODY-NEXT-03 | Codex adapter and complete broker registry | 02, 14 | 🟡 Multi-turn sync and restart restore wired · question correlation pending |
-| CODY-NEXT-04 | Durable question and answer lifecycle | 02, 03 | 🟡 Durable Codex question ledger wired · unified correlation pending |
-| CODY-NEXT-05 | Device domain store, synchronization and recovery | 02, 03, 04, 14 | 🟡 Canonical queries and pairing-bound recovery wired · acceptance pending |
+| CODY-NEXT-03 | Codex adapter and complete broker registry | 02, 14 | 🟡 Multi-turn sync and exact question correlation wired · live hook acceptance pending |
+| CODY-NEXT-04 | Durable question and answer lifecycle | 02, 03 | 🟡 Durable question association and answer projection wired · live acceptance pending |
+| CODY-NEXT-05 | Device domain store, synchronization and recovery | 02, 03, 04, 14 | 🟡 Canonical pending-question query and pairing-bound recovery wired · acceptance pending |
 | CODY-NEXT-06 | Deterministic scenario driver and inspection tools | 01, 02; integrate after 05 | ⚪ Planned |
 | CODY-NEXT-07 | Domain-to-Muse direction and pose transitions | 05, 06 | 🟡 Native pose showcase wired · domain direction pending |
-| CODY-NEXT-08 | Muse acting, particles and audio policy | 07 | ⚪ Planned |
-| CODY-NEXT-09 | Separate mascot/UI routes and reusable screens | 00, 05, 07 | 🟡 Native Codex browser wired · Home gestures and physical acceptance pending |
+| CODY-NEXT-08 | Muse acting, particles and audio policy | 07 | 🟡 320-pixel Muse smooth on the device · measured cadence pending |
+| CODY-NEXT-09 | Separate mascot/UI routes and reusable screens | 00, 05, 07 | 🟡 Native Codex browser and Questions wired · Home gestures and physical acceptance pending |
 | CODY-NEXT-10 | Subagents and observable asynchronous operations | 03, 05, 06 | ⚪ Planned |
-| CODY-NEXT-11 | Authorized final validation and hardware acceptance | 00-10 and 14 implemented and statically reviewed | ⚪ Planned |
+| CODY-NEXT-11 | Authorized final validation and hardware acceptance | 00-10 and 14 implemented and statically reviewed | 🟡 Questions firmware flashed on 1.75C · live Codex flows pending |
 | CODY-NEXT-12 | Additional source adapters | 11 accepted; separate source activation | 🟣 Optional · deferred |
 | CODY-NEXT-13 | Muse-inspired native Wi-Fi keyboard | 00, 09, 14; design first, separate integration/acceptance | 🟣 Optional · deferred |
 | CODY-NEXT-14 | Prepare portable core and platform/device adapters | 00, 01, 02; foundation before 03/05 | 🟡 In progress |
@@ -323,6 +322,8 @@ ingestion decisions. Native approvals are distinct from answerable questions.
   sizes/byte order; never serialize platform structs, native pointers or local
   monotonic timestamps as cross-device identities. Unsupported optional features
   remain explicit and cannot masquerade as successful empty results.
+  The signed bootstrap selects core state with version 1 or adds the question
+  pools with version 2. Both profiles retain the same JSON and datagram schema.
 
 **Completion:** sender and receiver can independently implement the same examples,
 loss/recovery rules and maximum memory budget. No protocol field asks the device
@@ -334,10 +335,11 @@ to select a facial expression or perform an unspecified privileged action.
 
 **Current scope:** the producer retains chats, turns, tool definitions and
 tool calls under stable identities. It serves full snapshots and exact-base
-deltas over the authenticated CCP owner. The broker restores its private
-checkpoint under a new epoch, retaining original evidence as historical until
-new observations reconcile it. Questions, external operations and subagents
-remain separate work.
+deltas over the authenticated CCP owner. The negotiated question profile adds
+recipient-scoped questions, choices and answer attempts from the durable ledger.
+The broker restores its private checkpoint under a new epoch, retaining original
+evidence as historical until new observations reconcile it. External operations
+and subagents remain open.
 
 - [ ] 🟡 **CODY-NEXT-03.01** Separate provider translation from ActivityStore's generic
   lifecycle/storage responsibilities. Replace followed-chat-only consumers with
@@ -353,6 +355,8 @@ remain separate work.
 - [ ] 🟡 **CODY-NEXT-03.04** Make progress, tools, turns and questions from background
   chats update their own records. Foreground selection cannot suppress their
   publication or be stolen by routine background events.
+  🟢 Questions use the exact hook chat and turn. 🟡 Exercise simultaneous live
+  questions from multiple Codex chats during acceptance.
 - [x] 🟢 **CODY-NEXT-03.05** Handle late, duplicate and conflicting native observations
   before assigning outbound revisions. A broker sequence orders admitted evidence;
   it cannot recreate missing provider events. Preserve uncertainty when the
@@ -367,6 +371,10 @@ remain separate work.
 - [x] 🟢 **CODY-NEXT-03.08** Expose bounded state-v1 queries in the plugin and
   align its manifest, tool catalog and guidance with source-qualified identities
   and historical evidence. Keep the existing voice and signed ticket owners distinct.
+  🟢 The local catalog points to the vNext worktree. CCP 0.7.0 is installed
+  and enabled in Codex. The installed hook manifest and key scripts match the source.
+  🟡 Reload Codex and review the CCP hooks in the native trust interface.
+  The 0.6.20 broker has stopped. Startup of the 0.7.0 broker remains unverified.
 
 **Completion:** simultaneous chats/tools have independent identities and revisions;
 the old followed-chat rule is a projection rather than the broker's data boundary.
@@ -379,17 +387,19 @@ Real hook delivery remains a later authorized acceptance item.
 **Current scope:** the Codex broker durably retains questions and attempts on
 the signed CCP1 ticket path. It preserves the last accepted choice and separates
 broker receipt, recipient confirmation and device closure. After restart,
-unconfirmed work stays uncertain and the old delivery path stays closed. Exact
-native chat/turn correlation and state-v1 question publication remain open.
+unconfirmed work stays uncertain and the old delivery path stays closed. The
+same ledger supplies the question and answer-attempt observations in state-v1
+for the paired recipient. Reply authorization stays with the signed ticket.
 
 - [x] 🟢 **CODY-NEXT-04.01** Separate semantic Question identity from an expiring
   transport ticket and its recipient capability. Define open, resolved,
   cancelled, explicitly expired and unresolved/unavailable states. A local TTL
   expiration disables that reply path without inventing semantic resolution.
-- [ ] 🟡 **CODY-NEXT-04.02** Establish chat/turn association from trustworthy broker
-  invocation context. The existing caller-declared context label is not identity.
-  When association is unavailable, keep an unassociated question visible in the
-  global attention set; never attach it to the current foreground chat by guess.
+- [x] 🟢 **CODY-NEXT-04.02** Bind the question returned by the exact Codex PostToolUse
+  result to that invocation's native chat and turn. The durable association is
+  write-once. Questions without trustworthy evidence stay visible globally as
+  unassociated. 🟡 Verify a genuine PostToolUse result after Codex reloads
+  the installed 0.7.0 hook and the native review is complete.
 - [x] 🟢 **CODY-NEXT-04.03** Specify AnswerAttempt transitions: local Send admission,
   broker_received, recipient_confirmed and uncertain/rejected outcomes. Retain
   immutable choice IDs and the current exact-answer acknowledgement discipline.
@@ -408,6 +418,8 @@ native chat/turn correlation and state-v1 question publication remain open.
 - [x] 🟢 **CODY-NEXT-04.07** Preserve recipient delivery and device presentation closure
   as separate acknowledgements. Repeated terminal state remains recoverable
   until acknowledged; a late ACK cannot reopen or rewrite a terminal local result.
+  State-v1 carries broker receipt, recipient delivery and uncertainty as distinct
+  facts. Its transfer ACK confirms the committed generation.
 - [x] 🟢 **CODY-NEXT-04.08** Keep native PermissionRequest advisory and PC-only.
   Opening its notice or touching the mascot cannot authorize a native approval.
 - [ ] 🟡 **CODY-NEXT-04.09** Serialize answer-versus-cancel races and competing answers
@@ -423,11 +435,12 @@ No deadline, stale snapshot, Back action or new foreground chat silently clears 
 
 **Outcome:** a bounded complete local model independent of UI routes.
 
-**Current scope:** the paired device streams and validates the initial
-five record kinds into a PSRAM staging bank. A digest-verified transaction
-publishes one coherent generation; rejection retains the previous bank.
-DeviceSnapshotService exposes bounded status, selected-chat and paged
-chat, turn and call queries with evidence, coverage and attention counts.
+**Current scope:** the paired device streams and validates core records and,
+when negotiated, question, choice and answer-attempt records into a PSRAM staging
+bank. A digest-verified transaction publishes one coherent generation. Rejection
+retains the previous bank. DeviceSnapshotService exposes bounded status,
+selected-chat and paged chat, turn, call and pending-question queries with
+evidence, coverage and attention counts.
 The device restores a pairing-bound historical summary and selected-chat
 bookmark, then requests a fresh authenticated snapshot. The checkpoint also
 retains the last open ticket reference and bounded unresolved answer attempts.
@@ -444,10 +457,13 @@ Recovered references cannot submit an answer. Physical acceptance is pending.
 - [ ] 🟡 **CODY-NEXT-05.03** Implement snapshot/delta admission, referential integrity,
   ordering, transfer cleanup, explicit freshness and partial-coverage reporting.
   Updates to invisible chats follow exactly the same rules as foreground updates.
-- [ ] 🟡 **CODY-NEXT-05.04** Expose bounded queries for selected chat, all chats,
-  active calls, pending questions and aggregate attention. Query results are
-  disposable projections, not UI-owned domain state. The initial profile
-  exposes chat, turn, call and attention views. Pending questions report unsupported.
+  🟢 Question admission validates the exact chat/turn pair and the selected
+  choice's owning question. 🟡 Exercise malformed references and reconnects.
+- [x] 🟢 **CODY-NEXT-05.04** Expose bounded queries for selected chat, all chats,
+  active calls, pending questions and aggregate attention. Pending questions can
+  be read globally or scoped to the exact chat or turn. Pages and cursors belong
+  to one committed generation. Core-only peers report the query as unsupported.
+  🟡 Confirm actual device pagination, freshness and empty states.
 - [x] 🟢 **CODY-NEXT-05.05** Persist minimal unresolved question/answer records and
   useful selection references through the existing storage owner. Define schema,
   integrity, atomic replacement, retention and write coalescing. Do not write
@@ -592,10 +608,14 @@ continues to use Muse/CODY2D with no alternate face pipeline.
   is activated; preserve the schedule/timezone and verify the observed result.
   Saved enabled settings survive firmware updates, so a new default or hardcoded
   audio bypass is insufficient. Do not automatically enable a night schedule.
-- [ ] ⚪ **CODY-NEXT-08.07** Bound dirty regions, palette changes and effect extents.
-  Keep indexed frame ownership until all strips retire; include removed particles
-  in damage. Treat 192/256/320-pixel avatar sizing as a later explicit layout
-  choice within Muse, not an implicit renderer change.
+- [ ] 🟡 **CODY-NEXT-08.07** Keep the original 320-pixel mascot viewport and
+  40 ms frame target on the native 1.75C scene. Changed grid rows and both
+  palettes produce up to eight damage regions, including disappearing artwork.
+  RGB565 strips reuse repeated rows and retain their indexed source until DMA
+  retires. The 320-pixel build is installed.
+
+  - [x] 🟢 The owner confirmed smooth Muse animation on the 1.75C.
+  - [ ] 🟡 Measure frame cadence and check clipping and effects on the device.
 
 **Completion:** timings and priorities are documented, buffers/effects are bounded,
 quiet hours are disabled by confirmed settings behavior, and audio remains owned
@@ -605,10 +625,10 @@ outside the renderer. Visual/audible quality and throughput await phase 11.
 
 **Outcome:** useful existing UI survives, while Muse has its own screen.
 
-**Current scope:** the native Codex hub and its Chats, Turns, Tool calls and
-Active calls pages use bounded canonical queries and stable catalog IDs
-101 through 105. Events and Statistics retain their owners and return to the
-hub. Resume revalidates the durable chat bookmark against the current source.
+**Current scope:** the native Codex hub and its Chats, Turns, Tool calls,
+Active calls and Questions pages use bounded canonical queries and stable catalog
+IDs 101 through 106. Events and Statistics retain their owners and return to
+the hub. Resume revalidates the durable chat bookmark against the current source.
 Horizontal Home/Tools gestures, two-dot chrome and device acceptance remain open.
 
 - [x] 🟢 **CODY-NEXT-09.01** Implement mutually exclusive mascot/UI scene kinds.
@@ -626,6 +646,9 @@ Horizontal Home/Tools gestures, two-dot chrome and device acceptance remain open
   detail, tool calls and pending questions. Map new routes only after the catalog
   audit; assign permanent unique codes then. Retain 26/27/31 question/delivery
   meanings and existing pairing codes, including review-before-Send and Back.
+  Route 106 lists pending prompts and their observed association. The signed
+  question route remains responsible for choice review and Send.
+  🟢 The Questions firmware is installed on the 1.75C.
 - [x] 🟢 **CODY-NEXT-09.05** Show tool icons via a presentation-owned category/artwork
   catalog; retain textual names, independent call status and unknown-tool fallback.
   Read model projections rather than maintaining UI-owned tool/session records.
@@ -633,6 +656,8 @@ Horizontal Home/Tools gestures, two-dot chrome and device acceptance remain open
   through an attention entry without replacing an in-progress choice/review or
   changing the foreground chat. Opening a question retains caller route, selected
   chat, scroll and stable question ID; Back restores them without resolving it.
+  🟢 The hub lists background questions without changing the selected chat.
+  🟡 Opening a listed row directly in the signed reply route remains open.
 - [ ] 🟡 **CODY-NEXT-09.07** Reuse counters/statistics, Connections, settings and recovery
   screens through Tools. Child Back returns to its actual caller; Home returns to
   the mascot. Retain last statistics page without converting it into the mascot.
@@ -699,14 +724,29 @@ behind a fabricated complete execution tree.
   current source. Inspect long idle, rapid transitions, question readability,
   removed-effect damage, deterministic restart, gesture arbitration and route
   restoration. Host results do not establish target performance or audible output.
-- [ ] ⚪ **CODY-NEXT-11.04** Run the authorized final firmware build/size checks under
+- [ ] 🟡 **CODY-NEXT-11.04** Run the authorized final firmware build/size checks under
   repository limits. Verify native Cody composition without LVGL, flash/PSRAM
   budgets, generated input consistency and compiled stack frames where applicable.
   A compiler failure is fixed at its cause; reruns follow the same authorization rules.
-- [ ] ⚪ **CODY-NEXT-11.05** With separate flash/device authorization, verify actual
+  🟢 Windows Debug build `7c45de0f` for the 32 MB Waveshare 1.75C used the
+  native Cody profile with wake-word and no LVGL. The app image is 3,453,792 bytes
+  with 56% of its slot free. 🟡 PSRAM and stack checks remain open.
+- [ ] 🟡 **CODY-NEXT-11.05** With separate flash/device authorization, verify actual
   VibeWare/Muse handoff, genuine Codex hook delivery, multiple chats/tool calls,
   question delivery/recovery and all retained setup/recovery routes. Observe the
   exact running image and paired plugin revision; synthetic traces are not live evidence.
+  🟢 Debug `7c45de0f` was written over USB to the 1.75C on COM11. All five
+  regions passed hash verification and the flash tool reset the board.
+
+  - [x] 🟢 The owner confirmed smooth Muse animation on the earlier `9393208b` build.
+  - [x] 🟢 The owner confirmed correct auto-rotation in one tested direction on `9393208b`.
+  - [ ] 🟣 The image is upside down relative to gravity when the screen faces
+    the owner. Defer this orientation case.
+  - [ ] 🟡 Confirm the disk-to-Muse handoff and verify live Codex flows.
+  - [x] 🟢 Install and enable the matching CCP 0.7.0 package on Windows.
+  - [ ] 🟡 Confirm the reloaded 0.7.0 broker and review the CCP hooks in Codex.
+  - [ ] 🟡 Use two real Codex chats to confirm exact turn association, pending
+    list updates, signed reply delivery and post-reconnect visibility.
 - [ ] ⚪ **CODY-NEXT-11.06** Measure composition/damage/transfer time separately,
   completed-frame FPS, missed cadence, touch latency, deepest stack margins,
   internal heap, PSRAM and synchronization peak allocation. Include idle, particles,
@@ -856,6 +896,11 @@ ports, not presumed working products.
   accepted bounds as the first implementation. Prepare separate geometry policies
   for other shapes/resolutions without assuming every device has a 320-pixel safe
   square. Use the same acquired logical coordinates for drawing and touch.
+  The 1.75C orientation correction is in the board mapping. Display consumers
+  use the hardware snapshot, with display and touch rotated in one transaction.
+
+  - [x] 🟢 Correct auto-rotation in one tested direction on the 1.75C.
+  - [ ] 🟣 Screen-facing-owner inversion deferred.
 - [ ] 🟡 **CODY-NEXT-14.07** Keep physical board, build profile and optional services
   orthogonal. A microphone-free profile disables recording entry cleanly while
   retaining the domain and mascot; a single microphone never creates two channels.

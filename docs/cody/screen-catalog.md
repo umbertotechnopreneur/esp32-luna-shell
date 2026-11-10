@@ -116,11 +116,12 @@ identify the owning journey; exact current controls remain in navigation.md.
 | ui-v1:diagnostics, memory-detail | `CODY_debug_views.cpp`, UI diagnostics layer | Debug/Release entry -> overview -> retained route | Active source |
 | ui-v1:screensaver | `CODY_screensaver.cpp` | Enabled idle policy -> first-touch dismissal | Active source, setting initially disabled |
 | ui-v1:activity-events, current-turn, reply, statistics | CP; UI `ActivityPage` | Activity navigation -> event/detail/statistics | Active source, canonical selected-chat projection only |
-| next-v1:101 / codex | Native Codex browser hub | Options -> Chats, Active calls, Events or Statistics | Source |
+| next-v1:101 / codex | Native Codex browser hub | Options -> Chats, Active calls, Questions, Events, Statistics or Resume when its saved chat is available | Source |
 | next-v1:102 / chats | Canonical chat page | Codex -> selected chat / Turns; Back -> Codex | Source |
 | next-v1:103 / turns | Exact chat and its turns | Chats or Resume -> Tool calls; Back -> caller | Source |
 | next-v1:104 / tool-calls | Calls belonging to one exact turn | Turns -> Tool calls; Back -> Turns | Source |
 | next-v1:105 / active-calls | Source active-call page | Codex -> Active calls; Back -> Codex | Source |
+| next-v1:106 / pending-questions | Read-only canonical pending-question previews | Codex -> Questions. Back returns to Codex. Events retains signed question replies. | Source |
 | legacy-v1:technical-panels, home-identity, character-direction | `CODY_technical_panels.cpp`, `CODY_home_identity.cpp`, `CODY_character_direction.cpp` | Retained behavior/presenters for selective reuse | S; not an instruction to restore the vector face |
 | reference-v1:muse-wifi-keypad | External Muse settings/keypad sources below | Network SSID/password editor -> Wi-Fi owner | Reference only; no Cody native port yet |
 
@@ -177,7 +178,7 @@ adaptation, credential lifetime and route assignment.
 | Canonical observations | `DeviceSnapshotService` bounded read methods return original lock/publication errors. Acquisition owners alone read hardware. Extend bounded projections instead of copying a new registry into every snapshot. |
 | Future domain mutations | One serialized store owner in phase 05; no competing UI copy. The domain registry does not exist in the baseline. |
 | Display/touch | UI worker owns `DeviceUi` in external-RAM storage, strips and retired mapping. `SceneContent` borrows immutable state through complete frame retirement. Touch acts on that mapping, and invalidation cancels old touch ownership. |
-| Muse | Two 64 x 64 indexed frames plus palettes total 8,448 bytes. Viewport is 192 x 192 at (137,137); 40 ms is requested pacing, not measured FPS. Muse callbacks do not submit DMA or acquire hardware. |
+| Muse | Two 64 x 64 indexed frames plus palettes total 8,448 bytes. The 1.75C viewport is 320 x 320 at (73,73). The 40 ms frame target awaits on-device measurement. Muse callbacks do not submit DMA or acquire hardware. |
 | Settings/persistence | Existing settings, pairing and voice owners retain serialized storage/readback. Domain persistence will have a separate bounded adapter; UI does not read NVS or files. |
 | Audio | `CODY_device_effects.cpp` uses the existing audio owner; voice capture has its own admitted session and buffer lifetime. Quiet-hours rollout change remains phase 08, not an assumed current setting. |
 | Desktop OS | `ccp_runtime.py` has OS-specific credential filenames; `ccp_windows.py` contains Windows DPAPI, Linux Secret Service and process launch paths. These are candidates for explicit platform adapters, not domain imports. |
