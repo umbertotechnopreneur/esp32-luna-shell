@@ -11,6 +11,7 @@ persistence, power and authenticated transport.
 | --- | --- |
 | First boot, dashboard, Options, questions and recovery | [Navigation](navigation.md) |
 | Retained screen sources, original codes and Muse/Tools mapping | [Screen catalog](screen-catalog.md) |
+| vNext entities, evidence, capacities and lifecycle rules | [Domain model](domain-model.md) |
 | All device routes at a glance | [A4 navigation map](device-navigation-map-a4.pdf) |
 | Display coordinates, action controls and QR | [Layout](layout.md) |
 | Power and standby | [Power management](../bsp/services/power-management.md) |

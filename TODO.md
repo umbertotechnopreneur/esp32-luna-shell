@@ -8,10 +8,16 @@ specification is in [planned-todo.md](planned-todo.md#cody-next---domain-model-a
 | Phase | Status | Remaining gates |
 | --- | --- | --- |
 | CODY-NEXT-00 | Accepted (source inventory) | G01/G02 document review complete in [screen catalog](docs/cody/screen-catalog.md); physical/route acceptance remains in 09/11 |
-| CODY-NEXT-01 | Implementing | G01/G02: portable schema, lifecycle rules, capacity budget and design review |
+| CODY-NEXT-01 | Implemented / validation pending | Schema and design review (G01/G02) in [domain contract](docs/cody/domain-model.md); header compilation, actual memory layout and runtime evidence remain pending |
 
 Next dependency: `CODY-NEXT-02`, then portability foundation `CODY-NEXT-14`.
 Runtime integration, Muse direction and route changes follow their named phases.
+The new `CODY_domain` headers define values and a storage-budget calculation;
+they are not yet connected to a build target, broker, device store or UI.
+Phase 14 must wire the portable build inputs; phase 11 must compile the headers,
+exercise the specified scenarios against the phase-05 reducer, inspect actual
+record/stack sizes, and measure available device memory before enabling the
+4,096-call candidate. No executable acceptance is marked complete.
 vNext may break old data/protocol/API contracts; no backward-compatibility layer
 or automatic legacy migration is required. Keep reusable screen sources and IDs.
 No build, test, simulator, asset generation or hardware operation is authorized
