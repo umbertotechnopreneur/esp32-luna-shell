@@ -122,6 +122,20 @@ The Manifesto link opens only after an explicit click.
 
 ## Muse animation conformance
 
+Studio's Animation selector exposes the 13 authored showcase combinations.
+Preview Select starts the chosen pose paused at its first frame; Play, Pause and
+Restart control its visible clock, and Showcase restores automatic playback.
+The separate Physical Cody controls send the selected identity through the
+authenticated CCP broker on the local network. Select, Play, Pause and Restart
+control the device preview; Restore returns to its retained screen. Touch,
+standby or five minutes without a command also end the device preview.
+
+Physical playback requires a paired Cody running firmware with animation control
+and a current CCP broker. The broker targets one fresh physical capability and
+reports an error if multiple physical devices are available. A timeout has an
+unknown outcome and is not retried automatically. The device confirms application;
+the confirmation does not establish physical display appearance or performance.
+
 The native preview uses the same showcase scheduler as the firmware. Each
 simulated boot resets the scheduler and its artistic seed. The clock advances
 only while Muse is displayed; standby, menus and event overlays pause it. A
@@ -426,7 +440,8 @@ by [AGENTS.md](../../../AGENTS.md) before each execution:
 
 The two CCP suites do not open windows or send hooks to Codex. The simulator suite
 includes real UDP on temporary loopback ports and isolated synthetic state, with
-no LAN broadcast or access to personal associations.
+no LAN broadcast or access to personal associations. It requires the current
+`cody-simulator-graphics` driver generated in this checkout before the suite runs.
 The character suite runs the real C++ direction binding, saves labelled synthetic
 frames and exercises a withdrawn Tk window with its scheduled renderer. Prepare
 both `cody-simulator-graphics` and `cody-simulator-audio` through the console first.

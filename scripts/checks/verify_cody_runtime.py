@@ -27,6 +27,7 @@ import wave
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
+from scripts.common.cody_host_compiler import prepare_host_compiler
 from scripts.common.cody_runtime_contract import demo_targets, load_settings
 from scripts.common.cody_response import (
     InputOrigin, MicrophoneSample, PlaybackSample, PowerSample, ResponseInputs,
@@ -198,7 +199,7 @@ def main(argv=None):
         check_assets(settings)
         check_boundaries()
         check_typewriter_audio_source(ROOT)
-        compiler = resolve_compiler(args.compiler)
+        compiler = resolve_compiler(args.compiler) if args.compiler else prepare_host_compiler()
         includes = ("scripts/tests/cody_native", "cody-device/components/CODY2D/include", "cody-device/components/CODY_companion/include",
                     "cody-device/components/LUNASHELL_platform/include",
                     "cody-device/assets/cody/rig/generated", "cody-device/assets/cody/runtime/generated",

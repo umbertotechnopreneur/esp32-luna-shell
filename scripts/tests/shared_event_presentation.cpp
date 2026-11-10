@@ -59,6 +59,7 @@ void verify_shared_event_presentation()
     assert(Presentation::prepare(event, navigation, context, 27, plan) == ESP_OK);
     assert(plan.back && plan.action_count == 2 && plan.page_count == 2);
     assert(plan.actions[0].row && plan.actions[1].row);
+    assert(plan.actions[1].tone == LUNASHELL::CodexChoiceTone::Negative);
     assert(plan.actions[0].bounds.width == 320 && plan.actions[1].bounds.y == 328);
     CODY2D::CapsuleControl control;
     CODY2D::TextLine second;
@@ -86,13 +87,14 @@ void verify_shared_event_presentation()
     assert(Presentation::prepare(event, navigation, context, 27, plan) == ESP_OK);
     assert(plan.actions[0].id == Presentation::ActionId::Send && !plan.actions[0].enabled);
     assert(Presentation::prepare_control(plan.actions[0], CODY::SceneData::body_font, control, second) == ESP_OK);
-    assert(plan.actions[0].tone == LUNASHELL::CodexChoiceTone::Negative);
-    assert(control.icon == CODY2D::ActionIcon::None && control.top_color == 0x28A4);
+    assert(plan.actions[0].tone == LUNASHELL::CodexChoiceTone::Positive);
+    assert(control.icon == CODY2D::ActionIcon::None && control.top_color == 0x1147);
     assert(!control.enabled && control.bounds.y == 352);
     assert(std::strcmp(plan.actions[0].label, "Send reply") == 0);
     assert(Presentation::activate(event, context, plan.actions[0], navigation, effect) == ESP_ERR_INVALID_STATE);
     context.online = true;
     assert(Presentation::prepare(event, navigation, context, 27, plan) == ESP_OK);
+    assert(plan.actions[0].tone == LUNASHELL::CodexChoiceTone::Positive && plan.actions[0].enabled);
     assert(Presentation::activate(event, context, plan.actions[0], navigation, effect) == ESP_OK);
     assert(effect == Presentation::Effect::Reply);
     // An accepted local send does not claim the recipient acknowledged delivery.

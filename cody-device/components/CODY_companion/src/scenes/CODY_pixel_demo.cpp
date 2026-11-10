@@ -122,11 +122,20 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
         ESP_LOGE(kTag, "Mascot clock rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
-    if (view.visible) view.elapsed_us += static_cast<uint64_t>(active_us - view.observed_active_us);
+    if (view.visible) {
+        const auto delta = static_cast<uint64_t>(active_us - view.observed_active_us);
+        view.elapsed_us += delta;
+        if (view.manual && view.manual_playing) view.manual_elapsed_us += delta;
+    }
     view.observed_active_us = active_us;
     view.visible = true;
 
-    const auto pose = view.showcase.sample(view.elapsed_us / 1000U);
+    auto pose = view.showcase.sample(view.elapsed_us / 1000U);
+    if (view.manual) {
+        uint32_t pose_ms = static_cast<uint32_t>(std::min<uint64_t>(view.manual_elapsed_us / 1000U, UINT32_MAX));
+        if (view.manual_pose == PixelAvatarPose::Sleep) pose_ms = std::min(pose_ms, uint32_t{1020});
+        pose = {view.manual_pose, pose_ms, view.manual_working, view.manual_symbol};
+    }
     view.prepared_symbol = pose.symbol;
     uint32_t reaction_ms = kPixelAvatarReactionMs;
     if (view.reaction_active) {
@@ -137,9 +146,13 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
     auto style = view.visual_style;
     style.symbol.symbol = pose.symbol;
     apply_pixel_demo_motion(style, view.motion);
-    compose_pixel_avatar(view.frames[view.write_buffer], pose.pose,
-        static_cast<uint32_t>(view.elapsed_us / 1000U), pose.pose_ms,
-        reaction_ms, 0.0f, pose.working, style);
+    if (view.manual && !view.manual_playing && view.retired_valid) {
+        view.frames[view.write_buffer] = view.frames[1U - view.write_buffer];
+    } else {
+        compose_pixel_avatar(view.frames[view.write_buffer], pose.pose,
+            static_cast<uint32_t>((view.manual ? view.manual_elapsed_us : view.elapsed_us) / 1000U), pose.pose_ms,
+            reaction_ms, 0.0f, pose.working, style);
+    }
 
     const auto viewport = avatar_bounds(view.visual_viewport);
     const DamageRect mascot_bounds{viewport.x, viewport.y,

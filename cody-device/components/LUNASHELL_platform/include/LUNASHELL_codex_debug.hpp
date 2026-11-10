@@ -25,6 +25,17 @@ namespace LUNASHELL {
 // Identity 1 belonged to the removed face-channel screen and must not be reused.
 enum class CodexDebugScreen : uint8_t { Normal = 0, Character = 2 };
 
+enum class CodexAnimationScene : uint8_t {
+    Idle, ListeningQuestion, Thinking, Working, ReplyIdea, ErrorExclamation, Sleep,
+    Waking, IdleHeart, IdleSweat, ErrorTension, ThinkingQuestion, ListeningExclamation
+};
+enum class CodexAnimationOperation : uint8_t { Select, Play, Pause, Restart, Normal };
+struct CodexAnimationRequest {
+    CodexAnimationScene scene = CodexAnimationScene::Idle;
+    CodexAnimationOperation operation = CodexAnimationOperation::Select;
+    char request_id[33]{};
+};
+
 struct CodexDebugScreenRequest {
     CodexDebugScreen screen = CodexDebugScreen::Normal;
     uint8_t scroll = 0;
@@ -33,6 +44,15 @@ struct CodexDebugScreenRequest {
 
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && \
     CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+// request: Receives one authenticated, unexpired animation request.
+// Exception: Returns NOT_FOUND when the mailbox is empty or retired.
+esp_err_t takeCodexAnimation(CodexAnimationRequest &request);
+
+// request: Exact mailbox identity admitted by takeCodexAnimation.
+// result: Actual display-worker result.
+// Exception: Rejects expired or replaced requests.
+esp_err_t completeCodexAnimation(const CodexAnimationRequest &request, esp_err_t result);
+
 // request: Receives one authenticated, unexpired command for the rendering worker.
 // Exception: Returns NOT_FOUND for no pending request; no sensors or settings are read.
 esp_err_t takeCodexDebugScreen(CodexDebugScreenRequest &request);

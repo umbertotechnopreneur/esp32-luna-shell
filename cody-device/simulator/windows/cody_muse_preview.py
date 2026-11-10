@@ -16,7 +16,13 @@ SCREEN_OFFSETS_MS = {"boot-sleep": 0, "boot-waking": 900, "boot-ready": 1500}
 
 
 class MusePose(IntEnum):
+    WAKING = 0
     IDLE = 1  # CODY::PixelAvatarPose::Idle in the host renderer ABI.
+    LISTENING = 2
+    THINKING = 3
+    REPLY = 4
+    ERROR = 5
+    SLEEP = 6
 
 
 class MuseEyeStyle(IntEnum):

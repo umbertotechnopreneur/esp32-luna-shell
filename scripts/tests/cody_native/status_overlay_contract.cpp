@@ -184,10 +184,22 @@ int check_status_overlay_contract()
     signal.wifi.ip_acquired = false;
     signal.wifi.last_error = ESP_FAIL;
     signal.wifi.data_valid = false;
+    signal.wifi.last_attempt_at_us = 1000000;
     require(CODY::prepare_status_overlay(signal, offline) == ESP_OK && offline.wifi_bars == 0 &&
         offline.wifi_tone == CODY::StatusTone::Missing, "confirmed offline remains red despite reconnect error");
     render(offline, 0, 255);
     compact_tile_parity(offline, render(offline, 0, 128));
+    signal.wifi.last_attempt_at_us = 0;
+    CODY::StatusOverlay unobserved_offline;
+    require(CODY::prepare_status_overlay(signal, unobserved_offline) == ESP_OK &&
+        unobserved_offline.wifi_bars == 0 && unobserved_offline.wifi_tone == CODY::StatusTone::Fault,
+        "an offline state without an observed attempt retains its error tone");
+    signal.wifi.last_attempt_at_us = 1000000;
+    signal.wifi.data_stale = true;
+    CODY::StatusOverlay stale_offline;
+    require(CODY::prepare_status_overlay(signal, stale_offline) == ESP_OK &&
+        stale_offline.wifi_bars == 0 && stale_offline.wifi_tone == CODY::StatusTone::Warning,
+        "stale offline evidence keeps its stale tone");
     signal = observation;
     signal.wifi.rssi_valid = false;
     CODY::StatusOverlay unknown_signal;

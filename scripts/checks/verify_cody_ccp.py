@@ -37,7 +37,8 @@ from unittest.mock import Mock, patch
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "cody-desktop/plugins/cody-codex-plugin/mcp"))
-from scripts.common.cody_native_checks import compile_command, resolve_compiler, run_stage
+from scripts.common.cody_native_checks import compile_command, run_stage
+from scripts.common.cody_host_compiler import prepare_host_compiler
 from scripts.checks.verify_power_policy import function_text
 import ccp_server as ccp
 import ccp_activity as activity
@@ -633,16 +634,17 @@ class ChatActivityTests(unittest.TestCase):
     # session: Opaque chat identity.
     # turn: Opaque turn identity.
     # fields: Additional allowlisted tool, model or compaction metadata.
+    # Returns the canonical activity observation, including historical-only events.
     # Raises ValueError when the tested owner rejects the event.
-    def observe(self, name, session="chat-a", turn="turn-a", **fields) -> None:
+    def observe(self, name, session="chat-a", turn="turn-a", **fields):
         self.event_time += 1
         if self.event_base_ns is None:
             self.event_base_ns = int(activity.time.monotonic() * 1_000_000_000)
         emitted_ns = self.event_base_ns + self.event_time
         with patch.object(activity.time, "monotonic_ns", return_value=emitted_ns + 1):
-            self.store.observe({"hook_event_name": name, "session_id": session,
-                                "cwd": fields.pop("cwd", "E:/synthetic-project"), "turn_id": turn,
-                                "emitted_ns": emitted_ns, **fields})
+            return self.store.observe({"hook_event_name": name, "session_id": session,
+                                       "cwd": fields.pop("cwd", "E:/synthetic-project"), "turn_id": turn,
+                                       "emitted_ns": emitted_ns, **fields})
 
     # self: Two synthetic chats with independently observed compaction lifecycle events.
     # Raises AssertionError if a background compaction changes the followed chat or its projection.
@@ -796,12 +798,13 @@ class ChatActivityTests(unittest.TestCase):
         self.assertEqual(len(self.store.list_sessions()), 2)
 
     # self: Two consecutive turns in the same selected chat.
-    # Raises AssertionError if a late previous-turn Stop completes a newer turn.
+    # Raises AssertionError if a historical Stop completes the current turn or publishes a notice.
     def test_old_turn_completion_cannot_finish_current_turn(self) -> None:
         self.observe("UserPromptSubmit")
         self.observe("UserPromptSubmit", turn="turn-b")
-        with self.assertRaisesRegex(ValueError, "turn does not match"):
-            self.observe("Stop")
+        observation = self.observe("Stop")
+        self.assertTrue(observation.state_only)
+        self.assertFalse(observation.reply_ready)
         self.assertEqual(self.store.snapshot()["phase"], "working")
 
     # self: Selected active turn with a synthetic monotonic lease.
@@ -1224,7 +1227,7 @@ class HookRoutingTests(unittest.TestCase):
         call = self.enqueue.call_args
         notice_payload = call.args[1]
         self.assertEqual((notice_payload.kind, notice_payload.title, notice_payload.body),
-                         (interactions.EventKind.REPLY_READY, "Chat waiting", "Open the other chat in Codex"))
+                         (interactions.EventKind.REPLY_READY, "Chat waiting", "Open Codex to read the reply"))
         self.assertNotEqual(notice_payload.title, notice_payload.body)
         self.title_read.assert_called_once_with("chat-a", "E:/same-long-project-name")
         self.assertEqual(call.kwargs["native_session"], "chat-a")
@@ -1249,18 +1252,21 @@ class HookRoutingTests(unittest.TestCase):
         self.assertEqual(self.service.interactions.poll(notice.request_id, notice.capability)["state"], "cancelled")
         self.assertEqual(self.service.interactions.poll(created["request_id"], created["capability"])["state"], "pending")
 
-    # self: Current-chat completions and stale native turns retain the existing identity checks.
-    # Raises AssertionError if completion notices are inferred or accepted for the wrong native turn.
-    def test_only_real_background_stop_can_publish_reply_ready(self) -> None:
+    # self: Current and background completions with one historical native turn.
+    # Raises AssertionError if historical completion produces a new notice or changes the followed turn.
+    def test_only_current_native_turn_stop_can_publish_reply_ready(self) -> None:
+        self.observe("UserPromptSubmit", turn="turn-first")
+        self.observe("Stop", turn="turn-first")
+        self.enqueue.assert_called_once()
+        self.title_read.assert_called_once()
+        self.enqueue.reset_mock()
+        self.title_read.reset_mock()
         self.observe("UserPromptSubmit")
-        self.observe("Stop")
-        self.enqueue.assert_not_called()
-        self.title_read.assert_not_called()
         self.observe("UserPromptSubmit", turn="turn-next")
         self.observe("UserPromptSubmit", "chat-b", "turn-b")
-        with self.assertRaisesRegex(ValueError, "current chat turn"):
-            self.observe("Stop")
+        self.assertEqual(self.observe("Stop"), {})
         self.enqueue.assert_not_called()
+        self.title_read.assert_not_called()
         self.observe("Stop", turn="turn-next")
         self.enqueue.assert_called_once()
         self.title_read.assert_called_once()
@@ -1268,7 +1274,7 @@ class HookRoutingTests(unittest.TestCase):
     # self: Genuine background lifecycle with explicitly injected canonical title observations.
     # Raises AssertionError if absent, expired or oversized titles are guessed, clipped or duplicated.
     def test_reply_ready_uses_complete_current_title_or_distinct_fallback(self) -> None:
-        fallback = "Open the other chat in Codex"
+        fallback = "Open Codex to read the reply"
         current = native_title.TitleState.CURRENT
         cases = (
             (native_title.ChatTitleObservation("SIMULATED real chat", current, 100.0), "SIMULATED real chat"),
@@ -3291,10 +3297,14 @@ class NativeTechnicalUsageTests(unittest.TestCase):
                                 ("bool parseTechnicalCount(", "bool parseTechnicalDuration("))
         (output / "technical_usage_under_test.inc").write_text(extracted, encoding="utf-8")
         executable = output / "technical-usage.exe"
-        command = compile_command(resolve_compiler(None), [str(output)],
+        command = compile_command(prepare_host_compiler(), [str(output)],
                                   ["scripts/tests/cody_native/technical_usage_contract.cpp"], executable)
         run_stage(command, output, "compile")
         run_stage([str(executable)], output, "contract")
+
+
+from cody_ccp_animation_contract import AnimationContractTests
+from cody_host_compiler_contract import HostCompilerEnvironmentTests
 
 
 if __name__ == "__main__":

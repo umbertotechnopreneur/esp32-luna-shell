@@ -1,5 +1,9 @@
 # Cody rendering, rig and response
 
+The active device character is Muse, rendered on its native 64 by 64 pixel grid.
+The rig, jelly and pearl descriptions below concern retained legacy authoring
+and renderer paths; they are not the current Muse appearance.
+
 Cody stays front-facing. Approved artwork and named controls are authored data,
 not renderer guesses. The standalone graph shares display/touch owners without
 LVGL, a runtime YAML/PNG parser or an SD dependency for core visuals.
@@ -60,7 +64,7 @@ follow the same pearl deformation. Optional authored clip ownership requires an
 earlier independent filled path; nested clips and overflowing combined geometry
 are rejected.
 
-The active native jelly finish derives from approved concept 08 in
+The retained legacy jelly finish derives from approved concept 08 in
 `assets/cody/appearance/jelly-scanline/`. Five skins share the crop
 `(28,206,1229,1082)`, matched alpha, 320×233 premultiplied RGBA8 and RGB565-quantized
 color with 8-bit alpha. Pearl Mist, Aurora Veil, Cosmic Stardust, Enchanted Mosaic
@@ -78,7 +82,7 @@ forward body warp before their bounds are recalculated.
 and queues damage. While paused it rebuilds the saved pose without advancing
 time or inventing telemetry. Its getter reports the requested state, not proof
 that a DMA frame displayed it. Jelly and face-follow are selected in the current
-profile; explicitly disabling jelly excludes its textures/caches and selects the
+legacy profile; explicitly disabling jelly excludes its textures/caches and selects the
 normal vector path, never a fallback after renderer error.
 
 ## Snapshot-driven response

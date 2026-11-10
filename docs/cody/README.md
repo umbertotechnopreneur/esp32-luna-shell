@@ -26,6 +26,14 @@ Windows controls and synthetic scenarios belong to the [simulator guide](../../c
 Use the [A4 navigation map](device-navigation-map-a4.pdf) for the dashboard and
 Options. The startup screen shows the Muse avatar after the VibeWare animation.
 
+On the first cold start after installation or factory reset, Cody shows the
+[Muse birth concept](muse-birth-oobe.png): white fades to black, Muse fades in,
+and `Welcome!` appears. The source uses a separate persistent pending flag,
+cleared after the introduction's frames retire; factory reset clears the owned
+settings namespace. An interrupted introduction remains pending. The optional
+existing boot-rise sound follows the device audio policy. Physical display,
+sound, timing and reset behavior still require device verification.
+
 ## Profile and services
 
 Select the physical board independently of the Cody profile. The Waveshare

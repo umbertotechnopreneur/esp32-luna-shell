@@ -27,6 +27,7 @@ constexpr esp_err_t ESP_ERR_NOT_FOUND = 0x105;
 constexpr esp_err_t ESP_ERR_NOT_SUPPORTED = 0x106;
 constexpr esp_err_t ESP_ERR_TIMEOUT = 0x107;
 constexpr esp_err_t ESP_ERR_INVALID_RESPONSE = 0x108;
+constexpr esp_err_t ESP_ERR_NOT_FINISHED = 0x10C;
 
 // error: Actual portable-module result; unknown values remain visible numerically in logs.
 inline const char *esp_err_to_name(esp_err_t error)
@@ -42,6 +43,7 @@ inline const char *esp_err_to_name(esp_err_t error)
     case ESP_ERR_NOT_SUPPORTED: return "ESP_ERR_NOT_SUPPORTED";
     case ESP_ERR_TIMEOUT: return "ESP_ERR_TIMEOUT";
     case ESP_ERR_INVALID_RESPONSE: return "ESP_ERR_INVALID_RESPONSE";
+    case ESP_ERR_NOT_FINISHED: return "ESP_ERR_NOT_FINISHED";
     case 0x1102: return "ESP_ERR_NVS_NOT_FOUND";
     default: return "UNKNOWN_ESP_ERROR";
     }

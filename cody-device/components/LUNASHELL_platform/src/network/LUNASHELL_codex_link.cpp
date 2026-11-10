@@ -41,6 +41,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <iterator>
 #include <mutex>
 #include <vector>
 
@@ -211,6 +212,21 @@ struct DebugScreenMailbox {
 };
 DebugScreenMailbox s_debug_screen{};
 char s_debug_consumed_nonce[33]{};
+struct AnimationMailbox {
+    LUNASHELL::CodexAnimationRequest request{};
+    char nonce[33]{};
+    char scene[32]{};
+    char op[16]{};
+    sockaddr_in source{};
+    int64_t deadline_us = 0;
+    uint32_t pairing_attempt_id = 0;
+    esp_err_t result = ESP_OK;
+    bool pending = false;
+    bool taken = false;
+    bool complete = false;
+};
+AnimationMailbox s_animation{};
+char s_animation_consumed_nonce[33]{};
 #endif
 enum class MaintenanceCommand : uint8_t { Restart, FactoryReset };
 MaintenanceCommand s_last_maintenance_command = MaintenanceCommand::Restart;
@@ -1852,6 +1868,35 @@ esp_err_t sendDebugCapabilityLocked(const ReadyResponse &response, const sockadd
     wipe(proof, sizeof(proof));
     return error;
 }
+
+// response: Just-authenticated active READY, retaining the unchanged base FIND contract.
+// source: Exact responder endpoint receiving the signed optional animation capability.
+// Exception: Returns real crypto/encoding/send errors; this optional failure is logged independently.
+esp_err_t sendAnimationCapabilityLocked(const ReadyResponse &response, const sockaddr_in &source)
+{
+    char input[160]{};
+    const int length = std::snprintf(input, sizeof(input), "anim-cap|%s|%s|%s|1",
+        response.device_id, response.pc_id, response.nonce);
+    uint8_t proof[32]{};
+    esp_err_t error = length > 0 && static_cast<size_t>(length) < sizeof(input)
+        ? hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), input, proof)
+        : ESP_ERR_INVALID_SIZE;
+    char proof_hex[65]{};
+    if (error == ESP_OK) {
+        error = encodeHex(proof, sizeof(proof), proof_hex, sizeof(proof_hex));
+    }
+    char packet[320]{};
+    const int packet_length = std::snprintf(packet, sizeof(packet),
+        "CCP1|ANIMCAP|device=%s|pc=%s|nonce=%s|animation=1|proof=%s",
+        response.device_id, response.pc_id, response.nonce, proof_hex);
+    if (error == ESP_OK) {
+        error = packet_length > 0 && static_cast<size_t>(packet_length) < sizeof(packet)
+            ? sendDatagram(packet, source.sin_addr, ntohs(source.sin_port), "CCP ANIMCAP")
+            : ESP_ERR_INVALID_SIZE;
+    }
+    wipe(proof, sizeof(proof));
+    return error;
+}
 #endif
 
 // response: Just-authenticated READY receiving the optional durable clock capability.
@@ -2204,6 +2249,10 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                                  static_cast<unsigned long>(find_count));
                     }
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+                    const esp_err_t animation_error = sendAnimationCapabilityLocked(response, source);
+                    if (animation_error != ESP_OK) {
+                        ESP_LOGE(kTag, "Optional CCP animation capability failed (%s)", esp_err_to_name(animation_error));
+                    }
                     const esp_err_t debug_error = sendDebugCapabilityLocked(response, source);
                     if (debug_error != ESP_OK) {
                         // Debug views are optional; retain this failure in their transport owner.
@@ -3664,6 +3713,96 @@ esp_err_t acceptDebugScreen(const char *payload, const sockaddr_in &source)
     return ESP_OK;
 }
 
+// payload: Bounded authenticated animation request.
+// source: Current authenticated READY endpoint.
+// Exception: Rejects malformed, stale, replayed and busy requests.
+esp_err_t acceptAnimation(const char *payload, const sockaddr_in &source)
+{
+    const char *names[] = {"device", "pc", "nonce", "id", "scene", "op", "proof"};
+    char *values[7]{};
+    if (!parseEventFields(payload, "CCP1|ANIM|", names, 7, values)) return ESP_ERR_INVALID_ARG;
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (!s_link_present || s_candidate_present || s_pending != Command::None ||
+        s_link_snapshot.state != State::Connected || ntohs(source.sin_port) != kPluginPort ||
+        std::strcmp(values[0], s_link_snapshot.device_id) != 0 ||
+        std::strcmp(values[1], s_link_snapshot.paired_pc_id) != 0 ||
+        std::strcmp(values[2], s_ready_nonce) != 0 ||
+        std::strcmp(values[2], s_animation_consumed_nonce) == 0) return ESP_ERR_INVALID_STATE;
+    const int64_t received_at_us = esp_timer_get_time();
+    if (s_last_ready_at_us <= 0 || received_at_us < s_last_ready_at_us ||
+        received_at_us - s_last_ready_at_us >= kReadyExpiryUs) return ESP_ERR_TIMEOUT;
+    char address[16]{};
+    if (inet_ntop(AF_INET, &source.sin_addr, address, sizeof(address)) == nullptr) return ESP_FAIL;
+    if (std::strcmp(address, s_link_snapshot.peer_ip_address) != 0) return ESP_ERR_INVALID_STATE;
+    uint8_t identity[16]{};
+    if (decodeHex(values[3], identity, sizeof(identity)) != ESP_OK) return ESP_ERR_INVALID_ARG;
+    static constexpr const char *scenes[] = {"idle", "listening_question", "thinking", "working",
+        "reply_idea", "error_exclamation", "sleep", "waking", "idle_heart", "idle_sweat",
+        "error_tension", "thinking_question", "listening_exclamation"};
+    static constexpr const char *operations[] = {"select", "play", "pause", "restart", "normal"};
+    size_t scene = 0;
+    while (scene < std::size(scenes) && std::strcmp(values[4], scenes[scene]) != 0) ++scene;
+    size_t op = 0;
+    while (op < std::size(operations) && std::strcmp(values[5], operations[op]) != 0) ++op;
+    if (scene == std::size(scenes) || op == std::size(operations)) return ESP_ERR_INVALID_ARG;
+    const int length = std::snprintf(s_event_proof_input, sizeof(s_event_proof_input),
+        "anim|%s|%s|%s|%s|%s|%s", values[0], values[1], values[2], values[3], values[4], values[5]);
+    if (length <= 0 || static_cast<size_t>(length) >= sizeof(s_event_proof_input)) return ESP_ERR_INVALID_SIZE;
+    const esp_err_t error = verifyEventProofLocked(values[6]);
+    if (error != ESP_OK) return error;
+    const int64_t now_us = esp_timer_get_time();
+    if (s_animation.pending && now_us < s_animation.deadline_us) return ESP_ERR_INVALID_STATE;
+    s_animation = {};
+    s_animation.request.scene = static_cast<LUNASHELL::CodexAnimationScene>(scene);
+    s_animation.request.operation = static_cast<LUNASHELL::CodexAnimationOperation>(op);
+    std::memcpy(s_animation.request.request_id, values[3], 33);
+    std::memcpy(s_animation.nonce, values[2], 33);
+    std::memcpy(s_animation_consumed_nonce, values[2], 33);
+    std::strcpy(s_animation.scene, values[4]);
+    std::strcpy(s_animation.op, values[5]);
+    s_animation.source = source;
+    s_animation.deadline_us = now_us + 4000000;
+    s_animation.pairing_attempt_id = s_link_snapshot.attempt_id;
+    s_animation.pending = true;
+    return ESP_OK;
+}
+
+// No parameters: the socket worker signs completed animation acknowledgements.
+void maintainAnimation()
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (!s_animation.pending) return;
+    if (esp_timer_get_time() >= s_animation.deadline_us || !s_link_present ||
+        s_link_snapshot.state != State::Connected || s_pending != Command::None || s_candidate_present ||
+        s_animation.pairing_attempt_id != s_link_snapshot.attempt_id) {
+        s_animation = {};
+        return;
+    }
+    if (!s_animation.complete) return;
+    const char *status = s_animation.result == ESP_OK ? "applied" : "rejected";
+    char input[384]{};
+    const int length = std::snprintf(input, sizeof(input), "anim-ack|%s|%s|%s|%s|%s|%s|%s|%ld",
+        s_link_snapshot.device_id, s_link_snapshot.paired_pc_id, s_animation.nonce,
+        s_animation.request.request_id, s_animation.scene, s_animation.op, status, static_cast<long>(s_animation.result));
+    uint8_t proof[32]{};
+    esp_err_t error = length > 0 && static_cast<size_t>(length) < sizeof(input)
+        ? hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), input, proof) : ESP_ERR_INVALID_SIZE;
+    char proof_hex[65]{};
+    if (error == ESP_OK) error = encodeHex(proof, sizeof(proof), proof_hex, sizeof(proof_hex));
+    char packet[kMaximumDatagramBytes + 1]{};
+    const int size = std::snprintf(packet, sizeof(packet),
+        "CCP1|ANIMACK|device=%s|pc=%s|nonce=%s|id=%s|scene=%s|op=%s|status=%s|error=%ld|proof=%s",
+        s_link_snapshot.device_id, s_link_snapshot.paired_pc_id, s_animation.nonce,
+        s_animation.request.request_id, s_animation.scene, s_animation.op, status,
+        static_cast<long>(s_animation.result), proof_hex);
+    if (error == ESP_OK) error = size > 0 && static_cast<size_t>(size) < sizeof(packet)
+        ? sendDatagram(packet, s_animation.source.sin_addr, ntohs(s_animation.source.sin_port), "CCP ANIMACK")
+        : ESP_ERR_INVALID_SIZE;
+    wipe(proof, sizeof(proof));
+    if (error != ESP_OK) ESP_LOGE(kTag, "CCP animation acknowledgement failed (%s)", esp_err_to_name(error));
+    s_animation = {};
+}
+
 // No parameters: only the CCP worker signs and sends completed Debug acknowledgements.
 // Exception: Logs actual ACK send/crypto failures and never fabricates delivery.
 void maintainDebugScreen()
@@ -4245,6 +4384,11 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
             return;
         }
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+        if (std::strncmp(payload, "CCP1|ANIM|", 10) == 0) {
+            const esp_err_t error = acceptAnimation(payload, source);
+            if (error != ESP_OK) reportDatagramRejection("ANIM", error);
+            return;
+        }
         if (std::strncmp(payload, "CCP1|DEBUG|", 11) == 0) {
             const esp_err_t error = acceptDebugScreen(payload, source);
             if (error != ESP_OK) {
@@ -4738,6 +4882,7 @@ void codexLinkWorker(void *context)
 #endif
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
         maintainDebugScreen();
+        maintainAnimation();
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
         if (!voice_busy) {
@@ -4857,6 +5002,40 @@ esp_err_t LUNASHELL::registerCodexNameExecutor(CodexNameExecutor executor)
 }
 
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+// request: Receives an authenticated and unexpired animation command.
+// Exception: Returns NOT_FOUND when no valid request is pending.
+esp_err_t LUNASHELL::takeCodexAnimation(CodexAnimationRequest &request)
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (!s_animation.pending || s_animation.taken || s_animation.complete ||
+        esp_timer_get_time() >= s_animation.deadline_us || !s_link_present || s_candidate_present ||
+        s_pending != Command::None || s_link_snapshot.state != State::Connected ||
+        s_animation.pairing_attempt_id != s_link_snapshot.attempt_id) return ESP_ERR_NOT_FOUND;
+    request = s_animation.request;
+    s_animation.taken = true;
+    return ESP_OK;
+}
+
+// request: Exact previously admitted request.
+// result: Actual display-owner application result.
+// Exception: Rejects expired or replaced requests.
+esp_err_t LUNASHELL::completeCodexAnimation(const CodexAnimationRequest &request, esp_err_t result)
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (!s_animation.pending || !s_animation.taken || s_animation.complete ||
+        esp_timer_get_time() >= s_animation.deadline_us || !s_link_present || s_candidate_present ||
+        s_pending != Command::None || s_link_snapshot.state != State::Connected ||
+        s_animation.pairing_attempt_id != s_link_snapshot.attempt_id ||
+        std::strcmp(request.request_id, s_animation.request.request_id) != 0 ||
+        request.scene != s_animation.request.scene || request.operation != s_animation.request.operation) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_animation.result = result;
+    s_animation.complete = true;
+    xTaskNotifyGive(s_worker);
+    return ESP_OK;
+}
+
 // request: Non-owning output receiving one authenticated transient request.
 // Exception: Returns NOT_FOUND when empty/expired/retired; the worker does not sample sensors.
 esp_err_t LUNASHELL::takeCodexDebugScreen(CodexDebugScreenRequest &request)

@@ -41,6 +41,7 @@ from ccp_state_storage import RegistryStorage
 import ccp_interactions as interactions
 import ccp_reset as reset
 import ccp_clock as clock
+import ccp_animation as animation
 import ccp_name as preferred_name
 import ccp_technical as technical_metadata
 import ccp_voice_input as voice_input
@@ -719,6 +720,7 @@ class CompanionResponder:
         self._debug_used_nonce: dict[str, str] = {}
         self.clock = clock.ClockRequests(self, sys.modules[__name__])
         self.names = preferred_name.NameRequests(self, sys.modules[__name__])
+        self.animations = animation.AnimationRequests(self, sys.modules[__name__])
         self._thread = threading.Thread(target=self._run, name="CCP-responder", daemon=True)
         self.audio = voice_input.VoiceInputServer(self)
 
@@ -827,6 +829,12 @@ class CompanionResponder:
             return
         if kind == "DEBUGCAP":
             self._accept_debug_capability(fields, source)
+            return
+        if kind == "ANIMCAP":
+            self.animations.accept_capability(fields, source)
+            return
+        if kind == "ANIMACK":
+            self.animations.accept_ack(fields, source)
             return
         if kind == "CLOCKCAP":
             self.clock.accept_capability(fields, source)

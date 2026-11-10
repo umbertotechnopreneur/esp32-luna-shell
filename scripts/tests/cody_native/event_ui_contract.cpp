@@ -37,12 +37,6 @@ namespace HomeFixture {
 extern const LUNASHELL::CodexTechnicalObservation *observation;
 extern int64_t now_us;
 extern esp_err_t read_error;
-extern unsigned inactive_look_resets;
-// No parameters: inspect the real route; never emulate an active Look lifecycle.
-bool look_is_inactive()
-{
-    return CODY::s_route != CODY::Route::Look11;
-}
 }
 
 namespace CODY {
@@ -646,12 +640,8 @@ void check_home_lifecycle()
             link.ready_at_us = now_us;
             link.app_presence.received_at_us = now_us;
         }
-        const auto prior_route = s_route;
-        const unsigned prior_resets = HomeFixture::inactive_look_resets;
         bool changed = false;
         require(present_companion_activity(now_us, scene, changed) == ESP_OK, "real Home presentation succeeds");
-        require(HomeFixture::inactive_look_resets == prior_resets + (s_route != prior_route ? 1U : 0U),
-            "only a real route transition retires the inactive Look view");
         // A newly entered route first completes its real entrance before any footer time is eligible.
         require(advance_scene(scene, 30000000) == ESP_OK &&
             present_companion_activity(now_us, scene, changed) == ESP_OK,
@@ -694,7 +684,8 @@ void check_home_lifecycle()
     link.last_error = ESP_ERR_TIMEOUT;
     link.health = LUNASHELL::DeviceHealth::Degraded;
     present(34000000);
-    require(s_route == Route::CompanionIdle16 && title_is("Here with you") && scene.activity_identity == nullptr,
+    require(s_route == Route::CompanionIdle16 && title_is("Local mode") && scene.activity_identity == nullptr &&
+        scene.command_hints == nullptr && !s_home_codex,
         "retained discovery keeps the local companion without stale Codex metrics");
     HomeFixture::read_error = ESP_FAIL;
     bool changed = false;

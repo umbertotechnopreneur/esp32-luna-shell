@@ -19,8 +19,8 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[2]
 OUTPUT = ROOT / "docs/cody/ui-proposals/20261014-questions"
-FONT = ROOT / "cody-device/third_party/esp-brookesia/system/brookesia_system_super/resource/fonts/Telex-Regular.ttf"
-CLOUD = ROOT / "cody-device/assets/cody/boot/cody-ready-pearl.png"
+FONT = ROOT / "cody-device/assets/cody/muse-fonts/montserrat.ttf"
+MUSE_REFERENCE = ROOT / "docs/cody/muse-reference.png"
 SIZE = 466
 WHITE = "#eef4f6"
 GRAY = "#94a1ab"
@@ -66,7 +66,7 @@ CHOICES = (
 )
 
 
-# size: Logical font size; authoring uses the committed OFL Telex source.
+# size: Logical font size; authoring uses the committed OFL Montserrat source.
 # Exception: Preserves missing/invalid font errors.
 def font(size: int):
     return ImageFont.truetype(str(FONT), size)
@@ -97,7 +97,9 @@ class Canvas:
     def __init__(self):
         self.image = Image.new("RGB", (SIZE, SIZE), "black")
         self.draw = ImageDraw.Draw(self.image)
-        self.image.paste(Image.open(CLOUD).convert("RGB").resize((200, 200), Image.Resampling.LANCZOS), (133, -2))
+        mascot = Image.open(MUSE_REFERENCE).convert("RGBA")
+        mascot.thumbnail((118, 152), Image.Resampling.LANCZOS)
+        self.image.paste(mascot, ((SIZE - mascot.width) // 2, 9), mascot)
 
     # self: Logical design surface.
     # text: Complete ASCII caption.
@@ -274,8 +276,8 @@ def prototype(manifest):
     encoded_font = base64.b64encode(FONT.read_bytes()).decode("ascii")
     template = r'''<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Cody question flow / design proposal</title>
-<style>@font-face{font-family:Telex;src:url(data:font/ttf;base64,__FONT__)}
-*{box-sizing:border-box}body{margin:0;background:#10151b;color:#eef4f6;font-family:Telex,Arial,sans-serif}
+<style>@font-face{font-family:Montserrat;src:url(data:font/ttf;base64,__FONT__)}
+*{box-sizing:border-box}body{margin:0;background:#10151b;color:#eef4f6;font-family:Montserrat,Arial,sans-serif}
 main{max-width:1240px;margin:auto;padding:28px}h1{font-size:26px}p{color:#94a1ab;line-height:1.6}
 .stage{display:flex;gap:32px;align-items:center;flex-wrap:wrap}.device{width:466px;height:466px;position:relative;flex-shrink:0}
 .device img{width:100%;height:100%;image-rendering:pixelated}.hit{position:absolute;background:none;border:0;cursor:pointer;border-radius:22px}
@@ -291,7 +293,7 @@ button.nav{background:#1c2e35;border:1px solid #35535a;border-radius:20px;paddin
 </style><main><h1>Cody / eight-screen question flow</h1><p>DESIGN PROPOSAL / sample chats and choices. Click the display controls; wheel or swipe for the next answer page.</p>
 <div class="stage"><div class="device" id="device"><img id="frame" alt="Current design screen"><div id="hits"></div><div id="read" class="read hidden" tabindex="0"></div><div id="selected" class="selected hidden"></div></div>
 <div class="details"><h2 id="title"></h2><p id="note"></p><p id="help"></p><button class="nav" id="previous">Previous mockup</button><button class="nav" id="next">Next mockup</button><p>Only Send reply commits the selected option in this prototype. Receipt is a separate illustrated state, advanced manually. No Codex request is sent.</p></div></div>
-<div id="strip" class="strip"></div><p><a href="font-license.txt" style="color:#94a1ab">Telex / SIL Open Font License 1.1</a></p></main><script>
+<div id="strip" class="strip"></div><p><a href="font-license.txt" style="color:#94a1ab">Montserrat / SIL Open Font License 1.1</a></p></main><script>
 const data=__MANIFEST__,byId=new Map(data.screens.map(s=>[s.id,s]));
 let current=data.screens[0].id,chosen=data.choices[1];
 const frame=document.getElementById('frame'),hits=document.getElementById('hits'),read=document.getElementById('read');
@@ -342,7 +344,7 @@ def main():
     board(images)
     prototype(manifest)
     (OUTPUT / "flow.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-    (OUTPUT / "font-license.txt").write_bytes((ROOT / "cody-device/assets/cody/home-dashboard-fonts/OFL.txt").read_bytes())
+    (OUTPUT / "font-license.txt").write_bytes((ROOT / "cody-device/assets/cody/muse-fonts/Montserrat-OFL.txt").read_bytes())
     print(f"Eight question-flow proposals generated: {OUTPUT / 'eight-screen-flow.png'}")
     print(f"Offline mouse/touch prototype: {OUTPUT / 'prototype.html'}")
 

@@ -55,10 +55,19 @@ def prepare_host_compiler():
         command = f'cmd.exe /d /s /c ""{setup}" -no_logo -arch=x64 -host_arch=x64 >nul && set"'
         # A literal Windows command line preserves cmd's outer quotes; list2cmdline
         # would escape the batch path for a different argument parser.
+        # VsDevCmd expands PATH inside cmd.exe, whose input line is limited to
+        # 8191 characters. Initialize against system tools, then retain the
+        # caller's full PATH after the compiler environment is ready.
+        setup_env = os.environ.copy()
+        original_path = setup_env.get("PATH", "")
+        system_root = Path(setup_env["SYSTEMROOT"])
+        setup_env["PATH"] = os.pathsep.join(str(path) for path in (
+            system_root / "System32", system_root, system_root / "System32" / "Wbem"))
+        setup_env.pop("VSCMD_DEBUG", None)
         result = subprocess.run(command,
-            capture_output=True, text=True, check=True)
+            capture_output=True, text=True, check=True, env=setup_env)
         for line in result.stdout.splitlines():
             name, separator, value = line.partition("=")
             if separator and name and not name.startswith("="):
-                os.environ[name] = value
+                os.environ[name] = value + os.pathsep + original_path if name.upper() == "PATH" else value
         return resolve_compiler(None)
