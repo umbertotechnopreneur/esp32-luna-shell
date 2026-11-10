@@ -1519,6 +1519,9 @@ public:
     // codex_link: Coherent commissioning/liveness state, without code or key material.
     // Exception: Returns and logs the original canonical publication failure.
     esp_err_t reportCodexLink(const CodexLinkSnapshot &codex_link);
+    // device_name: Verified boot-scoped public name from the radio owner.
+    // Exception: Returns the original validation or publication error.
+    esp_err_t reportBleIdentity(const char *device_name);
     void reportBle(
         bool ready,
         esp_err_t error,

@@ -195,6 +195,7 @@ alignas(DeviceUi) EXT_RAM_BSS_ATTR uint8_t s_ui_storage[sizeof(DeviceUi)]{};
 DeviceUi *s_ui = nullptr;
 std::atomic<bool> s_ready{false};
 std::atomic<bool> s_options_requested{false};
+std::atomic<bool> s_boot_activity{false};
 std::atomic<uint32_t> s_ticket{0};
 std::atomic<uint32_t> s_command{0};
 std::atomic<uint32_t> s_ack{0};
@@ -356,6 +357,7 @@ void select_statistics()
 // No parameters: physical BOOT posts an intent for the display owner.
 void queue_options()
 {
+    s_boot_activity.store(true, std::memory_order_release);
     s_options_requested.store(true, std::memory_order_release);
 }
 
@@ -501,16 +503,23 @@ void observe_chrome_motion(DeviceUi &ui, int64_t now_us, esp_err_t motion_error)
             return;
         }
     }
-    bool moved = false;
     const bool consecutive = ui.chrome_imu_at_us > 0 && imu.last_success_at_us > ui.chrome_imu_at_us &&
         imu.last_success_at_us - ui.chrome_imu_at_us <= 500000;
+    float acceleration_change_squared = 0.0f;
+    float angular_speed_squared = 0.0f;
     for (int index = 0; index < 3; ++index) {
-        moved = moved || (consecutive && std::fabs(imu.acceleration_mps2[index] - ui.chrome_acceleration[index]) >= 0.35f) ||
-            std::fabs(imu.angular_velocity_dps[index]) >= 5.0f;
+        const float angular_velocity = imu.angular_velocity_dps[index];
+        angular_speed_squared += angular_velocity * angular_velocity;
+        if (consecutive) {
+            const float change = imu.acceleration_mps2[index] - ui.chrome_acceleration[index];
+            acceleration_change_squared += change * change;
+        }
         ui.chrome_acceleration[index] = imu.acceleration_mps2[index];
     }
     ui.chrome_imu_at_us = imu.last_success_at_us;
-    if (moved) ui.model.navigation.interact(now_us);
+    if (acceleration_change_squared >= 0.35f * 0.35f || angular_speed_squared >= 5.0f * 5.0f) {
+        ui.model.navigation.interact(now_us);
+    }
 #else
     (void)ui;
     (void)now_us;
@@ -1416,13 +1425,15 @@ esp_err_t sample_touch()
     const bool was_pressed = ui.pressed;
     const bool pressed_edge = sample.pressed && !was_pressed;
     ui.pressed = sample.pressed;
+    // The contact can reveal chrome even while a new route or orientation
+    // is awaiting its first frame. Action dispatch still uses the retired frame.
+    if (sample.pressed || was_pressed) ui.model.navigation.interact(esp_timer_get_time());
     if (!ui.retired.valid || ui.retired.display_revision != LUNASHELL_display_runtime_content_revision()) {
         ui.contact = Target::None;
         ui.pixel_demo.touch_candidate = false;
         return ESP_OK;
     }
     const CODY2D::Point point{static_cast<int16_t>(sample.x), static_cast<int16_t>(sample.y)};
-    if (sample.pressed || pressed_edge) ui.model.navigation.interact(esp_timer_get_time());
     if (pressed_edge) {
         LUNASHELL_power_manager_note_activity();
         if (ui.retired.layer != Layer::Mascot) play_touch_cue(ui);
@@ -1560,6 +1571,9 @@ esp_err_t sample_touch()
 esp_err_t update_navigation()
 {
     auto &ui = *s_ui;
+    if (s_boot_activity.exchange(false, std::memory_order_acq_rel)) {
+        ui.model.navigation.interact(esp_timer_get_time());
+    }
     esp_err_t saved = ESP_OK;
     if (CODY::take_widget_visibility_save_result(saved)) {
         ui.model.save = saved == ESP_OK && CODY::apply_widget_visibility(ui.model.widgets, ui.model.draft)
@@ -1574,13 +1588,14 @@ esp_err_t update_navigation()
     }
 #endif
     if (can_open_options && s_options_requested.exchange(false, std::memory_order_acq_rel)) {
+        const int64_t button_at_us = esp_timer_get_time();
         const bool already_open = ui.scene.valid && ui.scene.definition->id == CODY::SceneId::MakeItYours &&
             !ui.model.editing && !ui.timer_open && !ui.audio_open && !ui.diagnostics;
         ui.model.editing = false;
         ui.timer_open = false;
         ui.audio_open = false;
         ui.model.vouchers.warning_expiry = 0;
-        CODY::dismiss_screensaver(ui.model.screensaver, esp_timer_get_time());
+        CODY::dismiss_screensaver(ui.model.screensaver, button_at_us);
         ui.diagnostics = false;
         ui.codex_browser.route = CODY::CodexBrowserRoute::Closed;
         ui.browser_destination = CODY::CodexBrowserDestination::None;
@@ -1803,7 +1818,10 @@ esp_err_t update_and_draw(int64_t now_us)
 #endif
     if (error != ESP_OK) return error;
     const auto navigation = CODY::update_device_navigation(ui.model, now_us);
-    observe_chrome_motion(ui, now_us, navigation.motion_error);
+    // Acquisition may have published a new IMU sample during the scene or
+    // snapshot update. Compare it against a timestamp taken after the read.
+    const int64_t frame_now_us = esp_timer_get_time();
+    observe_chrome_motion(ui, frame_now_us, navigation.motion_error);
     bool may_return_home = navigation.shaken && !ui.mascot_home && CODY::onboarding_dashboard_active() &&
         !ui.model.editing && !ui.timer_open && !ui.audio_open && !ui.diagnostics;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
@@ -1826,7 +1844,7 @@ esp_err_t update_and_draw(int64_t now_us)
     }
 #endif
     FrameView frame{};
-    error = prepare_current_view(frame, now_us, navigation.motion_error);
+    error = prepare_current_view(frame, frame_now_us, navigation.motion_error);
     if (error == ESP_OK) error = render(frame);
 #if CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
     if (debug_result == ESP_OK) {

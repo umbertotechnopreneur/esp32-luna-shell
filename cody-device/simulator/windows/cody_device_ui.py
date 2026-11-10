@@ -13,7 +13,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 import webbrowser
 
-from PIL import Image, ImageDraw, ImageEnhance, ImageFont, ImageTk
+from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFont, ImageTk
 
 from cody_ccp_event_view import EventView
 from cody_ccp_simulator import LinkState, SimulatorEndpoint, SimulatorSnapshot
@@ -22,7 +22,7 @@ from cody_device_state import (
     TIMER_MAX_MINUTES, TIMER_MIN_MINUTES,
 )
 from cody_fake_audio import FakeAudioDriver
-from cody_muse_preview import DISPLAY_SIZE as MUSE_SIZE, NO_REACTION, SCREEN_OFFSETS_MS, NativeMusePreview
+from cody_muse_preview import DISPLAY_SIZE as MUSE_SIZE, NO_REACTION, SCREEN_OFFSETS_MS, MusePose, NativeMusePreview
 from cody_preview_layout import PreviewLayout, SIZE, enlarge_framebuffer
 from cody_screensaver import render_screensaver
 from cody_ui_theme import install_theme
@@ -40,7 +40,6 @@ SETUP_AMBER = (255, 183, 74)
 SETUP_AMBER_FIELD = (54, 36, 14)
 CONTROL_PALETTE = ((16, 40, 58), (8, 24, 33), (41, 105, 123), (140, 226, 239))
 SECONDARY_CONTROL_PALETTE = ((25, 28, 41), (16, 20, 25), (74, 81, 99), (189, 190, 189))
-WIFI_CONTROL_PALETTE = ((75, 29, 103), (43, 13, 74), (146, 47, 220), (224, 192, 255))
 DESTRUCTIVE_CONTROL_PALETTE = ((41, 20, 33), (24, 16, 24), (123, 45, 90), (239, 170, 156))
 CODEX_CONNECTION_COLOR = (186, 178, 255)
 WIFI_CONNECTION_COLOR = (119, 233, 202)
@@ -161,8 +160,6 @@ class WifiSetupRoute(Enum):
     INSTALL_APP = auto()
     SCAN_TO_PAIR = auto()
     HOME_CHOICES = auto()
-    HOME_INTRO = auto()
-    HOME_APP = auto()
     HOME_PAIR = auto()
     HOME_NETWORKS = auto()
     HOME_PASSWORD = auto()
@@ -180,6 +177,54 @@ def font(size):
         return ImageFont.load_default(size=size)
     except TypeError:
         return ImageFont.load_default()
+
+
+@lru_cache(maxsize=4)
+# size: Requested pixel size of the vendored arcade face.
+# Exception: Preserves the font loader error if the bundled face is unavailable.
+def arcade_font(size):
+    source = Path(__file__).resolve().parents[2] / "assets/cody/muse-fonts/unscii.ttf"
+    return ImageFont.truetype(str(source), size)
+
+
+@lru_cache(maxsize=3)
+# caption: Uppercase setup heading or action.
+# size: Pixel size of the bundled arcade face.
+# advance: Horizontal pixel pitch after fitting the monospaced artwork to the menu.
+# icon: Optional setup symbol sharing the wordmark's fill and depth.
+# Exception: Preserves a failure to load the bundled face.
+def setup_wordmark(caption, size, advance, icon=None):
+    face = arcade_font(size)
+    x0, y0, x1, y1 = face.getbbox(caption)
+    height = max(2, y1 - y0)
+    text = Image.new("L", (x1 - x0, height))
+    ImageDraw.Draw(text).text((-x0, -y0), caption, font=face, fill=255)
+    text = text.resize((round(text.width * advance / size), height), Image.Resampling.NEAREST)
+    icon_width = height + 8 if icon else 0
+    margin = 3
+    mask = Image.new("L", (text.width + icon_width + 2 * margin, height + 2 * margin))
+    if icon:
+        center = margin + height // 2
+        setup_icon(ImageDraw.Draw(mask), icon, (center, center), height, 255)
+    mask.paste(text, (margin + icon_width, margin))
+    mask = mask.point(lambda value: 255 if value >= 128 else 0)
+
+    outline = mask.filter(ImageFilter.MaxFilter(3))
+    width, rows = mask.size
+    layer = Image.new("RGBA", (width + 2, rows + 3))
+    layer.paste((47, 31, 128, 255), (2, 3, width + 2, rows + 3), outline)
+    layer.paste((15, 11, 45, 255), (0, 0, width, rows), outline)
+
+    face_fill = Image.new("RGBA", mask.size)
+    fill = ImageDraw.Draw(face_fill)
+    frost, lavender = ((192, 246, 255), (220, 153, 244)) if icon else ((218, 199, 255), (126, 91, 233))
+    for y in range(rows):
+        fraction = min(1.0, max(0.0, (y - margin) / (height - 1)))
+        color = tuple(round(start + (end - start) * fraction) for start, end in zip(frost, lavender))
+        fill.line((0, y, width - 1, y), fill=(*color, 255))
+    face_fill.putalpha(mask)
+    layer.alpha_composite(face_fill)
+    return layer
 
 
 def label(draw, text, top, size=20, color=FOREGROUND, x=CENTER, width=310):
@@ -360,6 +405,7 @@ class DeviceStudioWindow:
         self.audio_error = ""
         self.audio = None
         self.muse = None
+        self.setup_mascot = None
         self.muse_elapsed_ms = 0.0
         self.mascot_was_waking = False
         self.muse_last_frame_at = None
@@ -374,7 +420,6 @@ class DeviceStudioWindow:
         self.connections_return = "widgets"
         self.guide_return = WifiSetupRoute.NOT_CONNECTED
         self.pairing_return = WifiSetupRoute.PHONE_GUIDE
-        self.home_wifi_apple = False
         self.home_pair_return = WifiSetupRoute.HOME_CHOICES
         self.home_menu_since = None
         self.wifi_networks_scanned = False
@@ -505,6 +550,7 @@ class DeviceStudioWindow:
         self.muse_reaction_ms = None
         self.muse_seed = randbits(32)
         self.home_menu_since = None
+        self.setup_mascot = None
         if self.muse is not None:
             self.muse.reset(self.muse_seed)
         self.open("mascot")
@@ -551,20 +597,18 @@ class DeviceStudioWindow:
         self.guide_return = previous
         self.open(WifiSetupRoute.PHONE_GUIDE)
 
-    # self: Home is the sole entry point for the new Wi-Fi setup preview.
+    # self: Home owner opening the connectivity choices.
     def open_home_wifi(self):
-        self.home_wifi_apple = False
-        self.home_pair_return = WifiSetupRoute.HOME_CHOICES
         self.open(WifiSetupRoute.HOME_CHOICES)
 
     # self: Home shortcut to the explicitly simulated Bluetooth Wi-Fi pairing QR.
-    def open_home_pairing(self):
-        self.home_pair_return = "mascot"
+    # previous: Route that the pairing screen's Back control restores.
+    def open_home_pairing(self, previous="mascot"):
+        self.home_pair_return = previous
         self.open(WifiSetupRoute.HOME_PAIR)
 
-    # self: Explicitly synthetic network search; never consults a host or device radio.
+    # self: Open the synthetic network picker, retaining completed scan results.
     def open_home_networks(self):
-        self.wifi_networks_scanned = False
         self.wifi_selected_index = -1
         self.open(WifiSetupRoute.HOME_NETWORKS)
 
@@ -717,6 +761,8 @@ class DeviceStudioWindow:
         if self.shake_to_wake:
             self.toggle_standby()
             return
+        if not self.standby:
+            self.last_navigation = time.monotonic()
         if not self.standby and not self.event_visible and self.route == "widgets":
             self.open_statistics()
 
@@ -792,10 +838,6 @@ class DeviceStudioWindow:
                 self.open("behavior")
             elif self.route is WifiSetupRoute.HOME_CHOICES:
                 self.open("mascot")
-            elif self.route is WifiSetupRoute.HOME_INTRO:
-                self.open(WifiSetupRoute.HOME_CHOICES)
-            elif self.route is WifiSetupRoute.HOME_APP:
-                self.open(WifiSetupRoute.HOME_INTRO)
             elif self.route is WifiSetupRoute.HOME_PAIR:
                 self.open(self.home_pair_return)
             elif self.route is WifiSetupRoute.HOME_NETWORKS:
@@ -1099,11 +1141,6 @@ class DeviceStudioWindow:
         if opacity == 1:
             self.targets["WiFi Home"] = ((211, 390, 255, 434), lambda: self.open("mascot"))
 
-    # self: Synthetic store selector; the resulting code links to the official app.
-    # apple: True selects the Apple App Store; False selects Google Play.
-    def select_home_wifi_platform(self, apple):
-        self.home_wifi_apple = apple
-
     # draw: Simulated scan and network rows use the requested solid violet fill.
     # name: Complete network identifier or action caption.
     # top: Logical top of the row.
@@ -1200,43 +1237,38 @@ class DeviceStudioWindow:
             label(draw, caption, top + (height - 15) // 2, 15, FOREGROUND, x=left + width // 2, width=width - 6)
             self.targets[f"wifi-key-{key}"] = (box, lambda selected=key: self.activate_simulated_wifi_key(selected))
 
+    # self: Preview owner drawing the same Wi-Fi menu as the native device.
+    # image: Logical framebuffer before rotation.
+    # draw: Drawing context for the device name.
+    # Exception: Preserves native preview or bundled font failures.
+    def draw_home_wifi_choices(self, image, draw):
+        title = setup_wordmark("SET UP WI-FI", 24, 21)
+        image.paste(title, (CENTER - title.width // 2, 84), title)
+        draw.text((CENTER, 118), self.simulated_ble_name, font=arcade_font(18),
+                  fill=(216, 199, 247), anchor="mt")
+
+        self.prepare_setup_mascot()
+        image.paste(self.setup_mascot, (169, 150), self.setup_mascot)
+
+        choices = (
+            ("PAIR WITH BLUETOOTH", "bluetooth", (73, 282, 393, 330),
+             lambda: self.open_home_pairing(WifiSetupRoute.HOME_CHOICES)),
+            ("SETUP WI-FI", "wifi", (83, 337, 383, 385), self.open_home_networks),
+        )
+        for caption, icon, bounds, action in choices:
+            left, top, right, bottom = bounds
+            mark = setup_wordmark(caption, 24, 14, icon)
+            image.paste(mark, ((left + right - mark.width) // 2, (top + bottom - mark.height) // 2), mark)
+            self.targets[caption] = (bounds, action)
+
     # self: Paint the Home-launched Wi-Fi route without starting real Bluetooth.
-    # draw: Logical framebuffer receiving the current route.
-    # now: Monotonic clock for Back/Next/Home visibility.
-    # The simulator labels an unavailable QR encoder instead of inventing a code.
-    def draw_home_wifi_setup(self, draw, now):
+    # image: Logical framebuffer receiving composited artwork.
+    # draw: Logical framebuffer drawing context.
+    # now: Monotonic clock for Back/Home visibility.
+    # Exception: Preserves native preview or bundled font failures.
+    def draw_home_wifi_setup(self, image, draw, now):
         if self.route is WifiSetupRoute.HOME_CHOICES:
-            label(draw, "Wi-Fi setup", 82, 30)
-            label(draw, "Connect to the internet", 130, 17, MUTED)
-            self.button(draw, "Download app", 183, lambda: self.open(WifiSetupRoute.HOME_INTRO),
-                        width=280, height=52, caption_size=20, palette=WIFI_CONTROL_PALETTE)
-            self.button(draw, "Pair Cody", 246, lambda: self.open(WifiSetupRoute.HOME_PAIR),
-                        width=280, height=52, caption_size=20, palette=WIFI_CONTROL_PALETTE)
-            self.button(draw, "On device", 309, self.open_home_networks,
-                        width=280, height=52, caption_size=20, palette=WIFI_CONTROL_PALETTE)
-        elif self.route is WifiSetupRoute.HOME_INTRO:
-            label(draw, "Before you start", 82, 27)
-            label(draw, "Connect in three steps", 130, 17, MUTED)
-            for index, text in enumerate(("1. Get the app", "2. Scan Cody", "3. Choose your Wi-Fi")):
-                label(draw, text, 180 + index * 48, 18)
-        elif self.route is WifiSetupRoute.HOME_APP:
-            label(draw, "Get the app", 82, 30)
-            label(draw, "Select your platform", 128, 17, MUTED)
-            self.button(draw, "Android", 154, lambda: self.select_home_wifi_platform(False),
-                        width=145, height=42, center_x=155, caption_size=17,
-                        palette=SECONDARY_CONTROL_PALETTE if self.home_wifi_apple else WIFI_CONTROL_PALETTE)
-            self.button(draw, "Apple", 154, lambda: self.select_home_wifi_platform(True),
-                        width=145, height=42, center_x=310, caption_size=17,
-                        palette=WIFI_CONTROL_PALETTE if self.home_wifi_apple else SECONDARY_CONTROL_PALETTE)
-            url = ("https://apps.apple.com/app/esp-ble-provisioning/id1473590141" if self.home_wifi_apple else
-                   "https://play.google.com/store/apps/details?id=com.espressif.provble")
-            matrix = store_qr_matrix(url)
-            if matrix is None and not self.home_wifi_apple:
-                matrix = INSTALL_APP_QR
-            if matrix is None:
-                label(draw, "Store QR unavailable", 260, 18, MUTED)
-            else:
-                qr_tile(draw, matrix, 205, 168)
+            self.draw_home_wifi_choices(image, draw)
         elif self.route is WifiSetupRoute.HOME_PAIR:
             label(draw, "Pair Cody", 82, 30)
             label(draw, "SIMULATED - not a device", 130, 17, MUTED)
@@ -1270,20 +1302,17 @@ class DeviceStudioWindow:
         opacity = self.navigation_opacity(now)
         if opacity > 0:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
-            next_route = (WifiSetupRoute.HOME_APP if self.route is WifiSetupRoute.HOME_INTRO else
-                          WifiSetupRoute.HOME_PAIR if self.route is WifiSetupRoute.HOME_APP else None)
-            if next_route is not None:
-                self.sidebar(draw, 1, (lambda: self.open(next_route)) if opacity == 1 else None, opacity)
         self.draw_wifi_home(draw, now)
 
     # self: Studio preview owning the current Wi-Fi setup route and its touch targets.
-    # draw: Logical canvas before rotation.
+    # image: Logical canvas before rotation.
+    # draw: Logical canvas drawing context.
     # now: Monotonic frame time for the shared Back fade.
-    def draw_wifi_setup(self, draw, now):
-        if self.route in (WifiSetupRoute.HOME_CHOICES, WifiSetupRoute.HOME_INTRO,
-                          WifiSetupRoute.HOME_APP, WifiSetupRoute.HOME_PAIR, WifiSetupRoute.HOME_NETWORKS,
+    # Exception: Preserves native preview or bundled font failures.
+    def draw_wifi_setup(self, image, draw, now):
+        if self.route in (WifiSetupRoute.HOME_CHOICES, WifiSetupRoute.HOME_PAIR, WifiSetupRoute.HOME_NETWORKS,
                           WifiSetupRoute.HOME_PASSWORD, WifiSetupRoute.HOME_NETWORK_RESULT):
-            self.draw_home_wifi_setup(draw, now)
+            self.draw_home_wifi_setup(image, draw, now)
             return
         if self.route in (WifiSetupRoute.OFFLINE, WifiSetupRoute.NOT_CONNECTED):
             recovering = self.route is WifiSetupRoute.OFFLINE
@@ -1710,13 +1739,7 @@ class DeviceStudioWindow:
     # image: Logical framebuffer receiving a scalable vector icon and gradient text.
     # top: Visible top of the text; opacity follows the shared navigation timeout.
     def draw_home_action(self, image, caption, icon, top, opacity, action):
-        renderer = DeviceStudioWindow.draw_home_action
-        face = getattr(renderer, "arcade_face", None)
-        if face is None:
-            # Use the vendored UNSCII pixel face, independently of host fonts.
-            source = Path(__file__).resolve().parents[2] / "assets/cody/muse-fonts/unscii.ttf"
-            face = ImageFont.truetype(str(source), 24)
-            renderer.arcade_face = face
+        face = arcade_font(24)
         bounds = face.getbbox(caption)
         text_height = max(1, bounds[3] - bounds[1])
         mask = Image.new("L", image.size, 0)
@@ -1744,14 +1767,34 @@ class DeviceStudioWindow:
         if opacity >= 0.99:
             self.targets[caption] = ((left - 12, top - 9, left + width + 12, top + text_height + 10), action)
 
+    # self: Serialized Tk owner of the native avatar preview.
+    # Exception: Preserves the native renderer loader failure.
+    def avatar_preview(self):
+        if self.muse is None:
+            self.muse = NativeMusePreview()
+            self.muse.reset(self.muse_seed)
+        return self.muse
+
+    # self: Serialized preview owner caching the menu pose before Home animation.
+    # Exception: Preserves native load or draw failures.
+    def prepare_setup_mascot(self):
+        if self.setup_mascot is not None:
+            return
+        muse = self.avatar_preview()
+        mascot = muse.face_image(MusePose.IDLE, 1000, 1000).resize((128, 128), Image.Resampling.NEAREST)
+        red, green, blue = mascot.split()
+        visible = ImageChops.lighter(red, ImageChops.lighter(green, blue))
+        mascot.putalpha(visible.point(lambda value: 255 if value else 0))
+        self.setup_mascot = mascot
+        muse.reset(self.muse_seed)
+
     # self: Native avatar presentation with Tk-thread input and host-only audio.
     # image: Writable logical framebuffer before display rotation.
     # now: Current monotonic time, used for both animation and touch reaction.
     # Exception: Propagates native load or drawing errors to the preview tick.
     def draw_mascot(self, image, now):
-        if self.muse is None:
-            self.muse = NativeMusePreview()
-            self.muse.reset(self.muse_seed)
+        self.prepare_setup_mascot()
+        muse = self.avatar_preview()
         if self.muse_last_frame_at is not None:
             self.muse_elapsed_ms += max(0.0, (now - self.muse_last_frame_at) * 1000)
         self.muse_last_frame_at = now
@@ -1773,7 +1816,7 @@ class DeviceStudioWindow:
                 panel_x, panel_y = dx, dy
             self.motion_acceleration = (panel_y * 4.0, panel_x * 4.0)
             self.motion_sample_at_us = now_us
-        self.muse.motion(*self.motion_acceleration, self.motion_sample_at_us, now_us, self.rotation, True)
+        muse.motion(*self.motion_acceleration, self.motion_sample_at_us, now_us, self.rotation, True)
         image.paste((0, 0, 0), (0, 0, SIZE, SIZE))
         menu_progress = 0.0
         if self.home_menu_since is not None:
@@ -1785,7 +1828,7 @@ class DeviceStudioWindow:
                                                   HOME_MENU_TRANSITION_SECONDS)) * visibility
         mascot_size = round(MUSE_SIZE * (1.0 - 0.35 * menu_progress))
         mascot_top = round(MUSE_OFFSET + 39 * menu_progress)
-        mascot = self.muse.image(elapsed_ms, reaction_ms)
+        mascot = muse.image(elapsed_ms, reaction_ms)
         if mascot_size != MUSE_SIZE:
             mascot = mascot.resize((mascot_size, mascot_size), Image.Resampling.NEAREST)
         image.paste(mascot, (CENTER - mascot_size // 2, mascot_top))
@@ -1881,7 +1924,7 @@ class DeviceStudioWindow:
                 draw.rectangle((73, 73, 392, 392), outline=(62, 91, 113))
         else:
             if wifi_setup:
-                self.draw_wifi_setup(draw, now)
+                self.draw_wifi_setup(image, draw, now)
             elif self.route == "connections":
                 self.draw_connections(draw, snapshot, code, now)
             elif self.route == "options":

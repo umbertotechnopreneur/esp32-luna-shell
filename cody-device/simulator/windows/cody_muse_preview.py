@@ -15,6 +15,10 @@ NO_REACTION = (1 << 32) - 1
 SCREEN_OFFSETS_MS = {"boot-sleep": 0, "boot-waking": 900, "boot-ready": 1500}
 
 
+class MusePose(IntEnum):
+    IDLE = 1  # CODY::PixelAvatarPose::Idle in the host renderer ABI.
+
+
 class MuseEyeStyle(IntEnum):
     AUTOMATIC = 0
     NORMAL = 1

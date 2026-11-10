@@ -1143,6 +1143,28 @@ void DeviceSnapshotService::reportProvisioning(const ProvisioningSnapshot &provi
     log_snapshot_publication_failure("Provisioning report", publication_error);
 }
 
+// device_name: Verified boot-scoped public name, borrowed for the synchronous copy.
+// Exception: Returns the original validation or publication error.
+esp_err_t DeviceSnapshotService::reportBleIdentity(const char *device_name)
+{
+    if (device_name == nullptr || device_name[0] == '\0') {
+        ESP_LOGE(TAG, "BLE identity report rejected an empty name (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    const size_t length = strnlen(device_name, sizeof(BleSnapshot::device_name));
+    if (length == sizeof(BleSnapshot::device_name)) {
+        ESP_LOGE(TAG, "BLE identity report rejected an oversized name (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
+        return ESP_ERR_INVALID_SIZE;
+    }
+    const esp_err_t error = update_snapshot([=](DeviceSnapshot &snapshot) {
+        std::memcpy(snapshot.radios.ble.device_name, device_name, length + 1U);
+    });
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "BLE identity publication failed (%s)", esp_err_to_name(error));
+    }
+    return error;
+}
+
 // ready: Hardware readiness confirmed by a successful operation.
 // error: Original operation or publication failure.
 // advertising: Whether the BLE driver confirmed active advertising.

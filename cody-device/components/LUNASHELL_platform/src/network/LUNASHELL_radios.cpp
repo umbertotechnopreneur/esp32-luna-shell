@@ -1249,6 +1249,20 @@ static esp_err_t radios_init_impl(void)
         return wifi;
     }
 
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNASHELL_BUILD_ENABLE_PROVISIONING
+    {
+        // Pairing and telemetry share this boot identity. Publish it without changing radio state.
+        char device_name[sizeof(LUNASHELL::BleSnapshot::device_name)]{};
+        const auto identity_error = LUNASHELL_provisioning_prepare_identity(device_name, sizeof(device_name));
+        if (identity_error != ESP_OK) {
+            ESP_LOGE(TAG, "BLE identity preparation failed (%s)", esp_err_to_name(identity_error));
+            return identity_error;
+        }
+        const auto publication_error = LUNASHELL::DeviceSnapshotService::instance().reportBleIdentity(device_name);
+        if (publication_error != ESP_OK) return publication_error;
+    }
+#endif
+
     esp_err_t ble = ESP_OK;
 #if !CONFIG_LUNASHELL_PROVISIONING_START_ON_BOOT
     if (!wifi_status.credentials_configured) {
