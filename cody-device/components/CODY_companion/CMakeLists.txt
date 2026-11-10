@@ -116,3 +116,22 @@ _binary_cody_device_boot_rise_end:
     set_source_files_properties("${cody_boot_assembly}" PROPERTIES OBJECT_DEPENDS "${cody_boot_pcm}")
     target_sources(${COMPONENT_LIB} PRIVATE "${cody_boot_assembly}")
 endif()
+
+# Embed authored display images as immutable RGB565 bytes in flash.
+if(NOT CMAKE_BUILD_EARLY_EXPANSION)
+    foreach(name IN ITEMS portrait vietnam italy)
+        set(asset "${PROJECT_DIR}/assets/cody/surprise/${name}.rgb565")
+        set(assembly "${CMAKE_CURRENT_BINARY_DIR}/cody_surprise_${name}.S")
+        file(GENERATE OUTPUT "${assembly}" CONTENT
+".section .rodata.cody_surprise_${name},\"a\",@progbits
+.balign 4
+.global cody_surprise_${name}_start
+cody_surprise_${name}_start:
+.incbin \"${asset}\"
+.global cody_surprise_${name}_end
+cody_surprise_${name}_end:
+")
+        set_source_files_properties("${assembly}" PROPERTIES OBJECT_DEPENDS "${asset}")
+        target_sources(${COMPONENT_LIB} PRIVATE "${assembly}")
+    endforeach()
+endif()

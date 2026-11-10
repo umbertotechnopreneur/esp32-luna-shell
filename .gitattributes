@@ -23,3 +23,6 @@ cody-device/assets/wake-word/models/** -text
 # Keep imported vendor reference files and their original line endings intact.
 cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.75C/** -text
 cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/** -text
+
+# Preserve authored RGB565 pixels byte for byte.
+*.rgb565 binary

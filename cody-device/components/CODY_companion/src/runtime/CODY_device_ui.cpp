@@ -41,6 +41,12 @@
 #include "freertos/task.h"
 #include "scene_data.hpp"
 
+extern "C" {
+extern const uint8_t cody_surprise_portrait_start[], cody_surprise_portrait_end[];
+extern const uint8_t cody_surprise_vietnam_start[], cody_surprise_vietnam_end[];
+extern const uint8_t cody_surprise_italy_start[], cody_surprise_italy_end[];
+}
+
 namespace {
 using CODY::WidgetScreen;
 using CODY::WidgetStep;
@@ -67,7 +73,7 @@ constexpr uint32_t kWorkerStackBytes = 12288;
 
 enum class Layer : uint8_t {
     Branding, Birth, Mascot, Animation, Message, Scene, Dashboard, AboutLink, Visibility, Timer, Voice, Diagnostics,
-    VoucherWarning, Events, CurrentTurn, EventReply, CodexBrowser, Screensaver, Blank, Audio
+    VoucherWarning, Events, CurrentTurn, EventReply, CodexBrowser, Screensaver, Blank, Audio, Surprise
 };
 enum class Command : uint8_t { Ready = 1, Sleep, Wake, Shutdown, ShutdownFailed };
 enum class ActivityPage : uint8_t { Events, CurrentTurn, Reply, Statistics };
@@ -214,6 +220,7 @@ struct DeviceUi {
     int64_t audio_demand_started_us = 0;
     int64_t audio_worker_retry_at_us = 0;
     bool first_boot = false;
+    uint8_t surprise_page = 0;
     bool mascot_home = false;
     bool about_from_options = false;
     bool options_return_valid = false;
@@ -230,6 +237,7 @@ std::atomic<bool> s_ready{false};
 std::atomic<bool> s_options_requested{false};
 std::atomic<bool> s_home_requested{false};
 std::atomic<bool> s_boot_activity{false};
+std::atomic<bool> s_surprise_requested{false};
 std::atomic<uint32_t> s_ticket{0};
 std::atomic<uint32_t> s_command{0};
 std::atomic<uint32_t> s_ack{0};
@@ -367,11 +375,62 @@ void queue_options()
     s_options_requested.store(true, std::memory_order_release);
 }
 
-// No parameters: physical BOOT posts Home intent for the display owner.
+// No parameters: post a Home intent for the display owner.
 void queue_home()
 {
     s_boot_activity.store(true, std::memory_order_release);
     s_home_requested.store(true, std::memory_order_release);
+}
+
+// No parameters: count physical short presses in the power owner's callback.
+void queue_boot_home()
+{
+    static int64_t first_press_us = 0;
+    static uint8_t presses = 0;
+    const int64_t now_us = esp_timer_get_time();
+    if (presses == 0 || now_us < first_press_us || now_us - first_press_us > 1000000) {
+        first_press_us = now_us;
+        presses = 1;
+    } else if (++presses == 3) {
+        presses = 0;
+        s_boot_activity.store(true, std::memory_order_release);
+        s_surprise_requested.store(true, std::memory_order_release);
+        return;
+    }
+    queue_home();
+}
+
+// page: One-based display image selection.
+// strip: Validated DMA strip owned by the display transaction.
+// row: Logical top row of the strip.
+// left: Logical left column of the strip.
+// Exception: Returns an invalid asset or raster surface error.
+esp_err_t draw_surprise_rows(uint8_t page, CODY2D::Surface strip, uint16_t row, uint16_t left)
+{
+    const uint8_t *start = nullptr;
+    const uint8_t *end = nullptr;
+    switch (page) {
+    case 1: start = cody_surprise_portrait_start; end = cody_surprise_portrait_end; break;
+    case 2: start = cody_surprise_vietnam_start; end = cody_surprise_vietnam_end; break;
+    case 3: start = cody_surprise_italy_start; end = cody_surprise_italy_end; break;
+    default: return ESP_ERR_INVALID_ARG;
+    }
+    const auto valid = CODY2D::validate_surface(strip);
+    if (valid != ESP_OK) return valid;
+    constexpr size_t image_bytes = size_t{466} * 466 * 2;
+    if (reinterpret_cast<uintptr_t>(end) < reinterpret_cast<uintptr_t>(start) ||
+        reinterpret_cast<uintptr_t>(end) - reinterpret_cast<uintptr_t>(start) != image_bytes ||
+        static_cast<uint32_t>(row) + strip.height > 466 ||
+        static_cast<uint32_t>(left) + strip.width > 466) return ESP_ERR_INVALID_SIZE;
+    for (uint16_t y = 0; y < strip.height; ++y) {
+        const uint8_t *source = start + ((static_cast<size_t>(row) + y) * 466 + left) * 2;
+        uint16_t *destination = strip.pixels + size_t{y} * strip.stride;
+        for (uint16_t x = 0; x < strip.width; ++x) {
+            const uint16_t color = static_cast<uint16_t>((uint16_t{source[2 * x]} << 8) | source[2 * x + 1]);
+            destination[x] = CODY2D::rgb565_native_to_stored(color, strip.byte_order);
+        }
+    }
+    return ESP_OK;
 }
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
@@ -380,7 +439,7 @@ using VoicePhase = LUNASHELL::VoiceInputPhase;
 // ui: Current route and its display-owned overlays. The same route is retained through standby.
 bool voice_route_available(const DeviceUi &ui)
 {
-    return CODY::Waveshare::kDevice.voice_recording &&
+    return CODY::Waveshare::kDevice.voice_recording && ui.surprise_page == 0 &&
         !ui.mascot_home && CODY::onboarding_dashboard_active() &&
         !ui.model.editing && !ui.timer_open && !ui.audio_open && !ui.diagnostics &&
         ui.activity_page != ActivityPage::Reply && ui.model.screensaver.phase != CODY::ScreensaverPhase::Visible &&
@@ -628,6 +687,10 @@ void set_audio_demand(bool enabled)
 esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motion_error = ESP_ERR_NOT_FINISHED)
 {
     auto &ui = *s_ui;
+    if (ui.surprise_page != 0) {
+        frame.layer = Layer::Surprise;
+        return ESP_OK;
+    }
     CODY::update_device_observations(ui.model.dashboard);
     CODY::update_device_vouchers(ui.model);
     CODY::update_device_battery(ui.model, now_us);
@@ -899,7 +962,8 @@ esp_err_t render(const FrameView &frame, bool force = false)
         !(screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::VibeWare)) ||
         frame.layer == Layer::VoucherWarning;
     const bool show_battery = frame.layer != Layer::Blank && frame.layer != Layer::Branding && frame.layer != Layer::Birth &&
-        frame.layer != Layer::Screensaver && frame.layer != Layer::Mascot && frame.layer != Layer::Animation;
+        frame.layer != Layer::Screensaver && frame.layer != Layer::Mascot && frame.layer != Layer::Animation &&
+        frame.layer != Layer::Surprise;
     const auto saved_epoch = frame.layer == Layer::Dashboard && !frame.statistics_unavailable
         ? CODY::device_saved_page_epoch(ui.model.dashboard, screen) : 0;
     const auto chrome_error = CODY::prepare_device_chrome(ui.view.chrome, ui.model.dashboard, show_connection,
@@ -908,7 +972,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const auto &chrome = ui.view.chrome;
     // QR pages reserve their complete surface for the title and scannable code.
     const bool show_status = frame.layer != Layer::Blank && frame.layer != Layer::Branding &&
-        frame.layer != Layer::Birth && frame.layer != Layer::AboutLink &&
+        frame.layer != Layer::Birth && frame.layer != Layer::Surprise && frame.layer != Layer::AboutLink &&
         !(frame.layer == Layer::Scene && CODY::onboarding_qr_visible());
     if (show_status) {
         const auto status_error = CODY::prepare_status_overlay(ui.model.dashboard.hardware, ui.status, ui.show_battery_percentage);
@@ -1061,7 +1125,9 @@ esp_err_t render(const FrameView &frame, bool force = false)
             const uint16_t background = frame.layer == Layer::Scene ? ui.scene.definition->background_rgb565 :
                 frame.layer == Layer::Birth ? ui.birth_background : 0;
             error = CODY2D::clear(strip, background);
-            if (error == ESP_OK && frame.layer == Layer::Branding) {
+            if (error == ESP_OK && frame.layer == Layer::Surprise) {
+                error = draw_surprise_rows(ui.surprise_page, strip, row, left);
+            } else if (error == ESP_OK && frame.layer == Layer::Branding) {
                 error = CODY::BootBranding::draw_rows(ui.branding, ui.branding_scratch, ui.branding_frame, strip, row);
             } else if (error == ESP_OK && frame.layer == Layer::Birth && ui.birth_frame >= 40) {
                 error = CODY::draw_pixel_avatar_rows(ui.birth_avatar, {105, 72, 256, 256}, strip, row, left);
@@ -1108,7 +1174,8 @@ esp_err_t render(const FrameView &frame, bool force = false)
             if (error == ESP_OK && show_status) {
                 error = CODY::draw_status_overlay_rows(ui.status, opacity, background, strip, row, left);
             }
-            if (error == ESP_OK && frame.layer != Layer::Birth) error = CODY::draw_device_chrome(chrome, strip, row, left);
+            if (error == ESP_OK && frame.layer != Layer::Birth && frame.layer != Layer::Surprise)
+                error = CODY::draw_device_chrome(chrome, strip, row, left);
             if (error == ESP_OK) {
                 error = LUNASHELL_display_frame_submit_rgb565(left, row, right, row + rows, pixels);
             }
@@ -1519,6 +1586,16 @@ esp_err_t sample_touch()
     // is awaiting its first frame. Action dispatch still uses the retired frame.
     if (sample.pressed || was_pressed) ui.model.navigation.interact(esp_timer_get_time());
     const CODY2D::Point point{static_cast<int16_t>(sample.x), static_cast<int16_t>(sample.y)};
+    if (ui.surprise_page != 0) {
+        if (pressed_edge && ui.retired.valid && ui.retired.layer == Layer::Surprise &&
+            ui.retired.display_revision == LUNASHELL_display_runtime_content_revision()) {
+            LUNASHELL_power_manager_note_activity();
+            if (ui.surprise_page < 3) ++ui.surprise_page;
+            else ui.surprise_page = 0;
+            invalidate();
+        }
+        return ESP_OK;
+    }
     if (pressed_edge && ui.retired.valid && ui.retired.layer != Layer::Screensaver && point.y >= 0 && point.y < 73) {
         ui.home_swipe_active = true;
         ui.home_swipe_valid = true;
@@ -1752,13 +1829,20 @@ esp_err_t update_navigation()
     bool can_open_options = ui.model.save != Save::Pending;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     if (can_open_options && (s_options_requested.load(std::memory_order_acquire) ||
-        s_home_requested.load(std::memory_order_acquire))) {
+        s_home_requested.load(std::memory_order_acquire) ||
+        s_surprise_requested.load(std::memory_order_acquire))) {
         // An ongoing recording retains its Cancel/Send controls before BOOT opens Options.
         can_open_options = !LUNASHELL::setVoiceInputRouteAvailable(false);
     }
 #endif
-    if (can_open_options && s_home_requested.load(std::memory_order_acquire)) {
+    if (can_open_options && (s_home_requested.load(std::memory_order_acquire) ||
+        s_surprise_requested.load(std::memory_order_acquire))) {
+        // Claim the gesture independently so a concurrent third press cannot be lost.
+        const bool surprise = s_surprise_requested.exchange(false, std::memory_order_acq_rel);
         const auto error = CODY::open_device_home(ui.scene);
+        if (error == ESP_ERR_NOT_FINISHED && surprise) {
+            s_surprise_requested.store(true, std::memory_order_release);
+        }
         if (error != ESP_ERR_NOT_FINISHED) {
             s_home_requested.store(false, std::memory_order_release);
             if (error != ESP_OK) {
@@ -1766,6 +1850,8 @@ esp_err_t update_navigation()
                 return ESP_OK;
             }
             s_options_requested.store(false, std::memory_order_release);
+            ui.surprise_page = surprise ? 1 : 0;
+            ui.home_swipe_active = false;
             ui.model.editing = false;
             ui.timer_open = false;
             ui.audio_open = false;
@@ -1782,6 +1868,7 @@ esp_err_t update_navigation()
         }
     }
     if (can_open_options && !s_home_requested.load(std::memory_order_acquire) &&
+        !s_surprise_requested.load(std::memory_order_acquire) &&
         s_options_requested.load(std::memory_order_acquire)) {
         const int64_t button_at_us = esp_timer_get_time();
         const bool in_options = ui.scene.valid && ui.scene.definition->id == CODY::SceneId::MakeItYours;
@@ -1796,6 +1883,7 @@ esp_err_t update_navigation()
         if (error != ESP_ERR_NOT_FINISHED) {
             s_options_requested.store(false, std::memory_order_release);
             if (error != ESP_OK) return error;
+            ui.surprise_page = 0;
             if (!returning_to_options) {
                 ui.options_return_valid = true;
                 ui.options_return_home = return_home;
@@ -2427,7 +2515,7 @@ extern "C" esp_err_t CODY_companion_start(void)
     }
     if (error == ESP_OK) error = LUNASHELL_power_manager_register_display_lifecycle(prepare_lifecycle);
     if (error == ESP_OK) error = LUNASHELL_power_manager_register_boot_options(queue_options);
-    if (error == ESP_OK) error = LUNASHELL_power_manager_register_boot_home(queue_home);
+    if (error == ESP_OK) error = LUNASHELL_power_manager_register_boot_home(queue_boot_home);
 #if CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
     if (error == ESP_OK) error = LUNASHELL_power_manager_register_offline_farewell(prepare_offline_standby);
 #endif
