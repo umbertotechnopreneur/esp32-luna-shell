@@ -7,9 +7,9 @@ defines the wire format and security boundary.
 
 | Layer | Current owner and boundary |
 | --- | --- |
-| Domain values and limits | `CODY_domain_types.hpp` and `CODY_domain_capacity.hpp` use standard C++ and allocate no store. The future single mutation owner admits staged generations and publishes bounded copies through DeviceSnapshotService. |
+| Domain values and limits | `CODY_domain_types.hpp` and `CODY_domain_capacity.hpp` use standard C++ and allocate no store. `StateStore` admits staged generations under the existing CCP socket owner. `readCodexDomainStatus` copies revision, counts and link status. Canonical UI publication remains pending. |
 | Wire and ingress | `CODY_state_receive.hpp` checks binary geometry, ACK fields, replay and chunk ordering. The authenticated link owner supplies endpoint/role/session checks, cryptography and receiver monotonic time. The staging sink consumes bytes and reports its original error. |
-| Provider and desktop | The CCP broker translates native evidence. OS owners select user paths, protect credentials, discover processes and own IPC. Native IDs stay provider-qualified. |
+| Provider and desktop | The CCP broker translates native evidence into the bounded multi-turn registry and retains a journal for exact-base deltas. OS owners select user paths, protect credentials, discover processes and own IPC. |
 | Muse | The shared indexed frame composer accepts semantic pose, active time and optional artistic audio energy. Firmware and Windows preview use the same Muse C core. The artistic seed only affects animation. |
 | Device | The Waveshare adapter describes configured capabilities and logical geometry. The display owner submits aligned RGB565 strips and holds frame storage until retirement. DeviceSnapshotService supplies health, input, and sensor evidence from the existing owners. |
 
@@ -22,6 +22,14 @@ that the sink consumed the bytes. Hash and semantic admission must pass before
 the owner sends a commit ACK. An active transfer rejects a different transfer ID
 as busy. Conflicting metadata on the same transfer, decoder errors and deadline
 expiry release the window and require the owner to discard staging.
+
+The initial decoder admits source, chat, turn, tool definition and tool call
+records. It checks the negotiated source manifest, exact revision, evidence and
+cross-record relationships before swapping two owner-allocated PSRAM banks.
+The decoder consumes one bounded record at a time. Optional record categories
+are explicitly unsupported. The live bank survives an incomplete or rejected
+transfer. A same-source restart cannot discard rows that the device still knows
+as active. Durable broker reconciliation is needed to recover that case.
 
 ## Conformance cases
 
@@ -55,6 +63,6 @@ These are inputs and expected outcomes for the phase-06 scenario driver.
   on failure.
 
 Both existing Waveshare configurations keep their authored circular geometry.
-Other layouts, OS ports, live negotiation, digest/JSON integration, atomic
-generation publication and persistence still need their respective owners and
-acceptance. No execution or device validation is recorded here.
+Other layouts, OS ports, durable recovery and the canonical UI projections
+still need their respective integrations. Source registration does not establish
+build, network, memory or device acceptance.

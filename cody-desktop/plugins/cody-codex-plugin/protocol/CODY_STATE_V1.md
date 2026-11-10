@@ -1,9 +1,10 @@
 # Cody state protocol 1
 
-This is the implementation contract for `CODY-NEXT-02`. It replaces the selected
-chat ACTIVITY/TECH model with source-qualified domain transactions. It is not
-yet enabled in the broker or firmware. Update both peers together; there is no
-old-activity parser, downgrade or legacy-state migration in this contract.
+This is the implementation contract for `CODY-NEXT-02`. It defines
+source-qualified domain transactions for the broker and paired Cody firmware.
+The initial path runs on the existing UDP owners. State-v1 consumes only its
+negotiated protocol. The current display still reads the separate ACTIVITY/TECH
+projection while the UI migrates.
 Commissioning and the retained-key security guarantees are reused from
 [CCP1](CCP1.md), not its activity payloads. Audio, account/settings and power
 commands remain separate owners; a state transaction cannot invoke them.
@@ -383,10 +384,13 @@ Errors never manufacture successful empty results or advance admitted revision.
 ## Source-review and execution gates
 
 Phase 02 supplies the schema, fixtures, wire constants and revision/chunk guards.
-The portable domain component also provides binary header/ACK decoding, a replay
-window and bounded chunk reassembly. The authenticated ingress owner still needs
-to verify HMAC, bind the session, run the incremental JSON decoder and commit the
-device store. Producer journal and live negotiation also remain integration work.
+The broker and firmware implement the authenticated socket path for one Codex
+source, covering chats, turns, tool definitions and tool calls. Negotiated
+limits leave optional pools at zero. The broker offers up to 1 MiB per state
+document and retains bounded revision history. The firmware binds the manifest,
+verifies HMAC and the full document digest, and stages records before commit.
+Its network owner exposes a bounded summary. Questions, agent and operation
+records, cues, durable restart recovery and UI migration remain separate work.
 Phase 11 must exercise malformed lengths/JSON, foreign bindings, replay, reversed
 clocks, hash failure, missing chunks, lost commit ACK, epoch changes, partial
 snapshots, pool exhaustion, journal overflow and unresolved retention. The

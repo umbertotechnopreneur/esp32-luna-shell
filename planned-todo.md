@@ -135,9 +135,9 @@ their exact filenames in 01 while retaining the ownership boundaries below.
 | CODY-NEXT-00 | Baseline, screen catalog and ownership map | None | 🟢 Accepted · document review |
 | CODY-NEXT-01 | Domain schema, invariants and capacity policy | 00 | 🟡 Design reviewed · validation pending |
 | CODY-NEXT-02 | Versioned JSON, wire mapping and synchronization rules | 01 | 🟡 Design reviewed · validation pending |
-| CODY-NEXT-03 | Codex adapter and complete broker registry | 02, 14 | 🟡 In progress |
+| CODY-NEXT-03 | Codex adapter and complete broker registry | 02, 14 | 🟡 Multi-turn sync wired · restart recovery pending |
 | CODY-NEXT-04 | Durable question and answer lifecycle | 02, 03 | ⚪ Planned |
-| CODY-NEXT-05 | Device domain store, synchronization and recovery | 02, 03, 04, 14 | 🟡 In progress |
+| CODY-NEXT-05 | Device domain store, synchronization and recovery | 02, 03, 04, 14 | 🟡 Authenticated commit wired · queries and persistence pending |
 | CODY-NEXT-06 | Deterministic scenario driver and inspection tools | 01, 02; integrate after 05 | ⚪ Planned |
 | CODY-NEXT-07 | Domain-to-Muse direction and pose transitions | 05, 06 | ⚪ Planned |
 | CODY-NEXT-08 | Muse acting, particles and audio policy | 07 | ⚪ Planned |
@@ -331,6 +331,11 @@ to select a facial expression or perform an unspecified privileged action.
 
 **Outcome:** actual Codex observations populate the complete domain registry.
 
+**Current scope:** the producer retains chats, turns, tool definitions and
+tool calls under stable identities. It serves full snapshots and exact-base
+deltas over the authenticated CCP owner. Questions, external operations,
+subagents and durable restart reconciliation have separate remaining work.
+
 - [ ] 🟡 **CODY-NEXT-03.01** Separate provider translation from ActivityStore's generic
   lifecycle/storage responsibilities. Replace followed-chat-only consumers with
   domain queries as they are integrated; no legacy compatibility projection is
@@ -339,17 +344,17 @@ to select a facial expression or perform an unspecified privileged action.
   time and map admitted hooks to domain facts. Handle Stop continuation, resumed
   sessions, Interrupt, compaction and SessionEnd without inferred task success.
   Distinguish observed session lifecycle from visibility of a native application tab.
-- [ ] 🟡 **CODY-NEXT-03.03** Preserve each invocation's tool_use_id and reliable turn/
+- [x] 🟢 **CODY-NEXT-03.03** Preserve each invocation's tool_use_id and reliable turn/
   session association. Normalize ToolDefinition once and create separate ToolCall
   instances. Do not ingest command contents merely to choose a decorative icon.
 - [ ] 🟡 **CODY-NEXT-03.04** Make progress, tools, turns and questions from background
   chats update their own records. Foreground selection cannot suppress their
   publication or be stolen by routine background events.
-- [ ] 🟡 **CODY-NEXT-03.05** Handle late, duplicate and conflicting native observations
+- [x] 🟢 **CODY-NEXT-03.05** Handle late, duplicate and conflicting native observations
   before assigning outbound revisions. A broker sequence orders admitted evidence;
   it cannot recreate missing provider events. Preserve uncertainty when the
   source lacks stable event IDs, completion evidence or correlation.
-- [ ] ⚪ **CODY-NEXT-03.06** Publish complete registry snapshots and bounded deltas;
+- [x] 🟢 **CODY-NEXT-03.06** Publish complete registry snapshots and bounded deltas;
   include source ages and coverage. Add backpressure and meaningful rejection
   results. Keep public plugin operations and schema changes explicit.
 - [ ] ⚪ **CODY-NEXT-03.07** Reconstruct known registry metadata after restart from
@@ -406,11 +411,17 @@ No deadline, stale snapshot, Back action or new foreground chat silently clears 
 
 **Outcome:** a bounded complete local model independent of UI routes.
 
-- [ ] ⚪ **CODY-NEXT-05.01** Implement typed entity stores and indexes with one mutation
+**Current scope:** the paired device streams and validates the initial
+five record kinds into a PSRAM staging bank. A digest-verified transaction
+publishes one coherent generation; rejection retains the previous bank.
+The network owner exposes a bounded status copy. Canonical UI queries and
+durable recovery remain pending, as do compilation and hardware acceptance.
+
+- [x] 🟢 **CODY-NEXT-05.01** Implement typed entity stores and indexes with one mutation
   owner. Fit budgets from 01 before adding snapshot fields; keep large pools and
   staging buffers off callback/task stacks and use PSRAM only under valid access
   conditions. Specify pointer/handle lifetime across generation changes.
-- [ ] ⚪ **CODY-NEXT-05.02** Integrate the authenticated acquisition owner and canonical
+- [ ] 🟡 **CODY-NEXT-05.02** Integrate the authenticated acquisition owner and canonical
   DeviceSnapshotService publication. Publish narrow synchronized domain views or
   generation handles, not full registry copies in every sensor snapshot. UI and
   mascot readers never acquire hardware or maintain competing network caches.
@@ -428,10 +439,10 @@ No deadline, stale snapshot, Back action or new foreground chat silently clears 
   reconciled. Preserve unknown outcomes, storage errors and data from a missing
   source. A changed pairing/source cannot inherit another peer's questions or
   response authority; partition or retire association explicitly.
-- [ ] ⚪ **CODY-NEXT-05.07** Handle standby, reboot and clock discontinuity separately.
+- [ ] 🟡 **CODY-NEXT-05.07** Handle standby, reboot and clock discontinuity separately.
   Semantic deadlines/freshness continue according to their clock contract;
   paused animation time cannot extend a response deadline or make old work fresh.
-- [ ] ⚪ **CODY-NEXT-05.08** Add bounded diagnostics for counts, bytes, pool occupancy,
+- [ ] 🟡 **CODY-NEXT-05.08** Add bounded diagnostics for counts, bytes, pool occupancy,
   dropped/rejected admission, revision, resync and original errors. Keep diagnostic
   data out of ordinary product flows except when the user needs an incomplete-data status.
 
@@ -784,7 +795,7 @@ ports, not presumed working products.
   display/input adapters, BSP and optional hardware services. Compare Muse's device
   descriptor approach as a reference; reuse useful boundaries without importing
   its LVGL dependency or whole application lifecycle.
-- [ ] 🟡 **CODY-NEXT-14.02** Keep the domain reducer, identifiers, state transitions
+- [x] 🟢 **CODY-NEXT-14.02** Keep the domain reducer, identifiers, state transitions
   and logical protocol independent of OS and MCU headers. Supply time, admitted
   observations and bounded storage through explicit interfaces. Keep platform
   error causes visible at the adapter boundary rather than converting failures

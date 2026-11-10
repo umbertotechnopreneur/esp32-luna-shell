@@ -138,6 +138,7 @@ endif()
 if(CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION AND
    CONFIG_LUNASHELL_BUILD_ENABLE_WIFI AND CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX)
     list(APPEND LUNASHELL_platform_requires mbedtls)
+    list(APPEND LUNASHELL_platform_srcs "src/network/LUNASHELL_codex_state_wire.cpp")
 endif()
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_PROVISIONING)
@@ -264,7 +265,7 @@ if(CONFIG_LUNASHELL_BUILD_ENABLE_WIFI)
 endif()
 if(CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION AND
    CONFIG_LUNASHELL_BUILD_ENABLE_WIFI AND CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX)
-    idf_component_optional_requires(PRIVATE mbedtls)
+    idf_component_optional_requires(PRIVATE mbedtls CODY_domain)
 endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_PROVISIONING)
     idf_component_optional_requires(PUBLIC network_provisioning)

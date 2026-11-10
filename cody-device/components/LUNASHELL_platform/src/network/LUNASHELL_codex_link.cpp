@@ -19,12 +19,14 @@
 #include "LUNASHELL_codex_debug.hpp"
 #include "LUNASHELL_codex_name.hpp"
 #include "LUNASHELL_codex_transaction.hpp"
+#include "LUNASHELL_codex_state_status.hpp"
 
 #include "sdkconfig.h"
 
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && \
     CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
 
+#include "LUNASHELL_codex_state_wire.hpp"
 #include "LUNASHELL_settings.hpp"
 #include "LUNASHELL_codex_saved.hpp"
 #include "LUNASHELL_snapshot_aging.hpp"
@@ -810,6 +812,8 @@ esp_err_t commitCandidateLocked()
     }
     if (error == ESP_OK) error = persistLink(kPairingSetting, s_candidate_link);
     if (error == ESP_OK) {
+        // A persisted replacement must not inherit another association's generation.
+        LUNASHELL::codex_state::disconnect(true);
         s_persisted_link = s_candidate_link;
         s_link_present = true;
         error = encodeHex(s_persisted_link.pc_id, sizeof(s_persisted_link.pc_id),
@@ -4260,6 +4264,57 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
     }
 }
 
+// No parameters: caller holds s_mutex while checking retained-key eligibility.
+bool stateLinkEligibleLocked()
+{
+    return s_socket >= 0 && s_link_present && !s_candidate_present &&
+        s_pending == Command::None && (s_link_snapshot.state == State::Discovering ||
+        s_link_snapshot.state == State::Connected);
+}
+
+// No parameters: feed the state owner only a current canonical Wi-Fi observation.
+void maintainStateLink()
+{
+    {
+        std::lock_guard<std::mutex> guard(s_mutex);
+        if (!stateLinkEligibleLocked()) {
+            LUNASHELL::codex_state::disconnect(false);
+            return;
+        }
+    }
+    auto &connectivity = s_ready_connectivity;
+    const auto observed = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(connectivity);
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (observed != ESP_OK || !wifiOnline(connectivity) || !stateLinkEligibleLocked()) {
+        LUNASHELL::codex_state::disconnect(false);
+        return;
+    }
+    char device[13]{};
+    const auto error = formatDeviceId(connectivity.radios.wifi.mac_address, device);
+    const auto now = esp_timer_get_time();
+    if (error != ESP_OK || now <= 0) {
+        LUNASHELL::codex_state::disconnect(false);
+        return;
+    }
+    LUNASHELL::codex_state::maintain(s_socket, device, s_persisted_link.pc_id, s_persisted_link.link_key,
+        connectivity.radios.wifi.ip_address, static_cast<uint64_t>(now));
+}
+
+// payload: Exact bounded CCP2 READY packet after the ingress token check.
+// source: Socket-observed broker endpoint.
+// Exception: Returns the canonical connectivity read or authentication failure.
+esp_err_t acceptStateReady(const char *payload, const sockaddr_in &source)
+{
+    auto &connectivity = s_ready_connectivity;
+    const auto error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(connectivity);
+    if (error != ESP_OK) return error;
+    std::lock_guard<std::mutex> guard(s_mutex);
+    const auto now = esp_timer_get_time();
+    if (!stateLinkEligibleLocked() || !wifiOnline(connectivity) || now <= 0) return ESP_ERR_INVALID_STATE;
+    return LUNASHELL::codex_state::accept_ready(s_socket, payload, source,
+        connectivity.radios.wifi.ip_address, static_cast<uint64_t>(now));
+}
+
 // No parameters: processes one bounded receive slice before protocol maintenance.
 void receiveDatagrams()
 {
@@ -4293,11 +4348,31 @@ void receiveDatagrams()
             reportDatagramRejection("datagram length", ESP_ERR_INVALID_SIZE);
             continue;
         }
+        if (received >= 4 && std::memcmp(payload, "CDS1", 4) == 0) {
+            esp_err_t error = ESP_ERR_INVALID_STATE;
+            {
+                std::lock_guard<std::mutex> guard(s_mutex);
+                const auto now = esp_timer_get_time();
+                if (stateLinkEligibleLocked() && now > 0) {
+                    error = LUNASHELL::codex_state::accept_packet(s_socket,
+                        reinterpret_cast<const uint8_t *>(payload), static_cast<size_t>(received),
+                        source, static_cast<uint64_t>(now));
+                }
+            }
+            if (error != ESP_OK) reportDatagramRejection("state datagram", error);
+            continue;
+        }
         if (std::memchr(payload, '\0', static_cast<size_t>(received)) != nullptr) {
             reportDatagramRejection("embedded NUL", ESP_ERR_INVALID_ARG);
             continue;
         }
         payload[received] = '\0';
+        if (std::strncmp(payload, "CCP2|READY|", 11) == 0) {
+            const auto error = received <= static_cast<int>(kMaximumDatagramBytes)
+                ? acceptStateReady(payload, source) : ESP_ERR_INVALID_SIZE;
+            if (error != ESP_OK) reportDatagramRejection("state READY", error);
+            continue;
+        }
         const bool extended_activity = std::strncmp(payload, "CCP1|ACTIVITY|", 14) == 0 &&
             received <= static_cast<int>(kMaximumActivityDatagramBytes);
         const bool extended_technical = (std::strncmp(payload, "CCP1|TECH|", 10) == 0 ||
@@ -4538,6 +4613,7 @@ void processCommand()
             break;
         }
         wipe(&s_candidate_link, sizeof(s_candidate_link));
+        LUNASHELL::codex_state::disconnect(true);
         wipe(&s_persisted_link, sizeof(s_persisted_link));
         s_candidate_present = false;
         s_link_present = false;
@@ -4572,6 +4648,7 @@ void codexLinkWorker(void *context)
     (void)context;
     for (;;) {
         processCommand();
+        maintainStateLink();
         receiveDatagrams();
         maintainState();
         maintainEvent();
@@ -4620,6 +4697,17 @@ esp_err_t reject(
 }
 
 }  // namespace
+
+// status: Receives a bounded copy, never a pointer to a generation or key.
+// Exception: The result preserves the transport failure while returning the last coherent summary.
+esp_err_t LUNASHELL::readCodexDomainStatus(CodexDomainStatus &status)
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    const auto now = esp_timer_get_time();
+    const auto error = codex_state::copy_status(status, now > 0 ? static_cast<uint64_t>(now) : 0);
+    if (!stateLinkEligibleLocked()) status.ready = false;
+    return error;
+}
 
 // executor: Sole settings owner; repeat registration of that owner is idempotent.
 // Exception: Rejects null or a different executor without replacing the existing owner.
@@ -5039,6 +5127,13 @@ extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_
 }
 
 #else
+
+// status: Cleared when the selected profile excludes the Cody state link.
+esp_err_t LUNASHELL::readCodexDomainStatus(CodexDomainStatus &status)
+{
+    status = {};
+    return ESP_ERR_NOT_SUPPORTED;
+}
 
 // request_id: Unused queue identity in a build without the authenticated transport.
 // Exception: Returns the actual selected-route unavailability.

@@ -42,6 +42,7 @@ import ccp_clock as clock
 import ccp_name as preferred_name
 import ccp_technical as technical_metadata
 import ccp_voice_input as voice_input
+import ccp_state_wire as state_wire
 from ccp_presence import AppPresence, AppState
 from ccp_pricing import PriceCache
 from ccp_security import DatagramAdmission, RejectionReporter
@@ -576,6 +577,51 @@ class StateStore:
                 return None
             return unprotect_secret(record.protected_link_key)
 
+    # device_id: Socket-observed ID with an already active retained association.
+    # Raises RuntimeError for credential owner readback failure.
+    def state_active_key(self, device_id: str) -> tuple[bytes, str] | None:
+        with self._lock:
+            record = self.records.get(device_id)
+            if record is None:
+                return None
+            stamp = record.protected_link_key
+            return unprotect_secret(stamp), stamp
+
+    # device_id: Active retained device whose transient session may still be valid.
+    # stamp: Opaque identity of the protected key used by that session.
+    def state_active_matches(self, device_id: str, stamp: str) -> bool:
+        with self._lock:
+            record = self.records.get(device_id)
+            return record is not None and hmac.compare_digest(record.protected_link_key, stamp)
+
+    # device_id: Active peer that just committed bootstrap or answered a fresh probe.
+    # address: Exact observed endpoint address.
+    # stamp: Protected-key identity from that peer's authenticated state session.
+    def mark_state_seen(self, device_id: str, address: str, stamp: str) -> None:
+        with self._lock:
+            record = self.records.get(device_id)
+            if record is None or not hmac.compare_digest(record.protected_link_key, stamp):
+                return
+            record.last_seen_at = time.time()
+            record.last_seen_monotonic = time.monotonic()
+            record.last_address = address
+
+    # device_id: Active peer that owns the original state session.
+    # stamp: Exact protected-key identity used by the session.
+    # listener: Existing exclusive CCP UDP socket.
+    # payload: Encoded and signed state packet.
+    # endpoint: Socket-observed endpoint bound during authentication.
+    # Raises ValueError for a revoked association or OSError on send failure.
+    def send_bound_state(self, device_id: str, stamp: str, listener: socket.socket,
+                         payload: bytes, endpoint: tuple[str, int]) -> int:
+        # Key rotation and retirement serialize with the last send under the
+        # old association. No metadata leaves after a revocation is admitted.
+        with self._lock:
+            record = self.records.get(device_id)
+            if record is None or not hmac.compare_digest(record.protected_link_key, stamp):
+                raise ValueError("CCP state active association changed")
+            return listener.sendto(payload, endpoint)
+
     # self: Current active/candidate owner retaining presence observations in memory only.
     # device_id: Stable identity that produced a verified liveness request.
     # address: Current source IPv4 address, used for status only and never as identity.
@@ -621,7 +667,7 @@ def open_companion_listener() -> socket.socket:
         # One PC identity has one liveness owner on both supported platforms.
         configure_exclusive_socket(listener)
         listener.bind(("", PLUGIN_PORT))
-        listener.settimeout(0.25)
+        listener.settimeout(0.05)
     except BaseException:
         try:
             listener.close()
@@ -649,6 +695,10 @@ class CompanionResponder:
         self._receive_error: OSError | None = None
         self._admission = DatagramAdmission()
         self._rejections = RejectionReporter()
+        self._state_wire = state_wire.StateResponder(
+            state.pc_id, state.state_active_key, state.state_active_matches,
+            self._send_state_packet, activity.state_registry, state.mark_state_seen,
+        )
         self._commit_challenges: dict[tuple[str, str, int], CommitChallenge] = {}
         self._event_peers: dict[str, EventPeer] = {}
         self._event_lock = threading.Lock()
@@ -709,14 +759,31 @@ class CompanionResponder:
             self._receive_error = error
             self._stop.set()
 
-    # self: Sole socket worker receiving bounded FIND/COMMITTED/REPLY/RESETACK messages without MCP stdout output.
+    # payload: Signed state UDP datagram.
+    # endpoint: Observed endpoint bound by the state handshake.
+    # device_id: Stable peer identity from the authenticated state session.
+    # stamp: Protected active-key identity for the session.
+    # Raises ValueError or OSError for key retirement or UDP failure.
+    def _send_state_packet(self, payload: bytes, endpoint: tuple[str, int],
+                           device_id: str, stamp: str) -> int:
+        return self._state.send_bound_state(device_id, stamp, self._socket, payload, endpoint)
+
+    # self: Sole socket worker serving state transfers and ancillary CCP commands.
     def _run(self) -> None:
         while not self._stop.is_set():
             try:
-                payload, source = self._socket.recvfrom(MAX_DATAGRAM_BYTES + 1)
+                self._state_wire.tick(time.monotonic())
+            except (OSError, RuntimeError, ValueError) as error:
+                self._report_rejection("state transfer", str(error))
+            try:
+                payload, source = self._socket.recvfrom(state_wire.MAX_PACKET + 1)
             except socket.timeout:
                 continue
             except OSError as error:
+                # Winsock reports truncated oversized UDP datagrams as WSAEMSGSIZE.
+                if getattr(error, "winerror", None) == 10040:
+                    self._report_rejection("UDP ingress", "datagram exceeds its receive bound")
+                    continue
                 if not self._stop.is_set():
                     self._receive_error = error
                     print(f"CCP UDP receive failed: {error}", file=sys.stderr, flush=True)
@@ -730,10 +797,13 @@ class CompanionResponder:
                 self._report_rejection("presence message", str(error))
 
     # self: Authenticated responder; retained candidate keys are never promoted from FIND alone.
-    # payload: Candidate CCP1 FIND, COMMITTED, REPLY or RESETACK datagram.
+    # payload: Candidate CCP state or ancillary datagram.
     # source: Observed UDP source address and port.
     # Raises ValueError, RuntimeError, or OSError for rejected identity, proof, state, or send failures.
     def _handle_datagram(self, payload: bytes, source: tuple[str, int]) -> None:
+        if payload.startswith((state_wire.BOOTSTRAP_MAGIC, state_wire.STATE_MAGIC)):
+            self._state_wire.handle(payload, source)
+            return
         kind, fields = parse_datagram(payload)
         if kind == "COMMITTED":
             self._accept_committed(fields, source)
@@ -1445,6 +1515,8 @@ class CcpService:
     def observe_hook(self, event: dict[str, Any]) -> dict[str, Any]:
         with self._hook_lock:
             observation = self.activity.observe(event)
+            if observation.state_only:
+                return {}
             result: dict[str, Any] = {}
             try:
                 notice_sent = self.notify_hook_notice(observation)

@@ -42,6 +42,8 @@ SOURCES = (
     "cody-device/components/CODY_companion/src/rendering/CODY_muse_frame.cpp",
     "cody-device/components/CODY_companion/src/rendering/CODY_pixel_avatar.cpp",
     "cody-device/components/CODY_domain/src/CODY_state_receive.cpp",
+    "cody-device/components/CODY_domain/src/CODY_state_json.cpp",
+    "cody-device/components/CODY_domain/src/CODY_state_store.cpp",
     "cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_codex_events.cpp",
     "cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_codex_transaction.cpp",
     "cody-device/components/LUNASHELL_platform/src/power/LUNASHELL_standby_resources.cpp",

@@ -10,19 +10,21 @@ specification is in [planned-todo.md](planned-todo.md#cody-next---domain-model-a
 | CODY-NEXT-00 | Accepted (source inventory) | G01/G02 document review complete in [screen catalog](docs/cody/screen-catalog.md); physical/route acceptance remains in 09/11 |
 | CODY-NEXT-01 | Implemented / validation pending | Schema and design review (G01/G02) in [domain contract](docs/cody/domain-model.md); header compilation, actual memory layout and runtime evidence remain pending |
 | CODY-NEXT-02 | Implemented / validation pending | G01/G02 design/source review complete for [protocol, schema and examples](cody-desktop/plugins/cody-codex-plugin/protocol/CODY_STATE_V1.md); schema execution, helper compilation and live protocol acceptance remain pending |
-| CODY-NEXT-14 | In progress | Shared firmware/host source composition, Muse frame boundary and Waveshare descriptor added. Review adapter capacity admission, OS credential/IPC boundaries and conformance integration before G01. |
-| CODY-NEXT-03 | In progress (provider intake) | Hook normalization and background observation work started. Persistent source identities, complete registry, journal, authenticated publication and restart recovery remain open. |
-| CODY-NEXT-05 | In progress (portable receive primitives) | Header/ACK decoding, replay and reassembly added. Live binding, digest/JSON staging, entity reducer, publication, queries and recovery remain open. |
+| CODY-NEXT-14 | In progress | Portable store, shared firmware/host composition, Muse frame boundary and Waveshare descriptor are connected. Review current-target capacity, OS boundaries and scenario integration before G01. |
+| CODY-NEXT-03 | In progress (snapshot/delta wired) | Broker retains exact multi-turn records, freezes complete snapshots and bounded deltas, and sends them over CCP2. Durable restart reconciliation and question correlation remain open. |
+| CODY-NEXT-05 | In progress (authenticated commit wired) | Paired firmware verifies binding, HMAC and digest, stages bounded JSON and commits the previous-or-new generation atomically. Bounded status exists; canonical queries, persistence and executed acceptance remain open. |
 
-Finish the portability foundation before connecting platform-dependent broker
-and device consumers. Keep this table, the phase table, the individual markers
-and the progress summary in [planned-todo.md](planned-todo.md) aligned at each
-checkpoint. Static readiness never counts as executed tests. Runtime integration,
-Muse direction and route changes follow their named phases.
-The new `CODY_domain` component is part of the firmware and native host source
-lists. Its receiver is not connected to the authenticated device ingress yet.
-Phases 03/05 must connect negotiation, HMAC, incremental JSON decoding, the
-producer journal and atomic domain publication.
+Keep this table, the phase table, the individual markers and the progress
+summary in [planned-todo.md](planned-todo.md) aligned at each checkpoint.
+Static readiness never counts as executed tests. Muse direction and route
+changes follow their named phases.
+The broker and paired firmware share the authenticated state-v1 socket path.
+The initial profile admits source, chat, turn, tool definition and tool call
+records. It exposes unsupported categories explicitly. The device network owner
+publishes a bounded status, and the existing display is still a separate
+projection. Durable restart reconciliation and the semantic question lifecycle
+remain open.
+
 Phase 11 must compile the headers and exercise the JSON schema/examples,
 chunk/revision helpers and specified scenarios against the phase-05 reducer.
 Cover missing chunks, changed epochs, lost ACKs, capacity and clock failures; inspect actual

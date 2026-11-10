@@ -26,7 +26,8 @@ import sys
 import threading
 import time
 from typing import Any
-from ccp_codex_hooks import ToolKind, decode_hook, require_id
+from ccp_codex_hooks import CodexHook, ToolKind, decode_hook, require_id
+from ccp_state_registry import HISTORICAL_EVENTS, RegistryRejection, StateRegistry
 from ccp_repository import checkout_leaf
 from ccp_pricing import PriceCache, PriceProjection
 from ccp_usage import NativeUsageReader, safe_usage_error
@@ -144,6 +145,7 @@ class HookObservation:
     reply_ready: bool
     title: str = ""
     resumed_after_stop: bool = False
+    state_only: bool = False
 
 
 # title: Original canonical native metadata, including its exact observation timestamp.
@@ -175,6 +177,7 @@ class ActivityStore:
     def __init__(self, pricing: PriceCache | None = None) -> None:
         self._lock = threading.Lock()
         self._pricing = pricing
+        self.state_registry = StateRegistry()
         self._sessions: dict[str, Session] = {}
         self._finished_tools: dict[tuple[str, str], None] = {}
         self._followed_session_id = ""
@@ -206,6 +209,22 @@ class ActivityStore:
             del self._finished_tools[(old_session, old_tool)]
             del self._sessions[old_session].tool_calls[old_tool]
 
+    # native: Exact event that could not advance the legacy followed-chat view.
+    # session: Optional legacy chat metadata. The original turn may survive only in the registry.
+    def _observe_historical(self, native: CodexHook, session: Session | None) -> HookObservation | None:
+        if native.event not in HISTORICAL_EVENTS:
+            return None
+        try:
+            changed = self.state_registry.observe(native)
+        except RegistryRejection:
+            return None
+        if not changed:
+            return None
+        return HookObservation(
+            native.event.value, native.session_id, native.turn_id,
+            session.project if session else "", False, Phase.NONE, False, state_only=True,
+        )
+
     # self: Canonical owner of bounded native hook identities and accepted lifecycle state.
     # event: Allowlisted metadata from one genuine Codex hook invocation.
     # Raises ValueError for malformed, stale or contradictory event metadata.
@@ -227,6 +246,9 @@ class ActivityStore:
             if session is None:
                 # Only documented lifecycle boundaries may introduce a chat.
                 if name not in {"SessionStart", "UserPromptSubmit"}:
+                    historical = self._observe_historical(native, None)
+                    if historical is not None:
+                        return historical
                     raise ValueError("Chat has not been observed at SessionStart or UserPromptSubmit")
                 if len(self._sessions) >= MAX_SESSIONS:
                     expired = next((identity for identity, item in self._sessions.items()
@@ -238,6 +260,9 @@ class ActivityStore:
                 session = Session(session_id, cwd, project_label(cwd))
                 self._sessions[session_id] = session
             if emitted_ns <= session.last_event_ns:
+                historical = self._observe_historical(native, session)
+                if historical is not None:
+                    return historical
                 raise ValueError("Late or duplicate hook event rejected")
             resumed_after_stop = session.phase is Phase.READY and name in {
                 "UserPromptSubmit", "PreToolUse", "PermissionRequest",
@@ -302,6 +327,9 @@ class ActivityStore:
                     session.compact_observed_at = emitted_ns / 1_000_000_000
             else:
                 if turn_id != session.turn_id or session.phase == Phase.ENDED:
+                    historical = self._observe_historical(native, session)
+                    if historical is not None:
+                        return historical
                     # Hashes diagnose real hook correlation without persisting chat contents or IDs.
                     expected = hashlib.sha256(session.turn_id.encode("ascii")).hexdigest()[:12]
                     actual = hashlib.sha256(turn_id.encode("ascii")).hexdigest()[:12]
@@ -325,6 +353,9 @@ class ActivityStore:
                 elif name == "PostToolUse":
                     tool_id = native.tool_use_id
                     if tool_id not in session.tools:
+                        historical = self._observe_historical(native, session)
+                        if historical is not None:
+                            return historical
                         raise ValueError("Tool completion has no matching start")
                     started = session.tool_calls[tool_id]
                     if native.tool_name and native.tool_name != started.tool_name:
@@ -395,6 +426,13 @@ class ActivityStore:
             session.branch = branch
             session.observed_at = emitted_ns / 1_000_000_000
             self._revision += 1
+            try:
+                self.state_registry.observe(native)
+            except RegistryRejection as error:
+                # The retained vNext generation stays coherent. The existing
+                # followed-chat projection keeps its separately admitted event.
+                print(f"Cody state registry rejected {name}: {error.code}: {error}",
+                      file=sys.stderr, flush=True)
             # The notice decision is tied to the accepted native turn, not a
             # later followed-chat snapshot or inferred response text.
             reply_ready = name == "Stop" and session.reply_notice_turn != session.turn_id
@@ -462,6 +500,8 @@ class ActivityStore:
                 return withdrawn
 
             session.chat_title = source_title
+            if source_title.state is TitleState.CURRENT and source_title.observed_at is not None:
+                self.state_registry.observe_title(session.session_id, source_title.title, source_title.observed_at)
             maximum_bytes = TITLE_MAX_BYTES if approval else 63
             if (reply_ready and source_title.state == TitleState.CURRENT
                     and len(source_title.title) > maximum_bytes):
@@ -596,6 +636,8 @@ class ActivityStore:
                 title = ChatTitleObservation(state=TitleState.ERROR)
             if session is not None:
                 session.chat_title = title
+                if title.state is TitleState.CURRENT and title.observed_at is not None:
+                    self.state_registry.observe_title(session.session_id, title.title, title.observed_at)
             title_signature = (session.session_id if session else "", title.title, title.state)
             if title_signature != self._title_signature:
                 # Renaming a thread is a metadata change even without a new
