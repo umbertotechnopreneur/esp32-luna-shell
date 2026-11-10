@@ -77,8 +77,8 @@ bool can_open_wifi_setup_from_home();
 // Exception: Returns the original admission or route preparation failure.
 esp_err_t open_wifi_setup_from_home(SceneFrame &scene);
 
-// scene: Home-owned frame receiving a direct Wi-Fi provisioning pairing session.
-// Exception: Returns admission or presentation errors; snapshot failures stay visible with Retry.
+// scene: Home-owned frame receiving the Bluetooth setup introduction.
+// Exception: Returns the original admission or presentation error.
 esp_err_t open_wifi_pairing_from_home(SceneFrame &scene);
 
 // opacity: Last presented chrome visibility; hidden controls do not admit touch.
@@ -86,6 +86,9 @@ void set_home_wifi_chrome_opacity(uint8_t opacity);
 
 // No parameters: true only while the Home-launched Wi-Fi journey owns the scene.
 bool home_wifi_setup_active();
+
+// No parameters: true while the local Wi-Fi password keyboard is shown.
+bool onboarding_wifi_keyboard_active();
 
 // scene: Display-worker-owned frame receiving the reversible setup menu.
 // Exception: Returns the original scene/content preparation error.

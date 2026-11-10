@@ -5,6 +5,7 @@
 
 #include "CODY_battery_alerts.hpp"
 #include "CODY_codex_audio.hpp"
+#include "CODY_muse_style.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 
 namespace CODY {
@@ -41,6 +42,9 @@ struct DeviceEffectsModel {
     DeviceFeedback feedback = DeviceFeedback::None;
     esp_err_t boot_audio_error = ESP_ERR_INVALID_STATE;
     esp_err_t tap_audio_error = ESP_OK;
+    esp_err_t symbol_audio_error = ESP_OK;
+    esp_err_t wake_audio_error = ESP_OK;
+    esp_err_t jump_audio_error = ESP_OK;
     esp_err_t preparation_error = ESP_ERR_INVALID_STATE;
     esp_err_t event_error = ESP_ERR_INVALID_STATE;
     esp_err_t pairing_error = ESP_ERR_INVALID_STATE;
@@ -80,6 +84,24 @@ esp_err_t play_device_boot_cue(DeviceEffectsModel &model);
 // voice: Latest canonical voice observation, or null when voice is excluded.
 // No replay is queued when the contact occurs during capture or playback.
 void play_device_tap_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice);
+
+// model: Retains the optional keyboard cue's admission error.
+// voice: Current voice observation, or null when voice is excluded.
+void play_device_key_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice);
+
+// model: Retains the optional wake chime's original admission error.
+// voice: Current voice observation, or null when voice is excluded.
+void play_device_wake_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice);
+
+// model: Retains the jump cue's original admission error.
+// voice: Current voice observation, or null when voice is excluded.
+// Call exactly once for a real pet jump animation, never for an unrelated pose.
+void play_device_jump_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice);
+
+// model: Retains the current optional icon sound's real admission error.
+// symbol: Newly retired manga overlay; None never produces a cue.
+// voice: Canonical voice observation, or null when the feature is excluded.
+void play_device_symbol_cue(DeviceEffectsModel &model, MuseSymbol symbol, const LUNASHELL::VoiceSnapshot *voice);
 
 // model: Sole owner of consumed event identities and observed playback disposition.
 // status: Already-aged connection snapshot shared with the device model.

@@ -47,6 +47,8 @@ struct PixelDemoView {
     LogicalRect visual_viewport;
     LogicalRect retired_viewport;
     MuseShowcase showcase{};
+    MuseSymbol prepared_symbol = MuseSymbol::None;
+    MuseSymbol retired_symbol = MuseSymbol::None;
     MuseVisualStyle visual_style{};
     PixelDemoMotionState motion{};
     std::array<PixelAvatarFrame, 2> frames{};

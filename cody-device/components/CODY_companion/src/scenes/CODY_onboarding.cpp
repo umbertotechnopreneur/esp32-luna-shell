@@ -79,10 +79,11 @@ constexpr bool kDeviceFirstSetup = false;
 #endif
 constexpr char kInstallUrl[] = "https://play.google.com/store/apps/details?id=com.espressif.provble";
 constexpr char kAppleInstallUrl[] = "https://apps.apple.com/app/esp-ble-provisioning/id1473590141";
-constexpr CODY2D::Rect kHomeWifiButton{211, 390, 44, 44};
 constexpr CODY2D::Rect kHomePairButton{73, 282, 320, 48};
 constexpr CODY2D::Rect kHomeLocalWifiButton{83, 337, 300, 48};
 constexpr CODY2D::Rect kHomeMenuMascot{169, 150, 128, 128};
+constexpr CODY2D::Rect kIntroApple{112, 305, 110, 70};
+constexpr CODY2D::Rect kIntroAndroid{244, 305, 110, 70};
 constexpr DamageRect kHomeMenuContent{73, 80, 393, 385};
 static_assert(wifi_menu_art::kPair.width + wifi_menu_art::kChoiceIconSize + wifi_menu_art::kChoiceGap <=
     kHomePairButton.width && wifi_menu_art::kPair.height <= kHomePairButton.height);
@@ -222,7 +223,7 @@ enum class OnboardingAction : uint8_t {
     None, ShowQr, PairCody, Cancel, Retry, Continue, Next, Done, LetsGo,
     AcceptCodex, DeclineCodex, ConnectCodex, NetworkSetup, Later, Options, KeepPairing, ReplacePairing,
     ForgetPairing, ConfirmForget, KeepSaved, DisplayOptions, BehaviorOptions, MoreBehavior,
-    Connections, CodexStatistics, VisibleScreens, OpenPairingGuide, GoHome,
+    Connections, CodexStatistics, VisibleScreens, OpenPairingGuide,
     FactoryReset, ConfirmFactoryReset, LocalTimer, RestartDevice, ConfirmRestart, QuickGuide,
     CheckRelay, SynthOptions, BrowseCodex, AndroidApp, AppleApp, LocalWifi, AudioLevels,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
@@ -338,6 +339,7 @@ struct ContentView {
     uint16_t header_icon_color = 0;
     CODY2D::ActionIcon header_icon = CODY2D::ActionIcon::None;
     bool wifi_menu = false;
+    bool platform_choices = false;
     char wifi_menu_name[wifi_menu_art::kNameLength + 1U]{};
     char error_text[32]{};
     char debug_text[kContentLineCapacity][kDebugLineBytes]{};
@@ -461,7 +463,6 @@ bool s_home_wifi_pairing_direct = false;
 bool s_home_wifi_intro = false;
 bool s_home_wifi_apple = false;
 bool s_home_wifi_exit_pending = false;
-bool s_home_wifi_touch = false;
 uint8_t s_home_wifi_chrome_opacity = 0;
 bool s_companion_seen_selection = false;
 int64_t s_session_ended_at_us = -1;
@@ -1230,11 +1231,11 @@ bool maintenance_pending()
     return s_options_page == OptionsPage::RestartPending || s_options_page == OptionsPage::ResetPending;
 }
 
-// No parameters: Back returns from a category to Options, or from Options to Setup.
+// No parameters: Back returns from a category or leaves the root options page.
 bool options_back_available()
 {
     return s_route == Route::MakeItYours10 && !maintenance_pending() &&
-        (s_options_page != OptionsPage::Menu || s_options_from_setup);
+        (kDeviceFirstSetup || s_options_page != OptionsPage::Menu || s_options_from_setup);
 }
 
 // No parameters: all menu pages use static navigation rows and the same exit action.
@@ -1350,9 +1351,6 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
     case OnboardingAction::Done:
         label = "OK";
         break;
-    case OnboardingAction::GoHome:
-        label = "Home";
-        break;
     case OnboardingAction::LetsGo:
         label = "Let's go";
         break;
@@ -1449,7 +1447,6 @@ void style_action(OnboardingAction action, CODY2D::CapsuleControl &control)
     case OnboardingAction::DeclineCodex:
     case OnboardingAction::Later:
     case OnboardingAction::Options:
-    case OnboardingAction::GoHome:
     case OnboardingAction::MoreBehavior:
     case OnboardingAction::SynthOptions:
     case OnboardingAction::CheckRelay:
@@ -1732,13 +1729,6 @@ esp_err_t prepare_action(OnboardingAction action, bool enabled)
     if (kDeviceFirstSetup && s_route == Route::CodexReplace) {
         return prepare_saved_pc_action(action, enabled, s_view.action, s_view.action_second_line);
     }
-    if (kDeviceFirstSetup && action == OnboardingAction::GoHome) {
-        s_view.action = {kHomeWifiButton, {}, 0xA340, 0x71E0, enabled};
-        s_view.action.icon = CODY2D::ActionIcon::Home;
-        s_view.action.icon_center = {233, 412};
-        s_view.action.icon_color = 0xFFFF;
-        return ESP_OK;
-    }
     if (s_home_wifi_flow && s_route == Route::Invitation05) {
         return prepare_button(action, label, kHomePairButton, enabled, false,
             s_view.action, s_view.action_second_line);
@@ -2015,6 +2005,39 @@ esp_err_t draw_wifi_menu(const ContentView &view, CODY2D::Surface strip, uint16_
     return error;
 }
 
+// strip: Borrowed tile; coordinates and RGB565 byte order remain native to CODY2D.
+// first_row: Logical y coordinate of this tile.
+// first_column: Logical x coordinate of this tile.
+// Exception: Returns the original raster failure.
+esp_err_t draw_platform_choices(CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+{
+    static constexpr const char *apple[] = {
+        "......##....", ".....##.....", "............", "...###.###..", ".##########.",
+        "#########...", "########....", "#########...", ".##########.", ".##########.",
+        "..########..", "...###.##..."};
+    static constexpr const char *android[] = {
+        "..#......#..", "...#....#...", "...######...", "..########..", "..##.##.##..",
+        "..########..", "............", "#.########.#", "#.########.#", "#.########.#",
+        "..########..", "...##..##..."};
+    static constexpr uint16_t rainbow[] = {0x07E0, 0xFFE0, 0xFD20, 0xF800, 0xA01F, 0x001F};
+    for (int logo = 0; logo < 2; ++logo) {
+        const auto &pixels = logo == 0 ? apple : android;
+        const int left = logo == 0 ? 143 : 275;
+        for (int y = 0; y < 12; ++y) for (int x = 0; x < 12; ++x) {
+            if (pixels[y][x] != '#') continue;
+            const int px = left + x * 4, py = 316 + y * 4;
+            const int x0 = std::max<int>(px, first_column), x1 = std::min<int>(px + 4, first_column + strip.width);
+            const int y0 = std::max<int>(py, first_row), y1 = std::min<int>(py + 4, first_row + strip.height);
+            if (x0 >= x1 || y0 >= y1) continue;
+            const auto error = CODY2D::fill_rect(strip, {static_cast<uint16_t>(x0 - first_column),
+                static_cast<uint16_t>(y0 - first_row), static_cast<uint16_t>(x1 - x0),
+                static_cast<uint16_t>(y1 - y0)}, logo == 0 ? rainbow[y / 2] : 0x07E0);
+            if (error != ESP_OK) return error;
+        }
+    }
+    return ESP_OK;
+}
+
 // state: Immutable content owned by this route through frame retirement.
 // strip: Valid content-clipped tile with its original stride and byte order.
 // first_row: Logical tile y origin.
@@ -2026,6 +2049,9 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
     const auto &view = *static_cast<const ContentView *>(state);
     esp_err_t error = view.wifi_menu ? draw_wifi_menu(view, strip, first_row, first_column) :
         draw_qr_rows(view.qr, view.qr_bounds, strip, first_row, first_column);
+    if (error == ESP_OK && view.platform_choices && view.actions_visible) {
+        error = draw_platform_choices(strip, first_row, first_column);
+    }
     const bool offline = view.header_icon == CODY2D::ActionIcon::WifiOff;
     const auto &header = offline ? kOfflineDisc : view.header_icon_bounds;
     if (error == ESP_OK && view.header_icon != CODY2D::ActionIcon::None &&
@@ -2056,19 +2082,11 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
                 strip, first_row, first_column);
         }
     }
-    if (error == ESP_OK && !view.wifi_menu && view.actions_visible && view.action_visible &&
+    if (error == ESP_OK && !view.wifi_menu && !view.platform_choices && view.actions_visible && view.action_visible &&
         (view.action.caption.valid || view.action.icon != CODY2D::ActionIcon::None) &&
         !(s_home_wifi_flow && s_route == Route::Pairing07)) {
         // Reveal the complete action atomically after the main line finishes.
-        auto action = view.action;
-        if (view.action_id == OnboardingAction::GoHome) {
-            action.top_color = CODY2D::blend_rgb565(action.top_color, 0, s_home_wifi_chrome_opacity);
-            action.bottom_color = CODY2D::blend_rgb565(action.bottom_color, 0, s_home_wifi_chrome_opacity);
-            action.icon_color = CODY2D::blend_rgb565(action.icon_color, 0, s_home_wifi_chrome_opacity);
-        }
-        if (view.action_id != OnboardingAction::GoHome || s_home_wifi_chrome_opacity != 0) {
-            error = draw_action_visual(action, view.action_icon_size, strip, first_row, first_column);
-        }
+        error = draw_action_visual(view.action, view.action_icon_size, strip, first_row, first_column);
         if (error == ESP_OK && view.action.caption.valid) {
             error = CODY2D::draw_text_rows(view.action.caption, view.action_visible_characters,
                 strip, first_row, first_column);
@@ -2078,7 +2096,7 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
                 strip, first_row, first_column);
         }
     }
-    if (error == ESP_OK && !view.wifi_menu && view.actions_visible && view.alternative_id != OnboardingAction::None) {
+    if (error == ESP_OK && !view.wifi_menu && !view.platform_choices && view.actions_visible && view.alternative_id != OnboardingAction::None) {
         error = draw_action_visual(view.alternative, view.action_icon_size, strip, first_row, first_column);
         if (error == ESP_OK) {
             error = CODY2D::draw_text_rows(view.alternative.caption, view.alternative_visible_characters,
@@ -2115,16 +2133,6 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
             error = CODY2D::draw_text_rows(choice.second, choice.second.text.length,
                 strip, first_row, first_column);
         }
-    }
-    if (error == ESP_OK && s_home_wifi_flow && !view.wifi_menu && view.actions_visible &&
-        (s_route == Route::Invitation05 || s_route == Route::Install06 || s_route == Route::Pairing07)) {
-        CODY2D::CapsuleControl home{kHomeWifiButton, {}, 0xA340, 0x71E0, true};
-        home.icon = CODY2D::ActionIcon::Home;
-        home.icon_center = {233, 412};
-        home.top_color = CODY2D::blend_rgb565(home.top_color, kPairingBackground, s_home_wifi_chrome_opacity);
-        home.bottom_color = CODY2D::blend_rgb565(home.bottom_color, kPairingBackground, s_home_wifi_chrome_opacity);
-        home.icon_color = CODY2D::blend_rgb565(0xFFFF, kPairingBackground, s_home_wifi_chrome_opacity);
-        if (s_home_wifi_chrome_opacity != 0) error = CODY2D::draw_capsule_rows(home, strip, first_row, first_column);
     }
     return error;
 }
@@ -2340,11 +2348,8 @@ esp_err_t attach_content(SceneFrame &scene)
     if (s_home_wifi_flow && (s_route == Route::Invitation05 || s_route == Route::Install06 || s_route == Route::Pairing07)) {
         content.bounds = s_view.wifi_menu ? kHomeMenuContent : DamageRect{73, 125, 393, 380};
         content.leading_caption_bounds = {};
-        content.bottom_action_visible = !s_view.wifi_menu;
-        content.bottom_action_bounds = s_view.wifi_menu ? DamageRect{} : DamageRect{
-            kHomeWifiButton.x, kHomeWifiButton.y,
-            static_cast<uint16_t>(kHomeWifiButton.x + kHomeWifiButton.width),
-            static_cast<uint16_t>(kHomeWifiButton.y + kHomeWifiButton.height)};
+        content.bottom_action_visible = false;
+        content.bottom_action_bounds = {};
         content.control_bounds[0] = {10, 203, 70, 263};
         content.control_bounds[1] = s_view.wifi_menu ? DamageRect{} : DamageRect{396, 203, 456, 263};
     }
@@ -2951,7 +2956,14 @@ esp_err_t prepare_options_content(SceneFrame &scene,
             }
             ++s_view.preference_count;
         }
-        return prepare_action(kDeviceFirstSetup ? OnboardingAction::GoHome : OnboardingAction::Done, true);
+        if (kDeviceFirstSetup) {
+            s_view.action = {};
+            s_view.action_id = OnboardingAction::None;
+            s_view.action_visible = false;
+            ++s_navigation_revision;
+            return ESP_OK;
+        }
+        return prepare_action(OnboardingAction::Done, true);
     }
     LUNASHELL::CodyOptionsObservation loaded;
     if (captured == nullptr) {
@@ -3574,20 +3586,25 @@ esp_err_t enter_route(Route route, SceneFrame &scene, const LUNASHELL::WifiSnaps
         }
         if (error == ESP_OK) error = prepare_alternative(OnboardingAction::LocalWifi, true);
     } else if (s_home_wifi_flow && route == Route::Invitation05) {
-        static constexpr char title[] = "Before you start";
+        static constexpr char title[] = "Bluetooth setup";
         error = set_scene_title(prepared, {title, sizeof(title) - 1U});
-        if (error == ESP_OK) error = prepare_caption("Connect in three steps", 130, s_view.lines[0], 300);
         if (error == ESP_OK) {
-            s_view.lines[0].color = kPairingCaption;
-            s_view.line_count = 1;
-        }
-        if (error == ESP_OK) {
-            const char *steps[] = {"1. Get the app", "2. Scan Cody", "3. Choose your Wi-Fi"};
-            for (const char *step : steps) {
-                error = prepare_caption(step, 180 + (s_view.line_count - 1U) * 48U, s_view.lines[s_view.line_count], 300);
+            const char *steps[] = {"1. Get Espressif app", "2. Scan Cody QR in app", "3. Choose your Wi-Fi", "TAP BELOW TO CHOOSE"};
+            const uint16_t tops[] = {140, 180, 220, 270};
+            for (uint8_t index = 0; index < 4; ++index) {
+                error = prepare_caption(steps[index], tops[index], s_view.lines[index], 300);
                 if (error != ESP_OK) break;
                 ++s_view.line_count;
             }
+        }
+        if (error == ESP_OK) {
+            s_view.platform_choices = true;
+            s_view.action_icon_size = 1; // Rectangular hit bounds; logos are drawn above.
+            s_view.action_id = OnboardingAction::AppleApp;
+            s_view.action_visible = true;
+            s_view.action = {kIntroApple, {}, 0, 0, true};
+            s_view.alternative_id = OnboardingAction::AndroidApp;
+            s_view.alternative = {kIntroAndroid, {}, 0, 0, true};
         }
     } else if (s_home_wifi_flow && route == Route::Install06) {
         static constexpr char title[] = "Get the app";
@@ -5162,7 +5179,6 @@ esp_err_t prepare_about_project_link(SceneContent &content)
 void cancel_onboarding_touch()
 {
     s_swipe_active = false;
-    s_home_wifi_touch = false;
     s_local_wifi.keyboard_touch = {};
     s_local_wifi.touch_control = -1;
     s_activity_touch_pressed = false;
@@ -5195,7 +5211,6 @@ void reset_onboarding()
     s_home_wifi_pairing_direct = false;
     s_home_wifi_intro = false;
     s_home_wifi_exit_pending = false;
-    s_home_wifi_touch = false;
     s_companion_seen_selection = false;
     s_session_ended_at_us = -1;
     s_presented_activity = {};
@@ -5467,27 +5482,20 @@ esp_err_t open_wifi_setup_from_home(SceneFrame &scene)
     return error;
 }
 
-// scene: Home enters the existing provisioning session without the install guide.
-// Exception: Returns admission/presentation errors; snapshot failures are shown with Retry.
+// scene: Home enters the Bluetooth setup introduction before starting provisioning.
+// Exception: Returns the original admission or presentation error.
 esp_err_t open_wifi_pairing_from_home(SceneFrame &scene)
 {
     if (!can_open_wifi_setup_from_home()) return ESP_ERR_INVALID_STATE;
     s_home_wifi_flow = true;
     s_home_wifi_pairing_direct = true;
-    s_home_wifi_intro = false;
+    s_home_wifi_intro = true;
     s_home_wifi_apple = false;
     s_home_wifi_exit_pending = false;
     s_pairing_guide_return = Route::None;
     s_startup_pending = false;
     s_startup_pair_missing = false;
-    LUNASHELL::ConnectivityObservation observation{};
-    const auto error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
-    if (error != ESP_OK) {
-        s_local_failure = true;
-        s_failed_work = Work::Start;
-        return show_home_wifi_snapshot_error(scene, error);
-    }
-    const auto start_error = start_wifi_pairing(scene, observation.radios.pairing);
+    const auto start_error = enter_route(Route::Invitation05, scene);
     if (start_error != ESP_OK) {
         s_home_wifi_flow = false;
         s_home_wifi_pairing_direct = false;
@@ -5562,15 +5570,6 @@ esp_err_t draw_local_wifi_rows(const void *state, CODY2D::Surface strip,
     }
     if (error == ESP_OK && view.page == LocalWifiPage::Networks && view.selected_network >= 0) {
         error = draw_selected_label(view.selected_label, strip, first_row, first_column);
-    }
-    if (error == ESP_OK && s_home_wifi_chrome_opacity != 0) {
-        CODY2D::CapsuleControl home{kHomeWifiButton, {}, 0xA340, 0x71E0, true};
-        home.icon = CODY2D::ActionIcon::Home;
-        home.icon_center = {233, 412};
-        home.top_color = CODY2D::blend_rgb565(home.top_color, kPairingBackground, s_home_wifi_chrome_opacity);
-        home.bottom_color = CODY2D::blend_rgb565(home.bottom_color, kPairingBackground, s_home_wifi_chrome_opacity);
-        home.icon_color = CODY2D::blend_rgb565(0xFFFF, kPairingBackground, s_home_wifi_chrome_opacity);
-        error = CODY2D::draw_capsule_rows(home, strip, first_row, first_column);
     }
     return error;
 }
@@ -5690,8 +5689,8 @@ esp_err_t attach_local_wifi(SceneFrame &scene)
     if (error != ESP_OK) return error;
     SceneContent content{};
     content.bounds = {73, 73, 393, 383};
-    content.bottom_action_visible = true;
-    content.bottom_action_bounds = {211, 390, 255, 434};
+    content.bottom_action_visible = false;
+    content.bottom_action_bounds = {};
     content.control_bounds[0] = {10, 203, 70, 263};
     content.state = &view;
     content.revision = ++view.revision;
@@ -5843,7 +5842,7 @@ esp_err_t update_local_wifi(SceneFrame &scene, int64_t active_time_us, bool scen
             view.scanning_requested = false;
             view.offset = 0;
             if (scan.state == LUNASHELL::WifiScanState::Complete) {
-                std::snprintf(view.detail_text, sizeof(view.detail_text), "%s", scan.count ? "Choose a network" : "No networks found");
+                std::snprintf(view.detail_text, sizeof(view.detail_text), "%s", scan.count ? "" : "No networks found");
             } else {
                 std::snprintf(view.detail_text, sizeof(view.detail_text), "Scan error 0x%lx", static_cast<unsigned long>(scan.error));
             }
@@ -5934,10 +5933,8 @@ esp_err_t handle_local_wifi_touch(SceneFrame &scene, CODY2D::Point point, bool p
         if (result == TextEntryResult::Changed) return attach_local_wifi(scene);
         if (consumed) return ESP_OK;
     }
-    const CODY2D::CapsuleControl home{kHomeWifiButton, {}, 0, 0, true};
     const CODY2D::CapsuleControl back{kBackBounds, {}, 0, 0, true};
     const auto hit = [&](CODY2D::Point p) -> int8_t {
-        if (s_home_wifi_chrome_opacity == 255 && CODY2D::capsule_contains(home, p)) return 10;
         if (s_home_wifi_chrome_opacity == 255 && CODY2D::capsule_contains(back, p)) return 11;
         if (view.page == LocalWifiPage::Networks) {
             for (int8_t i = 0; i < 3; ++i) if (view.rows[i].caption.valid && view.rows[i].enabled &&
@@ -5968,21 +5965,16 @@ esp_err_t handle_local_wifi_touch(SceneFrame &scene, CODY2D::Point point, bool p
     const int8_t control = view.touch_control;
     view.touch_control = -1;
     if (view.touch_moved || rotation != view.touch_rotation) return ESP_OK;
-    if (control == 10 || control == 11) {
+    if (control == 11) {
         clear_text_entry(view.entry);
         clear_text_entry_view(view.keyboard);
-        if (control == 10) {
-            view.page = LocalWifiPage::None;
-            s_widget_open_request = WidgetOpenRequest::Home;
-            return ESP_OK;
-        }
         if (view.page == LocalWifiPage::Networks) {
             view.page = LocalWifiPage::None;
             return enter_route(Route::Invitation05, scene);
         }
         view.page = LocalWifiPage::Networks;
         view.connect_submitted = false;
-        std::snprintf(view.detail_text, sizeof(view.detail_text), "Choose a network");
+        view.detail_text[0] = '\0';
         return attach_local_wifi(scene);
     }
     if (control == 3 || control == 4) {
@@ -6054,11 +6046,16 @@ esp_err_t handle_local_wifi_touch(SceneFrame &scene, CODY2D::Point point, bool p
     return attach_local_wifi(scene);
 }
 
+// No parameters: the keyboard is a local presentation, independent of password content.
+bool onboarding_wifi_keyboard_active()
+{
+    return s_local_wifi.page == LocalWifiPage::Password;
+}
+
 // opacity: Last completely displayed chrome opacity for Home touch admission.
 void set_home_wifi_chrome_opacity(uint8_t opacity)
 {
     s_home_wifi_chrome_opacity = opacity;
-    if (opacity != 255) s_home_wifi_touch = false;
 }
 
 // No parameters: true only while the Home-launched Wi-Fi journey owns the scene.
@@ -7117,6 +7114,10 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
     }
     if (s_home_wifi_flow && s_route == Route::Invitation05) {
         if (back_hit && s_home_wifi_intro) {
+            if (s_home_wifi_pairing_direct) {
+                s_widget_open_request = WidgetOpenRequest::Home;
+                return ESP_OK;
+            }
             s_home_wifi_intro = false;
             return enter_route(Route::Invitation05, scene);
         }
@@ -7188,6 +7189,10 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
             if (s_options_page == OptionsPage::GuideOffline) parent = OptionsPage::GuideTouch;
             return show_options_page(scene, parent);
         }
+        if (kDeviceFirstSetup && !s_options_from_setup) {
+            s_widget_open_request = WidgetOpenRequest::Home;
+            return ESP_OK;
+        }
         return enter_route(Route::SetupMenu, scene);
     }
     if (action_hit && kDeviceFirstSetup && s_route == Route::Hello04) {
@@ -7249,10 +7254,6 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
             if (!options_next_page_available()) return ESP_OK;
             const auto next = s_options_page == OptionsPage::Menu ? OptionsPage::MenuMore : OptionsPage::MenuMaintenance;
             return show_options_page(scene, next);
-        }
-        if (s_view.action_id == OnboardingAction::GoHome) {
-            s_widget_open_request = kDeviceFirstSetup ? WidgetOpenRequest::Home : WidgetOpenRequest::Statistics;
-            return ESP_OK;
         }
         if (s_options_page == OptionsPage::Behavior && s_view.action_id == OnboardingAction::MoreBehavior) {
             return show_options_page(scene, OptionsPage::BehaviorMore);
@@ -7432,14 +7433,16 @@ esp_err_t activate_setup_choice(SceneFrame &scene, OnboardingAction action)
         return error;
     }
     if (s_home_wifi_flow && s_route == Route::Invitation05) {
+        if (s_home_wifi_intro && (action == OnboardingAction::AppleApp || action == OnboardingAction::AndroidApp)) {
+            s_home_wifi_apple = action == OnboardingAction::AppleApp;
+            return open_installation_qr(scene);
+        }
         if (action == OnboardingAction::LocalWifi) {
             return open_local_wifi(scene);
         }
         if (action == OnboardingAction::PairCody) {
-            LUNASHELL::ConnectivityObservation observation{};
-            error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
-            return error == ESP_OK ? start_wifi_pairing(scene, observation.radios.pairing) :
-                show_home_wifi_snapshot_error(scene, error);
+            s_home_wifi_intro = true;
+            return enter_route(Route::Invitation05, scene);
         }
     }
     const char *label = nullptr;
@@ -7613,38 +7616,6 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
     }
     const CODY2D::CapsuleControl back{kBackBounds, {}, NavigationData::top, NavigationData::bottom, true};
     const CODY2D::CapsuleControl next{kForwardBounds, {}, NavigationData::top, NavigationData::bottom, true};
-    if (s_home_wifi_flow && !s_view.wifi_menu &&
-        (s_route == Route::Invitation05 || s_route == Route::Install06 || s_route == Route::Pairing07)) {
-        const CODY2D::CapsuleControl home{kHomeWifiButton, {}, 0, 0, true};
-        if (pressed_edge && s_home_wifi_chrome_opacity == 255 && s_view.actions_visible && !s_command_pending &&
-            !s_work_busy.load(std::memory_order_acquire) && CODY2D::capsule_contains(home, point)) {
-            s_home_wifi_touch = true;
-            s_swipe_start = s_swipe_last = point;
-            s_swipe_rotation = rotation_degrees;
-            consumed = true;
-            return ESP_OK;
-        }
-        if (s_home_wifi_touch) {
-            consumed = true;
-            if (pressed) {
-                const int dx = point.x - s_swipe_start.x;
-                const int dy = point.y - s_swipe_start.y;
-                if (rotation_degrees != s_swipe_rotation || dx * dx + dy * dy > 144 ||
-                    !CODY2D::capsule_contains(home, point)) s_home_wifi_touch = false;
-                return ESP_OK;
-            }
-            s_home_wifi_touch = false;
-            if (rotation_degrees != s_swipe_rotation) return ESP_OK;
-            if (s_pairing_owned) {
-                s_home_wifi_exit_pending = true;
-                const auto error = activate_onboarding_navigation(scene, NavigationDirection::Previous);
-                if (error != ESP_OK) s_home_wifi_exit_pending = false;
-                return error;
-            }
-            s_widget_open_request = WidgetOpenRequest::Home;
-            return ESP_OK;
-        }
-    }
     if (pressed_edge) {
         s_swipe_moved = false;
         s_options_tap_admitted = false;
@@ -7712,7 +7683,6 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
             }
         }
         const bool footer_hit = uses_footer_action() && s_view.actions_visible && s_view.action_visible &&
-            (s_view.action_id != OnboardingAction::GoHome || s_home_wifi_chrome_opacity == 255) &&
             CODY2D::capsule_contains(s_view.action, point);
         if (footer_hit && s_route == Route::MakeItYours10 && released_options_confirmation(s_view.action_id)) {
             s_options_tap_admitted = true;

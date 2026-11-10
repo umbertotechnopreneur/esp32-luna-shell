@@ -17,6 +17,9 @@ constexpr char kTag[] = "CODY_effects";
 constexpr uint32_t kBootRiseCue = 0x43430000U;
 constexpr size_t kBootRiseSamples = 39690; // 1.8 seconds at the asset's authored 22.05 kHz.
 constexpr uint32_t kTapCue = 0x4343FF01U; // Local feedback within the shared application cue channel.
+constexpr uint32_t kKeyCue = 0x4343FF02U;
+constexpr uint32_t kWakeCue = 0x4343FF03U;
+constexpr uint32_t kJumpCue = 0x4343FF04U;
 constexpr uint32_t kTapRateHz = 16000;
 constexpr size_t kTapSamples = 480;
 constexpr int64_t kDisconnectDwellUs = 3000000;
@@ -53,6 +56,34 @@ constexpr std::array<int16_t, kTapSamples> make_tap_cue()
 }
 
 constexpr auto kTapPcm = make_tap_cue();
+// No parameters: a short decaying 1 kHz triangle chime, authored at 16 kHz.
+constexpr std::array<int16_t, 1920> make_wake_cue()
+{
+    std::array<int16_t, 1920> samples{};
+    for (int index = 0; index < 1920; ++index) {
+        const int phase = index % 16;
+        const int triangle = phase < 8 ? phase * 2 - 8 : 24 - phase * 2;
+        const int attack = index < 32 ? index : 32;
+        samples[index] = static_cast<int16_t>(triangle * 80 * attack * (1919 - index) / (32 * 1919));
+    }
+    return samples;
+}
+constexpr auto kWakePcm = make_wake_cue();
+// No parameters: a compact ascending arcade jump at the shared 16 kHz clock.
+constexpr std::array<int16_t, 2400> make_jump_cue()
+{
+    std::array<int16_t, 2400> samples{};
+    int phase = 0;
+    for (int index = 0; index < 2400; ++index) {
+        phase += 500 + index / 3;
+        if (phase >= 16000) phase -= 16000;
+        const int triangle = phase < 8000 ? phase - 4000 : 12000 - phase;
+        const int attack = index < 32 ? index : 32;
+        samples[index] = static_cast<int16_t>(triangle * attack * (2399 - index) / (32 * 2399));
+    }
+    return samples;
+}
+constexpr auto kJumpPcm = make_jump_cue();
 static_assert(kTapSamples * 1000U / kTapRateHz == 30U && kTapPcm.front() == 0 && kTapPcm.back() == 0,
     "The tap is 30 ms of mono PCM16 with silent boundaries");
 
@@ -559,6 +590,82 @@ void play_device_tap_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapsh
         ESP_LOGW(kTag, "Tap cue admission failed (%s)", esp_err_to_name(error));
     }
     model.tap_audio_error = error;
+}
+
+// model: Retains optional admission failures without waiting for the speaker.
+// voice: Current canonical voice observation, or null when voice is excluded.
+void play_device_key_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice)
+{
+    if (!model.prepared || model.preparation_error != ESP_OK) return;
+    if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
+            !voice_sound_state_known(*voice, esp_timer_get_time()))) return;
+    lunashell_audio_cue_status_t status{};
+    const auto error = LUNASHELL_audio_notify_codex(kTapPcm.data(), 320, kTapRateHz,
+        kKeyCue, LUNASHELL_CODEX_CUE_NOTICE, &status);
+    if (error != ESP_OK && error != model.tap_audio_error) {
+        ESP_LOGW(kTag, "Keyboard cue admission failed (%s)", esp_err_to_name(error));
+    }
+    model.tap_audio_error = error;
+}
+
+// model: Retains the optional wake chime's admission result.
+// voice: Current voice observation, or null where voice is excluded.
+void play_device_wake_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice)
+{
+    if (!model.prepared || model.preparation_error != ESP_OK) return;
+    if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
+            !voice_sound_state_known(*voice, esp_timer_get_time()))) return;
+    lunashell_audio_cue_status_t status{};
+    const auto error = LUNASHELL_audio_notify_codex(kWakePcm.data(), kWakePcm.size(), kTapRateHz,
+        kWakeCue, LUNASHELL_CODEX_CUE_NOTICE, &status);
+    if (error != ESP_OK && error != model.wake_audio_error) {
+        ESP_LOGW(kTag, "Wake cue admission failed (%s)", esp_err_to_name(error));
+    }
+    model.wake_audio_error = error;
+}
+
+// model: Retains the jump cue's admission result without changing the pet state.
+// voice: Current voice observation, or null when voice is excluded.
+void play_device_jump_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice)
+{
+    if (!model.prepared || model.preparation_error != ESP_OK) return;
+    if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
+            !voice_sound_state_known(*voice, esp_timer_get_time()))) return;
+    lunashell_audio_cue_status_t status{};
+    const auto error = LUNASHELL_audio_notify_codex(kJumpPcm.data(), kJumpPcm.size(), kTapRateHz,
+        kJumpCue, LUNASHELL_CODEX_CUE_NOTICE, &status);
+    if (error != ESP_OK && error != model.jump_audio_error) {
+        ESP_LOGW(kTag, "Jump cue admission failed (%s)", esp_err_to_name(error));
+    }
+    model.jump_audio_error = error;
+}
+
+// model: Receives the optional icon cue's original admission error.
+// symbol: One newly presented overlay, never a fabricated assistant event.
+// voice: Current voice observation used to avoid interrupting capture.
+void play_device_symbol_cue(DeviceEffectsModel &model, MuseSymbol symbol, const LUNASHELL::VoiceSnapshot *voice)
+{
+    if (!model.prepared || model.preparation_error != ESP_OK || symbol == MuseSymbol::None) return;
+    if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
+            !voice_sound_state_known(*voice, esp_timer_get_time()))) return;
+    CodexAudioCue cue = CodexAudioCue::None;
+    switch (symbol) {
+    case MuseSymbol::Question: cue = CodexAudioCue::Question; break;
+    case MuseSymbol::Exclamation: cue = CodexAudioCue::ApprovalRequired; break;
+    case MuseSymbol::Idea: cue = CodexAudioCue::ResponseReady; break;
+    case MuseSymbol::Thinking: cue = CodexAudioCue::Reading; break;
+    case MuseSymbol::Heart: cue = CodexAudioCue::AnswerReceived; break;
+    case MuseSymbol::Sweat: cue = CodexAudioCue::Interrupted; break;
+    case MuseSymbol::Tension: cue = CodexAudioCue::ChecksFailed; break;
+    case MuseSymbol::Sleep: cue = CodexAudioCue::SessionEnded; break;
+    case MuseSymbol::None: case MuseSymbol::Count: return;
+    }
+    CodexAudioStatus status{};
+    const auto error = notify_codex_audio(cue, status);
+    if (error != ESP_OK && error != model.symbol_audio_error) {
+        ESP_LOGW(kTag, "Muse icon cue %u failed (%s)", static_cast<unsigned>(symbol), esp_err_to_name(error));
+    }
+    model.symbol_audio_error = error;
 }
 
 // model: Retained effect identities and canonical projection scratch, never a scene-owned cache.

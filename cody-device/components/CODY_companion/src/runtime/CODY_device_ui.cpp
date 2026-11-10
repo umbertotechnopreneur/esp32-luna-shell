@@ -151,6 +151,7 @@ struct DeviceUi {
 
     CODY::DeviceView view{};
     CODY::PixelDemoView pixel_demo{kMuseViewport};
+    CODY::MuseSymbol announced_symbol = CODY::MuseSymbol::None;
     int64_t muse_frame_due_us = 0;
     CODY::CodexPanelView codex_panel{};
     CODY::CodexBrowser codex_browser{};
@@ -1407,7 +1408,11 @@ void play_touch_cue(DeviceUi &ui)
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     voice = &ui.model.voice;
 #endif
-    CODY::play_device_tap_cue(ui.model.effects, voice);
+    if (ui.retired.layer == Layer::Scene && CODY::onboarding_wifi_keyboard_active()) {
+        CODY::play_device_key_cue(ui.model.effects, voice);
+    } else {
+        CODY::play_device_tap_cue(ui.model.effects, voice);
+    }
 }
 
 // No parameters: read touch and dispatch it only to the retired visible route.
@@ -1439,7 +1444,7 @@ esp_err_t sample_touch()
     const CODY2D::Point point{static_cast<int16_t>(sample.x), static_cast<int16_t>(sample.y)};
     if (pressed_edge) {
         LUNASHELL_power_manager_note_activity();
-        if (ui.retired.layer != Layer::Mascot) play_touch_cue(ui);
+        play_touch_cue(ui);
     }
     if (ui.model.screensaver.phase == CODY::ScreensaverPhase::Visible || ui.retired.layer == Layer::Screensaver) {
         CODY::dismiss_screensaver(ui.model.screensaver, esp_timer_get_time());
@@ -1483,7 +1488,6 @@ esp_err_t sample_touch()
             ui.home_menu = {};
             ui.home_menu_opacity = 0;
             ui.mascot_home = false;
-            play_touch_cue(ui);
             invalidate();
             return ESP_OK;
         }
@@ -1497,7 +1501,6 @@ esp_err_t sample_touch()
             }
             CODY::start_pixel_demo_reaction(ui.pixel_demo);
             if (ui.pixel_demo.elapsed_us >= CODY::kPixelDemoWakingUs) ui.home_menu.interact(esp_timer_get_time());
-            play_touch_cue(ui);
         }
         return ESP_OK;
     }
@@ -1767,7 +1770,15 @@ esp_err_t apply_command(Command command)
 #endif
         if (error == ESP_OK) error = prepare_current_view(frame, esp_timer_get_time());
     }
-    return error == ESP_OK ? render(frame, true) : error;
+    if (error == ESP_OK) error = render(frame, true);
+    if (error == ESP_OK && command == Command::Wake) {
+        const LUNASHELL::VoiceSnapshot *voice = nullptr;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        voice = &ui.model.voice;
+#endif
+        CODY::play_device_wake_cue(ui.model.effects, voice);
+    }
+    return error;
 }
 
 // command: Serialized request from the startup or power owner.
@@ -1856,6 +1867,19 @@ esp_err_t update_and_draw(int64_t now_us)
     FrameView frame{};
     error = prepare_current_view(frame, frame_now_us, navigation.motion_error);
     if (error == ESP_OK) error = render(frame);
+    if (error == ESP_OK && ui.retired.valid && ui.retired.layer == Layer::Mascot) {
+        const auto symbol = ui.pixel_demo.retired_symbol;
+        if (symbol != ui.announced_symbol) {
+            ui.announced_symbol = symbol;
+            const LUNASHELL::VoiceSnapshot *voice = nullptr;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+            voice = &ui.model.voice;
+#endif
+            CODY::play_device_symbol_cue(ui.model.effects, symbol, voice);
+        }
+    } else if (error == ESP_OK) {
+        ui.announced_symbol = CODY::MuseSymbol::None;
+    }
 #if CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
     if (debug_result == ESP_OK) {
         const bool matched = (debug.screen == LUNASHELL::CodexDebugScreen::Character) ==
@@ -2001,6 +2025,8 @@ extern "C" esp_err_t CODY_companion_start(void)
     // The acquisition owner has initialized the codec; prepare its shared notification worker.
     // A failed optional sound worker does not remove pairing or power controls.
     (void)CODY::prepare_device_effects(s_ui->model.effects);
+    // The codec and saved sound settings are ready here; do not wait for branding.
+    if (esp_reset_reason() != ESP_RST_DEEPSLEEP) (void)CODY::play_device_boot_cue(s_ui->model.effects);
     s_ui->first_boot = settings.effective_first_boot;
     CODY::WidgetVisibility visibility{};
     s_ui->model.settings_error = CODY::load_widget_visibility(visibility);

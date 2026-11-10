@@ -127,6 +127,7 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
     view.visible = true;
 
     const auto pose = view.showcase.sample(view.elapsed_us / 1000U);
+    view.prepared_symbol = pose.symbol;
     uint32_t reaction_ms = kPixelAvatarReactionMs;
     if (view.reaction_active) {
         const uint64_t elapsed_ms = (view.elapsed_us - view.reaction_started_us) / 1000U;
@@ -174,6 +175,7 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
 // view: Fully retired mascot frame whose grid becomes the damage baseline.
 void retire_pixel_demo(PixelDemoView &view)
 {
+    view.retired_symbol = view.prepared_symbol;
     view.retired_viewport = view.visual_viewport;
     view.write_buffer = static_cast<uint8_t>(1U - view.write_buffer);
     view.retired_valid = true;
