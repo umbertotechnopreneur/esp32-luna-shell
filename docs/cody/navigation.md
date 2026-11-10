@@ -5,7 +5,12 @@
 ## Start and connect
 
 The VibeWare floppy animation plays once after a cold boot or software reset.
-The first device route starts with the saved network and pairing state.
+The display then shows Muse waking and settling into its idle animation. Tap
+the character to trigger its reaction and the optional Cody touch sound.
+Press BOOT to open Options and choose Connections or the statistics screens.
+If setup is already active, BOOT reveals that journey. Home returns to Muse.
+
+Connection status follows the saved network and pairing state.
 
 | Current state | Device route |
 | --- | --- |

@@ -48,7 +48,7 @@ constexpr uint32_t kReadyTimeoutMs = kPowerTimeoutMs + VIBEWARE_BOOT_DURATION_MS
 constexpr uint32_t kWorkerStackBytes = 12288;
 
 enum class Layer : uint8_t {
-    Branding, Message, Scene, Dashboard, AboutLink, Visibility, Timer, Voice, Diagnostics,
+    Branding, Mascot, Message, Scene, Dashboard, AboutLink, Visibility, Timer, Voice, Diagnostics,
     VoucherWarning, Events, CurrentTurn, EventReply, Screensaver, Blank
 };
 enum class Command : uint8_t { Ready = 1, Sleep, Wake, Shutdown, ShutdownFailed };
@@ -73,7 +73,6 @@ struct FrameView {
     uint8_t connection_activity_phase = 0;
     bool arrows = false;
     bool statistics_unavailable = false;
-    bool pixel_demo = false;
 };
 
 struct RetiredFrame {
@@ -92,7 +91,6 @@ struct RetiredFrame {
     bool valid = false;
     CODY2D::Rect voucher_bounds{};
     int64_t voice_ribbon_at_us = 0;
-    bool pixel_demo = false;
 };
 
 struct DeviceUi {
@@ -138,6 +136,7 @@ struct DeviceUi {
     bool diagnostics = false;
     bool timer_open = false;
     bool first_boot = false;
+    bool mascot_home = false;
 };
 
 // Data is owned by the display worker and stays off its stack and the DMA heap.
@@ -190,7 +189,8 @@ using VoicePhase = LUNASHELL::VoiceInputPhase;
 // ui: Current route and its display-owned overlays. The same route is retained through standby.
 bool voice_route_available(const DeviceUi &ui)
 {
-    return CODY::onboarding_dashboard_active() && !ui.model.editing && !ui.timer_open && !ui.diagnostics &&
+    return !ui.mascot_home && CODY::onboarding_dashboard_active() &&
+        !ui.model.editing && !ui.timer_open && !ui.diagnostics &&
         ui.activity_page != ActivityPage::Reply && ui.model.screensaver.phase != CODY::ScreensaverPhase::Visible &&
         !(ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::ProjectLink) &&
         !s_options_requested.load(std::memory_order_acquire);
@@ -288,7 +288,7 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         ui.model.dashboard.connection_valid, ui.model.battery_banner, voice, now_us,
         CODY::onboarding_saved_wifi_startup_offline(now_us));
     if (!tracking_alarm) CODY::update_local_timer_alarm(timer, now_us, voice_busy);
-    const bool voucher_attention_allowed = CODY::onboarding_dashboard_active() &&
+    const bool voucher_attention_allowed = !ui.mascot_home && CODY::onboarding_dashboard_active() &&
         !ui.model.editing && !ui.diagnostics && !ui.timer_open && !voice_busy &&
         !CODY::device_effects_require_attention(ui.model.effects) && ui.model.battery_banner.sequence == 0 &&
         !(ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::ProjectLink);
@@ -300,7 +300,8 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
             ui.model.vouchers.warning_expiry = expiry;
         }
     }
-    const bool saver_eligible = CODY::onboarding_dashboard_active() && !ui.model.editing && !ui.diagnostics &&
+    const bool saver_eligible = !ui.mascot_home && CODY::onboarding_dashboard_active() &&
+        !ui.model.editing && !ui.diagnostics &&
         !ui.timer_open && !voice_busy &&
         ui.model.vouchers.warning_expiry == 0 &&
         !CODY::device_effects_require_attention(ui.model.effects) && ui.model.battery_banner.sequence == 0 &&
@@ -337,6 +338,11 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         return CODY::prepare_widget_visibility_view(ui.model.editor_page, ui.model.widgets.visibility,
             ui.model.save == Save::Pending, ui.model.save == Save::Failed, ui.model.settings_error != ESP_OK,
             CODY::SceneData::title_font, CODY::SceneData::body_font, ui.editor, frame.presentation.content);
+    }
+    const bool mascot_waking = ui.pixel_demo.elapsed_us < CODY::kPixelDemoWakingUs;
+    if (ui.mascot_home && (mascot_waking || !CODY::device_effects_require_attention(ui.model.effects))) {
+        frame.layer = Layer::Mascot;
+        return CODY::prepare_pixel_demo(ui.pixel_demo, ui.awake_us, frame.presentation.content);
     }
     if (CODY::onboarding_dashboard_active()) {
         auto &model = ui.model;
@@ -411,13 +417,6 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         const auto vouchers = screen == WidgetScreen::Credits ? CODY::project_device_voucher_list(model) : CODY::VoucherList{};
         const auto error = CODY::prepare_device_dashboard(ui.view, frame.presentation,
             screen, model.interval, model.dashboard, now_us, vouchers);
-        if (error == ESP_OK && screen == WidgetScreen::Device) {
-            // Creamwork 3 replaces only the Device content; its existing action and navigation survive.
-            const auto demo_error = CODY::prepare_pixel_demo(ui.pixel_demo, ui.view.overview.record,
-                ui.awake_us, frame.presentation.content);
-            if (demo_error != ESP_OK) return demo_error;
-            frame.pixel_demo = true;
-        }
         if (error == ESP_OK) return ESP_OK;
         // An optional data provider must leave navigation and power controls usable.
         if (!ui.retired.statistics_unavailable) {
@@ -443,7 +442,7 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
 esp_err_t render(const FrameView &frame, bool force = false)
 {
     auto &ui = *s_ui;
-    if (!frame.pixel_demo) CODY::hide_pixel_demo(ui.pixel_demo);
+    if (frame.layer != Layer::Mascot) CODY::hide_pixel_demo(ui.pixel_demo);
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     // Standby retains the route so an eligible dashboard can still wake by voice.
     const bool keep_voice_route = frame.layer == Layer::Blank && voice_route_available(ui);
@@ -458,7 +457,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const bool show_connection = (frame.layer == Layer::Dashboard && screen != WidgetScreen::Device) ||
         frame.layer == Layer::AboutLink || frame.layer == Layer::VoucherWarning;
     const bool show_battery = frame.layer != Layer::Blank && frame.layer != Layer::Branding &&
-        frame.layer != Layer::Screensaver;
+        frame.layer != Layer::Screensaver && frame.layer != Layer::Mascot;
     const auto saved_epoch = frame.layer == Layer::Dashboard && !frame.statistics_unavailable
         ? CODY::device_saved_page_epoch(ui.model.dashboard, screen) : 0;
     const auto chrome_error = CODY::prepare_device_chrome(ui.view.chrome, ui.model.dashboard, show_connection,
@@ -473,7 +472,6 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const int8_t battery_percent = battery_current ? static_cast<int8_t>(battery.level_percent) : -1;
     const bool full = force || !old.valid || old.display_revision != revision ||
         old.layer != frame.layer || old.screen != screen ||
-        old.pixel_demo != frame.pixel_demo ||
         old.allowance != allowance || old.battery_percent != battery_percent ||
         old.statistics_unavailable != frame.statistics_unavailable ||
         (frame.layer == Layer::Scene && ui.scene_dirty);
@@ -489,7 +487,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const bool connection_changed = old.connection_revision != chrome.connection_revision;
     const bool connection_activity_changed = old.connection_activity_phase != frame.connection_activity_phase;
     const bool voice_ribbon_changed = old.voice_ribbon_at_us != frame.voice_ribbon_at_us;
-    const bool pixel_demo_changed = frame.pixel_demo && !ui.pixel_demo.damage.empty();
+    const bool pixel_demo_changed = frame.layer == Layer::Mascot && !ui.pixel_demo.damage.empty();
     if (!full && !content_changed && !navigation_changed && !battery_changed && !connection_changed &&
         !connection_activity_changed && !voice_ribbon_changed && !pixel_demo_changed) {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
@@ -608,8 +606,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
     old.voucher_bounds = frame.layer == Layer::Dashboard && screen == WidgetScreen::Credits &&
         !frame.statistics_unavailable ? ui.view.account.voucher_bounds : CODY2D::Rect{};
     old.voice_ribbon_at_us = frame.voice_ribbon_at_us;
-    old.pixel_demo = frame.pixel_demo;
-    if (frame.pixel_demo) CODY::retire_pixel_demo(ui.pixel_demo);
+    if (frame.layer == Layer::Mascot) CODY::retire_pixel_demo(ui.pixel_demo);
     if (frame.layer == Layer::Scene) {
         ui.completed_scene = ui.scene;
         ui.scene_dirty = false;
@@ -860,6 +857,18 @@ esp_err_t activate(Target target)
     return ESP_OK;
 }
 
+// ui: Retained audio and timer state owned by the display worker.
+void play_touch_cue(DeviceUi &ui)
+{
+    const auto alarm = ui.model.timer.alarm;
+    if (alarm == CODY::LocalTimerAlarm::Pending || alarm == CODY::LocalTimerAlarm::Playing) return;
+    const LUNASHELL::VoiceSnapshot *voice = nullptr;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    voice = &ui.model.voice;
+#endif
+    CODY::play_device_tap_cue(ui.model.effects, voice);
+}
+
 // No parameters: read touch and dispatch it only to the retired visible route.
 // Exception: Returns a mandatory input acquisition or route error.
 esp_err_t sample_touch()
@@ -886,14 +895,7 @@ esp_err_t sample_touch()
     if (sample.pressed || pressed_edge) ui.model.navigation.interact(esp_timer_get_time());
     if (pressed_edge) {
         LUNASHELL_power_manager_note_activity();
-        const auto alarm = ui.model.timer.alarm;
-        if (alarm != CODY::LocalTimerAlarm::Pending && alarm != CODY::LocalTimerAlarm::Playing) {
-            const LUNASHELL::VoiceSnapshot *voice = nullptr;
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-            voice = &ui.model.voice;
-#endif
-            CODY::play_device_tap_cue(ui.model.effects, voice);
-        }
+        if (ui.retired.layer != Layer::Mascot) play_touch_cue(ui);
     }
     if (ui.model.screensaver.phase == CODY::ScreensaverPhase::Visible || ui.retired.layer == Layer::Screensaver) {
         CODY::dismiss_screensaver(ui.model.screensaver, esp_timer_get_time());
@@ -902,12 +904,13 @@ esp_err_t sample_touch()
         invalidate();
         return ESP_OK;
     }
-    const auto demo_contact = sample.pressed ? target_at(point) : ui.contact;
-    const bool demo_passive_contact = demo_contact == Target::None || demo_contact == Target::VoiceGesture;
-    CODY::observe_pixel_demo_touch(ui.pixel_demo, point, sample.pressed, pressed_edge,
-        sample.sample_timestamp_us, ui.retired.display_revision,
-        ui.retired.pixel_demo && demo_passive_contact);
-    // The demo only observes: the existing release, swipe and voice handlers still own the gesture.
+    if (ui.retired.layer == Layer::Mascot) {
+        if (CODY::observe_pixel_demo_touch(ui.pixel_demo, point, sample.pressed, pressed_edge,
+                sample.sample_timestamp_us, ui.retired.display_revision)) {
+            play_touch_cue(ui);
+        }
+        return ESP_OK;
+    }
     if (ui.retired.layer == Layer::Scene) {
         if (ui.retired.navigation_opacity != 255 && CODY::onboarding_lateral_control_at(point)) {
             CODY::cancel_onboarding_touch();
@@ -1009,6 +1012,8 @@ esp_err_t update_navigation()
         ui.model.vouchers.warning_expiry = 0;
         CODY::dismiss_screensaver(ui.model.screensaver, esp_timer_get_time());
         ui.diagnostics = false;
+        // A busy setup route can decline Options. Reveal that route so pairing remains reachable.
+        ui.mascot_home = false;
         const esp_err_t error = CODY::open_companion_options(ui.scene);
         if (error != ESP_OK) return error;
         if (!already_open && ui.scene.valid && ui.scene.definition->id == CODY::SceneId::MakeItYours) {
@@ -1023,6 +1028,7 @@ esp_err_t update_navigation()
         const auto error = CODY::open_device_dashboard(ui.scene);
         if (error == ESP_ERR_NOT_FINISHED) break;
         if (error != ESP_OK) return error;
+        ui.mascot_home = request == CODY::WidgetOpenRequest::Home;
         if (request == CODY::WidgetOpenRequest::Statistics) {
             select_statistics();
         } else {
@@ -1077,7 +1083,8 @@ esp_err_t update_navigation()
 esp_err_t apply_standby_override()
 {
     auto &ui = *s_ui;
-    const uint32_t seconds = !ui.asleep && ui.scene.valid && !CODY::onboarding_dashboard_active()
+    const bool scene_visible = !ui.mascot_home || (ui.retired.valid && ui.retired.layer == Layer::Scene);
+    const uint32_t seconds = !ui.asleep && scene_visible && ui.scene.valid && !CODY::onboarding_dashboard_active()
         ? ui.scene.definition->standby_override_seconds : 0;
     if (seconds == ui.standby_override) return ESP_OK;
     const auto error = LUNASHELL_power_manager_set_scene_standby_override(seconds);
@@ -1104,6 +1111,7 @@ esp_err_t apply_command(Command command)
         select_statistics();
         ui.statistics_entry = false;
         ui.activity_page = ActivityPage::Events;
+        ui.mascot_home = true;
     }
     if (command == Command::Sleep || command == Command::Shutdown) {
         ui.model.effects.event_sound = {};
@@ -1195,7 +1203,7 @@ esp_err_t update_and_draw(int64_t now_us)
 #endif
     if (error != ESP_OK) return error;
     const auto navigation = CODY::update_device_navigation(ui.model, now_us);
-    bool may_return_home = navigation.shaken && CODY::onboarding_dashboard_active() &&
+    bool may_return_home = navigation.shaken && !ui.mascot_home && CODY::onboarding_dashboard_active() &&
         !ui.model.editing && !ui.timer_open && !ui.diagnostics;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     may_return_home = may_return_home && !voice_visible(now_us);
@@ -1325,7 +1333,7 @@ void device_ui_worker(void *context)
             wait_ms = static_cast<uint32_t>(CODY::kScreensaverFrameUs / 1000);
         } else if (animating) {
             wait_ms = 33;
-        } else if (ui.retired.valid && ui.retired.pixel_demo) {
+        } else if (ui.retired.valid && ui.retired.layer == Layer::Mascot) {
             wait_ms = CODY::kPixelAvatarFrameMs;
         }
         const auto wait = LUNASHELL_touch_wait_for_report(wait_ms);

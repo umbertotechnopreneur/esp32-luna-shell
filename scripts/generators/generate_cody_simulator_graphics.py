@@ -19,6 +19,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -37,6 +38,8 @@ SOURCES = (
     "cody-device/simulator/native/CODY_host_standby.cpp",
     "cody-device/simulator/native/CODY_host_snapshot.cpp",
     "cody-device/simulator/native/CODY_host_boot_branding.cpp",
+    "cody-device/simulator/native/CODY_host_muse.cpp",
+    "cody-device/components/CODY_companion/src/rendering/CODY_pixel_avatar.cpp",
     "cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_codex_events.cpp",
     "cody-device/components/LUNASHELL_platform/src/network/LUNASHELL_codex_transaction.cpp",
     "cody-device/components/LUNASHELL_platform/src/power/LUNASHELL_standby_resources.cpp",
@@ -70,10 +73,13 @@ SOURCES = (
     "cody-device/assets/cody/scenes/generated/scene_font.cpp",
     "cody-device/assets/cody/scenes/generated/scene_body_font.cpp",
 )
+MUSE_DIR = "cody-device/components/CODY_companion/third_party/muse"
+MUSE_SOURCE = f"{MUSE_DIR}/muse_pixel.c"
 INCLUDES = (
     "cody-device/simulator/native/platform",
     "cody-device/components/CODY2D/include",
     "cody-device/components/CODY_companion/include",
+    MUSE_DIR,
     "cody-device/components/CODY_companion/src/scenes",
     "cody-device/components/LUNASHELL_boot/include",
     "cody-device/components/LUNASHELL_platform/include",
@@ -99,7 +105,7 @@ def digest(path):
 # No parameters: gathers compiled sources, production headers and authored catalogs.
 # Raises OSError for unreadable source trees or missing required inputs.
 def source_provenance():
-    paths = {ROOT / source for source in SOURCES}
+    paths = {ROOT / source for source in (*SOURCES, MUSE_SOURCE)}
     for directory in INCLUDES:
         paths.update(path for path in (ROOT / directory).rglob("*")
                      if path.is_file() and path.suffix in (".h", ".hpp"))
@@ -118,6 +124,18 @@ def source_provenance():
     return {path.relative_to(ROOT).as_posix(): digest(path) for path in sorted(paths)}
 
 
+# compiler: Existing native host driver.
+# output: Artifact-owned temporary object to link into the C++ library.
+def muse_compile_command(compiler, output):
+    source = str(ROOT / MUSE_SOURCE)
+    include = str(ROOT / MUSE_DIR)
+    if Path(compiler).stem.lower() == "cl":
+        return [compiler, "/nologo", "/TC", "/std:c11", "/O2", "/MD", "/c",
+                f"/I{include}", source, f"/Fo{output}"]
+    return [compiler, "-x", "c", "-std=c11", "-O2", "-fPIC", "-c",
+            f"-I{include}", source, "-o", str(output)]
+
+
 # argv: Optional existing compiler selection and explicit cache rebuild request.
 # Raises original compiler, file, timeout or build errors; no simulator is executed.
 def main(argv=None):
@@ -131,21 +149,30 @@ def main(argv=None):
     compiler = resolve_compiler(args.compiler) if args.compiler else prepare_host_compiler()
     inputs = source_provenance()
     output.mkdir(parents=True, exist_ok=True)
-    command = compile_command(compiler, INCLUDES, SOURCES, library, DEFINITIONS, cxx_standard=20)
+    muse_object = output / "muse_pixel.obj"
+    muse_command = muse_compile_command(compiler, muse_object)
+    command = compile_command(compiler, INCLUDES, (*SOURCES, muse_object), library, DEFINITIONS, cxx_standard=20)
     command += simulator_library_flags(compiler, library)
+    commands = [muse_command, command]
     # A cached library is usable only when both its sources and its binary agree.
     if not args.force and manifest_path.is_file() and library.is_file():
         previous = json.loads(manifest_path.read_text(encoding="utf-8"))
         if (previous.get("schema") == "cody.host-graphics.v1" and
-                previous.get("inputs") == inputs and previous.get("command") == command and
+                previous.get("inputs") == inputs and previous.get("command") == commands and
                 previous.get("library_sha256") == digest(library)):
             print(f"Cody C++ graphics driver already current: {library}")
             return
     # Retire provenance before rebuilding so a failed compiler cannot expose old output.
     manifest_path.unlink(missing_ok=True)
-    run_stage(command, output, "compile")
+    try:
+        result = subprocess.run(muse_command, cwd=ROOT, capture_output=True, text=True, timeout=240)
+        if result.returncode != 0:
+            raise RuntimeError(f"Muse C compilation failed ({result.returncode}):\n{result.stdout}{result.stderr}")
+        run_stage(command, output, "compile")
+    finally:
+        muse_object.unlink(missing_ok=True)
     manifest = {"schema": "cody.host-graphics.v1", "inputs": inputs,
-                "command": command, "library_sha256": digest(library)}
+                "command": commands, "library_sha256": digest(library)}
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     print(f"Cody C++ graphics driver compiled: {library}")
 

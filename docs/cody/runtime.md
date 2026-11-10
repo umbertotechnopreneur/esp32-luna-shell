@@ -6,15 +6,15 @@ The model owns the selected screen, visibility policy, gestures and acquired
 projections. The renderer owns prepared glyphs, layouts and the last retired
 frame. Partial writes never become the next displayed-state reference.
 
-Cold startup retires the original VibeWare animation before entering pairing
-or reconnection. PWR hands display ownership to the power service for standby.
+Cold startup retires the VibeWare animation before presenting Muse. The wake,
+idle and tap animations use Muse's procedural renderer. The Cody display worker
+handles touch and requests the existing touch sound. PWR hands display ownership to the power service for standby.
 An authenticated question or Chat waiting event can wake software standby when
 the LAN link remains available. Optional audio follows Sounds and quiet hours.
 See [navigation](navigation.md) for current device routes.
 
-The sections below also describe the shared transport, power and audio contracts
-and the character authoring paths available in Studio. The device-first image
-excludes character presentation and its assets.
+The sections below also describe the shared transport, power and audio
+contracts and the older character authoring paths in Studio.
 
 ## Minimal character direction
 

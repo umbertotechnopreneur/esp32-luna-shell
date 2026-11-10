@@ -69,7 +69,6 @@ def replacements(name):
     return {
         "cody-navigation-atlas-v1.pdf": {2: BOOT, 3: NETWORK, 4: SETUP, 12: PREFERENCES},
         "cody-planning-atlas-v1.pdf": {4: BOOT, 5: NETWORK, 6: Page("Finish Wi-Fi without inventing success", NETWORK.subtitle, NETWORK.sections), 7: PREFERENCES, 8: PAIRING},
-        "cody-manga-status-atlas-v1.pdf": {2: Page("Identity before expressive cues", "Current boot and setup context / the fourteen cue identities remain stable.", (BOOT.sections[0], ("Cues respect the route", "Boot, onboarding, settings and small headers suppress manga symbols. Main/Idle and semantic Sleep keep their existing cue rules. Preferences and pairing do not fabricate device health or replace canonical snapshot data.")), ("boot",))},
     }[name]
 
 
@@ -281,8 +280,7 @@ def main(argv=None):
     register_fonts(Path("C:/Windows/Fonts"))
     # This historical revision targets only its three original editable atlases.
     # The canonical communication atlas and four-page flyer have dedicated owners.
-    names = ("cody-navigation-atlas-v1.pdf", "cody-planning-atlas-v1.pdf",
-             "cody-manga-status-atlas-v1.pdf")
+    names = ("cody-navigation-atlas-v1.pdf", "cody-planning-atlas-v1.pdf")
     originals = {}
     if args.redraft:
         manifest_bytes = (staging / "manifest.json").read_bytes()

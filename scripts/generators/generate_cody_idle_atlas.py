@@ -14,7 +14,7 @@
 #
 # VBWR E
 
-"""Append idle-scene design pages while retaining both existing Cody atlases."""
+"""Append idle-scene design pages while retaining the existing Cody navigation atlas."""
 
 from io import BytesIO
 from pathlib import Path
@@ -164,50 +164,6 @@ def cody_frame(document, x, y, diameter, mouth_open=.04, mouth_width=.72,
 
 
 # document: Current canvas.
-# start: Page number assigned to the first appended page.
-def manga_pages(document, start):
-    page_frame(document, "Small moments while Cody waits", "Four presentations within screen 16 / Idle. Cody remains front-facing.", start, "MANGA STATUS")
-    rows = [
-        ("IS01 / Breathing", "One continuous breathing clock. A visible mouth pulse remains under stress.",
-         ((.026, .72, 1, 0), (.235, .76, 1, 0), (.026, .72, 1, 0)), ("Exhale", "Inhale", "Exhale")),
-        ("IS02 / Yawn", "Eyes soften and the mouth opens widely, then returns to the base face. Silent.",
-         ((.04, .72, 1, 0), (.86, .72, .25, 0), (.04, .72, 1, 0)), ("Rest", "Yawn peak", "Return")),
-        ("IS03 / Whistle", "Small pursed mouth. One original 300-ms two-note whistle at the visible peak.",
-         ((.04, .72, 1, 0), (.24, .42, 1, 0), (.04, .72, 1, 0)), ("Prepare", "Purse + sound", "Return")),
-        ("IS04 / Greeting", "A friendly smile, right-eye wink and cheek lift. A quiet hello with no new route.",
-         ((.04, .72, 1, 0), (.65, 1.1, 1, .65), (.04, .72, 1, 0)), ("Notice", "Hello / wink", "Return")),
-    ]
-    for row, (name, copy, frames, captions) in enumerate(rows):
-        top_y = 117 + row * 104
-        text(document, name, 36, top_y + 18, 11, BLUE, "MonoBold")
-        paragraph(document, copy, 36, top_y + 40, 205, 9.5)
-        for column, (frame, caption) in enumerate(zip(frames, captions)):
-            frame_x = 272 + column * 180
-            cody_frame(document, frame_x, top_y, 82, *frame)
-            text(document, caption, frame_x, top_y + 96, 9)
-    document.showPage()
-
-    page_frame(document, "Keep the breath readable under stress", "Stronger opening and closing; preserve the selected expression and the existing rhythm.", start + 1, "MANGA STATUS")
-    cody_frame(document, 46, 128, 150, 0, .5, .48, stressed=True)
-    cody_frame(document, 234, 128, 150, .22, .55, .48, stressed=True)
-    text(document, "Stressed / exhale", 46, 301, 10, INK, "MonoBold")
-    text(document, "Stressed / inhale", 234, 301, 10, INK, "MonoBold")
-    paragraph(document, "The stressed preset begins with a closed mouth. The revised pulse opens it to 0.22 on inhalation, even with no motion-derived stress contribution. These are illustrative channel extremes, not rendered firmware frames.", 46, 333, 343, 11)
-    rules = [
-        ("Visible breathing", "Exhalation closes 35% of the current opening; inhalation uses 16-22% of the remaining range. Closed expressions receive the extra boost. Width pulses by 4.5%."),
-        ("A quiet random rhythm", "Wait 20-40 active seconds in eligible Idle. After a scene, cool down for 40 seconds and then wait again. Never repeat the last selected gesture."),
-        ("One character, one route", "Each gesture lasts the authored 3.2 seconds. Body placement, skin, circular clipping and route history remain owned by the existing renderer."),
-        ("Device facts take priority", "Current device cues and interactions suppress idle gestures. The three gestures are artistic accents and add no fabricated measurements or C01-C14 status meanings."),
-    ]
-    y = 132
-    for heading, copy in rules:
-        text(document, heading, 429, y, 12, BLUE, "BodyBold")
-        y = paragraph(document, copy, 429, y + 24, 365, 10.5) + 25
-    paragraph(document, "Canvas 466 x 466; center (233,233), radius 233. Safe square [73,393) x [73,393). IS01-IS04 are document labels. Runtime gesture IDs are typed identities, not screen numbers. No additional controls or touch targets.", 46, 514, W - 92, 10)
-    document.showPage()
-
-
-# document: Current canvas.
 # x: Left edge in points.
 # y: Top edge in points.
 # width: Panel width.
@@ -296,8 +252,7 @@ def main():
                        ("BodyBold", Path(r"C:/Windows/Fonts/segoeuib.ttf"))):
         pdfmetrics.registerFont(TTFont(name, str(file)))
     results = []
-    for name, kind, make_pages in (("cody-manga-status-atlas-v1.pdf", "MANGA STATUS", manga_pages),
-                                   ("cody-navigation-atlas-v1.pdf", "NAVIGATION", navigation_pages)):
+    for name, kind, make_pages in (("cody-navigation-atlas-v1.pdf", "NAVIGATION", navigation_pages),):
         target = ATLAS / name
         original = PdfReader(target)
         if any(MARKER in (page.extract_text() or "") for page in original.pages):

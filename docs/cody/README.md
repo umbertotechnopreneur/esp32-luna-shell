@@ -18,9 +18,8 @@ persistence, power and authenticated transport.
 Installation and PC operation belong to the [CCP guide](../../cody-desktop/plugins/cody-codex-plugin/README.md).
 Packet formats and authentication belong to [CCP1](../../cody-desktop/plugins/cody-codex-plugin/protocol/CCP1.md).
 Windows controls and synthetic scenarios belong to the [simulator guide](../../cody-device/simulator/windows/README.md).
-Use the [A4 navigation map](device-navigation-map-a4.pdf) for the device-first
-firmware. The [illustrated atlases](../README.md) also include character design
-material used in Studio.
+Use the [A4 navigation map](device-navigation-map-a4.pdf) for the dashboard and
+Options. The startup screen shows the Muse avatar after the VibeWare animation.
 
 ## Profile and services
 
@@ -34,8 +33,8 @@ Board wiring and available peripherals are listed in the
 The [project introduction](../../README.md#the-little-round-thing) explains the choice of device.
 
 Cody uses the shared power, battery, IMU, speaker, Wi-Fi and BLE provisioning
-owners. The default image omits the character rig, microphone pipeline and
-activity classifier. The optional `wake-word` feature enables the microphone,
+owners. The default image includes the Muse avatar. The microphone pipeline and
+activity classifier are optional. The optional `wake-word` feature enables the microphone,
 audio front end and existing Sophia listener, including listening standby.
 
 The saved-profile startup policy is authoritative; the Cody profile sets

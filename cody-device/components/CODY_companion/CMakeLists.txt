@@ -15,14 +15,14 @@
 # VBWR E
 
 # Keep the product identity for the existing CCP, pairing and power owners.
-# The native image contains the device panel, not the legacy character runtime.
+# The native image uses the Muse avatar with the lightweight device panel.
 if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     if(CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY OR
        CONFIG_LUNASHELL_BUILD_ENABLE_TTS OR
        CONFIG_LUNASHELL_ACTIVITY_MODEL OR
        CONFIG_LUNASHELL_ACTIVITY_CAPTURE)
         message(FATAL_ERROR
-            "The Cody device panel excludes character rendering, TTS and activity models. Select cody-companion with Feature none or wake-word and its current defaults.")
+            "The Cody device panel excludes the legacy character rig, TTS and activity models. Select cody-companion with Feature none or wake-word and its current defaults.")
     endif()
     if(NOT CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD AND
        NOT CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE)
@@ -35,6 +35,7 @@ idf_component_register(
     SRCS
         "src/runtime/CODY_device_ui.cpp"
         "src/rendering/CODY_pixel_avatar.cpp"
+        "third_party/muse/muse_pixel.c"
         "src/scenes/CODY_pixel_demo.cpp"
         "../LUNASHELL_boot/src/ui/VIBEWARE_boot_animation.c"
         "../../assets/branding/VibeWare/generated/vibeware_boot_data.c"
@@ -66,7 +67,7 @@ idf_component_register(
         "../../assets/cody/scenes/generated/scene_body_font.cpp"
     INCLUDE_DIRS "include" "../../assets/cody/personality/generated"
         "../../assets/cody/audio/codex-actions/generated"
-    PRIV_INCLUDE_DIRS "../../assets/cody/scenes/generated"
+    PRIV_INCLUDE_DIRS "third_party/muse" "../../assets/cody/scenes/generated"
         "../LUNASHELL_boot/include"
         "../../assets/branding/VibeWare/generated"
         "../../assets/cody/home-dashboard-fonts/generated"

@@ -3,15 +3,16 @@
 Native, English-only interface for Codex. The device profile uses `CODY2D`
 and platform snapshot and service APIs. `CODY_device_model` owns observations
 and route state. `CODY_device_ui` owns input, lifecycle and frame retirement.
-`CODY_device_view` prepares native presentation. Character authoring sources
-are used by explicit Studio routes and excluded from the device profile.
+`CODY_device_view` prepares native presentation. `CODY_pixel_demo` prepares the
+Muse startup view. `CODY_pixel_avatar` adapts Muse's procedural renderer to the
+same logical coordinates and RGB565 display strips.
 
 | Folder | Responsibility |
 | --- | --- |
 | [src/runtime](src/runtime/README.md) | Runtime ownership, lifecycle and settings |
 | [src/scenes](src/scenes/README.md) | Scenes, onboarding, appearance and teletype audio |
 | [src/model](src/model/README.md) | Rig, expressions and snapshot-driven response |
-| [src/rendering](src/rendering/README.md) | Pearl compositing and damage planning |
+| [src/rendering](src/rendering/README.md) | Avatar raster and damage planning |
 | [src/diagnostics](src/diagnostics/README.md) | HUD, status, screenshots and accounting |
 | [src/demos](src/demos/README.md) | Authored animation bindings |
 
@@ -19,12 +20,5 @@ Assets stay under `assets/cody`; generated resources are versioned firmware
 inputs. See [Cody architecture](../../../docs/cody/README.md) for behavior
 and [the console](../../../scripts/README.md) for authorized workflows.
 
-[`CODY_personality.hpp`](include/CODY_personality.hpp) exposes typed single-symbol
-session selection. Narrative requests are separate from fresh canonical device
-state. The main character view and full-size Sleep allow the above-body cue;
-other scenes disable it independently of the typed size. The configurable face
-anchor follows the evaluated character with bounded inertia. Optional original
-SFX use [`CODY_personality_audio.hpp`](include/CODY_personality_audio.hpp) and the
-existing platform audio owner, with no sound queue. The
-[personality rendering](../../../docs/cody/personality-icons.md)
-documents layout admission and unmeasured resource/performance limits.
+The avatar uses Cody's existing touch input and audio owner. Display state
+advances on retired frames and sound follows the device's current audio policy.

@@ -992,27 +992,20 @@ The four-panel Home contract is in [Cody layout](docs/cody/layout.md).
   unavailable states, Back/Normal restoration, standby, allocation errors and
   rotations. Reserve PWR for standby and shutdown and keep Debug BOOT
   independent. Keep facial channels internal.
-- [ ] **ART-01 - Petting/idle.** Observe 300-ms caresses, heart/gain interruption,
-  stress-dependent eye taps, zones/cooldowns/pause, nonrepeating 20-40-second idle
-  actions, stressed breathing and cancellation.
-- [ ] **ART-02 - Manga.** Review all fourteen symbols, scale/anchors/clearance,
-  Main/Sleep versus Micro admission, follow/erasure, 400-ms fades, completed-frame
-  sound, drops/cooldowns/quiet and idle mute. Measure full frame/DMA/CPU/stack cost.
-- [ ] **ART-03 - Composed face.**
-  Observe lip, eye, tongue, breath, whistle, cloud and pearl shapes,
-  independent blink, taps/drag, canonical charging, microphone and motion axes,
-  stale/error and rotation behavior. Keep facial channels internal.
+- [ ] **ART-01 - Muse avatar.** Review physical wake, idle and tap playback,
+  frame continuity, full display rotation and touch mapping. Keep additional
+  interaction modes separate until their event sources are defined.
 - [ ] **AUDIO-01 - Device sound.** Listen to BootRise and sixteen current Codex
   cues with frame/semantic admission, quiet/volume, no wake replay, microclick
   reveal deltas, cancellation and codec contention. Greeting C remains an audition.
 - [ ] **AUDIO-02 - Windows sound.**
-  Listen to host tap, manga, whistle, greeting and boot cues. Confirm
+  Listen to the host tap and boot cues. Confirm
   cancellation and the reports from real playback errors.
 - [ ] **BOOT-01 - Branding handoff.** Review the full 42-frame/3500-ms VibeWare
   cycle, readiness dwell, titles, failure/DMA parking, first/returning boot,
   rotations, sleep policy and Luna linked memory.
 - [ ] **PERF-01 - Native budget.** Measure a truly static route and full stage/
-  payload/DMA/CPU distributions, 50/75/100% and non-Pearl parity, interruption,
+  payload/DMA/CPU distributions, interruption,
   alignment/tails, log overhead and radio/HTTP/BLE load. Pixels and current-image
   nested headroom must accompany improvements against the 40-ms target.
 - [ ] **PERF-02 - Host budget.** Measure ABI-2 raster/snapshot cost and memory,
@@ -1095,7 +1088,7 @@ The four-panel Home contract is in [Cody layout](docs/cody/layout.md).
 | Reminders and focus | Start with user-started sessions, one-time reminders/countdown/snooze/daily overview; later consider lists, notes and recurrence. Trusted time, quiet preferences and existing power/timer ownership; RTC INT cannot directly wake ESP. No home automation or inferred health/fatigue. |
 | Message/reply UX | Research push-to-talk, preview, destination, Send/Cancel and drafts through a supported channel. Keep credentials on PC and distinguish sent, received and completed; additional speech triggers need a decision. |
 | Wellbeing model | Still disabled: no session adapter/timer/selector/UI. Keep activity, rest, drink, meal, mood and reaction domains separate; motion stress/battery fatigue retain their causes. Lost liveness is Unknown, not counted work. One latest eligible cue, no decorative queue; snooze, quiet, expiry and acknowledged events remain distinct. A caress is not proof of a break/drink. |
-| Character | Wake stretch/idle variants and richer clock personality only after physical review. Choose antialiasing/tessellation/damage from timings. Review the host-only 99-vertex/138-triangle cloud before native work; keep the approved Pearl renderer separate. |
+| Character | Consider other Muse interaction modes after physical review of wake, idle and touch. |
 | Automatic power | Only after observer validation: persistent observations, absent interaction, cancellable warning and measured false-shutdown rate. Keep this separate from the classifier and explicit shutdown. |
 | Protocol security | Evaluate standard PAKE/high-entropy QR against offline guessing and standard AEAD with nonce/replay discipline; current HMAC adds authenticity, not confidentiality. Review optional plaintext HTTP separately. Bound startup runtime.log with multiprocess ownership. |
 | Dependencies/BSP | Deferred removal of indirect FatFS/SDMMC when SD is off; split bus/display/audio/SD/expander owners and review board locks, including rectangular ES8311 input. Replace pinned LVGL-adapter/default feature workarounds with supported upstream configuration. |
