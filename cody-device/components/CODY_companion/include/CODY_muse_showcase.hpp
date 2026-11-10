@@ -128,4 +128,12 @@ private:
     uint8_t index_ = kIdle;
 };
 
+// Initial session-owned pet state. Its showcase is artistic playback only;
+// needs, persistence and real assistant activity are not inferred from poses.
+struct PetStatus {
+    MuseShowcase showcase{};
+    MuseShowcasePose visual{PixelAvatarPose::Idle, 0, false, MuseSymbol::None};
+    bool visual_valid = false;
+};
+
 } // namespace CODY

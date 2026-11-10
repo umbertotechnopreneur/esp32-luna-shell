@@ -1180,13 +1180,17 @@ struct DisplayPolicyObservation {
         UiHardwareSnapshot::DisplayPowerMode::Unknown;
 };
 
-// A small coherent projection for informational chrome in either renderer.
-// Calendar fields are published by the clock owner; consumers never read live time.
-struct DeviceStatusObservation {
+// A bounded hardware-only view of the existing acquisition owner's snapshot.
+// Each measurement retains its own validity, error and acquisition timestamps.
+struct HardwareStatus {
     BatterySnapshot battery;
     ClockSnapshot clock;
     WifiSnapshot wifi;
     BleSnapshot ble;
+};
+
+// Legacy combined projection for chrome until its consumers are separated.
+struct DeviceStatusObservation : HardwareStatus {
     ComponentSnapshot codex_link;
     CodexLinkState codex_link_state = CodexLinkState::Idle;
     bool codex_app_open = false;
@@ -1271,6 +1275,9 @@ public:
     // destination: Caller-owned full buffer; usable only when this read returns ESP_OK.
     // Exception: Returns the original canonical lock/release error without reading hardware.
     esp_err_t readSnapshot(DeviceSnapshot &destination) const;
+    // status: Bounded hardware-only projection from the existing canonical owner.
+    // Exception: Returns the original lock/release error without changing status.
+    esp_err_t readHardwareStatus(HardwareStatus &status) const;
     // destination: Small caller-owned projection, no full snapshot on its stack.
     // Exception: Returns the original canonical snapshot lock error.
     esp_err_t readActivity(ActivitySnapshot &destination) const;

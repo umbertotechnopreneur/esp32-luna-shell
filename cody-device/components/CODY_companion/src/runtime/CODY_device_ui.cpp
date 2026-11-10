@@ -1710,7 +1710,8 @@ esp_err_t apply_command(Command command)
         ui.statistics_entry = false;
         ui.activity_page = ActivityPage::Events;
         ui.mascot_home = true;
-        ui.pixel_demo.showcase.reset(static_cast<uint32_t>(now_us));
+        ui.pixel_demo.pet.showcase.reset(static_cast<uint32_t>(now_us));
+        ui.pixel_demo.pet.visual_valid = false;
     }
     if (command == Command::Sleep || command == Command::Shutdown) {
         set_audio_demand(false);

@@ -71,7 +71,7 @@ struct CodexBrowser {
     CodexBrowserTrail chats{};
     CodexBrowserTrail turns{};
     CodexBrowserTrail records{}; // Calls or questions, reset on entry to either list.
-    Domain::StateQueryResult observation{};
+    Domain::AssistantStatus observation{};
     CodexBrowserPage page{};
     CodexBrowserPage draft{};
     std::array<CodexBrowserLine, 8> lines{};

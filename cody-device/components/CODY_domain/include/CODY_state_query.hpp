@@ -126,6 +126,8 @@ struct StateAttention {
     bool questions_complete = false;
 };
 
+// One bounded, evidence-qualified view of an assistant source. The current
+// CCP store admits one source; this type does not claim multi-provider support.
 struct StateQueryResult {
     StateSummary summary{};
     StateViewHealth health = StateViewHealth::Unavailable;
@@ -148,6 +150,9 @@ struct StateQueryResult {
         page.emplace<std::monostate>();
     }
 };
+
+// The assistant model is the same bounded query value, not another mutable store.
+using AssistantStatus = StateQueryResult;
 
 static_assert(sizeof(StateQueryResult) <= 2560, "Keep the caller-owned query copy bounded");
 

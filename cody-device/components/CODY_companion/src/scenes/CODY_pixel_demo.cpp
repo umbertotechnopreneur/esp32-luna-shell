@@ -126,7 +126,9 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
     view.observed_active_us = active_us;
     view.visible = true;
 
-    const auto pose = view.showcase.sample(view.elapsed_us / 1000U);
+    view.pet.visual = view.pet.showcase.sample(view.elapsed_us / 1000U);
+    view.pet.visual_valid = true;
+    const auto &pose = view.pet.visual;
     uint32_t reaction_ms = kPixelAvatarReactionMs;
     if (view.reaction_active) {
         const uint64_t elapsed_ms = (view.elapsed_us - view.reaction_started_us) / 1000U;
@@ -184,6 +186,7 @@ void retire_pixel_demo(PixelDemoView &view)
 void hide_pixel_demo(PixelDemoView &view)
 {
     view.visible = false;
+    view.pet.visual_valid = false;
     view.retired_valid = false;
     view.reaction_active = false;
     view.touch_candidate = false;

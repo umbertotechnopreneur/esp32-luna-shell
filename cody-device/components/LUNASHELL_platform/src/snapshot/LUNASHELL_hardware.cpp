@@ -3330,6 +3330,34 @@ esp_err_t DeviceSnapshotService::readDisplayPolicyObservation(
     return ESP_OK;
 }
 
+// status: Receives hardware observations and their original measurement metadata.
+// Exception: Returns the canonical lock/release error without replacing status.
+esp_err_t DeviceSnapshotService::readHardwareStatus(HardwareStatus &status) const
+{
+    HardwareStatus copy;
+    const esp_err_t lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "hardware status read");
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(TAG, "Hardware status lock failed (%s)", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    copy.battery = s_snapshot.battery;
+    copy.clock = s_snapshot.clock;
+    copy.wifi = s_snapshot.radios.wifi;
+    copy.ble = s_snapshot.radios.ble;
+    const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
+    const esp_err_t release_error = give_snapshot_mutex("hardware status read");
+    if (release_error != ESP_OK) {
+        ESP_LOGE(TAG, "Hardware status release failed (%s)", esp_err_to_name(release_error));
+        return release_error;
+    }
+    const int64_t now_us = esp_timer_get_time();
+    age_measured_sample(copy.battery, now_us, ttl_us);
+    age_measured_sample(copy.clock, now_us, ttl_us);
+    age_wifi_signal(copy.wifi, now_us, ttl_us);
+    status = copy;
+    return ESP_OK;
+}
+
 // observation: Receives coherent battery, clock, Wi-Fi, BLE and scalar Codex state.
 // The renderer never samples the PMU, system clock, Wi-Fi or BLE driver through this path.
 // Exception: Returns the original canonical lock/release failure.

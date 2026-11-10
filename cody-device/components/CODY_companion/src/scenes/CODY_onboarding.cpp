@@ -400,12 +400,12 @@ LocalWifiCredentials s_local_wifi_credentials{};
 #if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
 #ifdef ESP_PLATFORM
 // Debug exit needs one canonical read without a snapshot copy on the touch stack.
-alignas(LUNASHELL::DeviceStatusObservation) EXT_RAM_BSS_ATTR
-    uint8_t s_connection_status_storage[sizeof(LUNASHELL::DeviceStatusObservation)]{};
-LUNASHELL::DeviceStatusObservation &s_connection_status =
-    *new (s_connection_status_storage) LUNASHELL::DeviceStatusObservation{};
+alignas(LUNASHELL::HardwareStatus) EXT_RAM_BSS_ATTR
+    uint8_t s_connection_status_storage[sizeof(LUNASHELL::HardwareStatus)]{};
+LUNASHELL::HardwareStatus &s_connection_status =
+    *new (s_connection_status_storage) LUNASHELL::HardwareStatus{};
 #else
-LUNASHELL::DeviceStatusObservation s_connection_status{};
+LUNASHELL::HardwareStatus s_connection_status{};
 #endif
 #endif
 #ifdef ESP_PLATFORM
@@ -7458,7 +7458,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         const LUNASHELL::WifiSnapshot *wifi = nullptr;
         if (kDeviceFirstSetup) {
             const auto error = LUNASHELL::DeviceSnapshotService::instance()
-                .readDeviceStatusObservation(s_connection_status);
+                .readHardwareStatus(s_connection_status);
             if (error != ESP_OK) { return error; }
             wifi = &s_connection_status.wifi;
         }
