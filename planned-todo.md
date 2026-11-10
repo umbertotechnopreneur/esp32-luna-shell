@@ -5,9 +5,10 @@ Activate a stable ID in [TODO.md](TODO.md) before starting deferred work.
 ## CODY-NEXT - Domain model and Muse implementation plan
 
 This is the implementation plan for Cody's multi-chat domain model and Muse
-character. Writing this plan does not activate implementation or authorize
-validation. All phases below are planned; none is complete. Preserve unrelated
-work in the existing checkout and branch.
+character. Phase activation, implementation status and remaining gates live in
+[TODO.md](TODO.md#cody-next---multi-chat-domain-and-muse). Checkboxes below describe
+the phase specification; they are not a second progress tracker. Activation does
+not authorize validation. Preserve unrelated work in the existing checkout and branch.
 
 Phase identifiers `CODY-NEXT-00` through `CODY-NEXT-14` are permanent. Task
 identifiers append a two-digit suffix, for example `CODY-NEXT-04.03`. Do not
@@ -27,6 +28,11 @@ Track implementation and validation separately: `planned`, `implementing`,
 
 ### Agreed product boundaries
 
+- vNext has no backward-compatibility requirement for data, protocol, internal
+  APIs or stored domain state. Update broker and device together; reject older
+  incompatible peers explicitly. Do not add dual parsers, compatibility shims
+  or automatic migrations solely to retain the old runtime. Keep useful screen
+  sources/assets and their catalog identities available for reuse.
 - The domain owns all admitted chats, turns, individual tool calls, subagents,
   external operations and questions independently of display visibility.
   Foreground selection is a separate local concern, not a filter on ingestion.
@@ -267,10 +273,10 @@ ingestion decisions. Native approvals are distinct from answerable questions.
   packets cannot roll back the model or cause resync oscillation. Define behavior
   when clocks are invalid or reset.
 - [ ] **CODY-NEXT-02.04** Negotiate protocol version, capacities and capabilities.
-  Keep existing CCP pairing/authentication boundaries. Do not reinterpret old
-  ACTIVITY/TECH packets as a complete multi-chat registry. Legacy peers remain
-  explicitly limited or unsupported; no false complete-coverage indicator.
-- [ ] **CODY-NEXT-02.05** Map logical JSON to a bounded authenticated wire extension.
+  Retain explicit pairing/authentication guarantees, without preserving the old
+  wire format. Reject old ACTIVITY/TECH peers as unsupported for vNext; do not
+  implement a compatibility projection or reinterpret them as a full registry.
+- [ ] **CODY-NEXT-02.05** Map logical JSON to a bounded authenticated versioned wire contract.
   Specify maximum packet size and application-level snapshot chunks with common
   transfer ID, epoch, revision, chunk count and completion integrity. Account for
   reordering, duplicate/missing chunks, timeout, retries, authenticated endpoint
@@ -284,8 +290,10 @@ ingestion decisions. Native approvals are distinct from answerable questions.
 - [ ] **CODY-NEXT-02.07** Specify initial synchronization without replaying old
   celebration/sound events. Define event identities/watermarks separately from
   state revisions, including reconnect and post-reboot behavior.
-- [ ] **CODY-NEXT-02.08** Extend CCP1.md with compatibility, delivery and ownership
-  rules plus bounded examples. Describe authentication separately from payload
+- [ ] **CODY-NEXT-02.08** Document the replacement protocol, delivery and ownership
+  rules plus bounded examples; link its explicit version boundary from CCP1.md.
+  Require matching vNext peers, without an old-protocol fallback or migration.
+  Describe authentication separately from payload
   confidentiality; do not claim the existing HMAC transport encrypts metadata.
 - [ ] **CODY-NEXT-02.09** Negotiate semantic/transport capabilities and capacities
   without identifying behavior solely by board or OS name. Use explicit wire
@@ -302,9 +310,9 @@ to select a facial expression or perform an unspecified privileged action.
 **Outcome:** actual Codex observations populate the complete domain registry.
 
 - [ ] **CODY-NEXT-03.01** Separate provider translation from ActivityStore's generic
-  lifecycle/storage responsibilities while preserving the existing followed-chat
-  projection for compatible consumers. Reuse current hooks rather than install
-  a second competing observer.
+  lifecycle/storage responsibilities. Replace followed-chat-only consumers with
+  domain queries as they are integrated; no legacy compatibility projection is
+  required. Reuse current hooks rather than install a second competing observer.
 - [ ] **CODY-NEXT-03.02** Verify documented native event semantics at implementation
   time and map admitted hooks to domain facts. Handle Stop continuation, resumed
   sessions, Interrupt, compaction and SessionEnd without inferred task success.
@@ -825,7 +833,7 @@ establishes working current-target behavior; new targets require separate eviden
   Missing hardware evidence leaves the milestone pending, not silently complete.
 
 Decisions to close in their owning phase: exact store/history sizes (01), transfer
-budgets and compatibility behavior (02), supported question correlation and
+budgets and incompatible-peer rejection (02), supported question correlation and
 recipient reattachment (04), persistence partitions/retention (05), final Muse
 timings/size (08), two-dot visibility and new route codes (09), native Wi-Fi
 keypad layout and activation (13). Use the agreed

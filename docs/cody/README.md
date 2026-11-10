@@ -10,6 +10,7 @@ persistence, power and authenticated transport.
 | Task | Guide |
 | --- | --- |
 | First boot, dashboard, Options, questions and recovery | [Navigation](navigation.md) |
+| Retained screen sources, original codes and Muse/Tools mapping | [Screen catalog](screen-catalog.md) |
 | All device routes at a glance | [A4 navigation map](device-navigation-map-a4.pdf) |
 | Display coordinates, action controls and QR | [Layout](layout.md) |
 | Power and standby | [Power management](../bsp/services/power-management.md) |

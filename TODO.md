@@ -1,5 +1,22 @@
 # Active work
 
+## CODY-NEXT - Multi-chat domain and Muse
+
+Implementation is active on `feat/cody-vNext`. The authoritative phase/task
+specification is in [planned-todo.md](planned-todo.md#cody-next---domain-model-and-muse-implementation-plan).
+
+| Phase | Status | Remaining gates |
+| --- | --- | --- |
+| CODY-NEXT-00 | Accepted (source inventory) | G01/G02 document review complete in [screen catalog](docs/cody/screen-catalog.md); physical/route acceptance remains in 09/11 |
+| CODY-NEXT-01 | Implementing | G01/G02: portable schema, lifecycle rules, capacity budget and design review |
+
+Next dependency: `CODY-NEXT-02`, then portability foundation `CODY-NEXT-14`.
+Runtime integration, Muse direction and route changes follow their named phases.
+vNext may break old data/protocol/API contracts; no backward-compatibility layer
+or automatic legacy migration is required. Keep reusable screen sources and IDs.
+No build, test, simulator, asset generation or hardware operation is authorized
+by activation. Existing acceptance work below remains pending.
+
 ## Creamwork 3 Muse avatar
 
 - Verify the VibeWare introduction hands off to the Muse avatar on the board.
