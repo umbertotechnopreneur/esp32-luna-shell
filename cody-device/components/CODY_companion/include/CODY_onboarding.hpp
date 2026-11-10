@@ -70,6 +70,19 @@ esp_err_t draw_connection_activity_rows(uint8_t phase, CODY2D::Surface strip,
 // No parameters: only stable routes without pending work admit the setup gesture.
 bool can_open_setup_menu();
 
+// No parameters: the Home entry is admitted only when its existing worker is free.
+bool can_open_wifi_setup_from_home();
+
+// scene: Display-owned scene receiving the explicitly requested Wi-Fi journey.
+// Exception: Returns the original admission or route preparation failure.
+esp_err_t open_wifi_setup_from_home(SceneFrame &scene);
+
+// opacity: Last presented chrome visibility; hidden controls do not admit touch.
+void set_home_wifi_chrome_opacity(uint8_t opacity);
+
+// No parameters: true only while the Home-launched Wi-Fi journey owns the scene.
+bool home_wifi_setup_active();
+
 // scene: Display-worker-owned frame receiving the reversible setup menu.
 // Exception: Returns the original scene/content preparation error.
 esp_err_t open_setup_menu(SceneFrame &scene);

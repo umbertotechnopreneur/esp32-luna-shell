@@ -30,6 +30,10 @@ class ProvisioningService final {
 public:
     static ProvisioningService &instance();
 
+    // buffer: Caller-owned identity buffer shared with the radio observation.
+    // size: Capacity including the null terminator.
+    // Exception: Returns the original identity or destination error.
+    esp_err_t prepareIdentity(char *buffer, size_t size);
     esp_err_t initialize();
     esp_err_t start();
     esp_err_t stop();
@@ -56,6 +60,7 @@ private:
 
     static void onEvent(void *user_data, network_prov_cb_event_t event, void *event_data);
     void handleEvent(network_prov_cb_event_t event, void *event_data);
+    esp_err_t ensureServiceName();
     esp_err_t rebuildIdentity();
     void publishSnapshotLocked();
 

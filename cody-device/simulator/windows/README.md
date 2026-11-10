@@ -19,8 +19,11 @@ I always use the public console from the repository root:
 ```
 
 Cody Studio runs from source on Windows and Linux with PowerShell 7, a native C++20
-compiler, Python with Tk and Pillow ImageTk, and PyYAML. On Ubuntu, the host packages
-include `g++`, `python3-tk`, `python3-pil.imagetk` and `python3-yaml`. Use a graphical
+compiler, Python with Tk and Pillow ImageTk, and PyYAML. The Apple store QR and
+illustrative pairing QR also use the existing optional ReportLab tooling; when
+it is absent the preview shows QR unavailable. Android retains its authored QR.
+On Ubuntu, the host packages include `g++`, `python3-tk`, `python3-pil.imagetk`
+and `python3-yaml`. Use a graphical
 session for the interactive window. Host audio uses ALSA `aplay` from `alsa-utils`.
 The console builds the host audio driver before interactive launch. Static captures
 use the graphics driver and do not start audio.
@@ -35,6 +38,17 @@ The default Cody Studio opens the device preview. The existing VibeWare floppy
 plays once, followed by the native Muse showcase. **BOOT / Options** opens the
 device menu. **PWR / Standby** toggles the simulated display, and **Simulate shake**
 returns to the first enabled statistics page when that dashboard is open.
+**Setup WiFi** on Muse Home opens the new Wi-Fi journey. It has separate download
+and pairing choices, an explanation page and a single Android/Apple store QR
+selected by touch. The pairing QR shown in Studio is explicitly synthetic and
+cannot pair a device. The device creates its own session-bound QR. A violet
+no-Wi-Fi notice appears after the wake and four seconds of visible Home time;
+its device name and link state are explicitly simulated in Studio. The shared
+status bar shows the PC's local date/time and unavailable physical measurements.
+The status and navigation controls fade after inactivity and return on touch or
+simulated motion. The numeric battery setting is prepared in the renderer but has
+no settings control yet.
+
 The dashboard and Options page arrows fade after ten seconds. A touch reveals
 them again. **Options 1/3** contains **Connections**, **Codex stats** and **Timer**.
 Page 2 contains **Visible screens**, **Display** and **Behavior**. Page 3 holds

@@ -37,13 +37,13 @@ constexpr uint16_t kDateLeft = 122;
 constexpr uint16_t kDateTop = 32;
 constexpr uint16_t kTimeLeft = kDateLeft;
 constexpr uint16_t kTimeTop = 47;
-constexpr uint16_t kBatteryLeft = 236;
+constexpr uint16_t kBatteryLeft = 286;
 constexpr uint16_t kBatteryTop = 46;
-constexpr uint16_t kBatteryTextLeft = 270;
+constexpr uint16_t kBatteryTextLeft = 318;
 constexpr uint16_t kBatteryTextTop = 50;
-constexpr uint16_t kWifiLeft = 314;
+constexpr uint16_t kWifiLeft = 226;
 constexpr uint16_t kWifiTop = 45;
-constexpr uint16_t kBluetoothLeft = 352;
+constexpr uint16_t kBluetoothLeft = 260;
 constexpr uint16_t kBluetoothTop = 43;
 constexpr uint16_t kDateLight = 0xA577; // Quiet slate #a4adb8 on the dark scene.
 constexpr uint16_t kDateDark = 0x63B1;  // Slate #64748b on the white scene.
@@ -105,7 +105,7 @@ constexpr IconGlyph kBluetoothGlyph = {
     },
 };
 static_assert(kStatusOverlayBounds.left == kDateLeft && kStatusOverlayBounds.top == kDateTop &&
-    kStatusOverlayBounds.right == kBluetoothLeft + kBluetoothGlyph.width &&
+    kBatteryTextLeft + 5 * kCharacterAdvance <= kStatusOverlayBounds.right &&
     kStatusOverlayBounds.bottom == kBluetoothTop + kBluetoothGlyph.height,
     "Shared status exclusion must match the actual authored chrome footprint");
 static_assert(kTimeLeft >= kStatusOverlayBounds.left && kTimeTop >= kStatusOverlayBounds.top &&
@@ -410,9 +410,10 @@ DamageRect status_overlay_damage_bounds()
 
 // observation: Coherent canonical battery, local calendar, Wi-Fi and BLE state.
 // overlay: Receives a complete truthful presentation only after bounded formatting.
+// show_battery_percentage: Whether the valid numeric percentage accompanies the icon.
 // Exception: Returns a formatting or snapshot-contract error without plausible fallback values.
 esp_err_t prepare_status_overlay(const LUNASHELL::DeviceStatusObservation &observation,
-                                 StatusOverlay &overlay)
+                                 StatusOverlay &overlay, bool show_battery_percentage)
 {
     StatusOverlay next;
     const auto &battery = observation.battery;
@@ -530,6 +531,7 @@ esp_err_t prepare_status_overlay(const LUNASHELL::DeviceStatusObservation &obser
         next.bluetooth_tone = StatusTone::Muted;
     }
 
+    if (!show_battery_percentage && next.battery_percent_valid) next.battery[0] = '\0';
     overlay = next;
     return ESP_OK;
 }

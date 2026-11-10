@@ -231,16 +231,14 @@ constexpr bool icon_contains(ActionIcon icon, float x, float y)
     case ActionIcon::ChevronRight:
         return stroke_contains(x, y, 9.f, 6.f, 15.f, 12.f, 1.3f) ||
             stroke_contains(x, y, 15.f, 12.f, 9.f, 18.f, 1.3f);
-    case ActionIcon::Home:
-        return stroke_contains(x, y, 3.5f, 11.f, 12.f, 3.5f) ||
-            stroke_contains(x, y, 12.f, 3.5f, 20.5f, 11.f) ||
-            stroke_contains(x, y, 6.f, 9.f, 6.f, 20.f) ||
-            stroke_contains(x, y, 18.f, 9.f, 18.f, 20.f) ||
-            stroke_contains(x, y, 6.f, 20.f, 10.f, 20.f) ||
-            stroke_contains(x, y, 14.f, 20.f, 18.f, 20.f) ||
-            stroke_contains(x, y, 10.f, 20.f, 10.f, 15.f) ||
-            stroke_contains(x, y, 14.f, 20.f, 14.f, 15.f) ||
-            stroke_contains(x, y, 10.f, 15.f, 14.f, 15.f);
+    case ActionIcon::Home: {
+        // A filled roof and walls retain a small open doorway at the bottom.
+        const float roof_dx = x >= 12.f ? x - 12.f : 12.f - x;
+        const bool roof = y >= 3.5f && y <= 11.f && roof_dx <= y - 3.5f;
+        const bool walls = x >= 6.f && x <= 18.f && y >= 9.f && y <= 20.f;
+        const bool doorway = x > 10.f && x < 14.f && y >= 15.f;
+        return (roof || walls) && !doorway;
+    }
     case ActionIcon::Gear: {
         const float ax = dx < 0.f ? -dx : dx;
         const float ay = dy < 0.f ? -dy : dy;

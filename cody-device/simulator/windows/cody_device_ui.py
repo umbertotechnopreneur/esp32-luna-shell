@@ -41,6 +41,7 @@ SETUP_AMBER = (255, 183, 74)
 SETUP_AMBER_FIELD = (54, 36, 14)
 CONTROL_PALETTE = ((16, 40, 58), (8, 24, 33), (41, 105, 123), (140, 226, 239))
 SECONDARY_CONTROL_PALETTE = ((25, 28, 41), (16, 20, 25), (74, 81, 99), (189, 190, 189))
+WIFI_CONTROL_PALETTE = ((75, 29, 103), (43, 13, 74), (146, 47, 220), (224, 192, 255))
 DESTRUCTIVE_CONTROL_PALETTE = ((41, 20, 33), (24, 16, 24), (123, 45, 90), (239, 170, 156))
 CODEX_CONNECTION_COLOR = (186, 178, 255)
 WIFI_CONNECTION_COLOR = (119, 233, 202)
@@ -154,6 +155,10 @@ class WifiSetupRoute(Enum):
     PHONE_GUIDE = auto()
     INSTALL_APP = auto()
     SCAN_TO_PAIR = auto()
+    HOME_CHOICES = auto()
+    HOME_INTRO = auto()
+    HOME_APP = auto()
+    HOME_PAIR = auto()
 
 
 @lru_cache(maxsize=8)
@@ -207,6 +212,19 @@ def draw_control_pill(draw, bounds, palette, corner_radius=None):
         color = tuple(round(start + (end - start) * fraction)
                       for start, end in zip(top_color, bottom_color))
         draw.line((left + 1 + inset, y, right - 1 - inset, y), fill=color)
+
+
+@lru_cache(maxsize=3)
+# url: Exact official application-store URL.
+# Returns None when the optional ReportLab tooling is unavailable.
+def store_qr_matrix(url):
+    try:
+        from reportlab.graphics.barcode.qr import QrCodeWidget
+    except ImportError:
+        return None
+    code = QrCodeWidget(url, barLevel="M")
+    code.qr.make()
+    return tuple("".join("1" if value else "0" for value in row) for row in code.qr.modules)
 
 
 # draw: Logical framebuffer receiving the white tile and exact square modules.
@@ -347,6 +365,9 @@ class DeviceStudioWindow:
         self.connections_return = "widgets"
         self.guide_return = WifiSetupRoute.NOT_CONNECTED
         self.pairing_return = WifiSetupRoute.PHONE_GUIDE
+        self.home_wifi_apple = False
+        self.show_battery_percentage = True
+        self.simulated_ble_name = f"AiGadget-{randbits(24):06X}"
         self.pairing_attempted = False
         self.page = 0
         self.options_page = 0
@@ -498,6 +519,11 @@ class DeviceStudioWindow:
         self.guide_return = previous
         self.open(WifiSetupRoute.PHONE_GUIDE)
 
+    # self: Home is the sole entry point for the new Wi-Fi setup preview.
+    def open_home_wifi(self):
+        self.home_wifi_apple = False
+        self.open(WifiSetupRoute.HOME_CHOICES)
+
     # self: Studio navigation owner opening the physical-only pairing preview.
     def open_pairing_preview(self):
         self.pairing_return = self.route
@@ -577,6 +603,7 @@ class DeviceStudioWindow:
     def turn_device(self):
         if self.boot is not None or self.standby:
             return
+        self.last_navigation = time.monotonic()
         self.device_rotation = (self.device_rotation + 90) % 360
         if self.auto_rotate:
             self.rotation = (-self.device_rotation) % 360
@@ -587,10 +614,12 @@ class DeviceStudioWindow:
     # self: SIMULATED source owner; no physical sensor or device is contacted.
     # direction: Unit direction in the host screen's physical coordinate frame.
     def simulate_motion(self, direction):
-        if self.boot is not None or self.standby or self.route != "mascot" or self.event_visible:
+        if self.boot is not None or self.standby or self.event_visible:
             return
-        self.motion_direction = direction
-        self.motion_until = time.monotonic() + 0.45
+        self.last_navigation = time.monotonic()
+        if self.route == "mascot":
+            self.motion_direction = direction
+            self.motion_until = self.last_navigation + 0.45
 
     # self: Local navigation owner retaining the typed Info subpage.
     # step: Previous (-1) or next (1) action admitted by a visible arrow.
@@ -635,6 +664,14 @@ class DeviceStudioWindow:
                 self.move_quick_guide(-1)
             elif self.route == "more_behavior":
                 self.open("behavior")
+            elif self.route is WifiSetupRoute.HOME_CHOICES:
+                self.open("mascot")
+            elif self.route is WifiSetupRoute.HOME_INTRO:
+                self.open(WifiSetupRoute.HOME_CHOICES)
+            elif self.route is WifiSetupRoute.HOME_APP:
+                self.open(WifiSetupRoute.HOME_INTRO)
+            elif self.route is WifiSetupRoute.HOME_PAIR:
+                self.open(WifiSetupRoute.HOME_CHOICES)
             elif self.route is WifiSetupRoute.PHONE_GUIDE:
                 self.open(self.guide_return)
             elif self.route is WifiSetupRoute.INSTALL_APP:
@@ -796,11 +833,12 @@ class DeviceStudioWindow:
     # icon: Optional outline icon next to the caption.
     # caption_size: Font size chosen for the complete target.
     # center_x: Horizontal center of this button, including side-by-side actions.
+    # palette: Optional explicit semantic color set for the new Wi-Fi journey.
     def button(self, draw, name, top, action, *, width=246, height=38, secondary=False,
-               destructive=False, icon=None, caption_size=17, center_x=CENTER):
+               destructive=False, icon=None, caption_size=17, center_x=CENTER, palette=None):
         box = (center_x - width // 2, top, center_x + width // 2, top + height)
-        palette = DESTRUCTIVE_CONTROL_PALETTE if destructive else (
-            SECONDARY_CONTROL_PALETTE if secondary else CONTROL_PALETTE)
+        palette = palette or (DESTRUCTIVE_CONTROL_PALETTE if destructive else (
+            SECONDARY_CONTROL_PALETTE if secondary else CONTROL_PALETTE))
         color = FOREGROUND if action else MUTED
         draw_control_pill(draw, box, palette)
         caption_x = center_x
@@ -889,10 +927,106 @@ class DeviceStudioWindow:
                                     WIFI_CONNECTION_COLOR, lambda: self.open_phone_guide("connections"))
         self.sidebar(draw, -1, self.back)
 
+    # self: Synthetic status chrome; host clock and loopback link are never firmware observations.
+    # draw: Logical framebuffer receiving the compact toolbar.
+    # snapshot: Explicitly simulated loopback state.
+    # now: Monotonic time for the visibility fade.
+    def draw_home_wifi_status(self, draw, snapshot, now):
+        opacity = self.navigation_opacity(now)
+        if opacity <= 0:
+            return
+        wall = time.localtime()
+        draw.text((122, 31), time.strftime("%a %d %b %Y", wall).upper(), font=font(10), fill=blend(MUTED, opacity))
+        draw.text((122, 45), time.strftime("%H:%M", wall), font=font(15), fill=blend(FOREGROUND, opacity))
+        # The loopback has no measured RSSI, BLE telemetry or physical battery.
+        setup_icon(draw, "wifi", (236, 53), 20, blend(MUTED, opacity))
+        setup_icon(draw, "bluetooth", (266, 53), 18, blend(MUTED, opacity))
+        draw.rounded_rectangle((287, 46, 311, 60), radius=2, outline=blend(MUTED, opacity), width=2)
+        draw.rectangle((312, 50, 314, 56), fill=blend(MUTED, opacity))
+        if self.show_battery_percentage:
+            draw.text((319, 47), "N/A", font=font(10), fill=blend(MUTED, opacity))
+
+    # self: Current synthetic route owner.
+    # draw: Logical framebuffer receiving the Home affordance.
+    # now: Monotonic clock for shared chrome fade.
+    def draw_wifi_home(self, draw, now):
+        opacity = self.navigation_opacity(now)
+        if opacity <= 0:
+            return
+        fill = blend((151, 66, 6), opacity)
+        ink = blend(FOREGROUND, opacity)
+        draw.ellipse((211, 390, 254, 433), fill=fill)
+        draw.polygon(((221, 410), (233, 399), (245, 410), (242, 410),
+                      (242, 422), (236, 422), (236, 415), (230, 415),
+                      (230, 422), (224, 422), (224, 410)), fill=ink)
+        if opacity == 1:
+            self.targets["WiFi Home"] = ((211, 390, 255, 434), lambda: self.open("mascot"))
+
+    # self: Synthetic store selector; the resulting code links to the official app.
+    # apple: True selects the Apple App Store; False selects Google Play.
+    def select_home_wifi_platform(self, apple):
+        self.home_wifi_apple = apple
+
+    # self: Paint the Home-launched Wi-Fi route without starting real Bluetooth.
+    # draw: Logical framebuffer receiving the current route.
+    # now: Monotonic clock for Back/Next/Home visibility.
+    # The simulator labels an unavailable QR encoder instead of inventing a code.
+    def draw_home_wifi_setup(self, draw, now):
+        if self.route is WifiSetupRoute.HOME_CHOICES:
+            label(draw, "Wi-Fi setup", 82, 30)
+            label(draw, "Connect to the internet", 130, 17, MUTED)
+            self.button(draw, "Download app", 210, lambda: self.open(WifiSetupRoute.HOME_INTRO),
+                        width=280, height=56, caption_size=20, palette=WIFI_CONTROL_PALETTE)
+            self.button(draw, "Pair Cody", 280, lambda: self.open(WifiSetupRoute.HOME_PAIR),
+                        width=280, height=56, caption_size=20, palette=WIFI_CONTROL_PALETTE)
+        elif self.route is WifiSetupRoute.HOME_INTRO:
+            label(draw, "Before you start", 82, 27)
+            label(draw, "Connect in three steps", 130, 17, MUTED)
+            for index, text in enumerate(("1. Get the app", "2. Scan Cody", "3. Choose your Wi-Fi")):
+                label(draw, text, 180 + index * 48, 18)
+        elif self.route is WifiSetupRoute.HOME_APP:
+            label(draw, "Get the app", 82, 30)
+            label(draw, "Select your platform", 128, 17, MUTED)
+            self.button(draw, "Android", 154, lambda: self.select_home_wifi_platform(False),
+                        width=145, height=42, center_x=155, caption_size=17,
+                        palette=SECONDARY_CONTROL_PALETTE if self.home_wifi_apple else WIFI_CONTROL_PALETTE)
+            self.button(draw, "Apple", 154, lambda: self.select_home_wifi_platform(True),
+                        width=145, height=42, center_x=310, caption_size=17,
+                        palette=WIFI_CONTROL_PALETTE if self.home_wifi_apple else SECONDARY_CONTROL_PALETTE)
+            url = ("https://apps.apple.com/app/esp-ble-provisioning/id1473590141" if self.home_wifi_apple else
+                   "https://play.google.com/store/apps/details?id=com.espressif.provble")
+            matrix = store_qr_matrix(url)
+            if matrix is None and not self.home_wifi_apple:
+                matrix = INSTALL_APP_QR
+            if matrix is None:
+                label(draw, "Store QR unavailable", 260, 18, MUTED)
+            else:
+                qr_tile(draw, matrix, 205, 168)
+        else:
+            label(draw, "Pair Cody", 82, 30)
+            label(draw, "SIMULATED - not a device", 130, 17, MUTED)
+            matrix = store_qr_matrix("SIMULATED-CODY-NOT-A-DEVICE")
+            if matrix is None:
+                label(draw, "QR preview unavailable", 240, 17, MUTED)
+            else:
+                qr_tile(draw, matrix, 164, 192)
+        opacity = self.navigation_opacity(now)
+        if opacity > 0:
+            self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
+            next_route = (WifiSetupRoute.HOME_APP if self.route is WifiSetupRoute.HOME_INTRO else
+                          WifiSetupRoute.HOME_PAIR if self.route is WifiSetupRoute.HOME_APP else None)
+            if next_route is not None:
+                self.sidebar(draw, 1, (lambda: self.open(next_route)) if opacity == 1 else None, opacity)
+        self.draw_wifi_home(draw, now)
+
     # self: Studio preview owning the current Wi-Fi setup route and its touch targets.
     # draw: Logical canvas before rotation.
     # now: Monotonic frame time for the shared Back fade.
     def draw_wifi_setup(self, draw, now):
+        if self.route in (WifiSetupRoute.HOME_CHOICES, WifiSetupRoute.HOME_INTRO,
+                          WifiSetupRoute.HOME_APP, WifiSetupRoute.HOME_PAIR):
+            self.draw_home_wifi_setup(draw, now)
+            return
         if self.route in (WifiSetupRoute.OFFLINE, WifiSetupRoute.NOT_CONNECTED):
             recovering = self.route is WifiSetupRoute.OFFLINE
             draw.ellipse((191, 76, 274, 159), fill=SETUP_AMBER_FIELD)
@@ -992,8 +1126,7 @@ class DeviceStudioWindow:
                 ("Quick guide", self.open_quick_guide),
             )
         self.draw_option_rows(draw, rows)
-        self.button(draw, "Home", 382, lambda: self.open("mascot"), width=220, height=52,
-                    icon="home", caption_size=20)
+        self.draw_wifi_home(draw, now)
         opacity = self.navigation_opacity(now)
         if opacity > 0:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
@@ -1351,6 +1484,15 @@ class DeviceStudioWindow:
         image.paste((0, 0, 0), (0, 0, SIZE, SIZE))
         image.paste(self.muse.image(elapsed_ms, reaction_ms), (MUSE_OFFSET, MUSE_OFFSET))
         self.targets["Mascot"] = (MUSE_BOUNDS, self.pet_mascot)
+        draw = ImageDraw.Draw(image)
+        snapshot, _ = self.observe()
+        if self.endpoint is not None and not snapshot.network_ready:
+            opacity = max(0.0, min(1.0, (self.muse_elapsed_ms - 5500.0) / 2000.0))
+            if opacity:
+                purple = tuple(round(value * opacity) for value in (199, 145, 255))
+                label(draw, "SET UP WI-FI", 70, 21, purple)
+                label(draw, self.simulated_ble_name, 98, 19, purple)
+        self.button(draw, "Setup WiFi", 396, self.open_home_wifi, width=160, height=40, caption_size=18)
 
     # self: Preview owner excluding hidden time and retiring the visible touch reaction.
     def hide_mascot(self):
@@ -1408,7 +1550,10 @@ class DeviceStudioWindow:
             if self.safe_guide:
                 draw.rectangle((73, 73, 392, 392), outline=(62, 91, 113))
         else:
-            label(draw, "SIMULATED", 28 if wifi_setup else 46, 14, MUTED)
+            home_wifi = self.route in (WifiSetupRoute.HOME_CHOICES, WifiSetupRoute.HOME_INTRO,
+                                       WifiSetupRoute.HOME_APP, WifiSetupRoute.HOME_PAIR)
+            if not home_wifi:
+                label(draw, "SIMULATED", 28 if wifi_setup else 46, 14, MUTED)
             if wifi_setup:
                 self.draw_wifi_setup(draw, now)
             elif self.route == "connections":
@@ -1461,6 +1606,10 @@ class DeviceStudioWindow:
                 self.draw_widget(draw, snapshot, now)
             if self.safe_guide:
                 draw.rectangle((73, 73, 392, 392), outline=(62, 91, 113))
+        if not self.standby and not event_active and (
+            self.route == "mascot" or self.route in (WifiSetupRoute.HOME_CHOICES, WifiSetupRoute.HOME_INTRO,
+                                                       WifiSetupRoute.HOME_APP, WifiSetupRoute.HOME_PAIR)):
+            self.draw_home_wifi_status(draw, snapshot, now)
         if not self.standby and self.brightness != 100:
             image = ImageEnhance.Brightness(image).enhance(self.brightness / 100)
         return self.display_image(image)
@@ -1539,6 +1688,8 @@ class DeviceStudioWindow:
                 if not (x0 <= x < x1 and y0 <= y < y1):
                     continue
                 if isinstance(name, int) and (x - (x0 + 30)) ** 2 + (y - CENTER) ** 2 > 900:
+                    continue
+                if name == "WiFi Home" and (x - 233) ** 2 + (y - 412) ** 2 > 22 ** 2:
                     continue
                 return name, action
         return None, None

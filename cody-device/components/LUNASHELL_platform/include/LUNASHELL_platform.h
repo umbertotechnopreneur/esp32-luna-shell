@@ -850,6 +850,11 @@ typedef enum {
     LUNASHELL_PROVISIONING_FAILURE_UNKNOWN,
 } LUNASHELL_provisioning_failure_reason_t;
 
+// buffer: Caller-owned BLE identity, without any provisioning secret.
+// size: Destination capacity including the terminator.
+// Returns the original identity preparation error.
+esp_err_t LUNASHELL_provisioning_prepare_identity(char *buffer, size_t size);
+
 esp_err_t LUNASHELL_provisioning_init(void);
 esp_err_t LUNASHELL_provisioning_start(void);
 esp_err_t LUNASHELL_provisioning_stop(void);

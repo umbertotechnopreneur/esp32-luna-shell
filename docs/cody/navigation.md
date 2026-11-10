@@ -8,6 +8,18 @@ The VibeWare floppy animation plays once after a cold boot or software reset.
 The display then shows Muse waking. The showcase changes its pose every ten
 seconds while Muse is visible. Tap
 the character to trigger its reaction and the optional Cody touch sound.
+The **Setup WiFi** button on Muse Home opens the new Wi-Fi setup journey. It
+starts with Download app and Pair Cody. Download app leads through a short
+explanation to a single QR with Android and Apple selectors; Pair Cody starts
+the existing BLE provisioning owner and shows its session QR. Home and Back
+cancel an owned session before leaving. The public BLE name is `AiGadget-`
+with a boot-scoped random suffix, shared by the radio and the pairing QR.
+After waking, when a current Wi-Fi observation confirms the device is offline,
+Home waits four seconds and fades in a violet setup notice over two seconds;
+the name comes from the canonical BLE observation. Status and navigation chrome
+hide after inactivity and return on touch or measured IMU motion. Battery
+percentage display is prepared as a renderer option; its settings UI is deferred.
+
 Press BOOT to open Options and choose Connections or Codex.
 If setup is already active, BOOT reveals that journey. Home returns to Muse.
 

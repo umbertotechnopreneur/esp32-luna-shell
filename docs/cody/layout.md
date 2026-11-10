@@ -126,8 +126,21 @@ elapsed time. A hosted web search without a native hook remains unavailable.
 
 ## Setup, QR and Skin
 
-Device-first pairing uses the same title and body fonts, left chevron, and
-capsule geometry as the dashboard and Options. The dark canvas, amber offline
+The Home-launched Wi-Fi journey keeps its status chrome above the heading, a
+subtitle below it, and the filled Home icon at (211,390,44,44). Choices occupy
+(93,210,280,56) and (93,280,280,56). The platform selector uses two 145 x 42
+controls at (83,154) and (238,154), followed by one 168 x 168 QR at (149,205).
+The session QR occupies (137,164,192,192). Each QR retains four quiet modules
+and integer module scaling. Back/Next remain in their separate lateral targets.
+The Home button returns only after an owned pairing session has been cancelled.
+The compact status uses actual clock, Wi-Fi RSSI, Bluetooth and battery observations;
+its numeric battery percentage can be suppressed by the renderer, with a settings
+control deferred. The Home notice occupies y=70..123 and uses the reported BLE
+name, not an independently inferred identity.
+
+The existing recovery entry retains the prior device-first pairing screens below.
+They use the same title and body fonts, left chevron, and capsule geometry as the
+dashboard and Options. The dark canvas, amber offline
 glyph and restrained Options-style button gradients carry across the Wi-Fi
 setup journey.
 Both QR screens keep their white area within the square code tile.

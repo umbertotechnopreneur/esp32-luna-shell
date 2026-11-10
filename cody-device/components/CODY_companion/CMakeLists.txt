@@ -66,6 +66,7 @@ idf_component_register(
         "src/scenes/CODY_token_history.cpp"
         "src/scenes/CODY_widget_visibility_view.cpp"
         "src/diagnostics/CODY_debug_views.cpp"
+        "src/diagnostics/CODY_status_overlay.cpp"
         "../../assets/cody/scenes/generated/scene_font.cpp"
         "../../assets/cody/scenes/generated/scene_body_font.cpp"
     INCLUDE_DIRS "include" "../../assets/cody/personality/generated"

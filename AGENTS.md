@@ -67,6 +67,11 @@ before layout changes and [Cody layout](docs/cody/layout.md) for control details
 - Back: left lateral circle at (10,203), 60 x 60, radius 30; one centered left
   chevron, no text, full touch target, only with a previous route. Keep it separate
   from content and primary/footer actions, never beside or below a footer.
+- Product pages use a title and subtitle. Home is an icon-only filled house on
+  dark orange; Back and Next are lateral chevrons where those routes exist.
+  Status and navigation chrome fade after inactivity and reappear for touch or
+  valid measured IMU movement; hidden controls cannot activate. Status uses
+  actual date/time, Wi-Fi strength, Bluetooth and battery with semantic colors.
 - Rendering, clipping and touch share logical 0/90/180/270-degree coordinates.
   Back stays visually left; never mirror text or rotate touch independently.
 - Cody Home keeps character/status above rotating Tokens, Model, Connection and
@@ -82,7 +87,7 @@ before layout changes and [Cody layout](docs/cody/layout.md) for control details
   not addresses. Back returns to overview,
   then retained route; authenticated Normal restores that route. No build-mode
   choice or facial-channel UI/storage; retain internal animation channels.
-- Cody actions use text-only captions. Use two rounded gradient cards side
+- Cody actions use text-only captions, except icon-only Home navigation. Use two rounded gradient cards side
   by side, three as that pair plus one centered below, one as a wide centered
   capsule. Question choices are numbered single-line full-width rows, at most
   two visible, with scrolling and full detail review before Send. Use semantic

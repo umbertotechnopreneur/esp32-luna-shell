@@ -1035,6 +1035,23 @@ extern "C" esp_err_t LUNASHELL_ble_init(void)
         return err;
     }
 
+    char device_name[sizeof(s_device_name)]{};
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNASHELL_BUILD_ENABLE_PROVISIONING
+    err = LUNASHELL_provisioning_prepare_identity(device_name, sizeof(device_name));
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "BLE: public identity preparation failed (%s)", esp_err_to_name(err));
+        {
+            std::lock_guard<std::mutex> guard(s_ble_state_mutex);
+            s_ble_initializing = false;
+            s_ble_initialization_result = err;
+            s_ble_runtime_error = err;
+        }
+        LUNASHELL::DeviceSnapshotService::instance().reportBle(false, err);
+        return err;
+    }
+#else
+    snprintf(device_name, sizeof(device_name), "CODY-%02X%02X", mac[4], mac[5]);
+#endif
     err = nimble_port_init();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "BLE: NimBLE init failed (%s)", esp_err_to_name(err));
@@ -1047,15 +1064,6 @@ extern "C" esp_err_t LUNASHELL_ble_init(void)
         LUNASHELL::DeviceSnapshotService::instance().reportBle(false, err);
         return err;
     }
-
-    char device_name[sizeof(s_device_name)]{};
-    snprintf(
-        device_name,
-        sizeof(device_name),
-        "CODY-%02X%02X",
-        mac[4],
-        mac[5]
-    );
 
     ble_hs_cfg.reset_cb = ble_on_reset;
     ble_hs_cfg.sync_cb = ble_on_sync;

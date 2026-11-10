@@ -29,7 +29,6 @@
 
 #include "esp_heap_caps.h"
 #include "esp_log.h"
-#include "esp_mac.h"
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "esp_netif.h"
@@ -346,6 +345,23 @@ ProvisioningService &ProvisioningService::instance()
 {
     static ProvisioningService service;
     return service;
+}
+
+// buffer: Caller-owned destination for the boot-scoped public BLE name.
+// size: Destination capacity including its terminator.
+// Exception: Returns the original identity or destination error.
+esp_err_t ProvisioningService::prepareIdentity(char *buffer, size_t size)
+{
+    if (buffer == nullptr || size == 0) return ESP_ERR_INVALID_ARG;
+    std::lock_guard<std::mutex> guard(_mutex);
+    if (_service_name[0] == '\0') {
+        const auto error = ensureServiceName();
+        if (error != ESP_OK) return error;
+    }
+    const size_t length = std::strlen(_service_name);
+    if (length + 1 > size) return ESP_ERR_INVALID_SIZE;
+    std::memcpy(buffer, _service_name, length + 1);
+    return ESP_OK;
 }
 
 esp_err_t ProvisioningService::initialize()
@@ -1048,22 +1064,28 @@ void ProvisioningService::handleEvent(network_prov_cb_event_t event, void *event
     }
 }
 
+// No parameters: create a boot-scoped public BLE identity only once.
+// Exception: Returns a formatting or destination capacity failure.
+esp_err_t ProvisioningService::ensureServiceName()
+{
+    if (_service_name[0] != '\0') return ESP_OK;
+    uint32_t suffix = 0;
+    esp_fill_random(&suffix, sizeof(suffix));
+    const int written = std::snprintf(_service_name, sizeof(_service_name),
+        "AiGadget-%06lX", static_cast<unsigned long>(suffix & 0xFFFFFFU));
+    if (written < 0 || static_cast<size_t>(written) >= sizeof(_service_name)) {
+        _service_name[0] = '\0';
+        return ESP_ERR_INVALID_SIZE;
+    }
+    return ESP_OK;
+}
+
+// No parameters: retain the boot identity and renew only the per-attempt secret.
+// Exception: Returns the original formatting or capacity failure.
 esp_err_t ProvisioningService::rebuildIdentity()
 {
-    uint8_t mac[6]{};
-    const esp_err_t error = esp_read_mac(mac, ESP_MAC_WIFI_STA);
-    if (error != ESP_OK) {
-        _service_name[0] = '\0';
-        _qr_payload[0] = '\0';
-        return error;
-    }
-    std::snprintf(
-        _service_name,
-        sizeof(_service_name),
-        "PROV_%02X%02X%02X%02X%02X%02X",
-        mac[0], mac[1], mac[2], mac[3], mac[4],
-        mac[5]
-    );
+    const auto name_error = ensureServiceName();
+    if (name_error != ESP_OK) return name_error;
     // The start caller has Wi-Fi running, so hardware entropy is available.
     // This proof is per attempt and never persisted or written to logs.
     uint8_t random_bytes[8]{};
@@ -1140,6 +1162,14 @@ esp_err_t ProvisioningService::copyQrPayload(
 }
 
 }  // namespace LUNASHELL
+
+// buffer: Caller-owned public BLE identity.
+// size: Destination capacity including its terminator.
+// Exception: Returns the original owner or destination error.
+extern "C" esp_err_t LUNASHELL_provisioning_prepare_identity(char *buffer, size_t size)
+{
+    return LUNASHELL::ProvisioningService::instance().prepareIdentity(buffer, size);
+}
 
 extern "C" esp_err_t LUNASHELL_provisioning_init(void)
 {

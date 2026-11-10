@@ -58,10 +58,12 @@ DamageRect status_overlay_damage_bounds();
 
 // observation: Coherent canonical battery, local calendar, Wi-Fi and BLE state.
 // overlay: Receives a complete truthful presentation only after bounded formatting.
+// show_battery_percentage: False hides only a valid numeric percentage, never an error.
 // Exception: Returns a formatting or snapshot-contract error without plausible fallback values.
 esp_err_t prepare_status_overlay(
     const LUNASHELL::DeviceStatusObservation &observation,
-    StatusOverlay &overlay
+    StatusOverlay &overlay,
+    bool show_battery_percentage = true
 );
 
 // left: Previously completed presentation.

@@ -22,6 +22,16 @@
 
 #include "LUNASHELL_platform.h"
 
+// buffer: Caller-owned destination when present.
+// size: Destination capacity including its terminator.
+// Exception: Returns NOT_SUPPORTED for a profile without provisioning.
+extern "C" esp_err_t LUNASHELL_provisioning_prepare_identity(char *buffer, size_t size)
+{
+    if (buffer == nullptr || size == 0) return ESP_ERR_INVALID_ARG;
+    buffer[0] = '\0';
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 extern "C" esp_err_t LUNASHELL_provisioning_init(void)
 {
     return ESP_ERR_NOT_SUPPORTED;
