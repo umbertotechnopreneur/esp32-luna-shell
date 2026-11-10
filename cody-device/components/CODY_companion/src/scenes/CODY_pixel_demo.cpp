@@ -1,6 +1,7 @@
 #include "CODY_pixel_demo.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 #include "esp_log.h"
 
@@ -30,6 +31,49 @@ esp_err_t draw_mascot_rows(const void *state, CODY2D::Surface strip,
 
 } // namespace
 
+// view: Display-owned motion response, independent of the showcase clock.
+// sample: Validated canonical acceleration and applied display orientation.
+// now_us: Monotonic observation time after the snapshot read.
+void observe_pixel_demo_motion(PixelDemoView &view, const PixelDemoMotion &sample, int64_t now_us)
+{
+    constexpr int64_t kMaximumAgeUs = 500000;
+    auto &motion = view.motion;
+    if (!sample.valid || sample.sampled_at_us <= 0 || now_us < sample.sampled_at_us ||
+        now_us - sample.sampled_at_us > kMaximumAgeUs ||
+        !std::isfinite(sample.acceleration_x) || !std::isfinite(sample.acceleration_y) ||
+        std::fabs(sample.acceleration_x) > 256 || std::fabs(sample.acceleration_y) > 256 ||
+        (sample.rendering_rotation_degrees != 0 && sample.rendering_rotation_degrees != 90 &&
+         sample.rendering_rotation_degrees != 180 && sample.rendering_rotation_degrees != 270)) {
+        motion = {};
+        return;
+    }
+    motion.rendering_rotation_degrees = sample.rendering_rotation_degrees;
+    if (motion.primed && sample.sampled_at_us == motion.sampled_at_us) return;
+    if (!motion.primed || sample.sampled_at_us < motion.sampled_at_us ||
+        sample.sampled_at_us - motion.sampled_at_us > kMaximumAgeUs) {
+        motion = {};
+        motion.baseline_x = sample.acceleration_x;
+        motion.baseline_y = sample.acceleration_y;
+        motion.sampled_at_us = sample.sampled_at_us;
+        motion.rendering_rotation_degrees = sample.rendering_rotation_degrees;
+        motion.primed = true;
+        return;
+    }
+
+    const float seconds = static_cast<float>(sample.sampled_at_us - motion.sampled_at_us) / 1000000.0f;
+    const float baseline_blend = -std::expm1(-seconds / 1.2f);
+    motion.baseline_x += (sample.acceleration_x - motion.baseline_x) * baseline_blend;
+    motion.baseline_y += (sample.acceleration_y - motion.baseline_y) * baseline_blend;
+    // The existing board mapping is panel X = IMU Y and panel Y = IMU X.
+    // Keep offsets in panel coordinates so a rotation never corrupts the filter.
+    const float panel_x = sample.acceleration_y - motion.baseline_y;
+    const float panel_y = sample.acceleration_x - motion.baseline_x;
+    const float blend = -std::expm1(-seconds / 0.15f);
+    motion.offset_x += (3.0f * std::tanh(-panel_x / 3.0f) - motion.offset_x) * blend;
+    motion.offset_y += (3.0f * std::tanh(-panel_y / 3.0f) - motion.offset_y) * blend;
+    motion.sampled_at_us = sample.sampled_at_us;
+}
+
 // view: Display-owned state and two borrowed indexed frames.
 // active_us: Existing awake clock, excluding standby.
 // content: Mascot-only scene callback and its centered draw bounds.
@@ -53,6 +97,18 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
     }
     auto style = view.visual_style;
     style.symbol.symbol = pose.symbol;
+    float motion_x = view.motion.offset_x;
+    float motion_y = view.motion.offset_y;
+    switch (view.motion.rendering_rotation_degrees) {
+    case 90: motion_x = view.motion.offset_y; motion_y = -view.motion.offset_x; break;
+    case 180: motion_x = -view.motion.offset_x; motion_y = -view.motion.offset_y; break;
+    case 270: motion_x = -view.motion.offset_y; motion_y = view.motion.offset_x; break;
+    default: break;
+    }
+    style.pose.body_x = std::clamp(style.pose.body_x + motion_x, -8.0f, 8.0f);
+    style.pose.body_y = std::clamp(style.pose.body_y + motion_y, -8.0f, 8.0f);
+    style.pose.gaze_x = std::clamp(style.pose.gaze_x + motion_x * 0.15f, -1.0f, 1.0f);
+    style.pose.gaze_y = std::clamp(style.pose.gaze_y + motion_y * 0.15f, -1.0f, 1.0f);
     compose_pixel_avatar(view.frames[view.write_buffer], pose.pose,
         static_cast<uint32_t>(view.elapsed_us / 1000U), pose.pose_ms,
         reaction_ms, 0.0f, pose.working, style);
@@ -89,6 +145,7 @@ void hide_pixel_demo(PixelDemoView &view)
     view.retired_valid = false;
     view.reaction_active = false;
     view.touch_candidate = false;
+    view.motion = {};
 }
 
 // view: Serialized contact/reaction owner; no hardware is read here.

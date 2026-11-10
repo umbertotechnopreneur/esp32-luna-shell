@@ -361,6 +361,19 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
     if (ui.mascot_home && (mascot_waking || !CODY::device_effects_require_attention(ui.model.effects))) {
         frame.layer = Layer::Mascot;
         ui.muse_frame_due_us = now_us + kMuseFramePeriodUs;
+        CODY::PixelDemoMotion motion{};
+#if CONFIG_LUNASHELL_BUILD_ENABLE_IMU
+        const auto &imu = ui.model.motion.imu;
+        if (motion_error == ESP_OK && imu.health == LUNASHELL::DeviceHealth::Ready &&
+            imu.data_valid && !imu.data_stale && imu.last_error == ESP_OK) {
+            motion.acceleration_x = imu.acceleration_mps2[0];
+            motion.acceleration_y = imu.acceleration_mps2[1];
+            motion.sampled_at_us = imu.last_success_at_us;
+            motion.rendering_rotation_degrees = ui.model.motion.rendering_rotation_degrees;
+            motion.valid = true;
+        }
+#endif
+        CODY::observe_pixel_demo_motion(ui.pixel_demo, motion, esp_timer_get_time());
         return CODY::prepare_pixel_demo(ui.pixel_demo, ui.awake_us, frame.presentation.content);
     }
     if (CODY::onboarding_dashboard_active()) {

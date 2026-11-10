@@ -32,6 +32,12 @@ rejected before rendering. Default particle settings preserve the original
 state-tinted orbit in front of and behind Muse. These are native configuration
 parameters, not settings exposed in the device UI.
 
+While Muse is visible, current IMU acceleration from the device snapshot adds a
+bounded, smoothed body and gaze response in the display's logical orientation.
+The response returns toward its resting pose as motion settles and resets when
+the sample is unavailable, stale or the mascot is hidden. It does not replace
+the showcase poses or read the sensor directly.
+
 The artistic showcase retains the original modes and includes question,
 exclamation, idea, thought, heart, sweat, tension and sleep symbols. Its
 interval defaults to ten seconds of visible mascot time. It does not represent

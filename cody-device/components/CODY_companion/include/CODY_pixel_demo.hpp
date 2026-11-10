@@ -9,6 +9,25 @@ namespace CODY {
 
 inline constexpr uint64_t kPixelDemoWakingUs = kMuseShowcaseWakeMs * 1000U;
 
+// One existing canonical IMU observation, projected without another hardware read.
+struct PixelDemoMotion {
+    float acceleration_x = 0;
+    float acceleration_y = 0;
+    int64_t sampled_at_us = 0;
+    uint16_t rendering_rotation_degrees = 0;
+    bool valid = false;
+};
+
+struct PixelDemoMotionState {
+    float baseline_x = 0;
+    float baseline_y = 0;
+    float offset_x = 0;
+    float offset_y = 0;
+    int64_t sampled_at_us = 0;
+    uint16_t rendering_rotation_degrees = 0;
+    bool primed = false;
+};
+
 // The display worker owns both indexed frames in PSRAM through DMA retirement.
 struct PixelDemoView {
     // logical_viewport: Immutable artwork and tap bounds supplied by the display adapter.
@@ -17,6 +36,7 @@ struct PixelDemoView {
     const LogicalRect viewport;
     MuseShowcase showcase{};
     MuseVisualStyle visual_style{};
+    PixelDemoMotionState motion{};
     std::array<PixelAvatarFrame, 2> frames{};
     PixelAvatarDamage damage{};
     uint64_t elapsed_us = 0;
@@ -33,6 +53,11 @@ struct PixelDemoView {
     bool touch_candidate = false;
 };
 static_assert(sizeof(PixelDemoView) <= 10 * 1024, "Keep mascot frames in the display owner's PSRAM budget");
+
+// view: Display-owned motion response, independent of the showcase clock.
+// sample: Validated canonical acceleration and applied display orientation.
+// now_us: Monotonic observation time after the snapshot read.
+void observe_pixel_demo_motion(PixelDemoView &view, const PixelDemoMotion &sample, int64_t now_us);
 
 // view: Display-owned state and two indexed frames.
 // active_us: Existing awake clock, excluding standby.
