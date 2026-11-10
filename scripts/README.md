@@ -125,9 +125,9 @@ character renderer, character boot audio, microphone capture, Sophia and activit
 models; speaker notifications remain enabled. IMU orientation and the existing
 power, radio and storage owners remain available.
 
-Codex voice handoff is still opt-in through `-Feature wake-word`. It restores the
-dual microphones, ESP-SR and Sophia model with their existing partition and
-dependency lock. This feature retains continuous standby listening and its
+`-Feature wake-word` enables the dual microphones, ESP-SR and Sophia model for
+software-standby wake. The separate Codex voice-input flow is disabled in this
+configuration. This feature retains continuous standby listening and its
 software-standby power cost. Use the same explicit feature selection for
 configuration, build, flash and size. Cody's TTS and activity-classification
 compositions are rejected on this branch.
@@ -177,7 +177,7 @@ Ordinary firmware leaves TTS disabled. `-Feature tts-sd` selects English,
 Italian, Mandarin and Cantonese on microSD; `-Feature tts-flash` embeds English.
 Both remain available for `full` with isolated configuration, build output and
 dependencies. The Cody device panel rejects these speech-synthesis selections;
-its optional Codex voice input uses `-Feature wake-word` instead.
+its current `-Feature wake-word` configuration provides Sophia wake only.
 
 `tts-sd` enables the diagnostic `CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN`: after
 mandatory startup, it queues one fixed Italian phrase dated 5 October 2026.

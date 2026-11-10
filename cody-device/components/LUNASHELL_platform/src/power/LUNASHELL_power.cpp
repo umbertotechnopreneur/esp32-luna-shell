@@ -364,7 +364,8 @@ const char *standby_trace_phase_name(StandbyTracePhase phase)
 }
 
 // standby: Overall software standby target.
-// Listening owns the audio transport even with the display and radios asleep.
+// Listening owns the audio transport even with the display and radios asleep,
+// including offline standby. Shutdown still suspends the transport.
 bool audio_standby_target(bool standby)
 {
 #if CONFIG_LUNASHELL_BUILD_WAKE_WORD_STANDBY_LISTENING
@@ -373,7 +374,7 @@ bool audio_standby_target(bool standby)
     constexpr bool voice_listening = false;
 #endif
     return LUNASHELL::power_policy::select_standby_audio(
-        standby, voice_listening && !s_shutdown_in_progress && !s_codex_offline_standby);
+        standby, voice_listening && !s_shutdown_in_progress);
 }
 
 // reason: Typed cause of the most recent power transition.
@@ -1918,7 +1919,7 @@ esp_err_t set_standby(
         publish_power(ESP_OK);
 
         esp_err_t display_recovery_error = ESP_OK;
-        // An already dark standby can shed voice/radios without waking to show a farewell.
+        // An already dark standby can shed radios without waking to show a farewell.
         esp_err_t ui_quiescence_error = promote_offline_standby ? ESP_OK :
             wait_for_ui_quiescence(s_transition_sequence, display_recovery_error);
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
@@ -2830,7 +2831,7 @@ esp_err_t apply_codex_offline_policy(bool &owns_inactivity)
             known, connected, pairing, s_last_manual_activity_at_us)) {
         return ESP_OK;
     }
-    ESP_LOGI(kTag, "No authenticated PC for 120 s; entering manual-wake standby");
+    ESP_LOGI(kTag, "No authenticated PC for 120 s; entering offline standby");
     const esp_err_t error = set_standby(true, LUNASHELL::DeviceStateReason::CodexOffline);
     if (error != ESP_OK) {
         // A real failure remains published; do not hammer the same transition every 20 ms.
@@ -3239,7 +3240,6 @@ void power_task(void *argument)
                 // Consume active/transition events too, but wake only from a
                 // detection acquired after this settled standby began.
                 if (s_state == LUNASHELL::DeviceOperatingState::Standby &&
-                    !s_codex_offline_standby &&
                     voice.detected_at_us >= s_wake_word_standby_entered_at_us) {
                     const esp_err_t wake_error = set_standby(false, LUNASHELL::DeviceStateReason::WakeWord);
                     if (wake_error != ESP_OK) {

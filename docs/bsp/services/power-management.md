@@ -237,9 +237,9 @@ standby while charging, fully charged or battery absent. Unknown, stale or faile
 power observations inhibit the automatic decision without asserting either power
 source. Battery-only use retains the saved timer (first-boot default 60 seconds)
 and scene overrides. Explicit PWR standby and shutdown bypass this source gate.
-Confirmed PC absence is another independent source-independent policy: on USB or
-battery, 120 seconds without authenticated CCP transport enters manual-wake
-standby. A valid disconnected/failure state is evidence of PC absence; unknown
+Confirmed PC absence is another independent policy: without USB power, 120
+seconds without authenticated CCP transport enters offline standby. A valid
+disconnected/failure state is evidence of PC absence; unknown
 or stale observations are not. Pairing/confirmation defers the offline interval;
 real touch/button activity and completed wake renew it. While confirmed offline,
 the 120-second grace replaces the ordinary inactivity deadline.
@@ -247,10 +247,12 @@ the 120-second grace replaces the ordinary inactivity deadline.
 The registered Cody display owner retires a larger upper character and centered
 `Bye bye`, the authored Sleep sound (unless Sounds/quiet policy suppresses it),
 and a 400-ms visible hold before the existing whole-panel fade. The power owner
-rechecks link/setup/input state before stopping services. This transaction pauses
-voice acquisition, closes radios without deleting pairing and ignores movement,
-voice and queued Codex-notification wake. Touch/Power restores ordinary ownership;
-the first offline-wake contact does not admit voice recording. An already dark
+rechecks link/setup/input state before stopping services. This transaction closes
+radios without deleting pairing and ignores movement and queued Codex-notification
+wake. The wake-word build retains Sophia listening during this software standby;
+otherwise voice acquisition pauses. Touch, Power or a fresh Sophia detection when
+enabled restores ordinary ownership. The wake-only build never starts dictation.
+An already dark
 standby can shed its retained services at the same deadline without a visible
 farewell. Active-state recovery grants a fresh grace period, and transition errors
 remain published instead of being replaced with success. The 64-byte-bounded

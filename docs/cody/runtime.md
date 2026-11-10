@@ -218,8 +218,8 @@ it. Connected transport clears the timer even when no chat is active or Codex
 reports Closed. Unknown/stale link evidence cannot establish PC absence. Explicit
 network pairing, pending Codex pairing and confirmation defer this timer.
 
-This policy operates on USB and battery, independently of the ordinary battery-only
-inactivity gate. While awake, Cody presents a larger character above a centered
+This policy applies without confirmed USB power, independently of the ordinary
+battery-only inactivity gate. While awake, Cody presents a larger character above a centered
 ASCII `Bye bye`, waits for completed Sleep/caption frames, plays the existing
 220-ms Sleep cue through the audio owner, and keeps a minimum 400-ms visible
 dwell before the shared 800-ms whole-panel fade. Sounds Off, authored sound disable
@@ -227,12 +227,12 @@ and quiet/time policy suppress the cue explicitly; real playback/preparation
 failures abort standby and retain their original errors. A link restored or real
 input acquired during the farewell cancels the transition before radio shutdown.
 
-After the transaction, radios, voice input and wake-word acquisition are suspended.
-Saved credentials/pairing are retained. Movement, voice and queued network notices
-cannot wake this offline standby. Touch, a physical button or an expired local
-timer restores the ordinary owners and reconnects. A timer wake leaves voice
-input idle. The first touch does not select a control or start voice
-recording. Wake word remains available after wake and in ordinary listening standby.
+After the transaction, radios and voice input are suspended. The wake-word build
+keeps Sophia listening in this software standby; the feature-off build suspends
+voice acquisition. Saved credentials/pairing are retained. Movement and queued
+network notices cannot wake offline standby. Touch, a physical button, an expired
+local timer or a fresh Sophia detection when enabled restores the ordinary owners
+and reconnects. The wake-only build does not start voice recording.
 If an existing dark standby loses its PC, the same timeout sheds its retained
 services without waking the panel for a farewell. No periodic reconnect wake is armed.
 
@@ -783,6 +783,10 @@ for capture and, where supported, log rotation/readback. Those device operations
 still require approval. The intermittent mandatory display/touch stop
 has not been resolved by short successful captures.
 ## One-way voice input source increment
+
+The current `wake-word` build selects Sophia for standby wake only and excludes
+the separate Codex voice-input owner. The following describes that owner's
+behavior when it is explicitly enabled in a future build configuration.
 
 **Options → Behavior → Dictation** controls whether Cody admits a new voice
 recording. The device stores the choice. The default is On for a voice-enabled

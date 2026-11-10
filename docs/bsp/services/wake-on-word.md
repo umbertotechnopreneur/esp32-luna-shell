@@ -3,10 +3,10 @@
 The shared Luna platform can recognize **Sophia** locally with ESP-SR 2.4.6
 and `wn9_sophia_tts_v1`. Jarvis (`wn9_jarvis_tts`) and Computer
 (`wn9_computer_tts`) are packaged but inactive; there is no user selector.
-The power owner wakes a settled software standby. Cody detections, including
-already-awake detections, connect to one-way voice capture. Two short acquired taps on visible Cody enter the same owner.
-End-to-end voice delivery remains unverified.
-See [Cody voice input](../../cody/runtime.md#one-way-voice-input-source-increment).
+The power owner wakes a settled software standby. The current wake-word build
+selects wake-only operation: it does not start one-way voice capture or Codex
+dictation. The separate voice-input implementation remains available for a
+future build configuration; see [Cody voice input](../../cody/runtime.md#one-way-voice-input-source-increment).
 The model does not recognize **Cody**, transcribe speech or accept commands.
 
 ## Build selection and hardware capabilities

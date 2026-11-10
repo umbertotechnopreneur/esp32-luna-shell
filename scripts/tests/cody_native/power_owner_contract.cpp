@@ -221,7 +221,7 @@ void check_offline_standby_owner()
     fixture_now_us = 240000000;
     assert(apply_codex_offline_policy(owns_inactivity) == ESP_OK && called(Call::Standby));
     assert(last_transition_reason == DeviceStateReason::CodexOffline && s_codex_offline_standby);
-    assert(audio_standby_target(true) && !audio_standby_target(false));
+    assert(!audio_standby_target(true) && !audio_standby_target(false));
     assert(observation_reads == 0); // USB and battery-source policy do not gate confirmed PC absence.
     const unsigned reads_before_sleep = codex_observation_reads;
     codex_observation_error = ESP_FAIL;
