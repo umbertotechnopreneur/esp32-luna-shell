@@ -98,6 +98,10 @@ esp_err_t open_setup_menu(SceneFrame &scene);
 // Exception: Returns the original route preparation error.
 esp_err_t open_companion_options(SceneFrame &scene);
 
+// scene: Return to the Device section after opening About from Options.
+// Exception: Returns the original route or content preparation error.
+esp_err_t return_to_options_device(SceneFrame &scene);
+
 // scene: Options frame to return to ordinary dashboard and authenticated event routing.
 esp_err_t open_device_dashboard(SceneFrame &scene);
 
@@ -105,7 +109,7 @@ esp_err_t open_device_dashboard(SceneFrame &scene);
 // Exception: Returns NOT_FINISHED while an owned operation closes or the original error.
 esp_err_t open_device_home(SceneFrame &scene);
 
-enum class WidgetOpenRequest : uint8_t { None, Home, Statistics, Visibility, Timer, CodexBrowser, Audio };
+enum class WidgetOpenRequest : uint8_t { None, Home, Statistics, Visibility, Timer, CodexBrowser, Audio, About };
 
 // available: True after this device has received the broker's authenticated Events projection.
 void set_onboarding_inbox_available(bool available);

@@ -350,9 +350,10 @@ finished page distinguishes a pending, muted or unavailable alarm.
 
 The two graphite lateral chevrons reuse the Settings targets at (10,203) and
 (396,203). They move among enabled dashboard pages and fade after ten seconds
-without touch. Touch or a shake restores them. About traverses System, Memory
-and Firmware, then the project QR. Back from System returns to the preceding
-widget; a tap on the terminal QR returns to Firmware. The QR uses integer
+without touch. Touch or a shake restores them. About is also available from
+Options > Device. It traverses System, Memory and Firmware, then VibeWare and
+the repository QR. Back from System returns to the opening page; a tap on the
+terminal QR returns to VibeWare. The QR uses integer
 modules with a four-module quiet zone. A shake returns
 to the first enabled statistics screen. Rasterization and touch share the
 current logical rotation.
@@ -396,11 +397,10 @@ The three Info pages use a small outline icon and the same title baseline,
 with a `1/3`, `2/3` or `3/3` indicator at the right of the title and a divider
 at y=125. Their subpage identity belongs to the device model.
 
-System labels CPU 1 and CPU 2 at y=137/199, with independent 0-100 percent
-values and 280 x 10 bars at (93,176)/(93,238). These correspond to processor
-cores 0 and 1. Current uptime uses label/value rows at y=263/288, with previous
-uptime at y=328/353. The previous value is the last retained observation, not
-an inferred complete session duration.
+System presents measured CPU usage for both processor cores, current and last
+observed uptime, and used/total values for internal RAM and PSRAM. The values
+come from the canonical diagnostics observation; unavailable or stale
+measurements retain their reported state.
 
 Memory separates INTERNAL RAM and PSRAM. Each block shows used/total in KiB,
 then a bar segmented into occupied, largest free block and remaining free
@@ -413,6 +413,10 @@ Firmware uses four label/value pairs: version at y=135/160, compilation
 timestamp at y=197/222, timezone at y=259/284 and build host at y=321/346.
 All CPU and memory fields come from the existing canonical diagnostics
 observation. Presentation does not sample hardware or create another collector.
+
+The following VibeWare page shows the logo and umbertogiacobbi.biz. Its Next
+page contains a title and a QR linking to the GitHub repository. A tap returns
+to VibeWare.
 
 ## Optional screensaver
 

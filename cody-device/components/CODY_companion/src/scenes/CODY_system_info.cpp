@@ -7,6 +7,7 @@
 
 #include "CODY2D_controls.hpp"
 #include "CODY2D_paths.hpp"
+#include "CODY_vibeware_logo.hpp"
 #include "LUNASHELL_build_metadata.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "esp_log.h"
@@ -87,6 +88,7 @@ void project_values(const SystemInfoInput &input, View::Values &values)
         values.image_version = input.image_version;
         return;
     }
+    if (input.page == InfoPage::VibeWare) return;
     if (input.page == InfoPage::System) {
         values.uptime_seconds = input.uptime_seconds;
         values.previous_uptime_seconds = input.previous_uptime_valid ? input.previous_uptime_seconds : 0;
@@ -117,7 +119,6 @@ void project_values(const SystemInfoInput &input, View::Values &values)
                 cpu.percent = core.utilization_percent;
             }
         }
-        return;
     }
     const auto &memory = input.diagnostics->memory;
     const auto source = status_of(memory, input.diagnostics_error);
@@ -214,24 +215,24 @@ void format_uptime(uint32_t seconds, char (&text)[32])
     else { std::snprintf(text, sizeof(text), "%02u:%02u:%02u", hours, minutes, remainder); }
 }
 
-// view: Page presentation with two independent canonical core measurements.
+// view: Page presentation with independent canonical core and heap measurements.
 // Exception: Preserves native caption or bar geometry errors.
 esp_err_t prepare_system(View &view)
 {
     char text[32]{};
     for (size_t index = 0; index < view.values.cpus.size(); ++index) {
         const auto &cpu = view.values.cpus[index];
-        const uint16_t offset = static_cast<uint16_t>(index * 62);
+        const uint16_t offset = static_cast<uint16_t>(index * 50);
         std::snprintf(text, sizeof(text), "CPU %u", static_cast<unsigned>(index + 1));
         auto error = add_caption(view, *view.body_font, text, {93, static_cast<uint16_t>(137 + offset), 100, 25}, kMuted);
         if (error != ESP_OK) { return error; }
         if (cpu.status.state == State::Current) {
             std::snprintf(text, sizeof(text), "%u%%", static_cast<unsigned>(cpu.percent));
             error = add_caption(view, *view.title_font, text, {260, static_cast<uint16_t>(129 + offset), 113, 40}, kWhite);
-            if (error == ESP_OK) { error = add_bar(view, {93, static_cast<uint16_t>(176 + offset), 280, 10}, kTrack, kTrack); }
+            if (error == ESP_OK) { error = add_bar(view, {93, static_cast<uint16_t>(169 + offset), 280, 8}, kTrack, kTrack); }
             const auto width = static_cast<uint16_t>(280U * cpu.percent / 100U);
             if (error == ESP_OK && width != 0) {
-                error = add_bar(view, {93, static_cast<uint16_t>(176 + offset), width, 10}, kCyan, kIndigo);
+                error = add_bar(view, {93, static_cast<uint16_t>(169 + offset), width, 8}, kCyan, kIndigo);
             }
         } else {
             format_status(cpu.status, text);
@@ -239,14 +240,38 @@ esp_err_t prepare_system(View &view)
         }
         if (error != ESP_OK) { return error; }
     }
-    auto error = add_detail(view, "UPTIME", 263);
+    esp_err_t error = ESP_OK;
+    for (size_t index = 0; index < view.values.heaps.size(); ++index) {
+        const auto &heap = view.values.heaps[index];
+        const char *name = index == 0 ? "RAM" : "PSRAM";
+        if (heap.status.state == State::Current) {
+            std::snprintf(text, sizeof(text), "%s %lu/%lu KiB", name,
+                static_cast<unsigned long>((heap.total - heap.free) / 1024),
+                static_cast<unsigned long>(heap.total / 1024));
+        } else {
+            char status[32]{};
+            format_status(heap.status, status);
+            std::snprintf(text, sizeof(text), "%s %.24s", name, status);
+        }
+        error = add_detail(view, text, static_cast<uint16_t>(230U + index * 26U),
+            heap.status.state == State::Current ? kCyan : kMuted);
+        if (error != ESP_OK) return error;
+    }
+    error = add_detail(view, "UPTIME", 284);
     format_uptime(view.values.uptime_seconds, text);
-    if (error == ESP_OK) { error = add_detail(view, text, 288, kWhite); }
-    if (error == ESP_OK) { error = add_detail(view, "PREVIOUS: LAST OBSERVED", 328); }
+    if (error == ESP_OK) { error = add_detail(view, text, 309, kWhite); }
+    if (error == ESP_OK) { error = add_detail(view, "PREVIOUS: LAST OBSERVED", 337); }
     if (view.values.previous_uptime_valid) { format_uptime(view.values.previous_uptime_seconds, text); }
     else { std::strcpy(text, "Unavailable"); }
-    if (error == ESP_OK) { error = add_detail(view, text, 353, kWhite); }
+    if (error == ESP_OK) { error = add_detail(view, text, 362, kWhite); }
     return error;
+}
+
+// view: Brand-only page containing the website address below the original logo.
+// Exception: Preserves the original caption preparation error.
+esp_err_t prepare_vibeware(View &view)
+{
+    return add_detail(view, "umbertogiacobbi.biz", 355, kWhite);
 }
 
 // view: Page presentation with independent internal RAM and PSRAM heap capacities.
@@ -423,6 +448,44 @@ esp_err_t draw_icon(const View &view, CODY2D::Surface strip, uint16_t first_row,
     return ESP_OK;
 }
 
+// strip: Valid borrowed RGB565 tile.
+// first_row: Logical y origin of this tile.
+// first_column: Logical x origin of this tile.
+// Exception: Rejects a malformed flash row or palette index.
+esp_err_t draw_vibeware_logo(CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+{
+    constexpr int left = 113;
+    constexpr int top = 105;
+    const int start_y = std::max<int>(first_row, top);
+    const int end_y = std::min<int>(first_row + strip.height, top + VibeWareLogo::size);
+    const int start_x = std::max<int>(first_column, left);
+    const int end_x = std::min<int>(first_column + strip.width, left + VibeWareLogo::size);
+    if (start_x >= end_x || start_y >= end_y) return ESP_OK;
+    for (int y = start_y; y < end_y; ++y) {
+        const auto row = static_cast<size_t>(y - top);
+        const size_t begin = VibeWareLogo::offsets[row];
+        const size_t end = VibeWareLogo::offsets[row + 1U];
+        if (end < begin || end > sizeof(VibeWareLogo::runs) || (end - begin) % 2U != 0) return ESP_ERR_INVALID_SIZE;
+        int x = left;
+        for (size_t cursor = begin; cursor < end; cursor += 2U) {
+            const uint8_t count = VibeWareLogo::runs[cursor];
+            const uint8_t index = VibeWareLogo::runs[cursor + 1U];
+            if (count == 0 || index >= sizeof(VibeWareLogo::palette) / sizeof(VibeWareLogo::palette[0]) ||
+                x + count > left + VibeWareLogo::size) return ESP_ERR_INVALID_RESPONSE;
+            const int clipped_left = std::max(x, start_x);
+            const int clipped_right = std::min(x + count, end_x);
+            if (clipped_left < clipped_right) {
+                const auto color = CODY2D::rgb565_native_to_stored(VibeWareLogo::palette[index], strip.byte_order);
+                auto *pixels = strip.pixels + (y - first_row) * strip.stride + clipped_left - first_column;
+                std::fill_n(pixels, clipped_right - clipped_left, color);
+            }
+            x += count;
+        }
+        if (x != left + VibeWareLogo::size) return ESP_ERR_INVALID_SIZE;
+    }
+    return ESP_OK;
+}
+
 // state: Immutable presentation retained through synchronous frame retirement.
 // strip: Borrowed tile with its original stride and byte order.
 // first_row: Logical tile y origin.
@@ -436,7 +499,9 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
     auto error = CODY2D::validate_surface(strip);
     if (error != ESP_OK) { return result("draw tile", error); }
     for (size_t index = 0; index < view.bar_count; ++index) { draw_bar(view.bars[index], strip, first_row, first_column); }
-    error = draw_icon(view, strip, first_row, first_column);
+    error = view.values.page == InfoPage::VibeWare
+        ? draw_vibeware_logo(strip, first_row, first_column)
+        : draw_icon(view, strip, first_row, first_column);
     for (size_t index = 0; error == ESP_OK && index < view.caption_count; ++index) {
         const auto &line = view.captions[index].line;
         error = CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
@@ -463,7 +528,8 @@ bool step_info_page(InfoPage &page, WidgetStep step)
 {
     if (step == WidgetStep::Previous) {
         switch (page) {
-        case InfoPage::ProjectLink: page = InfoPage::Firmware; return true;
+        case InfoPage::ProjectLink: page = InfoPage::VibeWare; return true;
+        case InfoPage::VibeWare: page = InfoPage::Firmware; return true;
         case InfoPage::Firmware: page = InfoPage::Memory; return true;
         case InfoPage::Memory: page = InfoPage::System; return true;
         case InfoPage::System: return false;
@@ -472,7 +538,8 @@ bool step_info_page(InfoPage &page, WidgetStep step)
         switch (page) {
         case InfoPage::System: page = InfoPage::Memory; return true;
         case InfoPage::Memory: page = InfoPage::Firmware; return true;
-        case InfoPage::Firmware: page = InfoPage::ProjectLink; return true;
+        case InfoPage::Firmware: page = InfoPage::VibeWare; return true;
+        case InfoPage::VibeWare: page = InfoPage::ProjectLink; return true;
         case InfoPage::ProjectLink: return false;
         }
     }
@@ -489,7 +556,7 @@ esp_err_t prepare_system_info(const SystemInfoInput &input,
     const CODY2D::MonoFont &title_font, const CODY2D::MonoFont &body_font,
     View &presentation, SceneContent &content)
 {
-    if (input.page > InfoPage::Firmware) { return result("page identity", ESP_ERR_INVALID_ARG); }
+    if (input.page > InfoPage::VibeWare) { return result("page identity", ESP_ERR_INVALID_ARG); }
     View::Values values{};
     project_values(input, values);
     if (presentation.valid && same_values(presentation.values, values) &&
@@ -505,6 +572,14 @@ esp_err_t prepare_system_info(const SystemInfoInput &input,
     presentation.values = values;
     presentation.title_font = &title_font;
     presentation.body_font = &body_font;
+    if (input.page == InfoPage::VibeWare) {
+        const auto error = prepare_vibeware(presentation);
+        if (error != ESP_OK) return result("prepare brand", error);
+        ++presentation.revision;
+        presentation.valid = true;
+        attach_content(presentation, content);
+        return ESP_OK;
+    }
     const char *title = input.page == InfoPage::System ? "SYSTEM" : input.page == InfoPage::Memory ? "MEMORY" : "FIRMWARE";
     const char *index = input.page == InfoPage::System ? "1/3" : input.page == InfoPage::Memory ? "2/3" : "3/3";
     uint32_t width = 0;
@@ -522,6 +597,7 @@ esp_err_t prepare_system_info(const SystemInfoInput &input,
         case InfoPage::System: error = prepare_system(presentation); break;
         case InfoPage::Memory: error = prepare_memory(presentation); break;
         case InfoPage::Firmware: error = prepare_firmware(presentation); break;
+        case InfoPage::VibeWare: return result("page identity", ESP_ERR_INVALID_ARG);
         case InfoPage::ProjectLink: return result("page identity", ESP_ERR_INVALID_ARG);
         }
     }

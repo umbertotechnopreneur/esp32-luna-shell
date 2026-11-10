@@ -13,10 +13,10 @@ struct FirmwareBuildMetadata;
 namespace CODY {
 
 // About owns these child routes; they are not independently persisted widgets.
-enum class InfoPage : uint8_t { System, Memory, Firmware, ProjectLink };
+enum class InfoPage : uint8_t { System, Memory, Firmware, VibeWare, ProjectLink };
 
 // page: Retained child identity, updated only when the requested neighbor exists.
-// step: Direction through System, Memory, Firmware and the terminal project QR.
+// step: Direction through System, Memory, Firmware, VibeWare and the terminal project QR.
 // Returns false at either boundary so the owner can leave System or keep the QR.
 bool step_info_page(InfoPage &page, WidgetStep step);
 

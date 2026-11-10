@@ -190,6 +190,7 @@ struct DeviceUi {
     int64_t audio_worker_retry_at_us = 0;
     bool first_boot = false;
     bool mascot_home = false;
+    bool about_from_options = false;
 };
 
 // Data is owned by the display worker and stays off its stack and the DMA heap.
@@ -803,6 +804,10 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
                 frame.presentation.content);
         }
         ui.available_statistics = CODY::available_device_statistics(model.dashboard, model.widgets.visibility, now_us);
+        if (ui.about_from_options) {
+            // Opening About from Options is independent of dashboard visibility preferences.
+            ui.available_statistics.screen_mask |= CODY::WidgetStateDetail::bit(WidgetScreen::About);
+        }
         if (ui.statistics_entry || !CODY::widget_visible(ui.available_statistics, model.widgets.selected_screen)) {
             auto usage = ui.available_statistics;
             usage.screen_mask &= ~CODY::WidgetStateDetail::bit(WidgetScreen::About);
@@ -877,8 +882,9 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const auto &view = frame.presentation;
     const auto revision = LUNASHELL_display_runtime_content_revision();
     const auto screen = ui.model.widgets.selected_screen;
-    const bool show_connection = (frame.layer == Layer::Dashboard && screen != WidgetScreen::Device) ||
-        frame.layer == Layer::AboutLink || frame.layer == Layer::VoucherWarning;
+    const bool show_connection = (frame.layer == Layer::Dashboard && screen != WidgetScreen::Device &&
+        !(screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::VibeWare)) ||
+        frame.layer == Layer::VoucherWarning;
     const bool show_battery = frame.layer != Layer::Blank && frame.layer != Layer::Branding &&
         frame.layer != Layer::Screensaver && frame.layer != Layer::Mascot;
     const auto saved_epoch = frame.layer == Layer::Dashboard && !frame.statistics_unavailable
@@ -1347,9 +1353,17 @@ esp_err_t activate(Target target)
         default: break;
         }
     } else if (layer == Layer::AboutLink) {
-        ui.model.info_page = CODY::InfoPage::Firmware;
+        ui.model.info_page = CODY::InfoPage::VibeWare;
         invalidate();
     } else if (target == Target::Previous || target == Target::Next) {
+        if (target == Target::Previous && ui.about_from_options &&
+            ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::System) {
+            const auto error = CODY::return_to_options_device(ui.scene);
+            if (error != ESP_OK) return error;
+            ui.about_from_options = false;
+            invalidate();
+            return ESP_OK;
+        }
         const auto step = target == Target::Previous ? WidgetStep::Previous : WidgetStep::Next;
         const bool info_changed = ui.model.widgets.selected_screen == WidgetScreen::About &&
             CODY::step_info_page(ui.model.info_page, step);
@@ -1552,6 +1566,11 @@ esp_err_t sample_touch()
             }
         }
         ui.activity_touch_last = point;
+        if (ui.retired.layer == Layer::AboutLink && ui.contact == Target::Previous) {
+            const int dx = point.x - ui.activity_touch_start.x;
+            const int dy = point.y - ui.activity_touch_start.y;
+            if (dx * dx + dy * dy > 12 * 12) ui.contact = Target::None;
+        }
         if (ui.contact == Target::VoucherScroll) {
             if (pressed_edge) ui.voucher_touch_start = point;
             ui.voucher_touch_last = point;
@@ -1628,6 +1647,7 @@ esp_err_t update_navigation()
             ui.codex_browser.route = CODY::CodexBrowserRoute::Closed;
             ui.browser_destination = CODY::CodexBrowserDestination::None;
             ui.mascot_home = true;
+            ui.about_from_options = false;
             if (ui.activity_page == ActivityPage::Reply) ui.activity_page = ActivityPage::Events;
             invalidate();
         }
@@ -1646,6 +1666,7 @@ esp_err_t update_navigation()
         ui.browser_destination = CODY::CodexBrowserDestination::None;
         // A busy setup route can decline Options. Reveal that route so pairing remains reachable.
         ui.mascot_home = false;
+        ui.about_from_options = false;
         const esp_err_t error = CODY::open_companion_options(ui.scene);
         if (error != ESP_OK) return error;
         if (!already_open && ui.scene.valid && ui.scene.definition->id == CODY::SceneId::MakeItYours) {
@@ -1655,6 +1676,19 @@ esp_err_t update_navigation()
     }
     const auto request = CODY::take_widget_open_request();
     switch (request) {
+    case CODY::WidgetOpenRequest::About: {
+        const auto error = CODY::open_device_dashboard(ui.scene);
+        if (error == ESP_ERR_NOT_FINISHED) break;
+        if (error != ESP_OK) return error;
+        ui.mascot_home = false;
+        ui.about_from_options = true;
+        ui.activity_page = ActivityPage::Statistics;
+        ui.statistics_entry = false;
+        ui.model.widgets.selected_screen = WidgetScreen::About;
+        ui.model.info_page = CODY::InfoPage::System;
+        invalidate();
+        break;
+    }
     case CODY::WidgetOpenRequest::CodexBrowser:
         ui.audio_open = false;
         if (CODY::onboarding_codex_tools_active()) {

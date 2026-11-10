@@ -75,43 +75,7 @@ PAGES = (
 VISIBILITY_ROWS = 3
 VISIBILITY_PAGE_COUNT = (len(PAGES) - 1 + VISIBILITY_ROWS - 1) // VISIBILITY_ROWS
 ABOUT_INFO = "Scan for more info"
-ABOUT_URL = "https://umbertogiacobbi.biz/esp32-luna-shell"
-# QR Model 2, error correction M, generated from ABOUT_URL with the atlas encoder.
-ABOUT_QR = (
-    "111111100001111011111011001111111",
-    "100000100100011111000010101000001",
-    "101110101111110111110001101011101",
-    "101110101101001110001110101011101",
-    "101110101100000100100100101011101",
-    "100000101010010111101110101000001",
-    "111111101010101010101010101111111",
-    "000000001101101100100100000000000",
-    "101111100110111101000011001111100",
-    "010101000010101010111101001101101",
-    "110011101100100110101100011010100",
-    "110100000000101010011110010011101",
-    "100110111010000000110100110111000",
-    "100000000110001111001011011101011",
-    "010000110101001000110010111001110",
-    "011011011110111010011110011101100",
-    "101010111100101001110011110110001",
-    "010101011010011001111001011101111",
-    "001111110101010101001010100110100",
-    "101001001000000001110001111111111",
-    "001000101100001010001110110111000",
-    "110011000011000101100101001001001",
-    "100010101000111111001010010110110",
-    "101101001110101100100110010011100",
-    "100011100111111111000010111111011",
-    "000000001010100010111100100010111",
-    "111111100100100110101101101010100",
-    "100000101000000100000111100011100",
-    "101110101000101000100100111111000",
-    "101110101100111110001011110011101",
-    "101110101010111001110101001101100",
-    "100000100111001010111110001011100",
-    "111111101110110001010011100100010",
-)
+ABOUT_URL = "https://github.com/umbertotechnopreneur/esp32-luna-shell"
 # QR Model 2 for the same ESP BLE Provisioning Play Store URL as the firmware.
 INSTALL_APP_QR = (
     "111111100010110001111111001111111",
@@ -299,6 +263,17 @@ def qr_tile(draw, matrix, top, size):
                 draw.rectangle((x, y, x + module - 1, y + module - 1), fill=(0, 0, 0))
 
 
+@lru_cache(maxsize=1)
+# No parameters: load the existing project artwork once for the Studio preview.
+# Raises OSError for a missing or unreadable bundled logo.
+def vibeware_about_logo():
+    path = Path(__file__).resolve().parent / "assets/branding/vibeware-logo.png"
+    with Image.open(path) as source:
+        logo = source.convert("RGBA")
+    logo.thumbnail((240, 240), Image.Resampling.NEAREST)
+    return logo
+
+
 # draw: Logical framebuffer receiving one outline symbol.
 # icon: Semantic outline icon used by the setup screens.
 # center: Logical icon center.
@@ -443,6 +418,7 @@ class DeviceStudioWindow:
         self.pairing_attempted = False
         self.page = 0
         self.options_page = 0
+        self.about_from_options = False
         self.quick_guide_page = 0
         self.visibility_page = 0
         self.standby = False
@@ -712,6 +688,7 @@ class DeviceStudioWindow:
         if self.boot is None and not self.standby and not self.event_visible:
             if self.route is WifiSetupRoute.HOME_PASSWORD:
                 self.clear_simulated_wifi_secret()
+            self.about_from_options = False
             self.open("mascot")
 
     # self: Active Studio preview receiving the long BOOT Options shortcut.
@@ -722,6 +699,7 @@ class DeviceStudioWindow:
     # self: Studio navigation owner.
     # page: Options menu page reached by the lateral arrows or BOOT.
     def show_options_page(self, page):
+        self.about_from_options = False
         self.options_page = page
         self.touch = None
         self.targets.clear()
@@ -822,6 +800,9 @@ class DeviceStudioWindow:
             self.visibility_page = min(VISIBILITY_PAGE_COUNT - 1, self.visibility_page + step)
         else:
             if PAGES[self.page] == "About":
+                if self.info.page is InfoPage.SYSTEM and step < 0 and self.about_from_options:
+                    self.show_options_page(OPTIONS_PAGE_COUNT - 1)
+                    return
                 if self.info.move(step):
                     self.touch = None
                     self.last_navigation = time.monotonic()
@@ -956,6 +937,7 @@ class DeviceStudioWindow:
     # pending_pairing: Whether a durable commissioning candidate survived restart.
     def reboot_preview(self, route, pending_pairing=False):
         self.visibility_page = self.options_page = 0
+        self.about_from_options = False
         self.pairing_attempted = pending_pairing
         self.event_visible = self.standby = False
         self.connections_return = "widgets"
@@ -970,8 +952,18 @@ class DeviceStudioWindow:
 
     # self: Preview owner returning to the first enabled statistics page with data.
     def open_statistics(self):
+        self.about_from_options = False
         self.page = next((index for index in self.available_pages if PAGES[index] not in {"Device", "About"}), 0)
         self.info.page = InfoPage.SYSTEM
+        self.screensaver.active = False
+        self.touch = None
+        self.open("widgets")
+
+    # self: Open About directly from Device options without depending on visibility settings.
+    def open_about(self):
+        self.page = PAGES.index("About")
+        self.info.page = InfoPage.SYSTEM
+        self.about_from_options = True
         self.screensaver.active = False
         self.touch = None
         self.open("widgets")
@@ -1479,6 +1471,8 @@ class DeviceStudioWindow:
         for page in range(OPTIONS_PAGE_COUNT):
             color = palette[3] if page == self.options_page else (58, 48, 85)
             draw.rectangle((194 + page * 27, 370, 217 + page * 27, 373), fill=color)
+        if self.options_page == OPTIONS_PAGE_COUNT - 1:
+            self.button(draw, "About", 382, self.open_about, width=220, height=52, caption_size=20)
         opacity = self.navigation_opacity(now)
         if opacity > 0:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
@@ -1566,15 +1560,25 @@ class DeviceStudioWindow:
     # draw: Logical canvas before rotation.
     def draw_about_qr(self, draw):
         label(draw, ABOUT_INFO, 89, 27)
-        qr_tile(draw, ABOUT_QR, 128, 288)
+        matrix = store_qr_matrix(ABOUT_URL)
+        if matrix is None:
+            label(draw, "QR preview unavailable", 240, 17, MUTED)
+        else:
+            qr_tile(draw, matrix, 128, 288)
         self.targets["QR back"] = ((0, 0, SIZE, SIZE), lambda: self.move(-1))
 
     # self: Preview renderer borrowing the typed Info state and observation.
+    # image: Logical framebuffer receiving the existing VibeWare artwork.
     # draw: Logical canvas before rotation, with central content clear of both arrows.
-    def draw_system_info(self, draw):
+    def draw_system_info(self, image, draw):
         page = self.info.page
         if page is InfoPage.PROJECT_LINK:
             self.draw_about_qr(draw)
+            return
+        if page is InfoPage.VIBEWARE:
+            logo = vibeware_about_logo()
+            image.paste(logo, (CENTER - logo.width // 2, 105), logo)
+            label(draw, "umbertogiacobbi.biz", 355, 19, FOREGROUND)
             return
         title, position = {
             InfoPage.SYSTEM: ("SYSTEM", "1/3"),
@@ -1586,15 +1590,18 @@ class DeviceStudioWindow:
         self.draw_info_icon(draw, page)
         draw.line((73, 125, 392, 125), fill=(62, 91, 113))
         if page is InfoPage.SYSTEM:
-            for index, top in enumerate((137, 199), 1):
+            for index, top in enumerate((137, 187), 1):
                 draw.text((93, top), f"CPU {index}", font=font(17), fill=MUTED)
+                draw.text((240, top), "Unavailable", font=font(17), fill=MUTED)
+            for caption, top in (("INTERNAL RAM", 230), ("PSRAM", 256)):
+                draw.text((93, top), caption, font=font(17), fill=MUTED)
                 draw.text((240, top), "Unavailable", font=font(17), fill=MUTED)
             hours, seconds = divmod(self.info.observation.studio_uptime_seconds, 3600)
             minutes, seconds = divmod(seconds, 60)
-            label(draw, "STUDIO UPTIME", 263, 17, MUTED)
-            label(draw, f"{hours:02d}:{minutes:02d}:{seconds:02d}", 288, 23, ACCENT)
-            label(draw, "PREVIOUS: LAST OBSERVED", 328, 17, MUTED)
-            label(draw, "Unavailable", 353, 17, MUTED)
+            label(draw, "STUDIO UPTIME", 284, 17, MUTED)
+            label(draw, f"{hours:02d}:{minutes:02d}:{seconds:02d}", 309, 23, ACCENT)
+            label(draw, "PREVIOUS UPTIME", 337, 17, MUTED)
+            label(draw, "Unavailable", 362, 17, MUTED)
         elif page is InfoPage.MEMORY:
             for caption, top in (("INTERNAL RAM", 134), ("PSRAM", 268)):
                 label(draw, caption, top, 21, ACCENT)
@@ -1640,7 +1647,8 @@ class DeviceStudioWindow:
             supported.add("Context")
         self.available_pages = tuple(index for index, page in enumerate(PAGES)
                                      if page in self.visible and page in supported)
-        if self.route == "widgets" and self.page not in self.available_pages:
+        if self.route == "widgets" and self.page not in self.available_pages and not (
+                self.about_from_options and PAGES[self.page] == "About"):
             self.page = 0
             self.info.page = InfoPage.SYSTEM
             self.touch = None
@@ -1762,10 +1770,11 @@ class DeviceStudioWindow:
         self.button(draw, "Options", 330, self.options, width=260, height=50, caption_size=20)
 
     # self: Studio preview owning the selected dashboard page.
+    # image: Logical framebuffer receiving visual artwork.
     # draw: Logical canvas before rotation.
     # snapshot: Current loopback projection, if available.
     # now: Monotonic frame time for uptime and arrow fading.
-    def draw_widget(self, draw, snapshot, now):
+    def draw_widget(self, image, draw, snapshot, now):
         page = PAGES[self.page]
         if page in ("Codex account", "Credits", "Context", "Codex limits", "Last 7 days"):
             label(draw, page.upper(), 82, 33, ACCENT)
@@ -1780,7 +1789,7 @@ class DeviceStudioWindow:
         elif page == "Context":
             self.draw_context(draw, snapshot, now)
         elif page == "About":
-            self.draw_system_info(draw)
+            self.draw_system_info(image, draw)
         elif page == "Reset countdown":
             setup_icon(draw, "clock", (CENTER, 210), 58, SETUP_AMBER)
             label(draw, "Codex usage unavailable", 263, 19, SETUP_AMBER)
@@ -2042,7 +2051,7 @@ class DeviceStudioWindow:
                 self.targets["Screensaver"] = (box, self.screensaver.toggle)
                 self.sidebar(draw, -1, self.back)
             else:
-                self.draw_widget(draw, snapshot, now)
+                self.draw_widget(image, draw, snapshot, now)
             if self.safe_guide:
                 draw.rectangle((73, 73, 392, 392), outline=(62, 91, 113))
         if not self.standby:

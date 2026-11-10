@@ -102,7 +102,8 @@ record is not remotely revoked by this local action.
 PWR toggles software standby and wake. A short BOOT press returns to Home; a
 two-second BOOT hold opens Options. Page 1 has Connections,
 Codex stats and Timer. Page 2 has Visible screens, Display and Behavior.
-Page 3 has Restart device, Factory reset and Quick guide. The lateral arrows move between pages; Back from
+Page 3 has Restart device, Factory reset and Quick guide, plus an About action.
+The lateral arrows move between pages; Back from
 the first page returns to the opening route. **Codex stats** opens the first enabled
 statistics page with data, or Device when none is available.
 The Tools, Preferences and Device pages show three position marks without a Home
@@ -185,17 +186,19 @@ five-pixel gradient perimeter follows remaining weekly allowance across the
 awake interface while Codex is connected and the weekly sample is current.
 Only the optional globe screensaver hides this informational chrome.
 
-About contains three Info pages followed by the existing project QR:
+About is available from **Options > Device > About** and from the statistics
+carousel. It contains three Info pages followed by VibeWare and the repository QR:
 
 | Page | Content |
 | --- | --- |
-| System 1/3 | Measured CPU 1/core 0 and CPU 2/core 1, current uptime and last observed uptime from the previous boot when retained |
+| System 1/3 | Measured CPU use for both cores, current and last observed uptime, and used/total internal RAM and PSRAM |
 | Memory 2/3 | Internal RAM and PSRAM as separate allocatable heaps: used, free and largest free block |
 | Firmware 3/3 | Firmware version, compilation date/time, build timezone and build host |
-| Scan for more info | The project QR; a tap returns to Firmware |
+| VibeWare | VibeWare logo and umbertogiacobbi.biz |
+| Scan for more info | QR for the [GitHub repository](https://github.com/umbertotechnopreneur/esp32-luna-shell); a tap returns to VibeWare |
 
 The same lateral arrows move through these pages. Back from System returns to
-the previous enabled widget. The child page belongs to the device model; the QR
+the page that opened About. The child page belongs to the device model; the QR
 is not a separate item in the top-level carousel. Invalid or stale measurements
 retain their status and never display an invented percentage or empty bar.
 

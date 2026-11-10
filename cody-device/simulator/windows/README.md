@@ -19,9 +19,10 @@ I always use the public console from the repository root:
 ```
 
 Cody Studio runs from source on Windows and Linux with PowerShell 7, a native C++20
-compiler, Python with Tk and Pillow ImageTk, and PyYAML. The Apple store QR and
-illustrative pairing QR also use the existing optional ReportLab tooling; when
-it is absent the preview shows QR unavailable. Android retains its authored QR.
+compiler, Python with Tk and Pillow ImageTk, and PyYAML. The Apple store QR,
+illustrative pairing QR and GitHub project QR also use the existing optional
+ReportLab tooling; when it is absent the preview shows QR unavailable. Android
+retains its authored QR.
 On Ubuntu, the host packages include `g++`, `python3-tk`, `python3-pil.imagetk`
 and `python3-yaml`. Use a graphical
 session for the interactive window. Host audio uses ALSA `aplay` from `alsa-utils`.
@@ -35,21 +36,22 @@ pwsh -NoProfile -File ./scripts/device.ps1 simulator -Screen rig -OutputPath art
 ```
 
 The default Cody Studio opens the device preview. The existing VibeWare floppy
-plays once, followed by the native Muse showcase. **BOOT / Options** opens the
-device menu. **PWR / Standby** toggles the simulated display. With **Shake
+plays once, followed by the native Muse showcase. **BOOT / Home** returns Home;
+**BOOT 2s / Options** opens the device menu. **PWR / Standby** toggles the simulated display. With **Shake
 standby/wake** enabled, **Simulate shake** toggles standby; otherwise it returns
 to the first enabled statistics page when that dashboard is open.
 Touching Muse Home reduces and lifts the original character to reveal **PAIR WITH
 APP** and **SETUP WIFI**; they fade away after inactivity. The first opens the
-simulated Bluetooth pairing QR directly, while the second opens the Wi-Fi journey.
+Bluetooth introduction, while the second opens the Wi-Fi journey.
 The journey offers app download, pairing and an on-device setup preview. The
 on-device page shows a synthetic scan and fixed demonstration networks with
 simulated signal strengths in dBm; selecting one opens a Studio recreation of
 the native multitap password keyboard. Connect
 changes only the optional simulated loopback state, and the password is neither
 sent nor saved. The native keyboard is not exposed through the Studio bridge.
-The app path includes an explanation page and a single Android/Apple store QR
-selected by touch. The pairing QR shown in Studio is explicitly synthetic and
+The app path includes an introduction with Android and Apple choices. Tap a
+store QR to return to the introduction, then use Next to see the pairing QR.
+The pairing QR shown in Studio is explicitly synthetic and
 cannot pair a device. The device creates its own session-bound QR. A violet
 no-Wi-Fi notice appears after the wake and four seconds of visible Home time;
 its device name and link state are explicitly simulated in Studio. The shared
@@ -60,22 +62,24 @@ after inactivity and return on touch or simulated motion. The numeric battery
 setting is prepared in the renderer but has no settings control yet.
 
 The dashboard and Options page arrows fade after ten seconds. A touch reveals
-them again. **Options 1/3** contains **Connections**, **Codex stats** and **Timer**.
-Page 2 contains **Visible screens**, **Display** and **Behavior**. Page 3 holds
-**Restart device**, **Factory reset** and **Quick guide**. The guide previews the
-three fixed instruction pages and their lateral arrows. Restart replays the boot and preserves
-settings and the simulator association. Timer previews duration and sound selection, a running countdown
-and the finished state. Audible playback and hardware wake belong to the device.
-**Home** on any page opens Reset countdown or the first enabled statistics
-screen, with Device as the fallback. Brightness starts at 80%; brightness,
+them again. **Tools** contains **Connections**, **Codex stats** and **Timer**;
+**Preferences** contains **Visible screens**, **Display** and **Behavior**;
+**Device** holds **Restart device**, **Factory reset**, **Quick guide** and an
+**About** action. The menu has no Home footer. Back returns to the preceding
+page, and a short BOOT press returns to Muse Home. The guide previews the three
+fixed instruction pages and their lateral arrows. Restart replays the boot and
+preserves settings and the simulator association. Timer previews duration and
+sound selection, a running countdown and the finished state. Audible playback
+and hardware wake belong to the device. Brightness starts at 80%; brightness,
 orientation and visibility choices affect this preview session. **Visible screens**
-groups the nine configurable pages into three sets of full-width rows. **About** contains
-**System**, **Memory** and **Firmware**, followed by a scannable project QR code and an explicit
-**Open link** action. System identifies its uptime as **Studio uptime**.
-The current loopback source has no physical CPU/RAM or firmware metadata:
-those sections show unavailable states, without host measurements or invented
-numeric bars. The typed child-page model makes Back from the QR return to
-Firmware; the QR has no Next control.
+groups the nine configurable pages into three sets of full-width rows.
+
+**About** contains **System**, **Memory** and **Firmware**, followed by the
+VibeWare logo and a QR linking to the GitHub repository. A tap on the QR returns
+to VibeWare; there is no Open link action. System identifies its uptime as
+**Studio uptime**. The current loopback source has no physical CPU/RAM or
+firmware metadata: those sections show unavailable states, without host
+measurements or invented numeric bars.
 
 The ten-page carousel has Device, Reset countdown, Context, Codex limits, Today,
 Last 7 days, Token history, Credits, Codex account and About. Info and its QR

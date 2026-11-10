@@ -221,7 +221,7 @@ enum class OnboardingAction : uint8_t {
     ForgetPairing, ConfirmForget, KeepSaved, DisplayOptions, BehaviorOptions, MoreBehavior,
     Connections, CodexStatistics, VisibleScreens, OpenPairingGuide,
     FactoryReset, ConfirmFactoryReset, LocalTimer, RestartDevice, ConfirmRestart, QuickGuide,
-    CheckRelay, SynthOptions, BrowseCodex, AndroidApp, AppleApp, LocalWifi, AudioLevels,
+    CheckRelay, SynthOptions, BrowseCodex, AndroidApp, AppleApp, LocalWifi, AudioLevels, OpenAbout,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
@@ -591,7 +591,7 @@ bool s_relay_attempted = false;
 // Startup encodes the static About link before the action worker owns the library.
 QrModules *s_encoding_target = nullptr;
 #if defined(CODY_DEVICE_UI_ONLY)
-constexpr char kAboutProjectUrl[] = "https://umbertogiacobbi.biz/esp32-luna-shell";
+constexpr char kAboutProjectUrl[] = "https://github.com/umbertotechnopreneur/esp32-luna-shell";
 constexpr char kAboutProjectHeading[] = "Scan for more info";
 constexpr CODY2D::Rect kAboutProjectBounds = kLargeQrBounds;
 QrModules s_about_project_qr{};
@@ -1338,6 +1338,9 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         break;
     case OnboardingAction::QuickGuide:
         label = "Quick guide";
+        break;
+    case OnboardingAction::OpenAbout:
+        label = "About";
         break;
     case OnboardingAction::VisibleScreens:
         label = "Visible screens";
@@ -2956,6 +2959,9 @@ esp_err_t prepare_options_content(SceneFrame &scene,
             ++s_view.preference_count;
         }
         if (kDeviceFirstSetup) {
+            if (s_options_page == OptionsPage::MenuMaintenance) {
+                return prepare_action(OnboardingAction::OpenAbout, true);
+            }
             s_view.action = {};
             s_view.action_id = OnboardingAction::None;
             s_view.action_visible = false;
@@ -6077,6 +6083,16 @@ esp_err_t open_companion_options(SceneFrame &scene)
     return enter_route(Route::MakeItYours10, scene);
 }
 
+// scene: Restores the Device section that opened About.
+// Exception: Returns the original route or presentation error.
+esp_err_t return_to_options_device(SceneFrame &scene)
+{
+    const auto error = open_companion_options(scene);
+    if (error != ESP_OK) return error;
+    return s_route == Route::MakeItYours10 ? show_options_page(scene, OptionsPage::MenuMaintenance) :
+        ESP_ERR_INVALID_STATE;
+}
+
 // scene: Options has admitted a deliberate return to the dashboard.
 esp_err_t open_device_dashboard(SceneFrame &scene)
 {
@@ -7233,6 +7249,10 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         return finish_wifi_setup(scene, changed);
     }
     if (action_hit && s_route == Route::MakeItYours10) {
+        if (from_footer && on_options_menu() && s_view.action_id == OnboardingAction::OpenAbout) {
+            s_widget_open_request = WidgetOpenRequest::About;
+            return ESP_OK;
+        }
         if (on_quick_guide()) {
             if (from_footer) return show_options_page(scene, OptionsPage::MenuMaintenance);
             if (!page_forward) return ESP_OK;

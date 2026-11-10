@@ -109,8 +109,8 @@ identify the owning journey; exact current controls remain in navigation.md.
 | widget-v1:Limits=2, Today=3, LastSevenDays=4 | `CODY_account_dashboard.cpp` | Carousel -> neighbor; account/usage | Active source |
 | widget-v1:TokenHistory=5 | `CODY_token_history.cpp` | Carousel + interval choice -> neighbor; history | Active source |
 | widget-v1:Credits=6, Account=7 | `CODY_account_dashboard.cpp` | Carousel; voucher scroll/neighbor; account data | Active source |
-| widget-v1:Context=8, About=9 | `CODY_home_dashboard.cpp`, `CODY_system_info.cpp` | Carousel -> child info/neighbor | Active source |
-| ui-v1:info-system, info-memory, info-firmware, project-qr | `CODY_system_info.cpp`, `InfoPage` | About -> next/Back; diagnostics/build metadata | Active source |
+| widget-v1:Context=8, About=9 | `CODY_home_dashboard.cpp`, `CODY_system_info.cpp` | Carousel or Options > Device > About -> child info/previous page | Active source |
+| ui-v1:info-system, info-memory, info-firmware, vibeware, project-qr | `CODY_system_info.cpp`, `InfoPage` | About -> next/Back; diagnostics, build metadata, branding and repository QR | Active source |
 | ui-v1:visible-screens | `CODY_widget_visibility_view.cpp` | Options -> settings owner -> previous route | Active source |
 | ui-v1:timer | `CODY_local_timer_view.cpp`, `CODY_local_timer.cpp` | Options -> timer; Close preserves active countdown | Active source |
 | ui-v1:diagnostics, memory-detail | `CODY_debug_views.cpp`, UI diagnostics layer | Debug/Release entry -> overview -> retained route | Active source |

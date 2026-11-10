@@ -18,7 +18,8 @@ Codex pairing. A short BOOT press returns to Home.
   wake the display from connected standby and play a cue when sounds are enabled.
 - **Account and device screens.** Browse reset, limits, usage, credits, context
   and About. A five-pixel perimeter shows the current weekly allowance on the statistics
-  screens when a valid sample is available. About includes build details and a project QR.
+  screens when a valid sample is available. Open About from Options > Device to
+  see CPU and memory, build details, VibeWare and a QR for this GitHub repository.
 - **Physical controls.** PWR toggles standby and wake; a short BOOT press returns
   to Home, while holding BOOT for two seconds opens Options. A shake
   returns to the first enabled statistics page. Optional voice input uses the

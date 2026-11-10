@@ -9,6 +9,7 @@ class InfoPage(Enum):
     SYSTEM = auto()
     MEMORY = auto()
     FIRMWARE = auto()
+    VIBEWARE = auto()
     PROJECT_LINK = auto()
 
 
