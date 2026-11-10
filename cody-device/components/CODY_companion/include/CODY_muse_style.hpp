@@ -10,6 +10,23 @@ enum class MuseSymbol : uint8_t {
     None, Question, Exclamation, Idea, Thinking, Heart, Sweat, Tension, Sleep, Count,
 };
 
+enum class MuseEyeStyle : uint8_t {
+    Automatic, Normal, Wide, Happy, Cross, Closed, Count,
+};
+
+enum class MuseMouthStyle : uint8_t {
+    Automatic, Smile, Round, Thoughtful, Talking, Grin, Flat, Count,
+};
+
+// Explicit face selections override pose and symbol expression independently.
+// Automatic retains the authored pose, blink, gaze and reaction behavior.
+struct MuseFaceStyle {
+    MuseEyeStyle left_eye = MuseEyeStyle::Automatic;
+    MuseEyeStyle right_eye = MuseEyeStyle::Automatic;
+    MuseMouthStyle mouth = MuseMouthStyle::Automatic;
+    float talking_openness = 0.5f; // 0..1, used only for an explicit Talking mouth.
+};
+
 // Defaults reproduce Muse's state-dependent orbit; count is scaled by each mode.
 // Valid ranges: count 0..16, size 0..2, speed 0..5, radius 0..40,
 // vertical_scale and brightness 0..1, twinkle_speed 0..20, RGB 0..0xffffff.
@@ -55,6 +72,7 @@ struct MuseSymbolStyle {
 
 struct MuseVisualStyle {
     MusePoseStyle pose{};
+    MuseFaceStyle face{};
     MuseParticleStyle particles{};
     MuseSymbolStyle symbol{};
     float pose_transition_seconds = 0.28f; // Valid range 0..3 seconds.

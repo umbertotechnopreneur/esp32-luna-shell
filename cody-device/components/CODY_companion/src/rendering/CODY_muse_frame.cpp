@@ -21,6 +21,21 @@ static_assert(PixelAvatarFrame{}.palette.size() == MUSE_PX_FRAME_PALETTE);
 
 static_assert(static_cast<unsigned>(MuseSymbol::Count) == MUSE_SYMBOL_COUNT);
 static_assert(static_cast<unsigned>(MuseSymbol::Sleep) == MUSE_SYMBOL_SLEEP);
+static_assert(static_cast<unsigned>(MuseEyeStyle::Automatic) == MUSE_EYE_AUTO);
+static_assert(static_cast<unsigned>(MuseEyeStyle::Normal) == MUSE_EYE_NORMAL);
+static_assert(static_cast<unsigned>(MuseEyeStyle::Wide) == MUSE_EYE_WIDE);
+static_assert(static_cast<unsigned>(MuseEyeStyle::Happy) == MUSE_EYE_HAPPY);
+static_assert(static_cast<unsigned>(MuseEyeStyle::Cross) == MUSE_EYE_CROSS);
+static_assert(static_cast<unsigned>(MuseEyeStyle::Closed) == MUSE_EYE_CLOSED);
+static_assert(static_cast<unsigned>(MuseEyeStyle::Count) == MUSE_EYE_COUNT);
+static_assert(static_cast<unsigned>(MuseMouthStyle::Automatic) == MUSE_MOUTH_AUTO);
+static_assert(static_cast<unsigned>(MuseMouthStyle::Smile) == MUSE_MOUTH_SMILE);
+static_assert(static_cast<unsigned>(MuseMouthStyle::Round) == MUSE_MOUTH_ROUND);
+static_assert(static_cast<unsigned>(MuseMouthStyle::Thoughtful) == MUSE_MOUTH_THOUGHTFUL);
+static_assert(static_cast<unsigned>(MuseMouthStyle::Talking) == MUSE_MOUTH_TALKING);
+static_assert(static_cast<unsigned>(MuseMouthStyle::Grin) == MUSE_MOUTH_GRIN);
+static_assert(static_cast<unsigned>(MuseMouthStyle::Flat) == MUSE_MOUTH_FLAT);
+static_assert(static_cast<unsigned>(MuseMouthStyle::Count) == MUSE_MOUTH_COUNT);
 
 constexpr std::array<muse_mode_t, 7> kMuseModes{
     MUSE_MODE_BOOT, MUSE_MODE_IDLE, MUSE_MODE_LISTENING, MUSE_MODE_THINKING,
@@ -44,6 +59,7 @@ PixelAvatarComposeStatus compose_muse_frame(PixelAvatarFrame &frame, PixelAvatar
 
     const auto &particles = input.style.particles;
     const auto &pose_style = input.style.pose;
+    const auto &face = input.style.face;
     const auto &symbol = input.style.symbol;
     const float transition = input.style.pose_transition_seconds;
     const auto bounded = [](float value, float low, float high) {
@@ -55,6 +71,10 @@ PixelAvatarComposeStatus compose_muse_frame(PixelAvatarFrame &frame, PixelAvatar
         !bounded(pose_style.right_hand_x, -8, 8) || !bounded(pose_style.right_hand_y, -8, 8) ||
         !bounded(pose_style.gaze_x, -1, 1) || !bounded(pose_style.gaze_y, -1, 1) ||
         !bounded(pose_style.eye_openness, 0, 1) ||
+        static_cast<unsigned>(face.left_eye) >= static_cast<unsigned>(MuseEyeStyle::Count) ||
+        static_cast<unsigned>(face.right_eye) >= static_cast<unsigned>(MuseEyeStyle::Count) ||
+        static_cast<unsigned>(face.mouth) >= static_cast<unsigned>(MuseMouthStyle::Count) ||
+        !bounded(face.talking_openness, 0, 1) ||
         !bounded(symbol.bob_speed, 0, 10) ||
         particles.count > 16 || particles.size > 2 ||
         !std::isfinite(particles.speed) || particles.speed < 0 || particles.speed > 5 ||
@@ -81,6 +101,8 @@ PixelAvatarComposeStatus compose_muse_frame(PixelAvatarFrame &frame, PixelAvatar
         pose_style.right_hand_y, pose_style.gaze_x, pose_style.gaze_y, pose_style.eye_openness,
         static_cast<muse_symbol_t>(symbol.symbol), symbol.offset_x, symbol.offset_y,
         symbol.scale, symbol.bob_speed, symbol.custom_color, symbol.color_rgb, transition,
+        static_cast<muse_eye_style_t>(face.left_eye), static_cast<muse_eye_style_t>(face.right_eye),
+        static_cast<muse_mouth_style_t>(face.mouth), face.talking_openness,
     };
 
     // Same hold and final 400 ms fade as muse_state_happiness().

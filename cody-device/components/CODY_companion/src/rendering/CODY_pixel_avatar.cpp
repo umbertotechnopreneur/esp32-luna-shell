@@ -44,7 +44,7 @@ esp_err_t validate_viewport(CODY2D::Rect viewport)
 // reaction_ms: Time since the accepted tap.
 // audio_level: Normalized energy from the caller.
 // working: Active-work variant of Thinking.
-// style: Pose, particle, symbol and transition settings.
+// style: Independent pose, face, particle, symbol and transition settings.
 // Exception: Logs rejected composition input and clears the frame.
 void compose_pixel_avatar(PixelAvatarFrame &frame, PixelAvatarPose pose,
     uint32_t time_ms, uint32_t pose_ms, uint32_t reaction_ms, float audio_level, bool working,
@@ -60,7 +60,9 @@ void compose_pixel_avatar(PixelAvatarFrame &frame, PixelAvatarPose pose,
     } else if (status == PixelAvatarComposeStatus::InvalidAudioLevel) {
         ESP_LOGE(kTag, "Compose rejected non-finite audio level (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
     } else {
-        ESP_LOGE(kTag, "Compose rejected visual style: particles=%u size=%u symbol=%u scale=%u (%s)",
+        ESP_LOGE(kTag, "Compose rejected visual style: eyes=%u/%u mouth=%u mouth_open=%g particles=%u size=%u symbol=%u scale=%u (%s)",
+            static_cast<unsigned>(style.face.left_eye), static_cast<unsigned>(style.face.right_eye),
+            static_cast<unsigned>(style.face.mouth), static_cast<double>(style.face.talking_openness),
             static_cast<unsigned>(style.particles.count), static_cast<unsigned>(style.particles.size),
             static_cast<unsigned>(style.symbol.symbol), static_cast<unsigned>(style.symbol.scale),
             esp_err_to_name(ESP_ERR_INVALID_ARG));

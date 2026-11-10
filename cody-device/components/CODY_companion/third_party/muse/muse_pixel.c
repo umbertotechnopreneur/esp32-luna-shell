@@ -697,6 +697,42 @@ static void draw_eye(float ex, float ey, float openness, eye_style_t style, floa
     stamp(rows + skip, n - skip, cx - 2, cy - 2 + skip, C_IRIS, skip ? C_IRIS : C_SHINE);
 }
 
+/* ex: Horizontal center of this eye.
+ * ey: Vertical center of this eye.
+ * selected: Explicit eye identity, or automatic for the existing pose behavior.
+ * art: Validated artwork controls; null uses the automatic behavior.
+ * automatic_open: Pose and blink derived openness.
+ * automatic_style: Pose and reaction derived eye shape.
+ * automatic_gx: Pose and reaction derived horizontal gaze.
+ * automatic_gy: Pose and reaction derived vertical gaze. */
+static void draw_configured_eye(float ex, float ey, muse_eye_style_t selected,
+    const muse_art_t *art, float automatic_open, eye_style_t automatic_style,
+    float automatic_gx, float automatic_gy)
+{
+    if (!art || selected == MUSE_EYE_AUTO) {
+        draw_eye(ex, ey, automatic_open, automatic_style, automatic_gx, automatic_gy);
+        return;
+    }
+    eye_style_t shape = EYES_NORMAL;
+    float openness = art->eye_openness;
+    switch (selected) {
+    case MUSE_EYE_WIDE: shape = EYES_WIDE; break;
+    case MUSE_EYE_HAPPY: shape = EYES_HAPPY; break;
+    case MUSE_EYE_CROSS: shape = EYES_X; break;
+    case MUSE_EYE_CLOSED: openness = 0; break;
+    case MUSE_EYE_NORMAL: break;
+    default: return; /* The Cody boundary rejects unknown selectors. */
+    }
+    // Explicit eyes use the authored gaze and openness, independent of pose clocks and symbols.
+    if (openness < 0.3f) shape = EYES_NORMAL;
+    if (shape == EYES_HAPPY || shape == EYES_X) {
+        // These fixed stamps otherwise ignore the pupil offsets used by normal eyes.
+        draw_eye(ex + art->gaze_x * 0.8f, ey + art->gaze_y * 0.7f, openness, shape, 0, 0);
+        return;
+    }
+    draw_eye(ex, ey, openness, shape, art->gaze_x, art->gaze_y);
+}
+
 static void draw_blush(int x, int y, float strength)
 {
     static const char *const CHEEK[] = { ".##.", "####", ".##." };
@@ -1307,8 +1343,26 @@ void muse_pixel_render(const muse_pose_t *p)
         gaze_y = clampf(gaze_y + p->art->gaze_y, -1, 1);
         open *= p->art->eye_openness;
     }
-    draw_eye(j.fx - eye_dx, eye_y, open, style, gaze_x, gaze_y);
-    draw_eye(j.fx + eye_dx, eye_y, open, style, gaze_x, gaze_y);
+    draw_configured_eye(j.fx - eye_dx, eye_y, p->art ? p->art->left_eye : MUSE_EYE_AUTO,
+        p->art, open, style, gaze_x, gaze_y);
+    draw_configured_eye(j.fx + eye_dx, eye_y, p->art ? p->art->right_eye : MUSE_EYE_AUTO,
+        p->art, open, style, gaze_x, gaze_y);
+
+    if (p->art) {
+        // Resolve this channel after pose, audio and symbol effects, without changing them.
+        switch (p->art->mouth) {
+        case MUSE_MOUTH_SMILE: mouth = MOUTH_SMILE; break;
+        case MUSE_MOUTH_ROUND: mouth = MOUTH_O; break;
+        case MUSE_MOUTH_THOUGHTFUL: mouth = MOUTH_HMM; break;
+        case MUSE_MOUTH_TALKING:
+            mouth = MOUTH_TALK;
+            mouth_open = p->art->talking_openness;
+            break;
+        case MUSE_MOUTH_GRIN: mouth = MOUTH_GRIN; break;
+        case MUSE_MOUTH_FLAT: mouth = MOUTH_FLAT; break;
+        default: break; /* Automatic retains the existing face. */
+        }
+    }
 
     /* Tiny brows for the expressive states. */
     int bl = iround(j.fx - eye_dx), br = iround(j.fx + eye_dx), by = iround(eye_y) - 4;

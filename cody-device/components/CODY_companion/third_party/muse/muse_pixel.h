@@ -39,6 +39,16 @@ typedef enum {
     MUSE_SYMBOL_COUNT
 } muse_symbol_t;
 
+typedef enum {
+    MUSE_EYE_AUTO, MUSE_EYE_NORMAL, MUSE_EYE_WIDE, MUSE_EYE_HAPPY,
+    MUSE_EYE_CROSS, MUSE_EYE_CLOSED, MUSE_EYE_COUNT
+} muse_eye_style_t;
+
+typedef enum {
+    MUSE_MOUTH_AUTO, MUSE_MOUTH_SMILE, MUSE_MOUTH_ROUND, MUSE_MOUTH_THOUGHTFUL,
+    MUSE_MOUTH_TALKING, MUSE_MOUTH_GRIN, MUSE_MOUTH_FLAT, MUSE_MOUTH_COUNT
+} muse_mouth_style_t;
+
 /* Artwork-only parameters; all values are validated by the Cody owner. */
 typedef struct {
     uint8_t particle_count, particle_size;
@@ -56,6 +66,9 @@ typedef struct {
     bool symbol_custom_color;
     uint32_t symbol_color_rgb;
     float pose_transition_seconds;
+    muse_eye_style_t left_eye, right_eye;
+    muse_mouth_style_t mouth;
+    float talking_openness;
 } muse_art_t;
 
 typedef struct {

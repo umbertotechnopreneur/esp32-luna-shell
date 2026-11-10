@@ -25,12 +25,25 @@ advances on retired frames and sound follows the device's current audio policy.
 
 Muse renders on its original 64 by 64 indexed grid. The serialized display
 owner can supply `MuseVisualStyle` to `compose_muse_frame`: pose movement,
-hand and body offsets, gaze and eye openness; particle count, size, speed,
+hand and body offsets, gaze, eye openness, independent left and right eye shapes,
+and mouth shape; particle count, size, speed,
 radius, vertical scale, twinkle, brightness and color; symbol identity, offset,
 scale, color and bobbing speed; and pose transition time. Invalid inputs are
 rejected before rendering. Default particle settings preserve the original
 state-tinted orbit in front of and behind Muse. These are native configuration
 parameters, not settings exposed in the device UI.
+
+Each eye can independently use Automatic, Normal, Wide, Happy, Cross or Closed;
+the mouth can use Automatic, Smile, Round, Thoughtful, Talking, Grin or Flat.
+Explicit selections take precedence over pose, tap reaction and manga symbols.
+Automatic preserves the original pose-driven face and blinking. Explicit eyes
+use the supplied gaze and openness instead of pose-driven gaze and blink;
+Closed is a dedicated selection. The explicit Talking mouth uses the supplied
+`talking_openness` rather than pose or audio, so its owner may animate it.
+For example, select `style.face.left_eye = MuseEyeStyle::Closed`,
+`style.face.right_eye = MuseEyeStyle::Wide` and
+`style.face.mouth = MuseMouthStyle::Round` independently of
+`style.symbol.symbol` and the body and hand controls.
 
 While Muse is visible, current IMU acceleration from the device snapshot adds a
 bounded, smoothed body and gaze response in the display's logical orientation.

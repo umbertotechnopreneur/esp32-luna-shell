@@ -126,6 +126,11 @@ unless the case specifies otherwise.
 
 The host ABI exposes `cody_host_muse_reset` and `cody_host_muse_pose_frame`
 for explicit pose sequences. Compare exact output for replay on the same build.
+`cody_host_muse_face_frame` and `NativeMusePreview.face_image` additionally
+accept independently selected eye shapes, mouth shape and manga symbol alongside
+body, hand and gaze offsets; explicit Talking openness is supplied by the caller.
+The ordinary preview keeps automatic
+expressions and uses the same native composition as the device.
 Between targets, check the pose transitions, reaction timing and geometry
 invariants. Floating-point libraries can affect individual indexed edges or
 palette values. Hardware timing and audio remain physical acceptance gates.
