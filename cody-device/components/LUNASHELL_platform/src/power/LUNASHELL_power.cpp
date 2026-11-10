@@ -611,6 +611,17 @@ struct MaintenanceRequest {
 MaintenanceRequest s_maintenance_request{};
 LUNASHELL::FactoryResetObservation s_local_factory_reset{};
 std::atomic<esp_err_t> s_factory_reset_error{ESP_OK};
+bool s_maintenance_admission_pending = false; // Protected by the admission mux.
+esp_timer_handle_t s_factory_reset_timer = nullptr;
+constexpr uint64_t kFactoryResetDeadlineUs = 60ULL * 1000ULL * 1000ULL;
+
+// argument: Unused timer context; the reset worker may be blocked.
+void factory_reset_deadline(void *argument)
+{
+    (void)argument;
+    ESP_LOGE(kTag, "Factory reset exceeded 60 seconds; restarting without asserting erasure");
+    esp_restart();
+}
 
 // command: Explicitly confirmed operation, with factory erasure distinct from restart.
 // origin: Authorized entry point, retained for accurate worker logging.
@@ -623,28 +634,67 @@ esp_err_t queue_maintenance(MaintenanceCommand command, MaintenanceOrigin origin
                  esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
-    const int64_t execute_at_us = esp_timer_get_time() + 500000;
+    esp_timer_handle_t timer = nullptr;
+    if (command == MaintenanceCommand::FactoryReset) {
+        const esp_timer_create_args_t args{
+            .callback = factory_reset_deadline,
+            .arg = nullptr,
+            .dispatch_method = ESP_TIMER_TASK,
+            .name = "factory-reset",
+            .skip_unhandled_events = false,
+        };
+        const esp_err_t error = esp_timer_create(&args, &timer);
+        if (error != ESP_OK) {
+            ESP_LOGE(kTag, "Factory reset deadline creation failed (%s)", esp_err_to_name(error));
+            return error;
+        }
+    }
     uint32_t local_request_id = 0;
     portENTER_CRITICAL(&s_shutdown_admission_mux);
     const bool occupied = s_shutdown_admission_closed ||
-        s_maintenance_request.command != MaintenanceCommand::None;
+        s_maintenance_admission_pending || s_maintenance_request.command != MaintenanceCommand::None;
     const bool exhausted = request_id != nullptr && s_local_factory_reset.request_id == UINT32_MAX;
     if (!occupied && !exhausted) {
-        if (request_id != nullptr) {
-            local_request_id = s_local_factory_reset.request_id + 1;
-            s_local_factory_reset = {local_request_id, ESP_OK, true};
-        }
-        // Give CCP time to transmit its acknowledgement and the local UI time
-        // to show admission before the internal worker erases or restarts.
-        s_maintenance_request = {command, origin, execute_at_us, local_request_id};
+        s_maintenance_admission_pending = true;
     }
     portEXIT_CRITICAL(&s_shutdown_admission_mux);
     if (occupied || exhausted) {
+        if (timer != nullptr) {
+            const esp_err_t cleanup_error = esp_timer_delete(timer);
+            if (cleanup_error != ESP_OK) {
+                ESP_LOGE(kTag, "Unused factory reset deadline cleanup failed (%s)", esp_err_to_name(cleanup_error));
+            }
+        }
         ESP_LOGE(kTag, "Maintenance rejected: %s (%s)",
                  occupied ? "power operation already pending" : "local request identities exhausted",
                  esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
     }
+    if (timer != nullptr) {
+        const esp_err_t error = esp_timer_start_once(timer, kFactoryResetDeadlineUs);
+        if (error != ESP_OK) {
+            const esp_err_t cleanup_error = esp_timer_delete(timer);
+            if (cleanup_error != ESP_OK) {
+                ESP_LOGE(kTag, "Factory reset deadline cleanup failed (%s)", esp_err_to_name(cleanup_error));
+            }
+            portENTER_CRITICAL(&s_shutdown_admission_mux);
+            s_maintenance_admission_pending = false;
+            portEXIT_CRITICAL(&s_shutdown_admission_mux);
+            ESP_LOGE(kTag, "Factory reset deadline start failed (%s)", esp_err_to_name(error));
+            return error;
+        }
+    }
+    const int64_t execute_at_us = esp_timer_get_time() + 500000;
+    portENTER_CRITICAL(&s_shutdown_admission_mux);
+    if (request_id != nullptr) {
+        local_request_id = s_local_factory_reset.request_id + 1;
+        s_local_factory_reset = {local_request_id, ESP_OK, true};
+    }
+    s_factory_reset_timer = timer;
+    // Give CCP and the local UI time to show admission before execution.
+    s_maintenance_request = {command, origin, execute_at_us, local_request_id};
+    s_maintenance_admission_pending = false;
+    portEXIT_CRITICAL(&s_shutdown_admission_mux);
     if (request_id != nullptr) {
         *request_id = local_request_id;
     }
@@ -2801,7 +2851,7 @@ esp_err_t request_power_off()
     s_shutdown_error = ESP_OK;
     portENTER_CRITICAL(&s_shutdown_admission_mux);
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-    if (s_maintenance_request.command != MaintenanceCommand::None) {
+    if (s_maintenance_admission_pending || s_maintenance_request.command != MaintenanceCommand::None) {
         portEXIT_CRITICAL(&s_shutdown_admission_mux);
         ESP_LOGE(kTag, "Power-off rejected during maintenance (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
         return ESP_ERR_INVALID_STATE;
@@ -3141,6 +3191,17 @@ void power_task(void *argument)
                 restart_preserving_logs(maintenance.local_request_id != 0
                     ? "Local factory settings cleared" : "CCP factory settings cleared");
             }
+            const esp_err_t stop_error = esp_timer_stop(s_factory_reset_timer);
+            if (stop_error != ESP_OK) {
+                // An expired or otherwise unmanageable deadline cannot safely be cancelled.
+                ESP_LOGE(kTag, "Factory reset deadline stop failed (%s); restarting", esp_err_to_name(stop_error));
+                esp_restart();
+            }
+            const esp_err_t delete_error = esp_timer_delete(s_factory_reset_timer);
+            if (delete_error != ESP_OK) {
+                ESP_LOGE(kTag, "Factory reset deadline cleanup failed (%s)", esp_err_to_name(delete_error));
+            }
+            s_factory_reset_timer = nullptr;
             // A partial erasure is visible and retryable by a new explicit
             // command; no reboot disguises it as a completed first-run reset.
             ESP_LOGE(kTag, "%s factory reset failed; reboot withheld (%s)",
