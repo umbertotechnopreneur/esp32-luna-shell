@@ -8,8 +8,11 @@ namespace CODY {
 namespace {
 
 constexpr char kTag[] = "CODY_pixel_demo";
-constexpr DamageRect kMascotBounds{kPixelDemoViewport.x, kPixelDemoViewport.y,
-    kPixelDemoViewport.x + kPixelDemoViewport.width, kPixelDemoViewport.y + kPixelDemoViewport.height};
+// viewport: Logical artwork and tap bounds from the display adapter.
+constexpr CODY2D::Rect avatar_bounds(LogicalRect viewport)
+{
+    return {viewport.x, viewport.y, viewport.width, viewport.height};
+}
 
 // state: Display-owned mascot frame, borrowed until all submitted strips retire.
 // strip: Native RGB565 tile, already cleared by the existing UI compositor.
@@ -21,7 +24,7 @@ esp_err_t draw_mascot_rows(const void *state, CODY2D::Surface strip,
 {
     const auto *view = static_cast<const PixelDemoView *>(state);
     if (view == nullptr || !view->visible) return ESP_ERR_INVALID_STATE;
-    return draw_pixel_avatar_rows(view->frames[view->write_buffer], kPixelDemoViewport,
+    return draw_pixel_avatar_rows(view->frames[view->write_buffer], avatar_bounds(view->viewport),
         strip, first_row, first_column);
 }
 
@@ -54,15 +57,19 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
         static_cast<uint32_t>(view.elapsed_us / 1000U),
         static_cast<uint32_t>(pose_us / 1000U), reaction_ms);
 
+    const auto viewport = avatar_bounds(view.viewport);
+    const DamageRect mascot_bounds{viewport.x, viewport.y,
+        static_cast<uint16_t>(viewport.x + viewport.width),
+        static_cast<uint16_t>(viewport.y + viewport.height)};
     if (!view.retired_valid) {
-        view.damage = kMascotBounds;
+        view.damage = mascot_bounds;
     } else {
         const auto damage = pixel_avatar_damage(view.frames[1U - view.write_buffer],
-            view.frames[view.write_buffer], kPixelDemoViewport);
+            view.frames[view.write_buffer], viewport);
         view.damage = {damage.x, damage.y, static_cast<uint16_t>(damage.x + damage.width),
             static_cast<uint16_t>(damage.y + damage.height)};
     }
-    content.bounds = kMascotBounds;
+    content.bounds = mascot_bounds;
     content.state = &view;
     content.draw_rows = draw_mascot_rows;
     return ESP_OK;
@@ -101,8 +108,7 @@ bool observe_pixel_demo_touch(PixelDemoView &view, CODY2D::Point point,
         view.touch_sampled_us = sampled_at_us;
         view.touch_revision = display_revision;
         view.touch_candidate = view.visible && view.retired_valid && sampled_at_us > 0 &&
-            point.x >= kPixelDemoViewport.x && point.x < kPixelDemoViewport.x + kPixelDemoViewport.width &&
-            point.y >= kPixelDemoViewport.y && point.y < kPixelDemoViewport.y + kPixelDemoViewport.height;
+            view.viewport.contains(point.x, point.y);
         return false;
     }
     if (!view.touch_candidate) return false;

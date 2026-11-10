@@ -265,7 +265,8 @@ static inline float fracf(float v)
 }
 
 /* Cheap deterministic pseudo-random for idle behaviour. */
-static uint32_t s_rng = 0x9e3779b9u;
+#define MUSE_ART_SEED 0x9e3779b9u
+static uint32_t s_rng = MUSE_ART_SEED;
 static float frand(void)
 {
     s_rng ^= s_rng << 13;
@@ -302,7 +303,8 @@ typedef struct {
     float last_t;
 } eyes_t;
 
-static eyes_t s_eyes = { .next_blink = 1.5f, .blink_start = -10, .next_gaze = 1.0f };
+#define MUSE_EYES_START { .next_blink = 1.5f, .blink_start = -10, .next_gaze = 1.0f }
+static eyes_t s_eyes = MUSE_EYES_START;
 
 static float eyes_update(const muse_pose_t *p, float dt)
 {
@@ -927,10 +929,30 @@ void muse_pixel_scale(uint16_t *dst, int stride_px, int x0, int x1, int y0, int 
     }
 }
 
+static muse_speaking_t s_speech;
+static limb_t s_previous_arms[2], s_from_arms[2];
+static muse_mode_t s_previous_mode;
+static float s_previous_t, s_arm_transition = 1;
+
+// seed: Artistic sequence seed. Xorshift requires a nonzero state.
+void muse_pixel_reset_animation(uint32_t seed)
+{
+    s_rng = seed != 0 ? seed : MUSE_ART_SEED;
+    s_eyes = (eyes_t)MUSE_EYES_START;
+    memset(s_scheme, 0, sizeof(s_scheme));
+    s_scheme_init = false;
+    memset(&s_speech, 0, sizeof(s_speech));
+    s_speech.seed = seed;
+    s_previous_t = 0;
+    s_arm_transition = 1;
+    // The next render ignores old hand positions and records new ones.
+}
+
+// p: Pose, clocks and artistic inputs supplied by the presentation owner.
 void muse_pixel_render(const muse_pose_t *p)
 {
-    static muse_speaking_t speech;
     static bool s_luts;
+    muse_speaking_t *speech = &s_speech;
     if (!s_luts) {
         init_luts();
         s_luts = true;
@@ -945,7 +967,7 @@ void muse_pixel_render(const muse_pose_t *p)
     float level = p->level;
     float t = p->t;
     bool working = mode == MUSE_MODE_THINKING && p->working > 0.5f;
-    muse_speaking_update(&speech, mode == MUSE_MODE_SPEAKING, dt, p->mode_t, level);
+    muse_speaking_update(speech, mode == MUSE_MODE_SPEAKING, dt, p->mode_t, level);
 
     update_palette(working ? &WORKING_SCHEME : &SCHEMES[mode], dt);
     float blink = eyes_update(p, dt);
@@ -967,8 +989,8 @@ void muse_pixel_render(const muse_pose_t *p)
         }
         break;
     case MUSE_MODE_SPEAKING:
-        bob = sinf(t * 2.5f) * 0.25f - speech.energy * 0.65f;
-        lean = (speech.lift[1] - speech.lift[0]) * .65f;
+        bob = sinf(t * 2.5f) * 0.25f - speech->energy * 0.65f;
+        lean = (speech->lift[1] - speech->lift[0]) * .65f;
         break;
     case MUSE_MODE_ERROR:
         bob = 1.0f;
@@ -997,7 +1019,7 @@ void muse_pixel_render(const muse_pose_t *p)
     j.fb = 7.4f * squash;
     j.fx = j.cx + lean * 0.3f;
     j.fy = j.cy - j.b * 0.30f + bob * 0.3f;
-    if (mode == MUSE_MODE_SPEAKING) j.fy += speech.nod * .8f;
+    if (mode == MUSE_MODE_SPEAKING) j.fy += speech->nod * .8f;
 
     /* ---- background layers ---- */
     float aura_r = 29.0f + level * 4.0f + sinf(t * 1.5f) * 1.0f;
@@ -1053,9 +1075,9 @@ void muse_pixel_render(const muse_pose_t *p)
     case MUSE_MODE_SPEAKING: {
         for (int i = 0; i < 2; i++) {
             float side = i ? 1 : -1;
-            arms[i] = (limb_t){j.cx + side * (adx + speech.extend[i] * 3.2f - speech.inward[i] * 8.5f),
-                ay - speech.lift[i] * 10.0f - speech.extend[i] * 2.0f,
-                side * (.30f + speech.lift[i] * 1.05f) + speech.wrist[i]};
+            arms[i] = (limb_t){j.cx + side * (adx + speech->extend[i] * 3.2f - speech->inward[i] * 8.5f),
+                ay - speech->lift[i] * 10.0f - speech->extend[i] * 2.0f,
+                side * (.30f + speech->lift[i] * 1.05f) + speech->wrist[i]};
         }
         break;
     }
@@ -1075,27 +1097,24 @@ void muse_pixel_render(const muse_pose_t *p)
     }
     /* Blend from the last visible hand positions when entering or leaving
      * speaking, including a cut-off short reply. Other states retain their poses. */
-    static limb_t previous_arms[2], from_arms[2];
-    static muse_mode_t previous_mode;
-    static float previous_t, arm_transition = 1;
-    if (previous_t > 0 && p->t - previous_t < .25f && mode != previous_mode &&
-        (mode == MUSE_MODE_SPEAKING || previous_mode == MUSE_MODE_SPEAKING)) {
-        memcpy(from_arms, previous_arms, sizeof(from_arms));
-        arm_transition = 0;
+    if (s_previous_t > 0 && p->t - s_previous_t < .25f && mode != s_previous_mode &&
+        (mode == MUSE_MODE_SPEAKING || s_previous_mode == MUSE_MODE_SPEAKING)) {
+        memcpy(s_from_arms, s_previous_arms, sizeof(s_from_arms));
+        s_arm_transition = 0;
     }
-    if (p->t - previous_t > .25f) arm_transition = 1;
-    if (arm_transition < 1) {
-        arm_transition = clampf(arm_transition + dt / .28f, 0, 1);
-        float blend = muse_speak_ease(arm_transition);
+    if (p->t - s_previous_t > .25f) s_arm_transition = 1;
+    if (s_arm_transition < 1) {
+        s_arm_transition = clampf(s_arm_transition + dt / .28f, 0, 1);
+        float blend = muse_speak_ease(s_arm_transition);
         for (int i = 0; i < 2; i++) {
-            arms[i].x = from_arms[i].x + (arms[i].x - from_arms[i].x) * blend;
-            arms[i].y = from_arms[i].y + (arms[i].y - from_arms[i].y) * blend;
-            arms[i].angle = from_arms[i].angle + (arms[i].angle - from_arms[i].angle) * blend;
+            arms[i].x = s_from_arms[i].x + (arms[i].x - s_from_arms[i].x) * blend;
+            arms[i].y = s_from_arms[i].y + (arms[i].y - s_from_arms[i].y) * blend;
+            arms[i].angle = s_from_arms[i].angle + (arms[i].angle - s_from_arms[i].angle) * blend;
         }
     }
-    memcpy(previous_arms, arms, sizeof(arms));
-    previous_mode = mode;
-    previous_t = p->t;
+    memcpy(s_previous_arms, arms, sizeof(arms));
+    s_previous_mode = mode;
+    s_previous_t = p->t;
     draw_avatar(&j, arms, feet);
 
     /* ---- face ---- */
@@ -1122,10 +1141,10 @@ void muse_pixel_render(const muse_pose_t *p)
         mouth = MOUTH_TALK;
         /* Real audio drives articulation; caption-only replies have a visual
          * speaking rhythm so their mouth no longer stays fixed shut. */
-        mouth_open = speech.mouth;
+        mouth_open = speech->mouth;
         if (mouth_open > .16f && mouth_open < .55f &&
-            (!speech.heard_voice || level < speech.energy * .8f)) mouth = MOUTH_O;
-        if (speech.eye_wide > .4f) style = EYES_WIDE;
+            (!speech->heard_voice || level < speech->energy * .8f)) mouth = MOUTH_O;
+        if (speech->eye_wide > .4f) style = EYES_WIDE;
         break;
     case MUSE_MODE_ERROR:
         style = EYES_X;
@@ -1144,7 +1163,7 @@ void muse_pixel_render(const muse_pose_t *p)
     }
 
     float gaze_x = s_eyes.gx;
-    if (mode == MUSE_MODE_SPEAKING) gaze_x = clampf(gaze_x + speech.gaze, -1, 1);
+    if (mode == MUSE_MODE_SPEAKING) gaze_x = clampf(gaze_x + speech->gaze, -1, 1);
     draw_eye(j.fx - eye_dx, eye_y, open, style, gaze_x, s_eyes.gy);
     draw_eye(j.fx + eye_dx, eye_y, open, style, gaze_x, s_eyes.gy);
 
@@ -1161,7 +1180,7 @@ void muse_pixel_render(const muse_pose_t *p)
         px(bl - 1, by - 1, C_BROW); px(bl, by - 1, C_BROW);
         px(br - 1, by - 1, C_BROW); px(br, by - 1, C_BROW);
     } else if (mode == MUSE_MODE_SPEAKING) {
-        int raise = iround(speech.brow * 2);
+        int raise = iround(speech->brow * 2);
         px(bl - 1, by - raise, C_BROW); px(bl, by - raise, C_BROW);
         px(br - 1, by - raise, C_BROW); px(br, by - raise, C_BROW);
     }

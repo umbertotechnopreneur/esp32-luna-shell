@@ -1,15 +1,19 @@
 #pragma once
 
+#include "CODY_device_capabilities.hpp"
 #include "CODY_pixel_avatar.hpp"
 #include "CODY_scene.hpp"
 
 namespace CODY {
 
-inline constexpr CODY2D::Rect kPixelDemoViewport{137, 137, 192, 192};
 inline constexpr uint64_t kPixelDemoWakingUs = 1500000;
 
 // The display worker owns both indexed frames in PSRAM through DMA retirement.
 struct PixelDemoView {
+    // logical_viewport: Immutable artwork and tap bounds supplied by the display adapter.
+    explicit PixelDemoView(LogicalRect logical_viewport) : viewport(logical_viewport) {}
+
+    const LogicalRect viewport;
     std::array<PixelAvatarFrame, 2> frames{};
     DamageRect damage{};
     uint64_t elapsed_us = 0;

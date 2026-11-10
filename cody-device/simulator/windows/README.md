@@ -93,6 +93,36 @@ original branding placement.
 `-AtMs` selects the frame for a capture; `boot-screens` includes the introduction.
 The Manifesto link opens only after an explicit click.
 
+## Muse animation conformance
+
+The native preview and firmware use the same C renderer and
+[CODY_muse_frame](../../components/CODY_companion/include/CODY_muse_frame.hpp)
+composition. The pose, active clock, elapsed pose time, accepted tap time and
+optional audio energy are inputs. The frame has a 64 x 64 index grid and two
+RGB565 palettes. The drawing adapter scales those indices into the caller's
+logical viewport and preserves the output surface's RGB565 byte order.
+The firmware retains the two indexed frames in its display owner until the
+submitted DMA strips retire. The host writes into a caller-owned native RGB565
+buffer synchronously, with no device access.
+
+The following authored cases are for the vNext scenario driver and authorized
+phase-11 execution. Use only synthetic pose and energy values for conformance.
+Start at 0 ms and step by 40 ms. Pass elapsed time from the beginning of each
+pose as pose time. Use an inactive reaction (1600 ms) and zero audio energy
+unless the case specifies otherwise.
+
+| Case | Input and checks |
+| --- | --- |
+| Seeded replay | Reset with seed 27. Use Waking until 1520 ms, then Idle until 5200 ms. Admit a tap at 1920 ms and pass its elapsed time. Replay the same sequence after reset and compare indexed frames and palettes on each target. Include the tap hold, fade and expiry. |
+| Interrupted reply | Reset with seed 27. Use working Thinking from 0 to 640 ms, Reply at 640 ms with 0.7 energy, then Idle at 800 ms with zero energy. Replay with Reply energy zero throughout to represent absent audio. Check accepted poses, continuity at both interruptions and a caption-only reply without an audio acquisition request. |
+| Viewport and strips | Replay the first case at 192 px on the current board layout, and at 320 px and 128 px on synthetic host surfaces. At each size, compare the full surface with the result of composing it from tiles of different heights and horizontal origins. At 128 px there is no shaded grid edge. Reject a 191 px viewport before writing pixels. |
+
+The host ABI exposes `cody_host_muse_reset` and `cody_host_muse_pose_frame`
+for explicit pose sequences. Compare exact output for replay on the same build.
+Between targets, check the pose transitions, reaction timing and geometry
+invariants. Floating-point libraries can affect individual indexed edges or
+palette values. Hardware timing and audio remain physical acceptance gates.
+
 ## Connect the simulator to CCP
 
 ```powershell

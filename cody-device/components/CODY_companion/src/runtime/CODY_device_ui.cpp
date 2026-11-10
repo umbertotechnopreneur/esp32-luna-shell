@@ -17,6 +17,7 @@
 #include "CODY_onboarding.hpp"
 #include "CODY_settings.hpp"
 #include "CODY_voice_waveform.hpp"
+#include "CODY_waveshare_device.hpp"
 #include "CODY_widget_visibility_view.hpp"
 #include "LUNASHELL_codex_debug.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
@@ -37,7 +38,9 @@ using CODY::WidgetScreen;
 using CODY::WidgetStep;
 using LUNASHELL::DeviceSnapshotService;
 constexpr char kTag[] = "LUNA_device_ui";
-constexpr uint16_t kCanvas = 466;
+constexpr auto kGeometry = CODY::Waveshare::kDevice.geometry;
+constexpr auto kMuseViewport = kGeometry.centered_grid(CODY::kPixelAvatarGridSize, 3);
+static_assert(kMuseViewport.width != 0, "The Cody display must admit a full Muse grid");
 constexpr uint32_t kFrameBudgetMs = 500;
 constexpr uint32_t kPollMs = 100;
 constexpr uint32_t kPowerTimeoutMs = 2500;
@@ -106,7 +109,7 @@ struct DeviceUi {
     BrandingPhase branding_phase = BrandingPhase::Inactive;
 
     CODY::DeviceView view{};
-    CODY::PixelDemoView pixel_demo{};
+    CODY::PixelDemoView pixel_demo{kMuseViewport};
     CODY::CodexPanelView codex_panel{};
     LUNASHELL::CodexInboxSnapshot inbox{};
     LUNASHELL::CodexInboxRow reply{};
@@ -189,7 +192,8 @@ using VoicePhase = LUNASHELL::VoiceInputPhase;
 // ui: Current route and its display-owned overlays. The same route is retained through standby.
 bool voice_route_available(const DeviceUi &ui)
 {
-    return !ui.mascot_home && CODY::onboarding_dashboard_active() &&
+    return CODY::Waveshare::kDevice.voice_recording &&
+        !ui.mascot_home && CODY::onboarding_dashboard_active() &&
         !ui.model.editing && !ui.timer_open && !ui.diagnostics &&
         ui.activity_page != ActivityPage::Reply && ui.model.screensaver.phase != CODY::ScreensaverPhase::Visible &&
         !(ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::ProjectLink) &&
@@ -505,8 +509,8 @@ esp_err_t render(const FrameView &frame, bool force = false)
 
     const uint32_t frame_revision = LUNASHELL_display_runtime_content_revision();
     const bool redraw_all = full || frame_revision != revision;
-    constexpr CODY::DamageRect navigation_bounds{0, 202, kCanvas, 264};
-    auto bounds = redraw_all ? CODY::DamageRect{0, 0, kCanvas, kCanvas} : CODY::DamageRect{};
+    constexpr CODY::DamageRect navigation_bounds{0, 202, kGeometry.width, 264};
+    auto bounds = redraw_all ? CODY::DamageRect{0, 0, kGeometry.width, kGeometry.height} : CODY::DamageRect{};
     const auto include_damage = [&bounds](CODY::DamageRect changed) {
         if (changed.empty()) return;
         if (bounds.empty()) bounds = changed;
@@ -533,14 +537,14 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const uint16_t top = bounds.top & ~1U;
     const uint16_t bottom = (bounds.bottom + 1U) & ~1U;
     const uint16_t width = right - left;
-    if (left >= right || right > kCanvas || top >= bottom || bottom > kCanvas) error = ESP_ERR_INVALID_SIZE;
+    if (!kGeometry.admits_transfer(left, top, right, bottom)) error = ESP_ERR_INVALID_SIZE;
     for (uint16_t row = top; error == ESP_OK && row < bottom;) {
         void *pixels = nullptr;
         size_t capacity = 0;
         error = LUNASHELL_display_frame_buffer(&pixels, &capacity);
         if (error != ESP_OK) break;
         // The driver admits rows by full panel width even for a narrow update.
-        const size_t max_rows = (capacity / (kCanvas * sizeof(uint16_t))) & ~size_t{1};
+        const size_t max_rows = (capacity / (kGeometry.width * sizeof(uint16_t))) & ~size_t{1};
         if (pixels == nullptr || max_rows == 0 || reinterpret_cast<uintptr_t>(pixels) % alignof(uint16_t) != 0) {
             error = ESP_ERR_INVALID_SIZE;
             break;

@@ -35,6 +35,7 @@ idf_component_register(
     SRCS
         "src/runtime/CODY_device_ui.cpp"
         "src/rendering/CODY_pixel_avatar.cpp"
+        "src/rendering/CODY_muse_frame.cpp"
         "third_party/muse/muse_pixel.c"
         "src/scenes/CODY_pixel_demo.cpp"
         "../LUNASHELL_boot/src/ui/VIBEWARE_boot_animation.c"
@@ -73,7 +74,7 @@ idf_component_register(
         "../../assets/cody/home-dashboard-fonts/generated"
         "../../assets/cody/rig/generated"
     REQUIRES CODY2D LUNASHELL_platform heap
-    PRIV_REQUIRES esp32_s3_touch_amoled_1_75 esp_timer esp_system esp_app_format
+    PRIV_REQUIRES CODY_domain esp32_s3_touch_amoled_1_75 esp_timer esp_system esp_app_format
 )
 
 if(NOT CMAKE_BUILD_EARLY_EXPANSION AND CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION)

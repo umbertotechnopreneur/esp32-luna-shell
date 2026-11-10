@@ -383,9 +383,10 @@ Errors never manufacture successful empty results or advance admitted revision.
 ## Source-review and execution gates
 
 Phase 02 supplies the schema, fixtures, wire constants and revision/chunk guards.
-Actual HMAC parsing, incremental decoding, replay windows, producer journal,
-negotiation owner and device store are integration work in phases 03/05/14.
-The guards are preliminary decisions, not an authentication or entity validator.
+The portable domain component also provides binary header/ACK decoding, a replay
+window and bounded chunk reassembly. The authenticated ingress owner still needs
+to verify HMAC, bind the session, run the incremental JSON decoder and commit the
+device store. Producer journal and live negotiation also remain integration work.
 Phase 11 must exercise malformed lengths/JSON, foreign bindings, replay, reversed
 clocks, hash failure, missing chunks, lost commit ACK, epoch changes, partial
 snapshots, pool exhaustion, journal overflow and unresolved retention. The

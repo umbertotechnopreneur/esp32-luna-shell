@@ -10,23 +10,12 @@
 
 #include "esp_log.h"
 
-extern "C" {
-#include "muse_pixel.h"
-}
-
 namespace CODY {
 namespace {
 
 constexpr char kTag[] = "CODY_muse_avatar";
-constexpr int kGridSize = 64;
+constexpr int kGridSize = kPixelAvatarGridSize;
 constexpr uint32_t kCoordinateEnd = 65536;
-static_assert(kGridSize == MUSE_PX_W && kGridSize == MUSE_PX_H);
-static_assert(PixelAvatarFrame{}.palette.size() == MUSE_PX_FRAME_PALETTE);
-
-constexpr std::array<muse_mode_t, 7> kMuseModes{
-    MUSE_MODE_BOOT, MUSE_MODE_IDLE, MUSE_MODE_LISTENING, MUSE_MODE_THINKING,
-    MUSE_MODE_SPEAKING, MUSE_MODE_ERROR, MUSE_MODE_OFF,
-};
 
 // viewport: Integer-scaled logical bounds for the Muse grid.
 // Exception: Logs rejected geometry and returns ESP_ERR_INVALID_SIZE.
@@ -54,31 +43,23 @@ esp_err_t validate_viewport(CODY2D::Rect viewport)
 // reaction_ms: Time since the accepted tap.
 // audio_level: Normalized energy from the caller.
 // working: Active-work variant of Thinking.
-// Exception: Logs an invalid pose and clears the frame.
+// Exception: Logs rejected composition input and clears the frame.
 void compose_pixel_avatar(PixelAvatarFrame &frame, PixelAvatarPose pose,
     uint32_t time_ms, uint32_t pose_ms, uint32_t reaction_ms, float audio_level, bool working)
 {
-    const auto mode = static_cast<size_t>(pose);
-    if (mode >= kMuseModes.size()) {
-        ESP_LOGE(kTag, "Compose rejected pose=%u (%s)",
-            static_cast<unsigned>(pose), esp_err_to_name(ESP_ERR_INVALID_ARG));
-        frame.cells.fill(0);
-        frame.palette.fill(0);
-        frame.dim_palette.fill(0);
+    const auto status = compose_muse_frame(frame, {pose, time_ms, pose_ms, reaction_ms, audio_level, working});
+    if (status == PixelAvatarComposeStatus::Ok) {
         return;
     }
-
-    // Same hold and final 400 ms fade as muse_state_happiness().
-    constexpr uint32_t fade_ms = 400;
-    const uint32_t remaining_ms = kPixelAvatarReactionMs -
-        std::min(reaction_ms, kPixelAvatarReactionMs);
-    const float happy = static_cast<float>(std::min(remaining_ms, fade_ms)) / fade_ms;
-    const muse_pose_t muse_pose{
-        kMuseModes[mode], time_ms / 1000.0f, pose_ms / 1000.0f,
-        std::clamp(audio_level, 0.0f, 1.0f), happy, working ? 1.0f : 0.0f,
-    };
-    muse_pixel_render(&muse_pose);
-    muse_pixel_copy_frame(frame.cells.data(), frame.palette.data(), frame.dim_palette.data());
+    if (status == PixelAvatarComposeStatus::InvalidPose) {
+        ESP_LOGE(kTag, "Compose rejected pose=%u (%s)",
+            static_cast<unsigned>(pose), esp_err_to_name(ESP_ERR_INVALID_ARG));
+    } else {
+        ESP_LOGE(kTag, "Compose rejected non-finite audio level (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+    }
+    frame.cells.fill(0);
+    frame.palette.fill(0);
+    frame.dim_palette.fill(0);
 }
 
 // previous: Borrowed previous frame; includes its own palette.

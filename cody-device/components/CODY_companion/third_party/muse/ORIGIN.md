@@ -8,6 +8,9 @@ Cody adds a frame snapshot function so its display owner can retain the indexed
 grid and both RGB565 palettes across clipped display transfers. The upstream
 pose, palette, speaking gestures and frame drawing are intact. Cody supplies
 state, time, touch and optional audio energy. Playback uses Cody's audio service.
+Cody also exposes a seeded animation reset for authored scenarios. It resets
+palette blending, gaze and blink, speech gestures and hand transitions without
+changing the default startup sequence. The seed is only for artistic behavior.
 The GCC/Clang printf annotation is guarded for the Windows Studio compiler.
 
 The bundled [Apache 2.0 license](LICENSE) applies to the imported source.

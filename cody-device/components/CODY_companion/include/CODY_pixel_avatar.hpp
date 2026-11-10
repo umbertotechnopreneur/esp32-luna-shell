@@ -5,32 +5,10 @@
 
 #pragma once
 
-#include <array>
-#include <cstdint>
-
 #include "CODY2D.hpp"
+#include "CODY_muse_frame.hpp"
 
 namespace CODY {
-
-enum class PixelAvatarPose : uint8_t {
-    Waking,
-    Idle,
-    Listening,
-    Thinking,
-    Reply,
-    Error,
-    Sleep,
-};
-
-struct PixelAvatarFrame {
-    // The display owner retains the grid and palettes until all strips retire.
-    std::array<uint8_t, 64 * 64> cells{};
-    std::array<uint16_t, 32> palette{};
-    std::array<uint16_t, 32> dim_palette{};
-};
-
-constexpr uint32_t kPixelAvatarFrameMs = 40;
-constexpr uint32_t kPixelAvatarReactionMs = 1600;
 
 // frame: Caller-owned 64 by 64 indexed output, replaced completely.
 // pose: Current semantic state, retained during a touch reaction.
@@ -39,7 +17,7 @@ constexpr uint32_t kPixelAvatarReactionMs = 1600;
 // reaction_ms: Elapsed touch-reaction time; 1600 or greater means inactive.
 // audio_level: Normalized energy supplied by the audio owner when available.
 // working: Whether Thinking represents active work.
-// Exception: An invalid pose is logged and produces a black frame.
+// Exception: An invalid pose or non-finite audio level logs the cause and clears the frame.
 void compose_pixel_avatar(PixelAvatarFrame &frame, PixelAvatarPose pose,
     uint32_t time_ms, uint32_t pose_ms, uint32_t reaction_ms,
     float audio_level = 0.0f, bool working = false);

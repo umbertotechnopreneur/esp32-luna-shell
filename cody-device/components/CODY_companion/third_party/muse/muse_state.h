@@ -59,7 +59,11 @@ float muse_state_progress(void);
 /* Room for a page of reply text; longer captions are cut short. */
 #define MUSE_CAPTION_MAX 400
 
+#if defined(__GNUC__) || defined(__clang__)
 void muse_state_set_caption(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
+#else
+void muse_state_set_caption(const char *fmt, ...);
+#endif
 /* Copies the caption if it changed since *version; returns true on change. */
 bool muse_state_caption(char *out, size_t out_len, uint32_t *version);
 

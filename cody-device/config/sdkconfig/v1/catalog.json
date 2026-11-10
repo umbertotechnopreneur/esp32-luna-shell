@@ -51,6 +51,7 @@
       "component_roots": [
         "main",
         "CODY_companion",
+        "CODY_domain",
         "CODY2D",
         "esp32_s3_touch_amoled_1_75",
         "espressif__esp_lcd_co5300",
@@ -73,6 +74,7 @@
         "components/LUNASHELL_platform",
         "components/esp32_s3_touch_amoled_1_75",
         "components/CODY2D",
+        "components/CODY_domain",
         "components/CODY_companion"
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/cody-companion.lock",
@@ -351,6 +353,7 @@
       "component_roots": [
         "main",
         "CODY_companion",
+        "CODY_domain",
         "CODY2D",
         "esp32_s3_touch_amoled_1_75",
         "espressif__esp_lcd_co5300",
@@ -373,6 +376,7 @@
         "components/LUNASHELL_platform",
         "components/esp32_s3_touch_amoled_1_75",
         "components/CODY2D",
+        "components/CODY_domain",
         "components/CODY_companion"
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/cody-companion-wake-word.lock",
@@ -447,6 +451,7 @@
       "component_roots": [
         "main",
         "CODY_companion",
+        "CODY_domain",
         "CODY2D",
         "esp32_s3_touch_amoled_1_75",
         "espressif__esp_lcd_co5300",
@@ -471,6 +476,7 @@
         "components/LUNASHELL_platform",
         "components/esp32_s3_touch_amoled_1_75",
         "components/CODY2D",
+        "components/CODY_domain",
         "components/CODY_companion",
         "components/LUNASHELL_tts"
       ],
@@ -493,6 +499,7 @@
       "component_roots": [
         "main",
         "CODY_companion",
+        "CODY_domain",
         "CODY2D",
         "esp32_s3_touch_amoled_1_75",
         "espressif__esp_lcd_co5300",
@@ -516,6 +523,7 @@
         "components/LUNASHELL_platform",
         "components/esp32_s3_touch_amoled_1_75",
         "components/CODY2D",
+        "components/CODY_domain",
         "components/CODY_companion",
         "components/LUNASHELL_tts"
       ],

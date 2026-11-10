@@ -50,6 +50,10 @@ uint32_t muse_pixel_accent(muse_mode_t mode);
  * links a weak default), keeps THINKING's accent. */
 uint32_t muse_pixel_working_accent(void);
 
+/* seed: Nonzero artistic PRNG seed, or zero for the original startup sequence.
+ * The serialized owner renders before reading a frame after reset. */
+void muse_pixel_reset_animation(uint32_t seed);
+
 /* Render one frame into Muse's own MUSE_PX_W x MUSE_PX_H grid. */
 void muse_pixel_render(const muse_pose_t *pose);
 
