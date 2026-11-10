@@ -47,6 +47,7 @@ const char *heading(Route route)
     case Route::Turns: return "Turns";
     case Route::Calls: return "Tool calls";
     case Route::ActiveCalls: return "Active calls";
+    case Route::PendingQuestions: return "Pending questions";
     default: return "";
     }
 }
@@ -180,7 +181,7 @@ CodexBrowserTrail &trail(CodexBrowser &browser)
 {
     if (browser.route == Route::Chats) return browser.chats;
     if (browser.route == Route::Turns) return browser.turns;
-    return browser.calls;
+    return browser.records;
 }
 
 // browser: Query scratch owned by the display worker.
@@ -201,7 +202,8 @@ void read_hub(CodexBrowser &browser)
     draft.count = 3;
     set_row(draft.rows[0], "Chats", "Browse chats and turns", Icon::PlanAccount, kCyan, {Action::Chats});
     set_row(draft.rows[1], "Active calls", "Inspect tool activity", Icon::Motion, kMint, {Action::ActiveCalls});
-    set_row(draft.rows[2], "Events", "Questions and replies", Icon::Clock, kAmber, {Action::Events});
+    set_row(draft.rows[2], "Questions", "View pending", Icon::Clock, kAmber,
+        {Action::PendingQuestions});
 
     auto &service = DeviceSnapshotService::instance();
     const auto summary_error = service.readCodexDomainObservation({}, browser.observation);
@@ -213,6 +215,11 @@ void read_hub(CodexBrowser &browser)
         copy(draft.note, "Codex state is stale");
     } else {
         const auto &attention = browser.observation.attention;
+        if (attention.questions_complete) {
+            auto &detail = draft.rows[2].detail;
+            std::snprintf(detail.data(), detail.size(), "%lu pending",
+                static_cast<unsigned long>(attention.pending_questions));
+        }
         if (attention.calls_complete) {
             std::snprintf(draft.note.data(), draft.note.size(), "%lu active calls",
                 static_cast<unsigned long>(attention.active_calls));
@@ -236,11 +243,10 @@ void read_hub(CodexBrowser &browser)
     const auto recovery_error = service.readCodexRecovery(recovery);
     if (recovery_error == ESP_OK && recovery.attempt_count != 0) {
         // Historical attempts supply no current question, selection or Send action.
-        copy(draft.rows[2].detail, "Saved reply unconfirmed");
+        copy(draft.note, "Saved reply unconfirmed");
     } else if (recovery_error != ESP_OK && recovery_error != ESP_ERR_NOT_FOUND &&
                recovery_error != ESP_ERR_NOT_SUPPORTED && recovery_error != ESP_ERR_NOT_FINISHED) {
-        std::snprintf(draft.rows[2].detail.data(), draft.rows[2].detail.size(),
-            "Recovery: %s", esp_err_to_name(recovery_error));
+        std::snprintf(draft.note.data(), draft.note.size(), "Recovery: %s", esp_err_to_name(recovery_error));
     }
 }
 
@@ -255,6 +261,7 @@ Domain::StateQuery page_request(const CodexBrowser &browser, const CodexBrowserT
     case Route::Turns: request.kind = StateQueryKind::Turns; request.chat = browser.chat; break;
     case Route::Calls: request.kind = StateQueryKind::Calls; request.turn = browser.turn; break;
     case Route::ActiveCalls: request.kind = StateQueryKind::ActiveCalls; break;
+    case Route::PendingQuestions: request.kind = StateQueryKind::PendingQuestions; break;
     default: break;
     }
     return request;
@@ -325,6 +332,47 @@ void project_calls(CodexBrowserPage &draft, const Domain::StateCallPage &source)
     }
 }
 
+// draft: Display-owned read-only rows, independent of the signed reply owner.
+// source: Pending question projections from one committed generation.
+void project_questions(CodexBrowserPage &draft, const Domain::StateQuestionPage &source)
+{
+    draft.count = source.count;
+    for (uint8_t index = 0; index < source.count; ++index) {
+        const auto &row = source.rows[index];
+        const bool prompt_known = row.prompt.fact.availability == Availability::Known && row.prompt.value[0] != '\0';
+        auto &visual = draft.rows[index];
+        set_row(visual, prompt_known ? row.prompt.value.data() : "Question text unavailable",
+            "", Icon::Clock, kAmber);
+        if (const auto *note = state_note(row.state.fact)) {
+            copy(visual.detail, note);
+            continue;
+        }
+        if (prompt_known && row.prompt.fact.freshness != Freshness::Current) {
+            copy(visual.detail, "Text not current");
+            continue;
+        }
+        if (row.chat.fact.availability == Availability::Absent) {
+            copy(visual.detail, "No linked chat");
+            continue;
+        }
+        if (row.chat.fact.availability != Availability::Known || !row.chat.value.valid()) {
+            copy(visual.detail, "Chat link unknown");
+            continue;
+        }
+        if (row.chat.fact.freshness != Freshness::Current) {
+            copy(visual.detail, "Chat link stale");
+            continue;
+        }
+        const auto *title = row.chat_title[0] ? row.chat_title.data() : "Title unavailable";
+        const bool linked_turn = row.turn.fact.availability == Availability::Known &&
+            row.turn.fact.freshness == Freshness::Current && row.turn.value.valid();
+        // Keep the association cue visible even when the title needs ellipsis.
+        const auto title_limit = static_cast<int>(visual.detail.size() - sizeof("Turn / "));
+        std::snprintf(visual.detail.data(), visual.detail.size(), "%s / %.*s",
+            linked_turn ? "Turn" : "Chat", title_limit, title);
+    }
+}
+
 // browser: Current scope, page trail, and caller-owned query scratch.
 void read_page(CodexBrowser &browser)
 {
@@ -385,16 +433,26 @@ void read_page(CodexBrowser &browser)
         project_turns(draft, *turns, header_generation == result.generation ? current : Domain::TurnId{});
     } else if (const auto *calls = std::get_if<Domain::StateCallPage>(&result.page)) {
         project_calls(draft, *calls);
+    } else if (const auto *questions = std::get_if<Domain::StateQuestionPage>(&result.page)) {
+        project_questions(draft, *questions);
     }
 
-    const auto kind = browser.route == Route::Chats ? Domain::EntityKind::Chat
-        : browser.route == Route::Turns ? Domain::EntityKind::Turn : Domain::EntityKind::ToolCall;
+    auto kind = Domain::EntityKind::ToolCall;
+    switch (browser.route) {
+    case Route::Chats: kind = Domain::EntityKind::Chat; break;
+    case Route::Turns: kind = Domain::EntityKind::Turn; break;
+    case Route::PendingQuestions: kind = Domain::EntityKind::Question; break;
+    default: break;
+    }
     if (result.health != StateViewHealth::Live) {
         copy(draft.note, "Historical / stale data");
     } else if (result.coverage[static_cast<uint8_t>(kind)].state != Domain::CoverageState::Complete) {
         copy(draft.note, "Coverage incomplete");
     } else if (draft.count == 0) {
-        copy(draft.note, browser.route == Route::ActiveCalls ? "No observed active calls" : "No records");
+        const char *empty = "No records";
+        if (browser.route == Route::ActiveCalls) empty = "No observed active calls";
+        if (browser.route == Route::PendingQuestions) empty = "No pending questions";
+        copy(draft.note, empty);
     } else if (parent[0] && header_generation == result.generation) {
         copy(draft.note, parent.data());
     } else {
@@ -526,9 +584,13 @@ esp_err_t prepare_layout(CodexBrowser &browser)
     }
     if (error != ESP_OK) return error;
     if (browser.route == Route::Hub) {
-        error = add_button(browser, 3, {91, 350, 138, 42}, {Action::Statistics}, "Statistics");
-        if (error == ESP_OK && page.resume.valid()) {
-            error = add_button(browser, 4, {237, 350, 138, 42}, {Action::Resume, page.resume.value}, "Resume");
+        const bool resume = page.resume.valid();
+        const CODY2D::Rect statistics = resume ? CODY2D::Rect{87, 350, 116, 42} : CODY2D::Rect{91, 350, 138, 42};
+        const CODY2D::Rect events = resume ? CODY2D::Rect{211, 350, 80, 42} : CODY2D::Rect{237, 350, 138, 42};
+        error = add_button(browser, 3, statistics, {Action::Statistics}, "Statistics");
+        if (error == ESP_OK) error = add_button(browser, 4, events, {Action::Events}, "Events");
+        if (error == ESP_OK && resume) {
+            error = add_button(browser, 5, {299, 350, 80, 42}, {Action::Resume, page.resume.value}, "Resume");
         }
     } else {
         if (page.previous) error = add_button(browser, 3, {91, 350, 138, 42}, {Action::PreviousPage}, "Previous");
@@ -596,7 +658,8 @@ void back_codex_browser(CodexBrowser &browser)
     switch (browser.route) {
     case Route::Hub: browser.route = Route::Closed; break;
     case Route::Chats:
-    case Route::ActiveCalls: browser.route = Route::Hub; break;
+    case Route::ActiveCalls:
+    case Route::PendingQuestions: browser.route = Route::Hub; break;
     case Route::Turns: browser.route = browser.turns_parent; break;
     case Route::Calls: browser.route = Route::Turns; break;
     default: break;
@@ -669,7 +732,11 @@ CodexBrowserDestination activate_codex_browser(CodexBrowser &browser, CodexBrows
         break;
     case Action::ActiveCalls:
         browser.route = Route::ActiveCalls;
-        browser.calls.reset();
+        browser.records.reset();
+        break;
+    case Action::PendingQuestions:
+        browser.route = Route::PendingQuestions;
+        browser.records.reset();
         break;
     case Action::Events:
         return Destination::Events;
@@ -698,7 +765,7 @@ CodexBrowserDestination activate_codex_browser(CodexBrowser &browser, CodexBrows
         }
         browser.turn = request.turn;
         browser.route = Route::Calls;
-        browser.calls.reset();
+        browser.records.reset();
         break;
     }
     case Action::PreviousPage: {

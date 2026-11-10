@@ -3,18 +3,21 @@
 from __future__ import annotations
 
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 import re
 import secrets
 import threading
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ccp_codex_hooks import CodexHook, HookEvent, ToolKind, require_id
 from ccp_state_storage import RegistryStorage, RegistryStorageError
 from ccp_tool_labels import tool_display_label
+
+if TYPE_CHECKING:
+    from ccp_interactions import InteractionStore, QuestionProjection
 
 
 SCHEMA = "cody.state/1"
@@ -28,21 +31,27 @@ CAPABILITIES = {
     "resume_questions": "unsupported",
 }
 SUPPORTED_KINDS = ("source", "chat", "turn", "tool_definition", "tool_call")
+QUESTION_KINDS = frozenset({"question", "choice", "answer_attempt"})
+QUESTION_CAPABILITIES = {
+    "questions": "supported", "recipient_acknowledgement": "supported",
+}
+QUESTION_LIMITS = {"open_questions": 64, "resolved_questions": 32, "choices": 288, "answer_attempts": 192}
 ENTITY_KINDS = SUPPORTED_KINDS + (
     "agent_task", "external_operation", "question", "choice", "answer_attempt", "wait",
 )
 SOURCE_LIMITS = {
     "sources": 1, "chats": 64, "turns": 192, "tool_definitions": 128,
     "active_calls": 256, "terminal_calls": 128, "agents": 0, "operations": 0,
-    "open_questions": 0, "resolved_questions": 0, "choices": 0,
-    "answer_attempts": 0, "waits": 0, "evidence": 4096, "tombstones": 512,
+    **QUESTION_LIMITS, "waits": 0, "evidence": 4096, "tombstones": 512,
     "text_bytes": 128 * 1024, "decode_scratch_bytes": 64 * 1024,
     "persistence_scratch_bytes": 32 * 1024,
 }
+CORE_LIMITS = {**SOURCE_LIMITS, **dict.fromkeys(QUESTION_LIMITS, 0)}
 POOL_KIND = {
     "chats": "chat", "turns": "turn", "tool_definitions": "tool_definition",
     "active_calls": "tool_call", "terminal_calls": "tool_call",
 }
+POOL_KIND_BY_KIND = {"chat": "chats", "turn": "turns", "tool_definition": "tool_definitions"}
 MAX_JOURNAL_TRANSACTIONS = 256
 MAX_JOURNAL_BYTES = 512 * 1024
 MAX_AGE_MS = 0xffffffff
@@ -56,6 +65,7 @@ HISTORICAL_EVENTS = frozenset({
 })
 
 Key = tuple[str, str]
+Recipient = tuple[str, str]
 
 
 class RegistryRejection(ValueError):
@@ -88,9 +98,10 @@ class Fact:
 @dataclass(frozen=True)
 class Record:
     native_id: tuple[str, ...]
-    body: dict[str, str | Fact]
+    body: dict[str, str | int | Fact]
     created_ns: int = 0
     created_epoch: str = ""
+    audience: Recipient | None = None
 
 
 @dataclass(frozen=True)
@@ -165,6 +176,7 @@ class StateRegistry:
         self._started_ns = time.monotonic_ns()
         self._revision = 1
         self._storage = storage
+        self._questions: InteractionStore | None = None
         self._owner_id = owner_id
         self._storage_failure: RegistryRejection | None = None
         self._retired: dict[Key, None] = {}
@@ -183,15 +195,31 @@ class StateRegistry:
             else:
                 self._restore(document)
 
+    # questions: Interaction owner attached once during broker construction.
+    def attach_questions(self, questions: InteractionStore) -> None:
+        self._questions = questions
+
+    # request_id: Original successful question ticket from the native hook.
+    # chat_id: Native chat ID from that exact invocation.
+    # turn_id: Native turn ID from that exact invocation.
+    # Raises ValueError on a conflicting association and preserves storage failures.
+    def associate_question(self, request_id: str, chat_id: str, turn_id: str) -> None:
+        # Keep an admitted turn pinned before another hook can reclaim it.
+        with self._lock:
+            if self._questions is None:
+                raise ValueError("The question ledger is not attached")
+            self._questions.associate_question(request_id, chat_id, turn_id)
+
     # pc_id: Retained broker identity, never a user credential or UI label.
+    # questions: The authenticated bootstrap profile explicitly admits question entities.
     # Raises ValueError if the caller uses a different owner for a durable registry.
-    def binding(self, pc_id: str) -> dict[str, Any]:
+    def binding(self, pc_id: str, *, questions: bool = False) -> dict[str, Any]:
         if self._owner_id is not None and pc_id != self._owner_id:
             raise ValueError("Registry binding does not match the durable owner")
         return {
             "source_id": token("source", (pc_id, NAMESPACE)),
             "epoch": self._epoch, "provider": PROVIDER, "native_namespace": NAMESPACE,
-            "capabilities": dict(CAPABILITIES),
+            "capabilities": {**CAPABILITIES, **(QUESTION_CAPABILITIES if questions else {})},
         }
 
     # records: Complete candidate generation, already admitted as one graph.
@@ -200,7 +228,9 @@ class StateRegistry:
     # coverage: Latest omission diagnosis per affected entity kind.
     def _checkpoint_document(self, records: dict[Key, Record], revision: int, retired: dict[Key, None],
                              coverage: dict[str, RegistryRejection]) -> dict[str, Any]:
-        rows = list(records.items())
+        # The interaction ledger owns all question persistence, including the
+        # recipient binding and exposure. Do not duplicate it in this checkpoint.
+        rows = [(key, row) for key, row in records.items() if row.audience is None]
         return {
             "version": CHECKPOINT_VERSION, "owner": self._owner_id,
             "last_epoch": self._epoch, "revision": revision,
@@ -467,6 +497,9 @@ class StateRegistry:
     def _evictable_turn(self, staged: dict[Key, Record], key: Key, row: Record) -> bool:
         return (
             fact_at(row, "execution").value in {"stopped", "interrupted"}
+            and (self._questions is None or row.native_id not in self._questions.associated_question_turns())
+            and not any(candidate_key[0] == "question" and fact_at(candidate, "turn").value == key[1]
+                        for candidate_key, candidate in staged.items())
             and all(fact_at(staged[call], "state").value == "returned"
                     for call in self._turn_calls(staged, key[1]))
         )
@@ -714,7 +747,8 @@ class StateRegistry:
     def _evidence_wire(self, observed: Observation, now_ns: int) -> dict[str, Any]:
         elapsed_ns = now_ns - observed.observed_ns
         age_ms = (elapsed_ns + 999_999) // 1_000_000
-        historical = observed.origin_epoch != self._epoch
+        restored = observed.provenance == "restored"
+        historical = restored or observed.origin_epoch != self._epoch
         age_ms = age_ms if not historical and elapsed_ns >= 0 and age_ms <= MAX_AGE_MS else None
         freshness = "historical" if historical else (
             "unknown" if age_ms is None else ("current" if age_ms < LEASE_MS else "stale")
@@ -722,7 +756,7 @@ class StateRegistry:
         return {
             "id": observed.identity, "origin_epoch": observed.origin_epoch,
             "origin_revision": hex64(observed.revision),
-            "observed_at": {
+            "observed_at": None if restored else {
                 "basis": "monotonic_microseconds", "clock_id": observed.origin_epoch,
                 "microseconds": hex64(observed.observed_ns // 1000),
             },
@@ -753,12 +787,14 @@ class StateRegistry:
             "remove": [{"type": key[0], "id": key[1], "revision": hex64(revision)} for key in removed],
         }, ensure_ascii=True, separators=(",", ":")))
         entry = JournalEntry(revision, before, removed, charge)
-        retired = {**self._retired, **dict.fromkeys(removed)}
+        durable_removed = tuple(key for key in removed if previous[key].audience is None)
+        retired = {**self._retired, **dict.fromkeys(durable_removed)}
         while len(retired) > SOURCE_LIMITS["tombstones"]:
             del retired[next(iter(retired))]
         if self._storage is None:
             self._referenced(list(staged.items()))
-        self._save(staged, revision, retired, self._unobserved_capacity)
+        if durable_removed or any(row.audience is None for _, row in upserts):
+            self._save(staged, revision, retired, self._unobserved_capacity)
         self._retired = retired
         self._records = staged
         self._revision = revision
@@ -773,20 +809,108 @@ class StateRegistry:
                 del self._tombstones[key]
         return True
 
+    # item: Single committed question from the interaction ledger.
+    # staged: Candidate graph used to resolve original native IDs.
+    # observed: This exact question change's source evidence.
+    def _question_rows(self, item: QuestionProjection, staged: dict[Key, Record],
+                       observed: Observation) -> dict[Key, Record]:
+        native = (item.question_id,)
+        question_key = key_for("question", native)
+        chat_native = (item.chat_id,)
+        turn_native = (item.chat_id, item.turn_id)
+        chat_key = key_for("chat", chat_native) if item.chat_id else None
+        turn_key = key_for("turn", turn_native) if item.turn_id else None
+        chat = staged.get(chat_key) if chat_key is not None else None
+        turn = staged.get(turn_key) if turn_key is not None else None
+        linked = (chat is not None and chat.native_id == chat_native and turn is not None
+                  and turn.native_id == turn_native and turn.body["chat"] == chat_key[1])
+        question_state = "answered" if item.question_state == "resolved" else item.question_state
+        ticket_state = ("available" if item.ticket_state in {"pending", "received"}
+                        else "expired" if item.ticket_state == "expired" else "unavailable")
+        audience = (item.device_id, item.association_id)
+        rows = {
+            question_key: Record(native, {
+                "chat": Fact(chat_key[1], observed) if linked else Fact(),
+                "turn": Fact(turn_key[1], observed) if linked else Fact(),
+                "kind": Fact("answerable", observed), "state": Fact(question_state, observed),
+                "prompt": Fact(item.title, observed), "ticket": Fact(ticket_state, observed),
+            }, audience=audience),
+        }
+        for order, choice in enumerate(item.choices):
+            choice_native = (*native, choice.choice_id)
+            choice_key = key_for("choice", choice_native)
+            if choice_key in rows:
+                raise RegistryRejection("invalid_transition", "Conflicting question choice identity")
+            rows[choice_key] = Record(choice_native, {
+                "question": question_key[1], "display_order": order,
+                "label": Fact(choice.label, observed), "detail": Fact(choice.detail, observed),
+            }, audience=audience)
+        if item.answer_id:
+            answer_native = (item.answer_id,)
+            state = ("recipient_delivered" if item.ticket_state == "delivered"
+                     else "broker_received" if item.ticket_state == "received"
+                     else "cancelled" if item.question_state == "cancelled" else "unconfirmed")
+            rows[key_for("answer_attempt", answer_native)] = Record(answer_native, {
+                "question": question_key[1], "choice": token("choice", (*native, item.selected_id)),
+                "state": Fact(state, observed),
+            }, audience=audience)
+        return rows
+
+    # recipient: Exact authenticated device and active key digest.
+    # Caller holds the registry lock. The interaction owner never calls back into it.
+    # Raises RegistryRejection for a collision or unavailable durable ledger.
+    def _sync_questions(self, recipient: Recipient) -> None:
+        if self._questions is None:
+            return
+        try:
+            questions = self._questions.state_questions(*recipient)
+        except RegistryStorageError as error:
+            raise RegistryRejection("persistence", "Durable question storage is unavailable") from error
+        staged = {key: row for key, row in self._records.items()
+                  if row.audience is None or row.audience[0] != recipient[0]}
+        for item in questions:
+            # Exact evidence for this observation, even if several ledger
+            # transitions are collected under the same registry revision.
+            observed = self._new_observation(item.observed_ns, "restored" if item.restored else "broker")
+            observed = replace(observed, identity=token("question-observation", (observed.identity, item.question_id)))
+            for key, row in self._question_rows(item, staged, observed).items():
+                prior = self._records.get(key)
+                if key in staged or key in self._tombstones or (prior is not None and
+                        (prior.native_id != row.native_id or prior.audience != row.audience)):
+                    raise RegistryRejection("invalid_transition", "Conflicting question state identity")
+                if prior is not None:
+                    body = row.body.copy()
+                    for name, field in body.items():
+                        old = prior.body[name]
+                        if isinstance(field, Fact) and isinstance(old, Fact) and field.value == old.value:
+                            body[name] = old
+                    row = replace(row, body=body)
+                staged[key] = row
+        self._commit(staged)
+
     # rows: The full resulting registry, before selection of delta upserts.
     # limits: Exact admitted receiver pool limits from authenticated negotiation.
     # Raises RegistryRejection if the resulting graph exceeds an admitted pool.
     def _check_limits(self, rows: list[tuple[Key, Record]], limits: dict[str, int]) -> None:
         sizes = {"sources": 1, "chats": 0, "turns": 0, "tool_definitions": 0,
-                 "active_calls": 0, "terminal_calls": 0}
+                 "active_calls": 0, "terminal_calls": 0, **dict.fromkeys(QUESTION_LIMITS, 0)}
         text_bytes = len(PROVIDER) + len(NAMESPACE)
         for key, row in rows:
             kind = key[0]
             if kind == "tool_call":
                 pool = "terminal_calls" if fact_at(row, "state").value == "returned" else "active_calls"
                 sizes[pool] += 1
+            elif kind == "question":
+                pool = "open_questions" if fact_at(row, "state").value == "open" else "resolved_questions"
+                sizes[pool] += 1
+                text_bytes += len(fact_at(row, "prompt").value or "")
+            elif kind == "choice":
+                sizes["choices"] += 1
+                text_bytes += len(fact_at(row, "label").value or "") + len(fact_at(row, "detail").value or "")
+            elif kind == "answer_attempt":
+                sizes["answer_attempts"] += 1
             else:
-                sizes[{"chat": "chats", "turn": "turns", "tool_definition": "tool_definitions"}[kind]] += 1
+                sizes[POOL_KIND_BY_KIND[kind]] += 1
             if kind == "chat":
                 text_bytes += len(fact_at(row, "title").value or "")
             if kind == "tool_definition":
@@ -810,9 +934,11 @@ class StateRegistry:
     # pc_id: Retained broker identity used in the authenticated source binding.
     # request: Validated resync or next document from the current wire session.
     # limits: Exact negotiated schema pool limits.
-    def respond(self, pc_id: str, request: dict[str, Any], limits: dict[str, int]) -> dict[str, Any]:
+    # recipient: Authenticated device and active-key digest on a question-enabled session.
+    def respond(self, pc_id: str, request: dict[str, Any], limits: dict[str, int],
+                *, recipient: Recipient | None = None) -> dict[str, Any]:
         request_id = request["request_id"]
-        binding = self.binding(pc_id)
+        binding = self.binding(pc_id, questions=recipient is not None)
         source_id = binding["source_id"]
         with self._lock:
             if self._storage_failure is not None:
@@ -822,6 +948,11 @@ class StateRegistry:
             snapshot = request["kind"] == "resync"
             if not snapshot and request["kind"] != "next":
                 return self._error(request_id, RegistryRejection("malformed", "Source expects resync or next"))
+            if recipient is not None:
+                try:
+                    self._sync_questions(recipient)
+                except RegistryRejection as error:
+                    return self._error(request_id, error)
             base = int(request["revision"] if snapshot else request["base_revision"], 16)
             revision = self._revision
             envelope = {"schema": SCHEMA, "request_id": request_id, "source_id": source_id,
@@ -835,14 +966,17 @@ class StateRegistry:
             removed: list[Key] = []
             try:
                 if not snapshot or (base != 0 and self._can_replay(base)):
-                    revision, changed = self._select_delta(base)
+                    revision, changed = self._select_delta(base, recipient)
                     generation = self._generation_at(revision)
-                    removed = [key for key, before in changed.items()
-                               if before is not None and key not in generation]
+                    removed = [key for key, before in changed.items() if before is not None
+                               and (before.audience is None or before.audience == recipient)
+                               and key not in generation]
                 else:
                     generation = self._records
                     changed = {}
-                rows = list(generation.items())
+                visible = {key: row for key, row in generation.items()
+                           if row.audience is None or row.audience == recipient}
+                rows = list(visible.items())
                 self._check_limits(rows, limits)
             except RegistryRejection as error:
                 return self._error(request_id, error)
@@ -853,7 +987,7 @@ class StateRegistry:
             if len(removed) > limits["tombstones"]:
                 return self._error(request_id, RegistryRejection(
                     "need_snapshot", "Response exceeds the negotiated tombstone pool", "tombstones"))
-            upserts = rows if snapshot else [(key, generation[key]) for key in changed if key in generation]
+            upserts = rows if snapshot else [(key, visible[key]) for key in changed if key in visible]
             envelope["revision"] = hex64(revision)
 
             counts = dict.fromkeys(ENTITY_KINDS, 0)
@@ -862,7 +996,7 @@ class StateRegistry:
                 counts[key[0]] += 1
             coverage = []
             for kind in ENTITY_KINDS:
-                supported = kind in SUPPORTED_KINDS
+                supported = kind in SUPPORTED_KINDS or (recipient is not None and kind in QUESTION_KINDS)
                 partial = kind in self._unobserved_capacity
                 state = "partial" if partial else ("complete" if supported else "unsupported")
                 coverage.append({"kind": kind, "state": state, "admitted": counts[kind],
@@ -871,7 +1005,7 @@ class StateRegistry:
             if snapshot:
                 records.insert(0, {
                     "type": "source", "id": source_id, "provider": PROVIDER,
-                    "native_namespace": NAMESPACE, "capabilities": dict(CAPABILITIES),
+                    "native_namespace": NAMESPACE, "capabilities": binding["capabilities"],
                     "link": {"state": "unknown", "value": None, "evidence": None},
                 })
             now_ns = time.monotonic_ns()
@@ -900,11 +1034,16 @@ class StateRegistry:
             return fact_at(row, "execution").value not in {"stopped", "interrupted"}
         if key[0] == "chat":
             return fact_at(row, "lifecycle").value != "closed"
+        if key[0] == "question":
+            return fact_at(row, "state").value == "open"
+        if key[0] == "answer_attempt":
+            return fact_at(row, "state").value == "broker_received"
         return False
 
     # base: Receiver's exact committed revision. Caller holds _lock.
+    # recipient: Exact question audience or None for a core-only client.
     # Raises RegistryRejection for a missing or unavailable replay baseline.
-    def _select_delta(self, base: int) -> tuple[int, dict[Key, Record | None]]:
+    def _select_delta(self, base: int, recipient: Recipient | None) -> tuple[int, dict[Key, Record | None]]:
         if not self._can_replay(base):
             raise RegistryRejection("need_snapshot", "Requested base is outside retained source history")
         changed: dict[Key, Record | None] = {}
@@ -916,7 +1055,8 @@ class StateRegistry:
             # eviction can remove something that was live at its exact base.
             for key in entry.removed:
                 original = changed.get(key, entry.before[key])
-                if original is not None and self._known_live(key, original):
+                if (original is not None and (original.audience is None or original.audience == recipient)
+                        and self._known_live(key, original)):
                     return target, changed
             for key, original in entry.before.items():
                 changed.setdefault(key, original)

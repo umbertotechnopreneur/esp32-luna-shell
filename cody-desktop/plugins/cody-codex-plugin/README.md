@@ -465,9 +465,16 @@ own answer. The hook forwards no prompt, response or tool-argument contents.
 An explicit user preference for PC-only questions takes precedence. See the
 official [Codex hook contract](https://learn.chatgpt.com/docs/hooks).
 
-An explicit MCP question needs no hook. The recipient owns the private ticket;
-`context` is a caller-declared label, not inferred chat identity. Screen 26 opens
-the question; screen 27 selects a card, shows its detail and offers **Send**.
+An explicit MCP question needs no hook. The recipient owns the private ticket.
+When Codex supplies a successful Cody question result in
+[PostToolUse](https://learn.chatgpt.com/docs/hooks#posttooluse), the hook extracts
+only the exact request ID and passes it with the native session and turn IDs.
+The question body, choices and recipient capability stay out of the hook
+exchange. A question without that evidence stays unassociated. The optional
+`context` field remains a caller label.
+
+Screen 26 opens the question. Screen 27 selects a card, shows its detail and
+offers **Send**.
 Two choices are visible at a time; a third is reached by scrolling. Choice labels
 allow 63 printable ASCII characters and details allow 255. Selection remains
 reversible before Send, and LAN loss retains the route/question. Questions that

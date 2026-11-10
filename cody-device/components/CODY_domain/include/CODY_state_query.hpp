@@ -89,6 +89,15 @@ struct StateCallRow {
     StateValueView<Outcome> outcome{};
 };
 
+struct StateQuestionRow {
+    QuestionId id{};
+    StateValueView<ChatId> chat{};
+    StateValueView<TurnId> turn{};
+    StateValueView<std::array<char, 129>> prompt{};
+    std::array<char, 97> chat_title{};
+    StateValueView<QuestionState> state{};
+};
+
 inline constexpr uint8_t kStateQueryPageSize = 3;
 
 template<class T>
@@ -100,10 +109,12 @@ struct StatePage {
 using StateChatPage = StatePage<StateChatRow>;
 using StateTurnPage = StatePage<StateTurnRow>;
 using StateCallPage = StatePage<StateCallRow>;
-using StateQueryPage = std::variant<std::monostate, StateChatPage, StateTurnPage, StateCallPage>;
+using StateQuestionPage = StatePage<StateQuestionRow>;
+using StateQueryPage = std::variant<std::monostate, StateChatPage, StateTurnPage, StateCallPage,
+                                   StateQuestionPage>;
 
 // Counts include current evidence only. An incomplete result is a lower bound
-// and cannot imply that no work exists. Questions have no owner in this profile.
+// and cannot imply that no work exists.
 struct StateAttention {
     uint32_t running_turns = 0;
     uint32_t waiting_turns = 0;
@@ -111,6 +122,8 @@ struct StateAttention {
     bool turns_complete = false;
     bool calls_complete = false;
     Capability questions = Capability::Unsupported;
+    uint32_t pending_questions = 0;
+    bool questions_complete = false;
 };
 
 struct StateQueryResult {

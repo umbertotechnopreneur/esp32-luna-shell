@@ -698,9 +698,10 @@ class CompanionResponder:
         self._receive_error: OSError | None = None
         self._admission = DatagramAdmission()
         self._rejections = RejectionReporter()
+        activity.state_registry.attach_questions(self._requests)
         self._state_wire = state_wire.StateResponder(
             state.pc_id, state.state_active_key, state.state_active_matches,
-            self._send_state_packet, activity.state_registry, state.mark_state_seen,
+            self._send_state_packet, activity.state_registry, state.mark_state_seen, self._requests,
         )
         self._commit_challenges: dict[tuple[str, str, int], CommitChallenge] = {}
         self._event_peers: dict[str, EventPeer] = {}
@@ -1523,6 +1524,11 @@ class CcpService:
     def observe_hook(self, event: dict[str, Any]) -> dict[str, Any]:
         with self._hook_lock:
             observation = self.activity.observe(event)
+            if observation.question_request_id:
+                # This identity came from the result of the same native
+                # invocation. A followed chat or a caller label cannot bind it.
+                self.activity.state_registry.associate_question(
+                    observation.question_request_id, observation.session_id, observation.turn_id)
             if observation.state_only:
                 return {}
             result: dict[str, Any] = {}

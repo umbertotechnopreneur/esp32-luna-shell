@@ -39,6 +39,9 @@ constexpr uint64_t kRequestPeriodUs = 500000;
 constexpr uint64_t kBootstrapTimeoutUs = 2000000;
 constexpr uint64_t kCapacityRetryUs = 5000000;
 constexpr unsigned kDecodeScratchBytes = 64 * 1024;
+constexpr uint8_t kCoreBootstrap = 1;
+constexpr uint8_t kQuestionBootstrap = 2;
+constexpr size_t kQuestionCapability = 5;
 
 enum class Phase : uint8_t { Idle, Finding, Offer, Accepted, Live };
 
@@ -111,6 +114,8 @@ struct Wire {
     uint16_t width = 0;
     const char *resync = "initial";
     Phase phase = Phase::Idle;
+    uint8_t bootstrap_version = kQuestionBootstrap;
+    bool question_bootstrap_confirmed = false;
     RejectCode protocol_error = RejectCode::None;
     esp_err_t transport_error = ESP_ERR_INVALID_STATE;
     bool key_active = false;
@@ -253,6 +258,7 @@ void reset_session(Wire &wire)
     wire.next_probe_at_us = 0;
     wire.expires_at_us = 0;
     wire.phase = Phase::Idle;
+    wire.bootstrap_version = kQuestionBootstrap;
     wire.resync = "initial";
 }
 
@@ -365,7 +371,9 @@ esp_err_t send_find(int socket, Wire &wire, uint64_t now_us)
     encode_hex(wire.peer, peer);
     encode_hex(wire.find_nonce, nonce);
     char input[112]{};
-    const int size = std::snprintf(input, sizeof(input), "find-state-v1|%s|%s|%s|1", device, peer, nonce);
+    const unsigned version = wire.bootstrap_version;
+    const int size = std::snprintf(input, sizeof(input), "find-state-v1|%s|%s|%s|%u",
+        device, peer, nonce, version);
     if (size <= 0 || static_cast<size_t>(size) >= sizeof(input)) return ESP_ERR_INVALID_SIZE;
     std::array<uint8_t, 32> tag{};
     auto error = sign(wire, reinterpret_cast<const uint8_t *>(input), size, tag.data());
@@ -374,7 +382,7 @@ esp_err_t send_find(int socket, Wire &wire, uint64_t now_us)
     encode_hex(tag, proof);
     char packet[256]{};
     const int length = std::snprintf(packet, sizeof(packet),
-        "CCP2|FIND|device=%s|pc=%s|nonce=%s|state=1|proof=%s", device, peer, nonce, proof);
+        "CCP2|FIND|device=%s|pc=%s|nonce=%s|state=%u|proof=%s", device, peer, nonce, version, proof);
     if (length <= 0 || static_cast<size_t>(length) >= sizeof(packet)) return ESP_ERR_INVALID_SIZE;
     sockaddr_in target{};
     target.sin_family = AF_INET;
@@ -566,7 +574,13 @@ RejectCode admit_offer(Wire &wire, const JsonNode *document, uint64_t request_id
     local.evidence = 1024;
     local.tombstones = 128;
     local.agents = local.operations = 0;
-    local.open_questions = local.resolved_questions = local.choices = local.answer_attempts = local.waits = 0;
+    local.waits = 0;
+    const bool questions = chosen->capabilities[kQuestionCapability] == Domain::Capability::Supported;
+    if (!questions) {
+        local.open_questions = local.resolved_questions = local.choices = local.answer_attempts = 0;
+    } else if (wire.bootstrap_version != kQuestionBootstrap) {
+        return RejectCode::UnsupportedCapability;
+    }
     local.persistence_scratch_bytes = 0;
     for (const auto &field : kLimitFields) {
         wire.selected.*field.value = std::min(local.*field.value, offered.*field.value);
@@ -574,10 +588,13 @@ RejectCode admit_offer(Wire &wire, const JsonNode *document, uint64_t request_id
     const auto &limits = wire.selected;
     if (limits.sources != 1 || limits.chats != 64 || limits.turns == 0 ||
         limits.tool_definitions == 0 || limits.active_calls == 0 || limits.evidence == 0 ||
-        limits.text_bytes == 0 || limits.decode_scratch_bytes < kDecodeScratchBytes) {
+        limits.text_bytes == 0 || limits.decode_scratch_bytes < kDecodeScratchBytes ||
+        (questions && (limits.open_questions == 0 || limits.choices == 0 || limits.answer_attempts == 0))) {
         return RejectCode::UnsupportedCapability;
     }
-    const auto provisioned = wire.store.configure(limits, allocate_psram, release_psram);
+    // The first authenticated question profile requires a new snapshot. A failed
+    // allocation leaves the prior core generation available as historical data.
+    const auto provisioned = wire.store.configure(limits, allocate_psram, release_psram, questions);
     if (provisioned != RejectCode::None) return provisioned;
 
     wire.source = chosen->source;
@@ -983,7 +1000,10 @@ void maintain(int socket, const char *device, const uint8_t *peer, const uint8_t
     }
     wire.clock_us = now_us;
     if (wire.phase == Phase::Finding && now_us >= wire.find_at_us) {
+        const bool try_core = wire.bootstrap_version == kQuestionBootstrap && !wire.question_bootstrap_confirmed;
         reset_session(wire);
+        // Use a fresh nonce for the legacy attempt and never downgrade a verified association.
+        if (try_core) wire.bootstrap_version = kCoreBootstrap;
         wire.transport_error = ESP_ERR_TIMEOUT;
     }
     if (wire.phase >= Phase::Offer &&
@@ -1054,17 +1074,20 @@ esp_err_t accept_ready(int socket, const char *payload, const sockaddr_in &sende
     char challenge[33]{};
     char address[16]{};
     char proof[65]{};
+    char version_character[2]{};
     int consumed = 0;
     const int fields = std::sscanf(payload,
         "CCP2|READY|device=%12[0-9a-f]|pc=%32[0-9a-f]|nonce=%32[0-9a-f]|challenge=%32[0-9a-f]"
-        "|address=%15[0-9.]|port=42117|state=1|proof=%64[0-9a-f]%n",
-        device, peer, nonce, challenge, address, proof, &consumed);
+        "|address=%15[0-9.]|port=42117|state=%1[12]|proof=%64[0-9a-f]%n",
+        device, peer, nonce, challenge, address, version_character, proof, &consumed);
+    const unsigned version = wire.bootstrap_version;
     std::array<uint8_t, 6> decoded_device{};
     std::array<uint8_t, 16> decoded_peer{};
     std::array<uint8_t, 16> decoded_nonce{};
     std::array<uint8_t, 16> decoded_session{};
     std::array<uint8_t, 32> tag{};
-    if (fields != 6 || consumed != static_cast<int>(std::strlen(payload)) ||
+    if (fields != 7 || version_character[0] != static_cast<char>('0' + version) ||
+        consumed != static_cast<int>(std::strlen(payload)) ||
         !decode_hex(device, decoded_device) || decoded_device != wire.device ||
         !decode_hex(peer, decoded_peer) || decoded_peer != wire.peer ||
         !decode_hex(nonce, decoded_nonce) || decoded_nonce != wire.find_nonce ||
@@ -1072,28 +1095,29 @@ esp_err_t accept_ready(int socket, const char *payload, const sockaddr_in &sende
         !decode_hex(proof, tag) || std::strcmp(address, local) != 0) return ESP_ERR_INVALID_RESPONSE;
 
     char input[176]{};
-    int length = std::snprintf(input, sizeof(input), "ready-state-v1|%s|%s|%s|%s|%s|42117|1",
-        device, peer, nonce, challenge, address);
+    int length = std::snprintf(input, sizeof(input), "ready-state-v1|%s|%s|%s|%s|%s|42117|%u",
+        device, peer, nonce, challenge, address, version);
     if (length <= 0 || static_cast<size_t>(length) >= sizeof(input)) return ESP_ERR_INVALID_SIZE;
     auto error = verify(wire, reinterpret_cast<const uint8_t *>(input), length, tag.data());
     if (error != ESP_OK) return error;
 
-    length = std::snprintf(input, sizeof(input), "committed-state-v1|%s|%s|%s|%s|%s|42117|1",
-        device, peer, nonce, challenge, address);
+    length = std::snprintf(input, sizeof(input), "committed-state-v1|%s|%s|%s|%s|%s|42117|%u",
+        device, peer, nonce, challenge, address, version);
     if (length <= 0 || static_cast<size_t>(length) >= sizeof(input)) return ESP_ERR_INVALID_SIZE;
     error = sign(wire, reinterpret_cast<const uint8_t *>(input), length, tag.data());
     if (error != ESP_OK) return error;
     encode_hex(tag, proof);
     char packet[288]{};
     length = std::snprintf(packet, sizeof(packet),
-        "CCP2|COMMITTED|device=%s|pc=%s|nonce=%s|challenge=%s|address=%s|port=42117|state=1|proof=%s",
-        device, peer, nonce, challenge, address, proof);
+        "CCP2|COMMITTED|device=%s|pc=%s|nonce=%s|challenge=%s|address=%s|port=42117|state=%u|proof=%s",
+        device, peer, nonce, challenge, address, version, proof);
     if (length <= 0 || static_cast<size_t>(length) >= sizeof(packet)) return ESP_ERR_INVALID_SIZE;
     error = send_bytes(socket, packet, length, sender);
     if (error != ESP_OK) return error;
 
     wire.endpoint = sender;
     wire.session = decoded_session;
+    if (version == kQuestionBootstrap) wire.question_bootstrap_confirmed = true;
     wire.phase = Phase::Offer;
     wire.expires_at_us = now_us + Protocol::kLinkLeaseMs * 1000ULL;
     return ESP_OK;
@@ -1157,7 +1181,11 @@ void disconnect(bool clear_generation)
     if (wire.phase != Phase::Idle) reset_session(wire);
     wire.find_at_us = 0;
     wire.transport_error = ESP_ERR_INVALID_STATE;
-    if (clear_generation) wire.store.clear();
+    if (clear_generation) {
+        wire.store.clear();
+        wire.bootstrap_version = kQuestionBootstrap;
+        wire.question_bootstrap_confirmed = false;
+    }
 }
 
 namespace {
@@ -1234,8 +1262,7 @@ esp_err_t copy_query(const Domain::StateQuery &query, Domain::StateQueryResult &
         }
     } else if (query.kind != Domain::StateQueryKind::Summary) {
         result.reset();
-        return query.kind == Domain::StateQueryKind::PendingQuestions
-            ? ESP_ERR_NOT_SUPPORTED : ESP_ERR_INVALID_STATE;
+        return ESP_ERR_INVALID_STATE;
     }
     // The checkpoint is diagnostic data only. It cannot supply a live bank,
     // answer a page query, or provide a base revision for a fresh session.

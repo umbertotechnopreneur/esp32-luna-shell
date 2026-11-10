@@ -35,7 +35,9 @@ public:
     // limits: Negotiated aggregate capacities for the current single-source profile.
     // allocate: Aligned allocator for owner-held working storage and both generations.
     // release: Matching deallocator. Failed configuration preserves the live view.
-    Protocol::RejectCode configure(const CapacityLimits &limits, StateAllocate allocate, StateRelease release);
+    // upgrade_questions: True only for an authenticated transition from core to questions.
+    Protocol::RejectCode configure(const CapacityLimits &limits, StateAllocate allocate,
+                                   StateRelease release, bool upgrade_questions = false);
 
     // request: Exact outstanding request bound to the authenticated session.
     Protocol::RejectCode begin(const StateRequest &request);

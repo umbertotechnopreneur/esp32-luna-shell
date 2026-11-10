@@ -15,7 +15,20 @@ using Protocol::RejectCode;
 using StateJson::Record;
 
 constexpr uint8_t kKinds = static_cast<uint8_t>(EntityKind::Count);
-constexpr uint8_t kLastKind = static_cast<uint8_t>(EntityKind::ToolCall);
+constexpr size_t kQuestionCapability = 5;
+constexpr size_t kRecipientAcknowledgementCapability = 6;
+
+enum QuestionField : size_t {
+    QuestionChat, QuestionTurn, QuestionType, QuestionStatus, QuestionPrompt, QuestionTicket, QuestionFieldCount,
+};
+
+// kind: Exact decoded record kind from the schema.
+// Returns whether this firmware has an admission owner for the kind.
+constexpr bool supported_kind(EntityKind kind)
+{
+    return kind <= EntityKind::ToolCall ||
+        (kind >= EntityKind::Question && kind <= EntityKind::AnswerAttempt);
+}
 constexpr std::size_t kRecordBytes = 4096;
 
 struct Key {
@@ -32,8 +45,7 @@ struct Key {
     bool operator==(Key other) const { return kind == other.kind && id == other.id; }
 };
 
-// The schema admits five record kinds in the initial profile. Slots carry
-// schema-checked fields. References always use the declared kind and source.
+// Slots carry schema-checked fields. References always use the declared kind and source.
 struct StoredFact {
     Availability state{};
     uint64_t value = 0;
@@ -47,7 +59,7 @@ struct Entity {
     uint64_t definition = 0;
     std::array<TextRef, 2> text{};
     std::array<Capability, 8> caps{};
-    std::array<StoredFact, 3> facts{};
+    std::array<StoredFact, QuestionFieldCount> facts{};
     bool upserted = false;
 };
 
@@ -140,7 +152,7 @@ bool nonzero(const Record &record, uint16_t node, uint64_t &out)
     return StateJson::hex64(record.string(node), out) && out != 0;
 }
 
-// row: A stored ToolCall or Turn. Unknown state is conservatively live.
+// row: A stored domain entity. Unknown lifecycle state is conservatively live.
 bool terminal(const Entity &row)
 {
     switch (row.key.kind) {
@@ -155,6 +167,14 @@ bool terminal(const Entity &row)
     case EntityKind::Chat: {
         const auto &fact = row.facts[1];
         return fact.state == Availability::Known && fact.value >= static_cast<uint64_t>(ChatLifecycle::Closed);
+    }
+    case EntityKind::Question: {
+        const auto &fact = row.facts[QuestionStatus];
+        return fact.state == Availability::Known && fact.value >= static_cast<uint64_t>(QuestionState::Answered);
+    }
+    case EntityKind::AnswerAttempt: {
+        const auto &fact = row.facts[0];
+        return fact.state == Availability::Known && fact.value >= static_cast<uint64_t>(AnswerState::RecipientDelivered);
     }
     case EntityKind::ToolDefinition:
         return true; // Final graph validation still requires every referenced definition.
@@ -222,6 +242,35 @@ bool same_values(const Entity &row, const Entity &previous, const Bank &stage, c
     return true;
 }
 
+// row: Entity whose removal is being validated.
+// bank: Graph containing the row's parent when applicable.
+bool removable(const Entity &row, const Bank &bank)
+{
+    if (row.key.kind != EntityKind::Choice) return terminal(row);
+    const auto *question = find_row(bank, {EntityKind::Question, row.parent});
+    return question && terminal(*question);
+}
+
+// bank: Complete candidate graph.
+// question: One retained answerable question, which owns one through three unique choices.
+bool valid_question_choices(const Bank &bank, const Entity &question)
+{
+    const auto *end = bank.rows + bank.used;
+    const auto *choice = std::lower_bound(static_cast<const Entity *>(bank.rows), end,
+        Key{EntityKind::Choice, 0}, [](const Entity &row, Key key) { return row.key < key; });
+    std::array<uint64_t, 3> positions{};
+    size_t count = 0;
+    for (; choice != end && choice->key.kind == EntityKind::Choice; ++choice) {
+        if (choice->parent != question.key.id) continue;
+        const auto used = positions.begin() + count;
+        if (count == positions.size() || std::find(positions.begin(), used, choice->definition) != used) {
+            return false;
+        }
+        positions[count++] = choice->definition;
+    }
+    return count != 0;
+}
+
 // row: Staged replacement.
 // previous: Previous record with the same immutable identity.
 // stage: Owns replacement text.
@@ -238,6 +287,26 @@ bool allowed_transition(const Entity &row, const Entity &previous, const Bank &s
         const auto &next = row.facts[slot];
         return next.state == old.state && next.value == old.value;
     };
+    if (row.key.kind == EntityKind::Question) {
+        if (!unchanged_terminal(QuestionType) ||
+            (terminal(previous) && !unchanged_terminal(QuestionStatus)) ||
+            row.facts[QuestionPrompt].state != previous.facts[QuestionPrompt].state ||
+            stage.view(row.facts[QuestionPrompt].text) != live.view(previous.facts[QuestionPrompt].text)) return false;
+        // A matching authenticated hook can fill an unassociated pair once.
+        if (previous.facts[QuestionChat].state == Availability::Known &&
+            (!unchanged_terminal(QuestionChat) || !unchanged_terminal(QuestionTurn))) return false;
+    }
+    if (row.key.kind == EntityKind::Choice) {
+        for (size_t i = 0; i < 2; ++i) {
+            if (row.facts[i].state != previous.facts[i].state ||
+                stage.view(row.facts[i].text) != live.view(previous.facts[i].text)) return false;
+        }
+    }
+    if (row.key.kind == EntityKind::AnswerAttempt && terminal(previous) && !unchanged_terminal(0)) {
+        const auto old = static_cast<AnswerState>(previous.facts[0].value);
+        const auto next = static_cast<AnswerState>(row.facts[0].value);
+        if (old != AnswerState::Unconfirmed || next != AnswerState::Cancelled) return false;
+    }
     if (row.key.kind == EntityKind::ToolCall && terminal(previous) && !unchanged_terminal(1)) return false;
     if (row.key.kind == EntityKind::Turn && previous.facts[0].state == Availability::Known &&
         previous.facts[0].value == static_cast<uint64_t>(ExecutionState::Interrupted) &&
@@ -256,8 +325,12 @@ bool supported_limits(const CapacityLimits &limits)
     return limits.sources == 1 && limits.chats == 64 &&
         limits.turns > 0 && limits.turns <= 192 && limits.tool_definitions <= 128 &&
         limits.active_calls <= 256 && limits.terminal_calls <= 128 &&
-        limits.agents == 0 && limits.operations == 0 && limits.open_questions == 0 &&
-        limits.resolved_questions == 0 && limits.choices == 0 && limits.answer_attempts == 0 &&
+        limits.agents == 0 && limits.operations == 0 &&
+        limits.open_questions <= 64 && limits.resolved_questions <= 32 &&
+        limits.choices <= 288 && limits.answer_attempts <= 192 &&
+        ((limits.open_questions == 0 && limits.resolved_questions == 0 &&
+          limits.choices == 0 && limits.answer_attempts == 0) ||
+         (limits.open_questions > 0 && limits.choices > 0 && limits.answer_attempts > 0)) &&
         limits.waits == 0 && limits.evidence > 0 && limits.evidence <= 4096 &&
         limits.text_bytes > 0 && limits.text_bytes <= 128 * 1024 &&
         limits.tombstones <= 512 && limits.decode_scratch_bytes >= sizeof(Reader);
@@ -270,6 +343,8 @@ bool same_limits(const CapacityLimits &left, const CapacityLimits &right)
     return left.sources == right.sources && left.chats == right.chats &&
         left.turns == right.turns && left.tool_definitions == right.tool_definitions &&
         left.active_calls == right.active_calls && left.terminal_calls == right.terminal_calls &&
+        left.open_questions == right.open_questions && left.resolved_questions == right.resolved_questions &&
+        left.choices == right.choices && left.answer_attempts == right.answer_attempts &&
         left.evidence == right.evidence && left.tombstones == right.tombstones &&
         left.text_bytes == right.text_bytes && left.decode_scratch_bytes == right.decode_scratch_bytes &&
         left.persistence_scratch_bytes == right.persistence_scratch_bytes;
@@ -293,7 +368,8 @@ struct StateStore::Storage {
     uint32_t row_limit() const
     {
         return limits.sources + limits.chats + limits.turns + limits.tool_definitions +
-            limits.active_calls + limits.terminal_calls;
+            limits.active_calls + limits.terminal_calls + limits.open_questions +
+            limits.resolved_questions + limits.choices + limits.answer_attempts;
     }
 
     // No parameters: current committed generation.
@@ -510,7 +586,8 @@ RejectCode StateStore::Storage::parse_coverage()
     if (row.state == CoverageState::Complete &&
         (row.omitted_state != Availability::Known || row.omitted != 0)) return RejectCode::Malformed;
     if (row.state == CoverageState::Unsupported && row.admitted != 0) return RejectCode::Malformed;
-    if (kind > kLastKind && row.state != CoverageState::Unsupported) {
+    if ((!supported_kind(row.kind) || (row.kind >= EntityKind::Question && limits.open_questions == 0)) &&
+        row.state != CoverageState::Unsupported) {
         return RejectCode::UnsupportedCapability;
     }
     return RejectCode::None;
@@ -601,7 +678,7 @@ RejectCode StateStore::Storage::parse_evidence()
     return RejectCode::None;
 }
 
-// No parameters: decodes a schema-valid row of one of the five selected kinds.
+// No parameters: decodes one schema-valid row for the selected profile.
 RejectCode StateStore::Storage::parse_entity()
 {
     const auto &json = reader.parsed;
@@ -609,8 +686,11 @@ RejectCode StateStore::Storage::parse_entity()
     const auto kind = kind_of(json.string(field("type")));
     Entity row{};
     if (kind < 0 || !nonzero(json, field("id"), row.key.id)) return RejectCode::Malformed;
-    if (kind > kLastKind) return RejectCode::UnsupportedCapability;
     row.key.kind = static_cast<EntityKind>(kind);
+    if (!supported_kind(row.key.kind)) return RejectCode::UnsupportedCapability;
+    if (row.key.kind >= EntityKind::Question && limits.open_questions == 0) {
+        return RejectCode::UnsupportedCapability;
+    }
     bool valid = false;
     switch (row.key.kind) {
     case EntityKind::Source: {
@@ -630,7 +710,13 @@ RejectCode StateStore::Storage::parse_entity()
                 json.string(json.field(capabilities, names[i])));
             if (capability < 0) return RejectCode::Malformed;
             row.caps[i] = static_cast<Capability>(capability);
-            if (i >= 3 && row.caps[i] != Capability::Unsupported) return RejectCode::UnsupportedCapability;
+            if (i >= 3 && i != kQuestionCapability && i != kRecipientAcknowledgementCapability &&
+                row.caps[i] != Capability::Unsupported) return RejectCode::UnsupportedCapability;
+        }
+        const bool questions = row.caps[kQuestionCapability] == Capability::Supported;
+        if (questions != (limits.open_questions != 0) ||
+            (row.caps[kRecipientAcknowledgementCapability] == Capability::Supported && !questions)) {
+            return RejectCode::UnsupportedCapability;
         }
         const auto &binding = reader.request;
         if (binding.provider[0] != '\0' &&
@@ -669,6 +755,38 @@ RejectCode StateStore::Storage::parse_entity()
             fact(field("state"), row.facts[1], {"unknown", "queued", "running", "returned", "failed", "cancelled"}) &&
             fact(field("outcome"), row.facts[2], {"unknown", "succeeded", "failed", "cancelled"});
         break;
+    case EntityKind::Question:
+        valid = json.fields(1, {"type", "id", "chat", "turn", "kind", "state", "prompt", "ticket"}) &&
+            fact(field("chat"), row.facts[QuestionChat]) &&
+            fact(field("turn"), row.facts[QuestionTurn]) &&
+            fact(field("kind"), row.facts[QuestionType], {"unknown", "answerable", "native_approval_notice"}) &&
+            fact(field("state"), row.facts[QuestionStatus], {"unknown", "open", "answered", "cancelled", "superseded"}) &&
+            fact(field("prompt"), row.facts[QuestionPrompt], {}, 512) &&
+            fact(field("ticket"), row.facts[QuestionTicket], {"unknown", "available", "expired", "unavailable"}) &&
+            row.facts[QuestionType].state == Availability::Known &&
+            row.facts[QuestionType].value == static_cast<uint64_t>(QuestionKind::Answerable) &&
+            row.facts[QuestionStatus].state == Availability::Known &&
+            row.facts[QuestionStatus].value != static_cast<uint64_t>(QuestionState::Unknown) &&
+            row.facts[QuestionPrompt].state == Availability::Known && row.facts[QuestionPrompt].text.length != 0;
+        break;
+    case EntityKind::Choice: {
+        const auto order = field("display_order");
+        valid = json.fields(1, {"type", "id", "question", "display_order", "label", "detail"}) &&
+            nonzero(json, field("question"), row.parent) && json.is_number(order) &&
+            json[order].number <= UINT16_MAX &&
+            fact(field("label"), row.facts[0], {}, 96) && row.facts[0].text.length != 0 &&
+            fact(field("detail"), row.facts[1], {}, 1024) && row.facts[1].text.length != 0;
+        if (valid) row.definition = json[order].number;
+        break;
+    }
+    case EntityKind::AnswerAttempt:
+        valid = json.fields(1, {"type", "id", "question", "choice", "state"}) &&
+            nonzero(json, field("question"), row.parent) && nonzero(json, field("choice"), row.definition) &&
+            fact(field("state"), row.facts[0], {"unknown", "admitted", "persisted", "sending",
+                "broker_received", "recipient_delivered", "rejected", "cancelled", "unconfirmed"}) &&
+            row.facts[0].state == Availability::Known &&
+            row.facts[0].value != static_cast<uint64_t>(AnswerState::Unknown);
+        break;
     default:
         return RejectCode::UnsupportedCapability;
     }
@@ -700,10 +818,11 @@ RejectCode StateStore::Storage::parse_removal()
     Removal row{};
     if (kind < 0 || !nonzero(json, json.field(1, "id"), row.key.id) ||
         !nonzero(json, json.field(1, "revision"), row.revision)) return RejectCode::Malformed;
-    if (kind > kLastKind || kind == static_cast<int>(EntityKind::Source)) {
+    row.key.kind = static_cast<EntityKind>(kind);
+    if (!supported_kind(row.key.kind) || row.key.kind == EntityKind::Source ||
+        (row.key.kind >= EntityKind::Question && limits.open_questions == 0)) {
         return RejectCode::UnsupportedCapability;
     }
-    row.key.kind = static_cast<EntityKind>(kind);
     auto &bank = stage();
     if (bank.removal_used == limits.tombstones) return RejectCode::CapacityExceeded;
     for (uint32_t i = 0; i < bank.removal_used; ++i) {
@@ -883,12 +1002,12 @@ RejectCode StateStore::Storage::validate(uint64_t request_us, uint64_t now_us)
         const auto &removal = bank.removals[i];
         if (removal.revision != reader.revision || equal_revision) return RejectCode::RevisionConflict;
         if (auto *row = find_row(bank, removal.key)) {
-            if (row->upserted || !terminal(*row)) return RejectCode::InvalidTransition;
+            if (row->upserted || !removable(*row, old)) return RejectCode::InvalidTransition;
             std::move(row + 1, bank.rows + bank.used, row);
             --bank.used;
         } else if (same_source) {
             const auto *previous = find_row(old, removal.key);
-            if (previous && !terminal(*previous)) return RejectCode::InvalidTransition;
+            if (previous && !removable(*previous, old)) return RejectCode::InvalidTransition;
         }
     }
 
@@ -906,7 +1025,7 @@ RejectCode StateStore::Storage::validate(uint64_t request_us, uint64_t now_us)
                     bank.removals + bank.removal_used, [&](const Removal &entry) {
                         return entry.key == previous.key;
                     });
-                if (equal_revision || !terminal(previous) || (reader.request.snapshot &&
+                if (equal_revision || !removable(previous, old) || (reader.request.snapshot &&
                     !explicitly_removed && bank.coverage[static_cast<uint8_t>(previous.key.kind)].state !=
                         CoverageState::Complete)) return RejectCode::NeedSnapshot;
             }
@@ -923,6 +1042,7 @@ RejectCode StateStore::Storage::validate(uint64_t request_us, uint64_t now_us)
 
     std::array<uint32_t, kKinds> counts{};
     uint32_t completed = 0;
+    uint32_t resolved_questions = 0;
     for (uint32_t i = 0; i < bank.used; ++i) {
         const auto &row = bank.rows[i];
         ++counts[static_cast<uint8_t>(row.key.kind)];
@@ -937,6 +1057,30 @@ RejectCode StateStore::Storage::validate(uint64_t request_us, uint64_t now_us)
             if (!find_row(bank, {EntityKind::Turn, row.parent}) ||
                 !find_row(bank, {EntityKind::ToolDefinition, row.definition})) return RejectCode::MissingReference;
             if (terminal(row)) ++completed;
+        }
+        if (row.key.kind == EntityKind::Question) {
+            const auto &chat = row.facts[QuestionChat];
+            const auto &turn = row.facts[QuestionTurn];
+            const bool associated = chat.state == Availability::Known;
+            if (associated != (turn.state == Availability::Known)) return RejectCode::MissingReference;
+            if (associated) {
+                const auto *owner = find_row(bank, {EntityKind::Turn, turn.value});
+                if (!owner || owner->parent != chat.value) return RejectCode::MissingReference;
+            }
+            if (!valid_question_choices(bank, row)) return RejectCode::MissingReference;
+            if (terminal(row)) ++resolved_questions;
+        }
+        if (row.key.kind == EntityKind::Choice) {
+            const Key parent{EntityKind::Question, row.parent};
+            if (!find_row(bank, parent)) return RejectCode::MissingReference;
+            // The choices supplied with an existing question are immutable.
+            if (same_source && find_row(old, parent) && !find_row(old, row.key)) {
+                return RejectCode::InvalidTransition;
+            }
+        }
+        if (row.key.kind == EntityKind::AnswerAttempt) {
+            const auto *choice = find_row(bank, {EntityKind::Choice, row.definition});
+            if (!choice || choice->parent != row.parent) return RejectCode::MissingReference;
         }
         for (const auto &fact : row.facts) {
             if (fact.observation == 0) continue;
@@ -953,6 +1097,13 @@ RejectCode StateStore::Storage::validate(uint64_t request_us, uint64_t now_us)
     if (counts[0] != 1 || counts[1] > limits.chats || counts[2] > limits.turns ||
         counts[3] > limits.tool_definitions || active > limits.active_calls ||
         completed > limits.terminal_calls) return RejectCode::CapacityExceeded;
+    const auto question_count = counts[static_cast<uint8_t>(EntityKind::Question)];
+    if (question_count - resolved_questions > limits.open_questions ||
+        resolved_questions > limits.resolved_questions ||
+        counts[static_cast<uint8_t>(EntityKind::Choice)] > limits.choices ||
+        counts[static_cast<uint8_t>(EntityKind::AnswerAttempt)] > limits.answer_attempts) {
+        return RejectCode::CapacityExceeded;
+    }
     for (uint8_t i = 0; i < kKinds; ++i) {
         if (bank.coverage[i].admitted != counts[i]) return RejectCode::Malformed;
     }
@@ -1017,12 +1168,17 @@ StateStore::~StateStore() { clear(); }
 // limits: Explicit selected capacity for one source and its two generations.
 // allocate: Allocator returning aligned, owner-approved memory or null.
 // release: Matching deallocator.
-RejectCode StateStore::configure(const CapacityLimits &limits, StateAllocate allocate, StateRelease release)
+// upgrade_questions: The authenticated negotiation permits replacing a core-only bank.
+RejectCode StateStore::configure(const CapacityLimits &limits, StateAllocate allocate,
+                                 StateRelease release, bool upgrade_questions)
 {
     if (!allocate || !release || !supported_limits(limits)) return RejectCode::UnsupportedCapability;
     if (storage_ && same_limits(storage_->limits, limits) && storage_->allocate == allocate &&
         storage_->release == release) return RejectCode::None;
-    if (storage_ && storage_->live().summary.revision != 0) return RejectCode::CapacityExceeded;
+    if (storage_ && storage_->live().summary.revision != 0 &&
+        !(upgrade_questions && storage_->limits.open_questions == 0 && limits.open_questions != 0)) {
+        return RejectCode::CapacityExceeded;
+    }
     auto *memory = allocate(sizeof(Storage));
     if (!memory) return RejectCode::CapacityExceeded;
     auto *candidate = new (memory) Storage{};
@@ -1209,14 +1365,15 @@ StateValueView<T> scalar_view(const Bank &bank, const StoredFact &stored, QueryC
 }
 
 // bank: Committed text pool.
-// ref: Admitted field span whose protocol length is below this buffer size.
+// ref: Admitted field span, possibly larger than the bounded projection.
 // out: Zero-terminated bounded output, initially zeroed by the page owner.
 template<std::size_t Size>
 void copy_view_text(const Bank &bank, TextRef ref, std::array<char, Size> &out)
 {
     const auto text = bank.view(ref);
-    std::copy(text.begin(), text.end(), out.begin());
-    out[text.size()] = '\0';
+    const auto count = std::min(text.size(), out.size() - 1);
+    std::copy_n(text.begin(), count, out.begin());
+    out[count] = '\0';
 }
 
 // bank: Committed entity graph.
@@ -1273,17 +1430,48 @@ void project_call(const Bank &bank, const Entity &row, QueryClock clock, StateCa
     out.outcome = scalar_view(bank, row.facts[2], clock, static_cast<Outcome>(row.facts[2].value));
 }
 
+// bank: Committed entity graph.
+// row: Exact semantic question, independent of its signed reply ticket.
+// clock: Query clock and link readiness.
+// out: Destination row in the caller-owned pending-question page.
+void project_question(const Bank &bank, const Entity &row, QueryClock clock, StateQuestionRow &out)
+{
+    const auto source = bank.summary.source;
+    out.id = {source, row.key.id};
+    out.chat = scalar_view(bank, row.facts[QuestionChat], clock,
+                           ChatId{source, row.facts[QuestionChat].value});
+    out.turn = scalar_view(bank, row.facts[QuestionTurn], clock,
+                           TurnId{source, row.facts[QuestionTurn].value});
+    const auto &prompt = row.facts[QuestionPrompt];
+    out.prompt.fact = fact_view(bank, prompt, clock);
+    if (prompt.state == Availability::Known) {
+        copy_view_text(bank, prompt.text, out.prompt.value);
+    }
+    if (out.chat.value.valid()) {
+        const auto *chat = find_row(bank, {EntityKind::Chat, out.chat.value.value});
+        if (chat && chat->facts[0].state == Availability::Known &&
+            fact_view(bank, chat->facts[0], clock).freshness == Freshness::Current) {
+            copy_view_text(bank, chat->facts[0].text, out.chat_title);
+        }
+    }
+    out.state = scalar_view(bank, row.facts[QuestionStatus], clock,
+                            static_cast<QuestionState>(row.facts[QuestionStatus].value));
+}
+
 // bank: Committed generation. Coverage counts alone do not establish freshness.
 // clock: Query clock and link readiness.
 StateAttention attention_view(const Bank &bank, QueryClock clock)
 {
     StateAttention result{};
+    const auto *source = find_row(bank, {EntityKind::Source, bank.summary.source.value});
+    if (source) result.questions = source->caps[kQuestionCapability];
     if (!clock.ready) return result;
     const auto complete = [&](EntityKind kind) {
         return bank.coverage[static_cast<uint8_t>(kind)].state == CoverageState::Complete;
     };
     result.turns_complete = complete(EntityKind::Turn);
     result.calls_complete = complete(EntityKind::ToolCall);
+    result.questions_complete = result.questions == Capability::Supported && complete(EntityKind::Question);
     for (uint32_t index = 0; index < bank.used; ++index) {
         const auto &row = bank.rows[index];
         if (row.key.kind == EntityKind::Turn) {
@@ -1309,6 +1497,10 @@ StateAttention attention_view(const Bank &bank, QueryClock clock)
             } else if (state == CallState::Running || state == CallState::Queued) {
                 ++result.active_calls;
             }
+        } else if (row.key.kind == EntityKind::Question && !terminal(row)) {
+            const auto fact = fact_view(bank, row.facts[QuestionStatus], clock);
+            if (fact.freshness != Freshness::Current) result.questions_complete = false;
+            else ++result.pending_questions;
         }
     }
     return result;
@@ -1338,6 +1530,10 @@ bool in_scope(const Entity &row, const StateQuery &request)
         return row.facts[1].state == Availability::Known &&
             (state == CallState::Queued || state == CallState::Running);
     }
+    case StateQueryKind::PendingQuestions:
+        return !terminal(row) &&
+            (!request.chat.valid() || row.facts[QuestionChat].value == request.chat.value) &&
+            (!request.turn.valid() || row.facts[QuestionTurn].value == request.turn.value);
     default:
         return false;
     }
@@ -1382,7 +1578,6 @@ RejectCode StateStore::query(const StateQuery &request, uint64_t now_us, bool li
                              StateQueryResult &result) const
 {
     result.reset();
-    if (request.kind == StateQueryKind::PendingQuestions) return RejectCode::UnsupportedCapability;
     if (!storage_) return RejectCode::NeedSnapshot;
     const auto &bank = storage_->live();
     if (bank.summary.revision == 0) return RejectCode::NeedSnapshot;
@@ -1451,6 +1646,26 @@ RejectCode StateStore::query(const StateQuery &request, uint64_t now_us, bool li
         if (request.chat != ChatId{} || request.turn != TurnId{}) return RejectCode::Malformed;
         kind = EntityKind::ToolCall;
         break;
+    case StateQueryKind::PendingQuestions: {
+        kind = EntityKind::Question;
+        if (bank.coverage[static_cast<uint8_t>(kind)].state == CoverageState::Unsupported) {
+            return RejectCode::UnsupportedCapability;
+        }
+        if ((request.chat != ChatId{} && !request.chat.valid()) ||
+            (request.turn != TurnId{} && !request.turn.valid())) return RejectCode::Malformed;
+        if ((request.chat.valid() && request.chat.source != source) ||
+            (request.turn.valid() && request.turn.source != source)) return RejectCode::WrongBinding;
+        if (request.chat.valid() && !find_row(bank, {EntityKind::Chat, request.chat.value})) {
+            return RejectCode::MissingReference;
+        }
+        if (request.turn.valid()) {
+            const auto *turn = find_row(bank, {EntityKind::Turn, request.turn.value});
+            if (!turn || (request.chat.valid() && turn->parent != request.chat.value)) {
+                return RejectCode::MissingReference;
+            }
+        }
+        break;
+    }
     default:
         return RejectCode::UnsupportedCapability;
     }
@@ -1474,6 +1689,10 @@ RejectCode StateStore::query(const StateQuery &request, uint64_t now_us, bool li
     case EntityKind::ToolCall:
         copy_page(bank, request, kind, clock, result.page.emplace<StateCallPage>(), result.next,
                   generation_, project_call);
+        return RejectCode::None;
+    case EntityKind::Question:
+        copy_page(bank, request, kind, clock, result.page.emplace<StateQuestionPage>(), result.next,
+                  generation_, project_question);
         return RejectCode::None;
     default:
         return RejectCode::UnsupportedCapability;

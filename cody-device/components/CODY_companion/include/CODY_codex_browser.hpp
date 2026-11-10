@@ -10,8 +10,12 @@
 namespace CODY {
 
 // Stable catalog identities in the next-v1 namespace, distinct from SceneId.
-enum class CodexBrowserRoute : uint8_t { Closed = 0, Hub = 101, Chats = 102, Turns = 103, Calls = 104, ActiveCalls = 105 };
-enum class CodexBrowserAction : uint8_t { None, Chats, ActiveCalls, Events, Statistics, Resume, PreviousPage, NextPage, Chat, Turn };
+enum class CodexBrowserRoute : uint8_t {
+    Closed = 0, Hub = 101, Chats = 102, Turns = 103, Calls = 104, ActiveCalls = 105, PendingQuestions = 106,
+};
+enum class CodexBrowserAction : uint8_t {
+    None, Chats, ActiveCalls, Events, Statistics, Resume, PreviousPage, NextPage, Chat, Turn, PendingQuestions,
+};
 enum class CodexBrowserDestination : uint8_t { None, Statistics, Events };
 
 struct CodexBrowserControl {
@@ -66,13 +70,13 @@ struct CodexBrowser {
     Domain::TurnId turn{};
     CodexBrowserTrail chats{};
     CodexBrowserTrail turns{};
-    CodexBrowserTrail calls{};
+    CodexBrowserTrail records{}; // Calls or questions, reset on entry to either list.
     Domain::StateQueryResult observation{};
     CodexBrowserPage page{};
     CodexBrowserPage draft{};
     std::array<CodexBrowserLine, 8> lines{};
-    std::array<CODY2D::CapsuleControl, 5> controls{};
-    std::array<CodexBrowserControl, 5> actions{};
+    std::array<CODY2D::CapsuleControl, 6> controls{};
+    std::array<CodexBrowserControl, 6> actions{};
     esp_err_t selection_error = ESP_OK;
     int64_t refresh_at_us = 0;
     uint32_t revision = 0;

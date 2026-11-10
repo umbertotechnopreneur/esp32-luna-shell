@@ -146,6 +146,7 @@ class HookObservation:
     title: str = ""
     resumed_after_stop: bool = False
     state_only: bool = False
+    question_request_id: str = ""
 
 
 # title: Original canonical native metadata, including its exact observation timestamp.
@@ -245,6 +246,7 @@ class ActivityStore:
         return HookObservation(
             native.event.value, native.session_id, native.turn_id,
             session.project if session else "", False, Phase.NONE, False, state_only=True,
+            question_request_id=native.question_request_id,
         )
 
     # self: Canonical owner of bounded native hook identities and accepted lifecycle state.
@@ -474,7 +476,8 @@ class ActivityStore:
             notice_title = displayable_notice_title(session.chat_title, time.monotonic(), 63)
             return HookObservation(name, session_id, session.turn_id, session.project,
                                    session_id == self._followed_session_id, session.phase,
-                                   reply_ready, notice_title, resumed_after_stop)
+                                   reply_ready, notice_title, resumed_after_stop,
+                                   question_request_id=native.question_request_id)
 
     # self: Lifecycle owner; the caller must hold _lock for this identity check.
     # observation: Immutable accepted native event and its exact originating turn.

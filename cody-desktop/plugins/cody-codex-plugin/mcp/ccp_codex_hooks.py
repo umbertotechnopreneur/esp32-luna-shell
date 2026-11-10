@@ -45,6 +45,8 @@ class ToolKind(str, Enum):
 
 EVENTS = frozenset(event.value for event in HookEvent)
 OPAQUE_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
+QUESTION_REQUEST_ID = re.compile(r"[0-9a-f]{32}")
+QUESTION_TOOL_NAME = "mcp__ccp__ccp_ask_question"
 COMMON_FIELDS = ("hook_event_name", "session_id", "cwd", "turn_id", "model", "transcript_path")
 EVENT_FIELDS = {
     HookEvent.SESSION_START: ("source",),
@@ -72,6 +74,7 @@ class CodexHook:
     tool_kind: ToolKind
     session_source: str
     stop_hook_active: bool | None
+    question_request_id: str = ""
 
 
 # value: Caller-supplied stable identity, never a storage index or display name.
@@ -131,8 +134,18 @@ def hook_metadata(payload: Any) -> dict[str, Any]:
     fields = COMMON_FIELDS + EVENT_FIELDS.get(event, ())
     if event in {HookEvent.SESSION_START, HookEvent.SESSION_END}:
         fields = tuple(field for field in fields if field != "turn_id")
-    # Prompt, assistant response, tool arguments and output never leave this process.
-    return {field: payload[field] for field in fields if field in payload}
+    metadata = {field: payload[field] for field in fields if field in payload}
+    if event is HookEvent.TOOL_END and payload.get("tool_name") == QUESTION_TOOL_NAME:
+        # Forward only the broker-generated request identity. Prompt, choices,
+        # capability and every other part of the tool result stay local.
+        response = payload.get("tool_response")
+        if isinstance(response, dict) and response.get("isError") is False:
+            result = response.get("structuredContent")
+            if isinstance(result, dict) and result.get("kind") == "question" and result.get("state") == "pending":
+                request_id = result.get("request_id")
+                if isinstance(request_id, str) and QUESTION_REQUEST_ID.fullmatch(request_id):
+                    metadata["question_request_id"] = request_id
+    return metadata
 
 
 # payload: Allowlisted native hook metadata plus local branch and emission time.
@@ -196,6 +209,14 @@ def decode_hook(payload: dict[str, Any], now_ns: int) -> CodexHook:
         if type(stop_hook_active) is not bool:
             raise ValueError("Codex stop_hook_active must be a boolean")
 
+    question_request_id = ""
+    if "question_request_id" in payload:
+        candidate = payload["question_request_id"]
+        if (event is not HookEvent.TOOL_END or tool_name != QUESTION_TOOL_NAME
+                or not isinstance(candidate, str) or QUESTION_REQUEST_ID.fullmatch(candidate) is None):
+            raise ValueError("Question request identity requires a successful Cody question tool completion")
+        question_request_id = candidate
+
     return CodexHook(event, session_id, cwd, branch, emitted_ns, turn_id, model,
                      locator, trigger, tool_id, tool_name, kind,
-                     session_source, stop_hook_active)
+                     session_source, stop_hook_active, question_request_id)

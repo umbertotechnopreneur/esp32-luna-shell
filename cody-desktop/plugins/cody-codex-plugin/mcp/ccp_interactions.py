@@ -30,6 +30,8 @@ import threading
 import time
 from typing import Any
 
+from ccp_codex_hooks import require_id
+from ccp_state_registry import QUESTION_LIMITS, RegistryRejection, token
 from ccp_state_storage import RegistryStorage, RegistryStorageError
 
 
@@ -136,6 +138,42 @@ class Ticket:
     question_state: str = ""
     capability_digest: str = ""
     device_closure_evidence: str = ""
+    chat_id: str = ""
+    turn_id: str = ""
+    state_exposed: bool = False
+    state_terminal_seen: bool = False
+    state_observed_ns: int = 0
+    state_restored: bool = False
+
+
+@dataclass(frozen=True)
+class QuestionProjection:
+    question_id: str
+    device_id: str
+    association_id: str
+    chat_id: str
+    turn_id: str
+    title: str
+    choices: tuple[Choice, ...]
+    question_state: str
+    ticket_state: str
+    answer_id: str
+    selected_id: str
+    observed_ns: int
+    restored: bool
+
+
+# ticket: Committed question from the private ledger.
+def retains_question_state(ticket: Ticket) -> bool:
+    return ticket.question_state == "open" or (ticket.state_exposed and not ticket.state_terminal_seen)
+
+
+# device_id: Exact retained recipient.
+# association_id: Digest of that recipient's current paired key.
+# ticket: Committed ticket whose intended audience is checked.
+def owns_question(device_id: str, association_id: str, ticket: Ticket) -> bool:
+    return (ticket.payload.kind == EventKind.QUESTION and ticket.device_id == device_id
+            and hmac.compare_digest(ticket.association_id, association_id))
 
 
 # value: Caller-supplied text, retained exactly rather than projected or truncated.
@@ -466,29 +504,44 @@ class InteractionStore:
                 "published": ticket.published, "active": ticket.active_on_device,
                 "device_terminal_state": ticket.device_terminal_state,
                 "device_closure_evidence": ticket.device_closure_evidence,
+                "chat_id": ticket.chat_id, "turn_id": ticket.turn_id,
+                "state_exposed": ticket.state_exposed, "state_terminal_seen": ticket.state_terminal_seen,
             })
         try:
-            self._storage.save({"version": 1, "owner": self._owner_id, "questions": rows})
+            self._storage.save({"version": 2, "owner": self._owner_id, "questions": rows})
         except RegistryStorageError as error:
             self._storage_failure = error
             raise
 
     # row: Exact retained semantic question, original ticket and optional answer.
     # now: New process clock, used only for closed retention, never for reviving deadlines.
+    # version: Admitted authenticated checkpoint format.
     # Raises ValueError for inconsistent identity, immutable content or acknowledgement.
-    def _stored_question(self, row: Any, now: float) -> Ticket:
+    def _stored_question(self, row: Any, now: float, version: int) -> Ticket:
         expected = {
             "request_id", "question_id", "capability_digest", "device_id", "association",
             "payload", "source", "state", "question_state", "answer_id", "selected_id",
             "published", "active", "device_terminal_state", "device_closure_evidence",
         }
+        flags = {"published", "active"}
+        if version == 2:
+            flags |= {"state_exposed", "state_terminal_seen"}
+            expected |= {"chat_id", "turn_id", *flags}
         if not isinstance(row, dict) or set(row) != expected:
             raise ValueError("Invalid question checkpoint fields")
-        for name in expected - {"published", "active"}:
+        for name in expected - flags:
             if not isinstance(row[name], str):
                 raise ValueError("Invalid question checkpoint value type")
-        if type(row["published"]) is not bool or type(row["active"]) is not bool:
+        if any(type(row[name]) is not bool for name in flags):
             raise ValueError("Invalid question presentation flags")
+        chat_id, turn_id = row.get("chat_id", ""), row.get("turn_id", "")
+        if chat_id or turn_id:
+            require_id(chat_id, "question chat_id")
+            require_id(turn_id, "question turn_id")
+        state_exposed = row.get("state_exposed", False)
+        state_terminal_seen = row.get("state_terminal_seen", False)
+        if state_terminal_seen and (not state_exposed or row["question_state"] == "open"):
+            raise ValueError("Invalid question state acknowledgement")
         if (IDENTITY.fullmatch(row["request_id"]) is None or row["request_id"] == ZERO_TICKET
                 or IDENTITY.fullmatch(row["question_id"]) is None or row["question_id"] == ZERO_TICKET
                 or row["question_id"] == row["request_id"]
@@ -540,6 +593,8 @@ class InteractionStore:
             device_terminal_state=device_state, active_on_device=row["active"],
             question_id=row["question_id"], question_state=semantic,
             capability_digest=row["capability_digest"], device_closure_evidence=closure_evidence,
+            chat_id=chat_id, turn_id=turn_id, state_exposed=state_exposed,
+            state_terminal_seen=state_terminal_seen, state_restored=True,
         )
 
     # document: Authenticated complete checkpoint bound to the retained PC.
@@ -547,7 +602,7 @@ class InteractionStore:
     def _restore(self, document: dict[str, Any]) -> None:
         try:
             if (set(document) != {"version", "owner", "questions"}
-                    or type(document["version"]) is not int or document["version"] != 1
+                    or type(document["version"]) is not int or document["version"] not in {1, 2}
                     or document["owner"] != self._owner_id
                     or not isinstance(document["questions"], list)
                     or len(document["questions"]) > MAX_TICKETS):
@@ -558,7 +613,7 @@ class InteractionStore:
             unavailable = False
             now = self._clock()
             for row in document["questions"]:
-                ticket = self._stored_question(row, now)
+                ticket = self._stored_question(row, now, document["version"])
                 present = {ticket.request_id, ticket.question_id}
                 if ticket.answer_id:
                     present.add(ticket.answer_id)
@@ -594,6 +649,12 @@ class InteractionStore:
             if candidate is None:
                 staged.pop(identity, None)
             else:
+                if candidate.payload.kind == EventKind.QUESTION and (
+                    prior is None or (prior.state, prior.question_state, prior.selected_id, prior.chat_id, prior.turn_id)
+                    != (candidate.state, candidate.question_state, candidate.selected_id,
+                        candidate.chat_id, candidate.turn_id)
+                ):
+                    candidate = replace(candidate, state_observed_ns=time.monotonic_ns(), state_restored=False)
                 staged[identity] = candidate
         if durable:
             self._save(staged)
@@ -612,7 +673,9 @@ class InteractionStore:
             if ticket.terminal_at is None or now - ticket.terminal_at < TERMINAL_RETENTION_SECONDS:
                 continue
             if self._storage is not None and ticket.payload.kind == EventKind.QUESTION:
-                if ticket.question_state == "open" or (ticket.active_on_device and not ticket.device_terminal_state):
+                if (ticket.question_state == "open"
+                        or (ticket.active_on_device and not ticket.device_terminal_state)
+                        or (ticket.state_exposed and not ticket.state_terminal_seen)):
                     continue
             changes[identity] = None
         self._commit(changes)
@@ -666,6 +729,13 @@ class InteractionStore:
                             and ((native_session and item.native_session == native_session and item.payload.kind == payload.kind)
                                  or (not native_session and not item.native_session))):
                         changes[item.request_id] = replace(item, state="cancelled", terminal_at=now)
+            # Every unsettled question may resolve while Cody is offline.
+            # Keep enough room to publish all terminal states before removing them.
+            if question and association_id and sum(
+                owns_question(device_id, association_id, item) and retains_question_state(item)
+                for item in self._tickets.values()
+            ) >= QUESTION_LIMITS["resolved_questions"]:
+                raise ValueError("Cody's unsettled question pool is full")
             request_id = self._new_id()
             question_id = self._new_id() if question else ""
             while question and question_id == request_id:
@@ -683,6 +753,90 @@ class InteractionStore:
             result = self._public(ticket)
             result["capability"] = capability
             return result
+
+    # request_id: Exact successful question ticket returned to the documented Codex tool hook.
+    # chat_id: Native chat identity from that hook.
+    # turn_id: Native turn identity from the same invocation.
+    # Raises ValueError on a conflicting association and preserves storage failures.
+    def associate_question(self, request_id: str, chat_id: str, turn_id: str) -> None:
+        if not isinstance(request_id, str) or IDENTITY.fullmatch(request_id) is None:
+            raise ValueError("Invalid Codex question ticket")
+        require_id(chat_id, "question chat_id")
+        require_id(turn_id, "question turn_id")
+        with self._condition:
+            ticket = self._tickets.get(request_id)
+            if ticket is None or ticket.payload.kind != EventKind.QUESTION:
+                raise ValueError("Codex hook question ticket is no longer retained")
+            if self._storage_failure is not None:
+                raise self._storage_failure
+            if ticket.chat_id:
+                if (ticket.chat_id, ticket.turn_id) != (chat_id, turn_id):
+                    raise ValueError("Codex hook question already belongs to a different invocation")
+                return
+            self._commit({request_id: replace(ticket, chat_id=chat_id, turn_id=turn_id)})
+
+    # No parameters: exact turn identities pinned by retained semantic questions.
+    def associated_question_turns(self) -> frozenset[tuple[str, str]]:
+        with self._condition:
+            return frozenset((item.chat_id, item.turn_id) for item in self._tickets.values()
+                             if item.chat_id and retains_question_state(item))
+
+    # device_id: Authenticated retained recipient used by the state peer.
+    # association_id: Digest of that peer's exact active key.
+    # Raises RegistryStorageError on durable expiry or read failure.
+    # Raises RegistryRejection if a legacy backlog cannot fit without losing unresolved state.
+    def state_questions(self, device_id: str, association_id: str) -> tuple[QuestionProjection, ...]:
+        with self._condition:
+            if self._storage_failure is not None:
+                raise self._storage_failure
+            self._expire()
+            owned = [item for item in self._tickets.values()
+                     if owns_question(device_id, association_id, item) and retains_question_state(item)]
+            if len(owned) > QUESTION_LIMITS["resolved_questions"]:
+                raise RegistryRejection("capacity_exceeded",
+                    "Retained question backlog exceeds safe terminal capacity", "resolved_questions")
+            return tuple(QuestionProjection(
+                item.question_id, item.device_id, item.association_id, item.chat_id, item.turn_id,
+                item.payload.title, item.payload.choices, item.question_state, item.state,
+                item.answer_id, item.selected_id, item.state_observed_ns, item.state_restored,
+            ) for item in owned)
+
+    # device_id: Authenticated retained recipient, scoped to the transfer.
+    # association_id: Exact digest of the session's paired key.
+    # open_ids: Public state IDs that will be put on the wire as open.
+    # terminal_ids: Public IDs committed as terminal by the same device.
+    # Raises RegistryStorageError if the conservative publication markers cannot be retained.
+    # Raises RegistryRejection if a frozen open row can no longer be retained safely.
+    def record_state_delivery(self, device_id: str, association_id: str,
+                              open_ids: frozenset[str] = frozenset(),
+                              terminal_ids: frozenset[str] = frozenset()) -> None:
+        if not open_ids and not terminal_ids:
+            return
+        with self._condition:
+            changes = {}
+            unmatched_open = set(open_ids)
+            unsettled = 0
+            for request_id, item in self._tickets.items():
+                if not owns_question(device_id, association_id, item):
+                    continue
+                public_id = token("question", (item.question_id,))
+                if public_id in open_ids and not item.state_terminal_seen:
+                    unmatched_open.discard(public_id)
+                    if not item.state_exposed:
+                        item = replace(item, state_exposed=True)
+                        changes[request_id] = item
+                elif (public_id in terminal_ids and item.state_exposed and not item.state_terminal_seen
+                      and item.question_state != "open"):
+                    item = replace(item, state_terminal_seen=True)
+                    changes[request_id] = item
+                unsettled += retains_question_state(item)
+            if unmatched_open:
+                raise RegistryRejection("need_snapshot", "An open question was retired before publication")
+            if open_ids and unsettled > QUESTION_LIMITS["resolved_questions"]:
+                # A frozen open ticket may have since closed. Retry with the
+                # current graph instead of exceeding terminal capacity.
+                raise RegistryRejection("need_snapshot", "Question admission changed before publication")
+            self._commit(changes)
 
     # self: Locked request registry protecting the creator's response and cancellation capability.
     # request_id: Opaque ticket returned to one MCP caller.
@@ -724,7 +878,9 @@ class InteractionStore:
             else:
                 delivery = "unconfirmed" if ticket.selected_id else "unavailable"
             result.update(question_id=ticket.question_id, question_state=ticket.question_state,
-                          delivery_state=delivery, chat_id=None, turn_id=None,
+                          delivery_state=delivery,
+                          chat_id=token("chat", (ticket.chat_id,)) if ticket.chat_id else None,
+                          turn_id=token("turn", (ticket.chat_id, ticket.turn_id)) if ticket.turn_id else None,
                           device_closure={"state": ticket.device_terminal_state,
                                           "evidence": ticket.device_closure_evidence}
                           if ticket.device_terminal_state else None)

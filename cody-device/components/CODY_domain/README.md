@@ -23,11 +23,12 @@ the owner sends a commit ACK. An active transfer rejects a different transfer ID
 as busy. Conflicting metadata on the same transfer, decoder errors and deadline
 expiry release the window and require the owner to discard staging.
 
-The initial decoder admits source, chat, turn, tool definition and tool call
-records. It checks the negotiated source manifest, exact revision, evidence and
-cross-record relationships before swapping two owner-allocated PSRAM banks.
-The decoder consumes one bounded record at a time. Optional record categories
-are explicitly unsupported. The live bank survives an incomplete or rejected
+The core decoder admits source, chat, turn, tool definition and tool call
+records. The negotiated question profile also admits question, choice and
+answer-attempt records. It checks the source manifest, exact revision, evidence
+and cross-record relationships before swapping two owner-allocated PSRAM banks.
+The decoder consumes one bounded record at a time. Other optional categories
+remain explicitly unsupported. The live bank survives an incomplete or rejected
 transfer. A same-source restart cannot discard rows that the device still knows
 as active. Durable broker reconciliation is needed to recover that case.
 
@@ -35,7 +36,7 @@ as active. Durable broker reconciliation is needed to recover that case.
 
 `CODY_state_query.hpp` defines the portable request and owned result.
 A `Chat` query resolves the caller's selected `ChatId`. `Chats`, `Turns`,
-`Calls` and `ActiveCalls` copy up to three typed rows. The next-page cursor
+`Calls`, `ActiveCalls` and `PendingQuestions` copy up to three typed rows. The next-page cursor
 belongs to its exact committed generation, kind and identity scope. If a
 commit intervenes, restart at the first page. The copy contains no pointers
 into PSRAM and can outlive the owner lock.
@@ -44,9 +45,11 @@ Known values carry their own observation, source time, freshness and error.
 Query time can age evidence but never renews it. `ActiveCalls` includes rows
 last observed as queued or running, including rows whose evidence is now
 stale. `Summary` separately counts only current running or waiting turns and
-current active calls. Incomplete coverage or evidence makes those counts
-lower bounds. `PendingQuestions` explicitly reports unsupported in this
-profile.
+current active calls and open questions. Incomplete coverage or evidence makes
+those counts lower bounds. `PendingQuestions` supports global, chat and turn
+scopes. The page copies a bounded prompt preview and independent association
+evidence. Unassociated questions remain visible in the global list. Core-only
+peers report this query as unsupported. Reply admission stays with signed CCP1.
 
 After device reboot the owner can expose the association-bound historical
 summary, with no entity page or live attention. It has no local generation

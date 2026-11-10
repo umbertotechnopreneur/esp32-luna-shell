@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import IntEnum
 import hashlib
 import hmac
@@ -13,9 +13,13 @@ import re
 import secrets
 import struct
 import time
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
-from ccp_state_registry import SOURCE_LIMITS
+from ccp_state_registry import CORE_LIMITS, QUESTION_LIMITS, SOURCE_LIMITS, Recipient, RegistryRejection
+from ccp_state_storage import RegistryStorageError
+
+if TYPE_CHECKING:
+    from ccp_interactions import InteractionStore
 
 
 SCHEMA = "cody.state/1"
@@ -47,12 +51,12 @@ OFFER_TRANSPORT = {"document_bytes": 1024 * 1024, "window_chunks": 16}
 HEX64 = re.compile(r"[0-9a-f]{16}")
 FIND = re.compile(
     rb"CCP2\|FIND\|device=([0-9a-f]{12})\|pc=([0-9a-f]{32})\|nonce=([0-9a-f]{32})"
-    rb"\|state=1\|proof=([0-9a-f]{64})"
+    rb"\|state=([12])\|proof=([0-9a-f]{64})"
 )
 COMMITTED = re.compile(
     rb"CCP2\|COMMITTED\|device=([0-9a-f]{12})\|pc=([0-9a-f]{32})\|nonce=([0-9a-f]{32})"
     rb"\|challenge=([0-9a-f]{32})\|address=([0-9.]{7,15})\|port=(42117)"
-    rb"\|state=1\|proof=([0-9a-f]{64})"
+    rb"\|state=([12])\|proof=([0-9a-f]{64})"
 )
 RESYNC_REASONS = frozenset({
     "initial", "gap", "epoch_changed", "reboot", "capacity", "journal_overflow",
@@ -63,12 +67,15 @@ Endpoint = tuple[str, int]
 
 class Registry(Protocol):
     # pc_id: Stable retained broker identity.
-    def binding(self, pc_id: str) -> dict[str, Any]: ...
+    # questions: Whether the authenticated bootstrap opted into question entities.
+    def binding(self, pc_id: str, *, questions: bool = False) -> dict[str, Any]: ...
 
     # pc_id: Stable retained broker identity.
     # request: Authenticated and admitted request.
     # limits: Exact capacities selected for this peer.
-    def respond(self, pc_id: str, request: dict[str, Any], limits: dict[str, int]) -> dict[str, Any]: ...
+    # recipient: Exact authenticated audience on a question-enabled link.
+    def respond(self, pc_id: str, request: dict[str, Any], limits: dict[str, int],
+                *, recipient: Recipient | None = None) -> dict[str, Any]: ...
 
 
 class PacketKind(IntEnum):
@@ -283,6 +290,7 @@ class Outgoing:
     sent_high: int = 0
     final_chunk: SentChunk | None = None
     window: dict[int, SentChunk] = field(default_factory=dict)
+    terminal_questions: frozenset[str] = frozenset()
 
     # document: Frozen response; metadata and ages stay fixed throughout retries.
     # width: Selective-repeat window width.
@@ -399,6 +407,7 @@ class Challenge:
     key_stamp: str = field(repr=False)
     deadline: float
     used: bool = False
+    profile: str = "1"
 
 
 @dataclass
@@ -425,6 +434,7 @@ class Peer:
     next_request_at: float = 0.0
     committed_revision: int = 0
     request_ids: deque[str] = field(default_factory=lambda: deque(maxlen=64))
+    recipient: Recipient | None = None
 
 
 class StateResponder:
@@ -434,9 +444,11 @@ class StateResponder:
     # send: UDP send operation on the already-owned port.
     # registry: Single synchronized broker registry owner.
     # mark_seen: Existing retained peer observation publisher.
+    # questions: Optional private ledger used by the authenticated question profile.
     def __init__(self, pc_id: str, active_key: Callable[[str], tuple[bytes, str] | None],
                  current_key: Callable[[str, str], bool], send: Callable[[bytes, Endpoint, str, str], int],
-                 registry: Registry, mark_seen: Callable[[str, str, str], None]) -> None:
+                 registry: Registry, mark_seen: Callable[[str, str, str], None],
+                 questions: InteractionStore | None = None) -> None:
         self._pc_id = pc_id
         self._pc = bytes.fromhex(pc_id)
         self._active_key = active_key
@@ -444,6 +456,7 @@ class StateResponder:
         self._send = send
         self._registry = registry
         self._mark_seen = mark_seen
+        self._questions = questions
         self._challenges: dict[str, Challenge] = {}
         self._peers: dict[bytes, Peer] = {}
 
@@ -487,27 +500,29 @@ class StateResponder:
             return
         find = FIND.fullmatch(payload)
         if find is not None:
-            device_id, pc, nonce, proof = (part.decode("ascii") for part in find.groups())
-            if pc == self._pc_id and any(bytes.fromhex(nonce)):
-                self._challenge(device_id, nonce, proof, endpoint, now)
+            device_id, pc, nonce, profile, proof = (part.decode("ascii") for part in find.groups())
+            if (pc == self._pc_id and any(bytes.fromhex(nonce))
+                    and (profile == "1" or self._questions is not None)):
+                self._challenge(device_id, nonce, proof, endpoint, now, profile)
             return
         committed = COMMITTED.fullmatch(payload)
         if committed is None:
             return
-        device_id, pc, nonce, token, address, port, proof = (part.decode("ascii") for part in committed.groups())
+        device_id, pc, nonce, token, address, port, profile, proof = (
+            part.decode("ascii") for part in committed.groups())
         if pc != self._pc_id or (address, int(port)) != endpoint:
             return
         challenge = self._challenges.get(device_id)
         if (challenge is None or challenge.used or now >= challenge.deadline or endpoint != challenge.endpoint
-                or nonce != challenge.nonce or token != challenge.identity.hex()
+                or nonce != challenge.nonce or token != challenge.identity.hex() or profile != challenge.profile
                 or not self._current_key(device_id, challenge.key_stamp)):
             return
-        expected = _bootstrap_proof(challenge.key, "committed-state-v1", device_id, pc, nonce, token, address, port, "1")
+        expected = _bootstrap_proof(challenge.key, "committed-state-v1",
+                                    device_id, pc, nonce, token, address, port, profile)
         if not hmac.compare_digest(proof, expected):
             return
         # Consume before constructing a generation or sending source data.
-        self._challenges[device_id] = Challenge(nonce, challenge.identity, endpoint,
-                                                challenge.key, challenge.key_stamp, challenge.deadline, True)
+        self._challenges[device_id] = replace(challenge, used=True)
         self._open_peer(device_id, challenge, now)
 
     # device_id: Retained device identifier asserted by FIND.
@@ -515,18 +530,21 @@ class StateResponder:
     # proof: Device proof over the exact FIND identity and capability.
     # endpoint: Address/port observed on the broker socket.
     # now: Original challenge admission time.
+    # profile: Capability level bound to the same nonce and signed exchange.
     # Raises OSError for UDP send failure.
-    def _challenge(self, device_id: str, nonce: str, proof: str, endpoint: Endpoint, now: float) -> None:
+    def _challenge(self, device_id: str, nonce: str, proof: str, endpoint: Endpoint,
+                   now: float, profile: str = "1") -> None:
         active = self._active_key(device_id)
         if active is None:
             return
         key, stamp = active
-        expected = _bootstrap_proof(key, "find-state-v1", device_id, self._pc_id, nonce, "1")
+        expected = _bootstrap_proof(key, "find-state-v1", device_id, self._pc_id, nonce, profile)
         if not hmac.compare_digest(proof, expected):
             return
         challenge = self._challenges.get(device_id)
         if challenge is not None and challenge.nonce == nonce:
-            if challenge.used or now >= challenge.deadline or challenge.endpoint != endpoint or challenge.key_stamp != stamp:
+            if (challenge.used or now >= challenge.deadline or challenge.endpoint != endpoint
+                    or challenge.key_stamp != stamp or challenge.profile != profile):
                 return
         else:
             if len(self._challenges) >= MAX_CHALLENGES and device_id not in self._challenges:
@@ -535,9 +553,10 @@ class StateResponder:
                 if retired is None:
                     return
                 del self._challenges[retired]
-            challenge = Challenge(nonce, _nonzero_random(16), endpoint, key, stamp, now + CHALLENGE_SECONDS)
+            challenge = Challenge(nonce, _nonzero_random(16), endpoint, key, stamp,
+                                  now + CHALLENGE_SECONDS, profile=profile)
             self._challenges[device_id] = challenge
-        values = (device_id, self._pc_id, nonce, challenge.identity.hex(), endpoint[0], str(endpoint[1]), "1")
+        values = (device_id, self._pc_id, nonce, challenge.identity.hex(), endpoint[0], str(endpoint[1]), profile)
         signed = _bootstrap_proof(key, "ready-state-v1", *values)
         names = ("device", "pc", "nonce", "challenge", "address", "port", "state")
         packet = "CCP2|READY|" + "|".join(f"{name}={value}" for name, value in zip(names, values)) + f"|proof={signed}"
@@ -551,11 +570,17 @@ class StateResponder:
         device = bytes.fromhex(device_id)
         if len(self._peers) >= MAX_PEERS and device not in self._peers:
             raise Rejected(RejectCode.CAPACITY_EXCEEDED, "State peer registry is full")
-        binding = self._registry.binding(self._pc_id)
+        recipient = None
+        if challenge.profile == "2":
+            binding = self._registry.binding(self._pc_id, questions=True)
+            recipient = (device_id, hashlib.sha256(challenge.key).hexdigest())
+        else:
+            binding = self._registry.binding(self._pc_id)
         peer = Peer(device, challenge.identity, challenge.endpoint, challenge.key, challenge.key_stamp, binding,
-                    now + LEASE_SECONDS, now + PROBE_SECONDS, _nonzero_random(8).hex())
+                    now + LEASE_SECONDS, now + PROBE_SECONDS, _nonzero_random(8).hex(), recipient=recipient)
         offer = {"schema": SCHEMA, "kind": "offer", "request_id": peer.offer_id,
-                 "bindings": [binding], "limits": SOURCE_LIMITS, "transport": OFFER_TRANSPORT}
+                 "bindings": [binding], "limits": SOURCE_LIMITS if recipient is not None else CORE_LIMITS,
+                 "transport": OFFER_TRANSPORT}
         peer.outgoing = Outgoing.freeze(offer, 1, MAX_CONTROL, now)
         peer.offer_digest = peer.outgoing.transfer.digest.hex()
         self._peers[device] = peer
@@ -624,9 +649,17 @@ class StateResponder:
             if committed:
                 if peer.outgoing.kind == "accepted":
                     peer.accepted = True
-                if peer.outgoing.transfer.source:
-                    peer.committed_revision = peer.outgoing.transfer.revision
-                peer.outgoing = None
+                self._commit_outgoing(peer, peer.outgoing)
+
+    # peer: Exact authenticated recipient and its committed revision.
+    # outgoing: Completed transfer confirmed by a commit ACK or exact next baseline.
+    # Raises RegistryStorageError if terminal question receipt cannot be retained.
+    def _commit_outgoing(self, peer: Peer, outgoing: Outgoing) -> None:
+        if outgoing.transfer.source:
+            peer.committed_revision = outgoing.transfer.revision
+        peer.outgoing = None
+        if peer.recipient is not None and self._questions is not None:
+            self._questions.record_state_delivery(*peer.recipient, terminal_ids=outgoing.terminal_questions)
 
     # peer: Exact authenticated session owning the one inbound control transfer.
     # packet: Authenticated DATA with validated control chunk geometry.
@@ -709,8 +742,7 @@ class StateResponder:
                     or int(request["base_revision"], 16) != previous.transfer.revision):
                 raise Rejected(RejectCode.BUSY, "Another state transfer is active")
             # An exact next base proves the final commit when the ACK was lost.
-            peer.committed_revision = previous.transfer.revision
-            peer.outgoing = None
+            self._commit_outgoing(peer, previous)
         if kind == "next" and int(request["base_revision"], 16) != peer.committed_revision:
             document = self._response_error(peer, request_id, "need_snapshot", "State baseline does not match")
         else:
@@ -718,13 +750,31 @@ class StateResponder:
             # supplied by the receiver, even if an earlier commit ACK was lost.
             if kind == "resync":
                 peer.committed_revision = int(request["revision"], 16)
-            document = self._registry.respond(self._pc_id, request, peer.selection["limits"])
+            if peer.recipient is None:
+                document = self._registry.respond(self._pc_id, request, peer.selection["limits"])
+            else:
+                document = self._registry.respond(self._pc_id, request, peer.selection["limits"],
+                                                  recipient=peer.recipient)
         self._validate_response(peer, request, document)
         is_state = document["kind"] in {"snapshot", "delta"}
         transport = peer.selection["transport"]
         try:
             transfer = Outgoing.freeze(document, transport["window_chunks"] if is_state else 1,
                                        transport["document_bytes"] if is_state else MAX_CONTROL, started)
+            if is_state and peer.recipient is not None and self._questions is not None:
+                open_ids, terminal_ids = set(), set()
+                for row in document["upserts"]:
+                    if row["type"] != "question":
+                        continue
+                    (open_ids if row["state"]["value"] == "open" else terminal_ids).add(row["id"])
+                self._questions.record_state_delivery(*peer.recipient, open_ids=frozenset(open_ids))
+                transfer.terminal_questions = frozenset(terminal_ids)
+        except RegistryStorageError:
+            document = self._response_error(peer, request_id, "persistence", "Durable question storage is unavailable")
+            transfer = Outgoing.freeze(document, 1, MAX_CONTROL, started)
+        except RegistryRejection as error:
+            document = self._response_error(peer, request_id, error.code, str(error), error.pool)
+            transfer = Outgoing.freeze(document, 1, MAX_CONTROL, started)
         except Rejected as error:
             if error.code != RejectCode.CAPACITY_EXCEEDED:
                 raise
@@ -774,10 +824,16 @@ class StateResponder:
             raise Rejected(RejectCode.WRONG_BINDING, "Selection does not match the current offer")
         limits = request["limits"]
         transport = request["transport"]
-        if (not self._admit_limits(limits, SOURCE_LIMITS) or not self._admit_limits(transport, OFFER_TRANSPORT)
+        offered = SOURCE_LIMITS if peer.recipient is not None else CORE_LIMITS
+        # At most this many questions may simultaneously need terminal rows.
+        unsettled = QUESTION_LIMITS["resolved_questions"]
+        required_questions = {"open_questions": unsettled, "resolved_questions": unsettled,
+                              "choices": 3 * unsettled, "answer_attempts": unsettled}
+        if (not self._admit_limits(limits, offered) or not self._admit_limits(transport, OFFER_TRANSPORT)
                 or limits["sources"] != 1 or limits["chats"] != 64
                 or not all(limits[field] for field in ("turns", "evidence", "text_bytes", "decode_scratch_bytes"))
-                or ((limits["open_questions"] or limits["resolved_questions"]) and not limits["choices"])
+                or (peer.recipient is not None
+                    and any(limits[pool] < needed for pool, needed in required_questions.items()))
                 or transport["document_bytes"] < CHUNK or not transport["window_chunks"]):
             raise Rejected(RejectCode.UNSUPPORTED_CAPABILITY, "Selection cannot admit the required capacities")
         document = {"schema": SCHEMA, "kind": "accepted", "request_id": peer.offer_id,

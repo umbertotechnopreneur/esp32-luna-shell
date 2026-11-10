@@ -138,15 +138,20 @@ path only during implementation. Bootstrap text packets are at most 512 ASCII
 bytes, exact ordered fields, lowercase hex and canonical decimal port:
 
 ```text
-CCP2|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|state=1|proof=<64hex>
-CCP2|READY|device=<12hex>|pc=<32hex>|nonce=<32hex>|challenge=<32hex>|address=<IPv4>|port=42117|state=1|proof=<64hex>
-CCP2|COMMITTED|device=<12hex>|pc=<32hex>|nonce=<32hex>|challenge=<32hex>|address=<IPv4>|port=42117|state=1|proof=<64hex>
+CCP2|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|state=<version>|proof=<64hex>
+CCP2|READY|device=<12hex>|pc=<32hex>|nonce=<32hex>|challenge=<32hex>|address=<IPv4>|port=42117|state=<version>|proof=<64hex>
+CCP2|COMMITTED|device=<12hex>|pc=<32hex>|nonce=<32hex>|challenge=<32hex>|address=<IPv4>|port=42117|state=<version>|proof=<64hex>
 ```
 
 HMAC-SHA256 uses the active retained key and ASCII values joined by `|` in the
 shown order, excluding names/proof. Prefix the joined values with respectively
 `find-state-v1|`, `ready-state-v1|`, `committed-state-v1|`. These domains include
-the final `state=1` value. No user-provided address determines a return endpoint.
+the final state version value. Version 1 offers the core records. Version 2
+also offers the question, choice and answer-attempt pools. The nonce and signed
+version must match across the exchange. New firmware can try version 1 with a
+fresh nonce after a version-2 discovery timeout before it has verified version 2
+for the current pairing. Both versions carry the same CDS1 datagrams and
+`cody.state/1` JSON. The broker uses the socket-observed return endpoint.
 FIND is only a challenge request: it discloses no current domain data. READY
 binds the current client nonce and broker-generated 128-bit challenge to the
 socket-observed device IPv4/port. Cody verifies that against canonical network
@@ -409,15 +414,18 @@ Phase 02 supplies the schema, fixtures, wire constants and revision/chunk guards
 The broker and firmware implement the authenticated socket path for one Codex
 source, covering chats, turns, tool definitions and tool calls. The current
 firmware admits only the `codex` provider and `codex.command-hooks` namespace.
-Other providers require their own later adapters. Negotiated limits leave
-optional pools at zero. The broker offers up to 1 MiB per state
-document and retains bounded revision history. The firmware binds the manifest,
-verifies HMAC and the full document digest, and stages records before commit.
-The native browser consumes bounded pages through DeviceSnapshotService.
-Its selected-chat bookmark is pairing-bound. The
-[signed CCP1 question flow](CCP1.md#event-transport-and-reply-lifecycle)
-has its own durable ledger. Question and answer records on state-v1, agent
-and operation records, and cues remain separate work.
+Other providers require their own later adapters. Version 2 adds the retained
+question, choice and answer-attempt records for the authenticated device and
+active pairing key. Exact Codex PostToolUse metadata can link a question to
+its original chat and turn. Unassociated questions remain visible globally.
+The broker offers up to 1 MiB per state document and retains bounded revision
+history. The firmware binds the manifest, verifies HMAC and the full document
+digest, and stages records before commit. The native browser consumes bounded
+pages through DeviceSnapshotService. Its selected-chat bookmark is pairing-bound.
+The [signed CCP1 question flow](CCP1.md#event-transport-and-reply-lifecycle)
+owns reply authorization, submission and acknowledgement. State-v1 carries
+semantic IDs and delivery observations. Agent and operation records and cues
+remain deferred.
 Phase 11 must exercise malformed lengths/JSON, foreign bindings, replay, reversed
 clocks, hash failure, missing chunks, lost commit ACK, epoch changes, partial
 snapshots, pool exhaustion, journal overflow and unresolved retention. The
