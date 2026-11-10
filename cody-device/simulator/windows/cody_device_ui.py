@@ -1302,7 +1302,8 @@ class DeviceStudioWindow:
         opacity = self.navigation_opacity(now)
         if opacity > 0:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
-        self.draw_wifi_home(draw, now)
+        if self.route is not WifiSetupRoute.HOME_CHOICES:
+            self.draw_wifi_home(draw, now)
 
     # self: Studio preview owning the current Wi-Fi setup route and its touch targets.
     # image: Logical canvas before rotation.

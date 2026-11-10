@@ -2115,7 +2115,7 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
                 strip, first_row, first_column);
         }
     }
-    if (error == ESP_OK && s_home_wifi_flow && view.actions_visible &&
+    if (error == ESP_OK && s_home_wifi_flow && !view.wifi_menu && view.actions_visible &&
         (s_route == Route::Invitation05 || s_route == Route::Install06 || s_route == Route::Pairing07)) {
         CODY2D::CapsuleControl home{kHomeWifiButton, {}, 0xA340, 0x71E0, true};
         home.icon = CODY2D::ActionIcon::Home;
@@ -2339,8 +2339,9 @@ esp_err_t attach_content(SceneFrame &scene)
     if (s_home_wifi_flow && (s_route == Route::Invitation05 || s_route == Route::Install06 || s_route == Route::Pairing07)) {
         content.bounds = s_view.wifi_menu ? kHomeMenuContent : DamageRect{73, 125, 393, 380};
         content.leading_caption_bounds = {};
-        content.bottom_action_visible = true;
-        content.bottom_action_bounds = {kHomeWifiButton.x, kHomeWifiButton.y,
+        content.bottom_action_visible = !s_view.wifi_menu;
+        content.bottom_action_bounds = s_view.wifi_menu ? DamageRect{} : DamageRect{
+            kHomeWifiButton.x, kHomeWifiButton.y,
             static_cast<uint16_t>(kHomeWifiButton.x + kHomeWifiButton.width),
             static_cast<uint16_t>(kHomeWifiButton.y + kHomeWifiButton.height)};
         content.control_bounds[0] = {10, 203, 70, 263};
@@ -7553,7 +7554,8 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
     }
     const CODY2D::CapsuleControl back{kBackBounds, {}, NavigationData::top, NavigationData::bottom, true};
     const CODY2D::CapsuleControl next{kForwardBounds, {}, NavigationData::top, NavigationData::bottom, true};
-    if (s_home_wifi_flow && (s_route == Route::Invitation05 || s_route == Route::Install06 || s_route == Route::Pairing07)) {
+    if (s_home_wifi_flow && !s_view.wifi_menu &&
+        (s_route == Route::Invitation05 || s_route == Route::Install06 || s_route == Route::Pairing07)) {
         const CODY2D::CapsuleControl home{kHomeWifiButton, {}, 0, 0, true};
         if (pressed_edge && s_home_wifi_chrome_opacity == 255 && s_view.actions_visible && !s_command_pending &&
             !s_work_busy.load(std::memory_order_acquire) && CODY2D::capsule_contains(home, point)) {
