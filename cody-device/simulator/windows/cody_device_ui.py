@@ -7,6 +7,7 @@ from functools import lru_cache
 import json
 from math import isqrt
 from pathlib import Path
+from secrets import randbits
 import time
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -331,8 +332,10 @@ class DeviceStudioWindow:
         self.audio_error = ""
         self.audio = None
         self.muse = None
-        self.muse_started_at = None
-        self.muse_reaction_at = None
+        self.muse_elapsed_ms = 0.0
+        self.muse_last_frame_at = None
+        self.muse_reaction_ms = None
+        self.muse_seed = 0
         self.touch_pressed_at = 0.0
         self.route = WifiSetupRoute.OFFLINE
         self.connections_return = "widgets"
@@ -383,7 +386,7 @@ class DeviceStudioWindow:
         phase = SCREEN_OFFSETS_MS.get(getattr(args, "screen", "rig"))
         if phase is not None:
             self.boot = self.boot_frame = None
-            self.muse_started_at = time.monotonic() - phase / 1000
+            self.muse_elapsed_ms = float(phase)
 
         colors = install_theme(root)
         root.title("Cody Studio / SIMULATED device")
@@ -433,7 +436,12 @@ class DeviceStudioWindow:
     def start_boot(self):
         self.boot = self.boot_frame = None
         self.boot_error = ""
-        self.muse_started_at = self.muse_reaction_at = None
+        self.muse_elapsed_ms = 0.0
+        self.muse_last_frame_at = None
+        self.muse_reaction_ms = None
+        self.muse_seed = randbits(32)
+        if self.muse is not None:
+            self.muse.reset(self.muse_seed)
         self.open("mascot")
         project = Path(__file__).resolve().parents[2]
         try:
@@ -450,6 +458,8 @@ class DeviceStudioWindow:
     # self: Local route owner cancelling screensaver presentation on user navigation.
     # route: Requested setup, options or dashboard route.
     def open(self, route):
+        if route != "mascot":
+            self.hide_mascot()
         self.route = route
         self.chat_title_key = None
         self.screensaver.active = False
@@ -524,6 +534,8 @@ class DeviceStudioWindow:
         if self.boot is not None:
             return
         self.standby = not self.standby
+        if self.standby:
+            self.hide_mascot()
         if self.standby and self.events:
             self.events.hide()
         self.screensaver.active = False
@@ -1253,21 +1265,28 @@ class DeviceStudioWindow:
     def draw_mascot(self, image, now):
         if self.muse is None:
             self.muse = NativeMusePreview()
-        if self.muse_started_at is None:
-            self.muse_started_at = now
-        elapsed_ms = int((now - self.muse_started_at) * 1000)
-        reaction_ms = (int((now - self.muse_reaction_at) * 1000)
-                       if self.muse_reaction_at is not None else NO_REACTION)
+            self.muse.reset(self.muse_seed)
+        if self.muse_last_frame_at is not None:
+            self.muse_elapsed_ms += max(0.0, (now - self.muse_last_frame_at) * 1000)
+        self.muse_last_frame_at = now
+        elapsed_ms = int(self.muse_elapsed_ms)
+        reaction_ms = (elapsed_ms - self.muse_reaction_ms
+                       if self.muse_reaction_ms is not None else NO_REACTION)
         image.paste((0, 0, 0), (0, 0, SIZE, SIZE))
         image.paste(self.muse.image(elapsed_ms, reaction_ms), (MUSE_OFFSET, MUSE_OFFSET))
         self.targets["Mascot"] = (MUSE_BOUNDS, self.pet_mascot)
+
+    # self: Preview owner excluding hidden time and retiring the visible touch reaction.
+    def hide_mascot(self):
+        self.muse_last_frame_at = None
+        self.muse_reaction_ms = None
 
     # self: Visible avatar receiving a complete short contact admitted by release.
     def pet_mascot(self):
         now = time.monotonic()
         if not 0.03 <= now - self.touch_pressed_at <= 0.45:
             return
-        self.muse_reaction_at = now
+        self.muse_reaction_ms = int(self.muse_elapsed_ms)
         if self.audio is not None:
             self.audio.touch()
 
@@ -1283,20 +1302,25 @@ class DeviceStudioWindow:
         draw = ImageDraw.Draw(image)
         self.targets = {}
         self.event_visible = False
-        event_active = not self.standby and self.events and self.events.visible(snapshot, self.endpoint)
+        waking = self.route == "mascot" and self.muse_elapsed_ms < 1500
+        event_active = (not self.standby and not waking and self.events and
+                        self.events.visible(snapshot, self.endpoint))
         if self.events and not event_active:
             self.events.hide()
         project_link = PAGES[self.page] == "About" and self.info.page is InfoPage.PROJECT_LINK
         self.screensaver.observe(not self.standby and not event_active and self.route == "widgets" and not project_link,
                                  now - self.last_navigation)
         if self.standby:
+            self.hide_mascot()
             image.paste((0, 0, 0), (0, 0, SIZE, SIZE))
         elif event_active:
+            self.hide_mascot()
             self.touch = None
             self.event_visible = True
             self.last_navigation = now
             image = self.events.render_device(snapshot, now)
         elif self.screensaver.active:
+            self.hide_mascot()
             image = render_screensaver(int((now - self.last_navigation - 15.0) * 25)).copy()
         elif self.route == "mascot":
             self.draw_mascot(image, now)
@@ -1388,8 +1412,9 @@ class DeviceStudioWindow:
             snapshot, code = self.observe()
             if self.pairing_attempted and snapshot.state == LinkState.CONNECTED:
                 self.pairing_attempted = False
-                self.page = 0
-                self.open("widgets")
+                if self.route != "mascot":
+                    self.page = 0
+                    self.open("widgets")
             sound_error = self.audio.last_error if self.audio is not None else self.audio_error
             status = self.source_error or self.boot_error or snapshot.last_error or sound_error
             if not status:
@@ -1403,6 +1428,7 @@ class DeviceStudioWindow:
             if image is None:
                 image = self.frame(snapshot, code, now)
         except (OSError, RuntimeError, ValueError, AttributeError) as error:
+            self.hide_mascot()
             if self.boot is not None:
                 self.boot = None
                 self.boot_frame = None

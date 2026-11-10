@@ -32,10 +32,9 @@ pwsh -NoProfile -File ./scripts/device.ps1 simulator -Screen rig -OutputPath art
 ```
 
 The default Cody Studio opens the device preview. The existing VibeWare floppy
-plays once, then first run opens **Connections**. A retained simulator association
-opens **Device**. **BOOT / Options** opens the device menu. **PWR / Standby** toggles
-the simulated display, and **Simulate shake** returns to the first enabled
-statistics page, with Device as the fallback.
+plays once, followed by the native Muse showcase. **BOOT / Options** opens the
+device menu. **PWR / Standby** toggles the simulated display, and **Simulate shake**
+returns to the first enabled statistics page when that dashboard is open.
 The dashboard and Options page arrows fade after ten seconds. A touch reveals
 them again. **Options 1/3** contains **Connections**, **Codex stats** and **Timer**.
 Page 2 contains **Visible screens**, **Display** and **Behavior**. Page 3 holds
@@ -95,12 +94,18 @@ The Manifesto link opens only after an explicit click.
 
 ## Muse animation conformance
 
-The native preview uses the same showcase scheduler as the firmware. Visible
-time starts with Waking, then Idle. At ten seconds the scheduler draws a pose
+The native preview uses the same showcase scheduler as the firmware. Each
+simulated boot resets the scheduler and its artistic seed. The clock advances
+only while Muse is displayed; standby, menus and event overlays pause it. A
+touch reaction is retired when Muse is hidden. Visible time starts with Waking,
+then Idle. At ten seconds the scheduler draws a pose
 from its shuffle bag. It never repeats the previous pose, and an exhausted bag
 starts another cycle. The bag contains the original modes plus authored manga
 symbol variations. Sleep holds the visible closed-eye stage. This showcase
-drives artwork only; it is not a real activity or sound signal.
+drives artwork only; it is not a real activity or sound signal. The preview does
+not yet feed synthetic IMU observations into the firmware motion response. Its
+legacy Options/CCP preview also does not yet expose the vNext native Codex
+browser or the state-v1 multi-chat projection.
 
 The native preview and firmware use the same C renderer and
 [CODY_muse_frame](../../components/CODY_companion/include/CODY_muse_frame.hpp)

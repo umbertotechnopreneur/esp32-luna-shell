@@ -39,6 +39,9 @@ class NativeMusePreview:
     # Raises the original native loader or export resolution error.
     def __init__(self):
         library = load_runtime_library()
+        self.reset_native = library.cody_host_muse_reset
+        self.reset_native.argtypes = (ctypes.c_uint32,)
+        self.reset_native.restype = None
         self.render = library.cody_host_muse_frame
         self.render.argtypes = (
             ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint16), ctypes.c_size_t,
@@ -55,6 +58,11 @@ class NativeMusePreview:
         )
         self.render_face.restype = ctypes.c_int32
         self.pixels = (ctypes.c_uint16 * (DISPLAY_SIZE * DISPLAY_SIZE))()
+
+    # self: Serialized owner of the shared native showcase.
+    # seed: Artistic sequence seed for this simulated boot.
+    def reset(self, seed):
+        self.reset_native(seed)
 
     # self: Studio owner calling the native renderer from its serialized UI thread.
     # time_ms: Active animation time since startup.
