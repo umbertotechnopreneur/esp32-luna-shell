@@ -833,16 +833,25 @@ esp_err_t load_or_create_bool_setting(
     return ESP_OK;
 }
 
-// Return the inverse cardinal turn that keeps content upright.
+// physical_degrees: Cardinal orientation derived from the acquired IMU sample.
+// Return the panel rotation that keeps content upright for the selected profile.
 uint16_t rendering_rotation_for_physical(uint16_t physical_degrees)
 {
     switch (physical_degrees) {
     case 90:
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+        return 90;
+#else
         return 270;
+#endif
     case 180:
         return 180;
     case 270:
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+        return 270;
+#else
         return 90;
+#endif
     case 0:
         return 0;
     default:
@@ -897,7 +906,7 @@ esp_err_t publish_orientation_state()
     });
 }
 
-// Publish one new physical cardinal and its inverse render rotation.
+// Publish one new physical cardinal and its profile-specific render rotation.
 void commit_cardinal_orientation(
     uint16_t physical_degrees,
     int64_t sampled_at_us,
