@@ -2224,7 +2224,9 @@ esp_err_t attach_content(SceneFrame &scene)
     if (s_route == Route::MakeItYours10) {
         content.bounds.left = kPreferenceLeft;
         content.bounds.right = kPreferenceLeft + kPreferenceWidth;
-        if (on_maintenance_page() || on_quick_guide()) {
+        if (kDeviceFirstSetup || on_maintenance_page() || on_quick_guide()) {
+            // Menu rows and page marks end above the footer even when it is hidden.
+            // Extending their full width to y=430 crosses the circular display edge.
             content.bounds.bottom = kOptionsFooterBounds.y;
         }
     }
