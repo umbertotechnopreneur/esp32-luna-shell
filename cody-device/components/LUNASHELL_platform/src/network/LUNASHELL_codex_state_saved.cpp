@@ -74,49 +74,6 @@ bool valid(const StateSummary &summary)
         summary.active_calls <= limits.active_calls && summary.terminal_calls <= limits.terminal_calls;
 }
 
-// record: Exact authenticated payload; the final tag is read or populated.
-// key: Retained active key. The imported PSA object is destroyed before returning.
-// verify: True to verify in constant time, false to write the MAC.
-esp_err_t authenticate(Record &record, const uint8_t *key, bool verify)
-{
-    std::array<uint8_t, sizeof(kMacDomain) + kPayloadBytes> input{};
-    std::memcpy(input.data(), kMacDomain, sizeof(kMacDomain));
-    std::memcpy(input.data() + sizeof(kMacDomain), record.data(), kPayloadBytes);
-    auto *const tag = record.data() + kPayloadBytes;
-
-    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
-    psa_set_key_type(&attributes, PSA_KEY_TYPE_HMAC);
-    psa_set_key_bits(&attributes, 256);
-    psa_set_key_usage_flags(&attributes, verify ? PSA_KEY_USAGE_VERIFY_MESSAGE : PSA_KEY_USAGE_SIGN_MESSAGE);
-    psa_set_key_algorithm(&attributes, PSA_ALG_HMAC(PSA_ALG_SHA_256));
-    mbedtls_svc_key_id_t imported = MBEDTLS_SVC_KEY_ID_INIT;
-    auto status = psa_import_key(&attributes, key, 32, &imported);
-    psa_reset_key_attributes(&attributes);
-    if (status != PSA_SUCCESS) {
-        ESP_LOGE(kTag, "Checkpoint MAC key import failed: PSA status %ld", static_cast<long>(status));
-        return ESP_FAIL;
-    }
-    size_t written = 0;
-    if (verify) {
-        status = psa_mac_verify(imported, PSA_ALG_HMAC(PSA_ALG_SHA_256),
-            input.data(), input.size(), tag, kTagBytes);
-    } else {
-        status = psa_mac_compute(imported, PSA_ALG_HMAC(PSA_ALG_SHA_256),
-            input.data(), input.size(), tag, kTagBytes, &written);
-    }
-    const auto destroy = psa_destroy_key(imported);
-    if (destroy != PSA_SUCCESS) {
-        ESP_LOGE(kTag, "Checkpoint MAC key destroy failed: PSA status %ld", static_cast<long>(destroy));
-    }
-    if (status == PSA_ERROR_INVALID_SIGNATURE && verify) return ESP_ERR_INVALID_CRC;
-    if (status != PSA_SUCCESS) {
-        ESP_LOGE(kTag, "Checkpoint MAC operation failed: PSA status %ld", static_cast<long>(status));
-        return ESP_FAIL;
-    }
-    if (destroy != PSA_SUCCESS) return ESP_FAIL;
-    return verify || written == kTagBytes ? ESP_OK : ESP_ERR_INVALID_SIZE;
-}
-
 // record: Verified checkpoint with the exact wire-independent layout.
 // peer: Current persisted PC ID.
 // key: Current persisted link key.
@@ -125,7 +82,7 @@ esp_err_t decode_record(Record &record, const uint8_t *peer, const uint8_t *key,
 {
     if (std::memcmp(record.data(), "CDR1", 4) != 0) return ESP_ERR_INVALID_VERSION;
     if (std::memcmp(record.data() + 4, peer, 16) != 0) return ESP_ERR_INVALID_STATE;
-    const auto authenticated = authenticate(record, key, true);
+    const auto authenticated = authenticate_checkpoint(record.data(), kPayloadBytes, kMacDomain, key, true);
     if (authenticated != ESP_OK) return authenticated;
     StateSummary candidate{};
     candidate.source.value = decode(record.data() + 20, 8);
@@ -156,10 +113,59 @@ esp_err_t encode_record(const StateSummary &summary, const uint8_t *peer, const 
     encode(record.data() + 48, 4, summary.turns);
     encode(record.data() + 52, 4, summary.active_calls);
     encode(record.data() + 56, 4, summary.terminal_calls);
-    return authenticate(record, key, false);
+    return authenticate_checkpoint(record.data(), kPayloadBytes, kMacDomain, key, false);
 }
 
 } // namespace
+
+// record: Exact payload followed by the 32-byte authentication tag.
+// payload_bytes: Number of authenticated record bytes, excluding the tag.
+// domain: NUL-terminated purpose label included in the MAC.
+// key: Retained active key. The imported PSA object is destroyed before returning.
+// verify: True to verify in constant time, false to write the MAC.
+esp_err_t authenticate_checkpoint(uint8_t *record, size_t payload_bytes, const char *domain,
+                                  const uint8_t *key, bool verify)
+{
+    if (!record || !domain || !key || payload_bytes > 256) return ESP_ERR_INVALID_ARG;
+    const size_t domain_bytes = std::strlen(domain) + 1;
+    if (domain_bytes > 40) return ESP_ERR_INVALID_ARG;
+    std::array<uint8_t, 296> input{};
+    std::memcpy(input.data(), domain, domain_bytes);
+    std::memcpy(input.data() + domain_bytes, record, payload_bytes);
+    auto *const tag = record + payload_bytes;
+
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_HMAC);
+    psa_set_key_bits(&attributes, 256);
+    psa_set_key_usage_flags(&attributes, verify ? PSA_KEY_USAGE_VERIFY_MESSAGE : PSA_KEY_USAGE_SIGN_MESSAGE);
+    psa_set_key_algorithm(&attributes, PSA_ALG_HMAC(PSA_ALG_SHA_256));
+    mbedtls_svc_key_id_t imported = MBEDTLS_SVC_KEY_ID_INIT;
+    auto status = psa_import_key(&attributes, key, 32, &imported);
+    psa_reset_key_attributes(&attributes);
+    if (status != PSA_SUCCESS) {
+        ESP_LOGE(kTag, "Checkpoint MAC key import failed: PSA status %ld", static_cast<long>(status));
+        return ESP_FAIL;
+    }
+    size_t written = 0;
+    if (verify) {
+        status = psa_mac_verify(imported, PSA_ALG_HMAC(PSA_ALG_SHA_256),
+            input.data(), domain_bytes + payload_bytes, tag, kTagBytes);
+    } else {
+        status = psa_mac_compute(imported, PSA_ALG_HMAC(PSA_ALG_SHA_256),
+            input.data(), domain_bytes + payload_bytes, tag, kTagBytes, &written);
+    }
+    const auto destroy = psa_destroy_key(imported);
+    if (destroy != PSA_SUCCESS) {
+        ESP_LOGE(kTag, "Checkpoint MAC key destroy failed: PSA status %ld", static_cast<long>(destroy));
+    }
+    if (status == PSA_ERROR_INVALID_SIGNATURE && verify) return ESP_ERR_INVALID_CRC;
+    if (status != PSA_SUCCESS) {
+        ESP_LOGE(kTag, "Checkpoint MAC operation failed: PSA status %ld", static_cast<long>(status));
+        return ESP_FAIL;
+    }
+    if (destroy != PSA_SUCCESS) return ESP_FAIL;
+    return verify || written == kTagBytes ? ESP_OK : ESP_ERR_INVALID_SIZE;
+}
 
 // peer: Current retained PC ID, or null when no active association exists.
 // key: Corresponding active retained key, or null when unpaired.

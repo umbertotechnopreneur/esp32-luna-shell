@@ -407,13 +407,17 @@ datagrams and the device view.
 
 Phase 02 supplies the schema, fixtures, wire constants and revision/chunk guards.
 The broker and firmware implement the authenticated socket path for one Codex
-source, covering chats, turns, tool definitions and tool calls. Negotiated
-limits leave optional pools at zero. The broker offers up to 1 MiB per state
+source, covering chats, turns, tool definitions and tool calls. The current
+firmware admits only the `codex` provider and `codex.command-hooks` namespace.
+Other providers require their own later adapters. Negotiated limits leave
+optional pools at zero. The broker offers up to 1 MiB per state
 document and retains bounded revision history. The firmware binds the manifest,
 verifies HMAC and the full document digest, and stages records before commit.
-The device exposes bounded pages through DeviceSnapshotService. Questions,
-agent and operation records, cues, a durable selection bookmark and new
-screen consumers remain separate work.
+The native browser consumes bounded pages through DeviceSnapshotService.
+Its selected-chat bookmark is pairing-bound. The
+[signed CCP1 question flow](CCP1.md#event-transport-and-reply-lifecycle)
+has its own durable ledger. Question and answer records on state-v1, agent
+and operation records, and cues remain separate work.
 Phase 11 must exercise malformed lengths/JSON, foreign bindings, replay, reversed
 clocks, hash failure, missing chunks, lost commit ACK, epoch changes, partial
 snapshots, pool exhaustion, journal overflow and unresolved retention. The

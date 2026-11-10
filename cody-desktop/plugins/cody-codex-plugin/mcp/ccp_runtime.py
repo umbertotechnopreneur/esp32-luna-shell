@@ -388,8 +388,12 @@ def run_broker() -> int:
         pricing = PriceCache(runtime_directory() / "artifacts" / "pricing" / "codex-standard.json")
         server.pricing = pricing
         subscriptions = SubscriptionCatalog()
-        registry_storage = RegistryStorage(runtime_directory() / "codex-registry.v1", bytes.fromhex(server.secret))
-        server.service = ccp.CcpService(pricing, subscriptions=subscriptions, registry_storage=registry_storage)
+        private_dir = runtime_directory()
+        control_key = bytes.fromhex(server.secret)
+        registry_storage = RegistryStorage(private_dir / "codex-registry.v1", control_key)
+        question_storage = RegistryStorage(private_dir / "codex-questions.v1", control_key, purpose="questions")
+        server.service = ccp.CcpService(pricing, subscriptions=subscriptions, registry_storage=registry_storage,
+                                        question_storage=question_storage)
         server.lease_lock = threading.Lock()
         server.tool_lock = threading.Lock()
         server.last_hook = time.monotonic()

@@ -19,7 +19,9 @@ struct StateSummary {
     uint32_t terminal_calls = 0;
 };
 
-enum class StateQueryKind : uint8_t { Summary, Chat, Chats, Turns, Calls, ActiveCalls, PendingQuestions };
+enum class StateQueryKind : uint8_t {
+    Summary, Chat, Chats, Turns, Calls, ActiveCalls, PendingQuestions, Turn,
+};
 enum class StateViewHealth : uint8_t { Unavailable, Historical, Live, Stale };
 
 // Paging requires this exact committed bank. A token is a stable record ID

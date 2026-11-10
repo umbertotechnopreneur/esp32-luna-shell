@@ -2830,6 +2830,24 @@ esp_err_t DeviceSnapshotService::readCodexDomainStatus(CodexDomainStatus &status
     return LUNASHELL::readCodexDomainStatus(status);
 }
 
+// chat: Explicit UI selection, validated against the network owner's committed bank.
+esp_err_t DeviceSnapshotService::saveCodexSelection(const CODY::Domain::ChatId &chat)
+{
+    return LUNASHELL::saveCodexSelection(chat);
+}
+
+// chat: Pairing-bound durable bookmark, left untouched on read failure.
+esp_err_t DeviceSnapshotService::readCodexSelection(CODY::Domain::ChatId &chat) const
+{
+    return LUNASHELL::readCodexSelection(chat);
+}
+
+// result: Copied historical references, independent of the active transport state.
+esp_err_t DeviceSnapshotService::readCodexRecovery(CodexRecoveryObservation &result) const
+{
+    return LUNASHELL::readCodexRecovery(result);
+}
+
 // observation: Bounded canonical telemetry; no network, filesystem or sensor reads.
 // Exception: Returns the original mutex or immutable image-identity error; output is unusable on failure.
 esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObservation &observation) const

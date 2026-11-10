@@ -11,6 +11,7 @@
 #include "CODY_device_view.hpp"
 #include "CODY_device_effects.hpp"
 #include "CODY_codex_panels.hpp"
+#include "CODY_codex_browser.hpp"
 #include "CODY_local_timer_view.hpp"
 #include "CODY_pixel_demo.hpp"
 #include "CODY_screensaver.hpp"
@@ -52,7 +53,7 @@ constexpr uint32_t kWorkerStackBytes = 12288;
 
 enum class Layer : uint8_t {
     Branding, Mascot, Message, Scene, Dashboard, AboutLink, Visibility, Timer, Voice, Diagnostics,
-    VoucherWarning, Events, CurrentTurn, EventReply, Screensaver, Blank
+    VoucherWarning, Events, CurrentTurn, EventReply, CodexBrowser, Screensaver, Blank
 };
 enum class Command : uint8_t { Ready = 1, Sleep, Wake, Shutdown, ShutdownFailed };
 enum class ActivityPage : uint8_t { Events, CurrentTurn, Reply, Statistics };
@@ -62,7 +63,7 @@ enum class Target : uint8_t {
     None, Previous, Next, VisibilityFirst, VisibilitySecond, VisibilityThird,
     Interval, FirstAction, SecondAction, VoiceGesture, VoucherScroll, VoucherDismiss,
     TimerDecrease, TimerIncrease, TimerSound, TimerStart, TimerCancel, TimerDismiss,
-    EventsGesture, ActivityBack, EventDismiss
+    EventsGesture, ActivityBack, EventDismiss, CodexBrowserControl, CodexBrowserBack
 };
 constexpr std::array<Target, CODY::kVisibilityRowsPerPage> kVisibilityTargets{
     Target::VisibilityFirst, Target::VisibilitySecond, Target::VisibilityThird,
@@ -111,6 +112,8 @@ struct DeviceUi {
     CODY::DeviceView view{};
     CODY::PixelDemoView pixel_demo{kMuseViewport};
     CODY::CodexPanelView codex_panel{};
+    CODY::CodexBrowser codex_browser{};
+    CODY::CodexBrowserDestination browser_destination = CODY::CodexBrowserDestination::None;
     LUNASHELL::CodexInboxSnapshot inbox{};
     LUNASHELL::CodexInboxRow reply{};
     CODY::WidgetVisibility available_statistics{};
@@ -343,6 +346,14 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
             ui.model.save == Save::Pending, ui.model.save == Save::Failed, ui.model.settings_error != ESP_OK,
             CODY::SceneData::title_font, CODY::SceneData::body_font, ui.editor, frame.presentation.content);
     }
+    if (ui.codex_browser.route != CODY::CodexBrowserRoute::Closed &&
+        ui.browser_destination == CODY::CodexBrowserDestination::None &&
+        CODY::onboarding_codex_tools_active()) {
+        frame.layer = Layer::CodexBrowser;
+        frame.arrows = true;
+        frame.navigation_opacity = 255;
+        return CODY::prepare_codex_browser(ui.codex_browser, now_us, frame.presentation.content);
+    }
     const bool mascot_waking = ui.pixel_demo.elapsed_us < CODY::kPixelDemoWakingUs;
     if (ui.mascot_home && (mascot_waking || !CODY::device_effects_require_attention(ui.model.effects))) {
         frame.layer = Layer::Mascot;
@@ -357,7 +368,8 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
             ui.activity_page = ActivityPage::Events;
             invalidate();
         }
-        if (ui.activity_page == ActivityPage::Events && !ui.current_turn_available &&
+        const bool browser_child = ui.browser_destination != CODY::CodexBrowserDestination::None;
+        if (ui.activity_page == ActivityPage::Events && !browser_child && !ui.current_turn_available &&
             (!ui.inbox.data_valid || ui.inbox.data_stale)) {
             ui.activity_page = ActivityPage::Statistics;
             CODY::select_widget_screen(model.widgets, WidgetScreen::Device);
@@ -366,6 +378,8 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         }
         if (ui.activity_page == ActivityPage::Events) {
             frame.layer = Layer::Events;
+            frame.arrows = browser_child;
+            if (browser_child) frame.navigation_opacity = 255;
             return CODY::prepare_codex_events(ui.codex_panel, ui.inbox, now_us, frame.presentation.content);
         }
         if (ui.activity_page == ActivityPage::CurrentTurn) {
@@ -407,7 +421,8 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         }
         frame.layer = Layer::Dashboard;
         const auto screen = model.widgets.selected_screen;
-        frame.arrows = screen == WidgetScreen::About ||
+        if (browser_child) frame.navigation_opacity = 255;
+        frame.arrows = browser_child || screen == WidgetScreen::About ||
             CODY::next_visible_widget(ui.available_statistics, screen, WidgetStep::Next) != screen;
         if (screen == WidgetScreen::About) {
             // Per-field source errors are rendered locally; uptime and navigation remain usable.
@@ -481,9 +496,11 @@ esp_err_t render(const FrameView &frame, bool force = false)
         (frame.layer == Layer::Scene && ui.scene_dirty);
     const bool draws_navigation = frame.arrows || frame.layer == Layer::Scene;
     const uint8_t opacity = draws_navigation ? frame.navigation_opacity : 0;
-    const bool next_navigation = frame.arrows && frame.layer != Layer::AboutLink && frame.layer != Layer::Timer &&
+    const bool dashboard_next = frame.layer != Layer::Dashboard || screen == WidgetScreen::About ||
+        CODY::next_visible_widget(ui.available_statistics, screen, WidgetStep::Next) != screen;
+    const bool next_navigation = frame.arrows && dashboard_next && frame.layer != Layer::AboutLink && frame.layer != Layer::Timer &&
         frame.layer != Layer::VoucherWarning && frame.layer != Layer::CurrentTurn &&
-        frame.layer != Layer::EventReply &&
+        frame.layer != Layer::EventReply && frame.layer != Layer::CodexBrowser && frame.layer != Layer::Events &&
         (frame.layer != Layer::Visibility || ui.editor.page + 1U < CODY::kVisibilityPageCount);
     const bool navigation_changed = old.navigation_opacity != opacity || old.next_navigation != next_navigation;
     const bool content_changed = old.content_revision != view.content.revision;
@@ -593,7 +610,8 @@ esp_err_t render(const FrameView &frame, bool force = false)
     }
     if (!old.valid || old.display_revision != frame_revision || old.layer != frame.layer || old.screen != screen ||
         (old.content_revision != view.content.revision &&
-         (frame.layer == Layer::Visibility || ui.contact == Target::FirstAction || ui.contact == Target::SecondAction ||
+         (frame.layer == Layer::Visibility || frame.layer == Layer::CodexBrowser ||
+          ui.contact == Target::FirstAction || ui.contact == Target::SecondAction ||
           ui.contact == Target::VoucherScroll || ui.contact == Target::VoucherDismiss))) {
         ui.contact = Target::None;
     }
@@ -626,6 +644,14 @@ Target target_at(CODY2D::Point point)
 {
     const auto &ui = *s_ui;
     const auto layer = ui.retired.layer;
+    if (layer == Layer::CodexBrowser) {
+        if (CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::CodexBrowserBack;
+        return CODY::codex_browser_control_at(ui.codex_browser, point).action != CODY::CodexBrowserAction::None
+            ? Target::CodexBrowserControl : Target::None;
+    }
+    if ((layer == Layer::Events || layer == Layer::Dashboard) &&
+        ui.browser_destination != CODY::CodexBrowserDestination::None &&
+        CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::CodexBrowserBack;
     if (layer == Layer::Events) return Target::EventsGesture;
     if (layer == Layer::CurrentTurn || layer == Layer::EventReply) {
         if (CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::ActivityBack;
@@ -757,7 +783,35 @@ esp_err_t activate(Target target)
 {
     auto &ui = *s_ui;
     const auto layer = ui.retired.layer;
-    if (target == Target::EventsGesture && layer == Layer::Events) {
+    if (target == Target::CodexBrowserBack) {
+        if (layer == Layer::CodexBrowser) {
+            CODY::back_codex_browser(ui.codex_browser);
+        } else {
+            const auto error = CODY::open_companion_options(ui.scene);
+            if (error != ESP_OK) return error;
+            if (!CODY::onboarding_codex_tools_active()) return ESP_OK;
+            ui.browser_destination = CODY::CodexBrowserDestination::None;
+            CODY::open_codex_browser(ui.codex_browser);
+        }
+        invalidate();
+    } else if (target == Target::CodexBrowserControl && layer == Layer::CodexBrowser) {
+        const auto start = CODY::codex_browser_control_at(ui.codex_browser, ui.activity_touch_start);
+        const auto end = CODY::codex_browser_control_at(ui.codex_browser, ui.activity_touch_last);
+        if (start.action == CODY::CodexBrowserAction::None || !(start == end)) return ESP_OK;
+        const auto destination = CODY::activate_codex_browser(ui.codex_browser, start);
+        if (destination != CODY::CodexBrowserDestination::None) {
+            const auto error = CODY::open_device_dashboard(ui.scene);
+            if (error == ESP_ERR_NOT_FINISHED) return ESP_OK;
+            if (error != ESP_OK) return error;
+            ui.browser_destination = destination;
+            if (destination == CODY::CodexBrowserDestination::Statistics) {
+                select_statistics();
+            } else {
+                ui.activity_page = ActivityPage::Events;
+            }
+        }
+        invalidate();
+    } else if (target == Target::EventsGesture && layer == Layer::Events) {
         activate_events_gesture(ui);
     } else if (target == Target::ActivityBack) {
         ui.activity_page = ActivityPage::Events;
@@ -1016,6 +1070,8 @@ esp_err_t update_navigation()
         ui.model.vouchers.warning_expiry = 0;
         CODY::dismiss_screensaver(ui.model.screensaver, esp_timer_get_time());
         ui.diagnostics = false;
+        ui.codex_browser.route = CODY::CodexBrowserRoute::Closed;
+        ui.browser_destination = CODY::CodexBrowserDestination::None;
         // A busy setup route can decline Options. Reveal that route so pairing remains reachable.
         ui.mascot_home = false;
         const esp_err_t error = CODY::open_companion_options(ui.scene);
@@ -1027,11 +1083,20 @@ esp_err_t update_navigation()
     }
     const auto request = CODY::take_widget_open_request();
     switch (request) {
+    case CODY::WidgetOpenRequest::CodexBrowser:
+        if (CODY::onboarding_codex_tools_active()) {
+            CODY::open_codex_browser(ui.codex_browser);
+            ui.browser_destination = CODY::CodexBrowserDestination::None;
+            invalidate();
+        }
+        break;
     case CODY::WidgetOpenRequest::Home:
     case CODY::WidgetOpenRequest::Statistics: {
         const auto error = CODY::open_device_dashboard(ui.scene);
         if (error == ESP_ERR_NOT_FINISHED) break;
         if (error != ESP_OK) return error;
+        ui.codex_browser.route = CODY::CodexBrowserRoute::Closed;
+        ui.browser_destination = CODY::CodexBrowserDestination::None;
         ui.mascot_home = request == CODY::WidgetOpenRequest::Home;
         if (request == CODY::WidgetOpenRequest::Statistics) {
             select_statistics();
@@ -1116,6 +1181,7 @@ esp_err_t apply_command(Command command)
         ui.statistics_entry = false;
         ui.activity_page = ActivityPage::Events;
         ui.mascot_home = true;
+        ui.pixel_demo.showcase.reset(static_cast<uint32_t>(now_us));
     }
     if (command == Command::Sleep || command == Command::Shutdown) {
         ui.model.effects.event_sound = {};

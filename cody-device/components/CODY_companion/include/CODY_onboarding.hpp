@@ -44,6 +44,9 @@ esp_err_t start_device_setup(SceneFrame &scene, bool first_boot);
 // No parameters: true when the ordinary connection or activity route can show the dashboard.
 bool onboarding_dashboard_active();
 
+// No parameters: true when the native Tools menu may host a Codex child.
+bool onboarding_codex_tools_active();
+
 // No parameters: the short guide keeps both available navigation arrows visible.
 bool onboarding_quick_guide_active();
 
@@ -78,7 +81,7 @@ esp_err_t open_companion_options(SceneFrame &scene);
 // scene: Options frame to return to ordinary dashboard and authenticated event routing.
 esp_err_t open_device_dashboard(SceneFrame &scene);
 
-enum class WidgetOpenRequest : uint8_t { None, Home, Statistics, Visibility, Timer };
+enum class WidgetOpenRequest : uint8_t { None, Home, Statistics, Visibility, Timer, CodexBrowser };
 
 // available: True after this device has received the broker's authenticated Events projection.
 void set_onboarding_inbox_available(bool available);

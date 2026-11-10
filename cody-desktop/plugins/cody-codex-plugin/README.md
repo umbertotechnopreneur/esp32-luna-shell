@@ -473,11 +473,18 @@ allow 63 printable ASCII characters and details allow 255. Selection remains
 reversible before Send, and LAN loss retains the route/question. Questions that
 need free text or cannot fit without losing meaning remain on the PC.
 
-The first UDP ACK means CCP recorded the choice. The recipient polls the private
-ticket/capability, then confirms `answer_id` in a second poll. Only that confirmation
-permits screen 31 **Reply sent**. The default 180 s TTL includes this final step;
-expiry, cancellation and disconnection never invent a choice. A poll waits at most
-15 s and cannot wake a suspended chat. Broker restart requires a new explicit request.
+CCP saves the question and the first accepted exact choice in an authenticated
+local ledger. The first UDP ACK means the broker committed its receipt.
+The recipient polls the private ticket/capability, then confirms `answer_id`
+in a second poll. Only that confirmation permits screen 31 **Reply sent**.
+The default 180 s TTL includes the confirmation. A poll waits at most 15 s.
+
+After broker restart, the original capability can inspect the retained question
+and its delivery state. The previous ticket cannot resume delivery. A retained
+choice without recipient confirmation is **Unconfirmed**. A question with no
+choice is **Unavailable** for delivery. Both can remain semantically open.
+A new delivery requires a new explicit request. Device closure is recorded
+separately from recipient confirmation. Keep the capability private.
 
 Several callers may queue questions, each retaining its private capability.
 Cody browses the actual pending tickets without changing the followed PC chat;

@@ -30,6 +30,7 @@
 #include "LUNASHELL_codex_events.hpp"
 #include "LUNASHELL_codex_presence.hpp"
 #include "LUNASHELL_codex_state_status.hpp"
+#include "LUNASHELL_codex_recovery.hpp"
 #include "LUNASHELL_voice_input.hpp"
 #include "LUNASHELL_activity.hpp"
 #include "LUNASHELL_battery_endurance.hpp"
@@ -1292,6 +1293,15 @@ public:
     // status: Caller-owned counts, generation and link/recovery state.
     // Exception: Returns the original owner error, including an unavailable profile.
     esp_err_t readCodexDomainStatus(CodexDomainStatus &status) const;
+
+    // chat: Explicit local bookmark, or a zero ID to clear the retained selection.
+    esp_err_t saveCodexSelection(const CODY::Domain::ChatId &chat);
+
+    // chat: Verified persisted hint. Revalidate against the exact current Chat query.
+    esp_err_t readCodexSelection(CODY::Domain::ChatId &chat) const;
+
+    // result: Bounded historical evidence, never an active question or send admission.
+    esp_err_t readCodexRecovery(CodexRecoveryObservation &result) const;
 
     // observation: Persistent caller-owned link/telemetry projection, copied under one lock.
     // Exception: Returns original lock/release errors; do not consume output on failure.

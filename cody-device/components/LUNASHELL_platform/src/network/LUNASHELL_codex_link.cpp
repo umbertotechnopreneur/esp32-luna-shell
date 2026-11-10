@@ -20,6 +20,7 @@
 #include "LUNASHELL_codex_name.hpp"
 #include "LUNASHELL_codex_transaction.hpp"
 #include "LUNASHELL_codex_state_status.hpp"
+#include "LUNASHELL_codex_recovery.hpp"
 
 #include "sdkconfig.h"
 
@@ -28,6 +29,7 @@
 
 #include "LUNASHELL_codex_state_wire.hpp"
 #include "LUNASHELL_codex_state_saved.hpp"
+#include "LUNASHELL_codex_recovery_saved.hpp"
 #include "LUNASHELL_settings.hpp"
 #include "LUNASHELL_codex_saved.hpp"
 #include "LUNASHELL_snapshot_aging.hpp"
@@ -186,6 +188,7 @@ LUNASHELL::CodexEventState s_dismissed_event_state = LUNASHELL::CodexEventState:
 bool s_event_publication_pending = false;
 bool s_reply_pending = false;
 int64_t s_next_reply_at_us = 0;
+int64_t s_event_clock_us = 0;
 char s_reply_nonce[33]{};
 char s_clock_consumed_nonce[33]{};
 char s_clock_consumed_id[33]{};
@@ -813,6 +816,7 @@ esp_err_t commitCandidateLocked()
     }
     if (error == ESP_OK) {
         error = LUNASHELL::codex_state_saved::erase();
+        if (error == ESP_OK) error = LUNASHELL::codex_recovery::erase();
         if (error != ESP_OK) s_storage_error = error;
     }
     if (error == ESP_OK) error = persistLink(kPairingSetting, s_candidate_link);
@@ -3861,6 +3865,10 @@ esp_err_t acceptEvent(const char *payload, const sockaddr_in &source)
         return error;
     }
     s_event_received_for_nonce = true;
+    if (!absent && s_event_candidate.kind == LUNASHELL::CodexEventKind::Question && now > 0) {
+        LUNASHELL::codex_recovery::observe(values[3], s_event_candidate.selected_id, state,
+            static_cast<uint64_t>(now));
+    }
     if (effect.clear_reply) {
         s_reply_pending = false;
     }
@@ -3940,6 +3948,8 @@ esp_err_t acceptReplyAck(const char *payload, const sockaddr_in &source)
     s_event_snapshot.data_stale = false;
     s_event_snapshot.health = LUNASHELL::DeviceHealth::Ready;
     s_reply_pending = false;
+    if (now > 0) LUNASHELL::codex_recovery::observe(values[3], values[4],
+        s_event_snapshot.state, static_cast<uint64_t>(now));
     ESP_LOGI(kTag, "CCP reply acknowledgement: state=%u", static_cast<unsigned>(s_event_snapshot.state));
     const esp_err_t publication_error = publishEventLocked();
     const esp_err_t ack_error = publication_error == ESP_OK
@@ -3954,6 +3964,27 @@ void maintainEvent()
     std::lock_guard<std::mutex> guard(s_mutex);
     using EventState = LUNASHELL::CodexEventState;
     const int64_t now = esp_timer_get_time();
+    if (now <= 0 || (s_event_clock_us > 0 && now < s_event_clock_us)) {
+        // A clock discontinuity cannot extend an old deadline or authorize an
+        // uncertain reply. The separately saved reference remains historical.
+        s_event_clock_us = now > 0 ? now : 0;
+        s_reply_pending = false;
+        if (LUNASHELL::codexEventIsOpen(s_event_snapshot.state)) {
+            s_event_snapshot.state = EventState::Rejected;
+            s_event_snapshot.selection_request_id[0] = '\0';
+            s_event_snapshot.data_valid = false;
+            s_event_snapshot.data_stale = true;
+            s_event_snapshot.health = LUNASHELL::DeviceHealth::Degraded;
+            s_event_snapshot.last_error = ESP_ERR_INVALID_STATE;
+            ++s_event_snapshot.revision;
+            const auto error = publishEventLocked();
+            if (error != ESP_OK) {
+                ESP_LOGE(kTag, "CCP clock discontinuity publication failed (%s)", esp_err_to_name(error));
+            }
+        }
+        return;
+    }
+    s_event_clock_us = now;
     LUNASHELL::CodexTransactionEffect effect;
     LUNASHELL::expireCodexTransaction(eventTransactionLocked(), now, effect);
     bool changed = effect.changed;
@@ -3969,8 +4000,17 @@ void maintainEvent()
         s_event_snapshot.last_error = ESP_ERR_TIMEOUT;
         changed = true;
     }
-    if (s_reply_pending && s_pending == Command::None && s_link_snapshot.state == State::Connected &&
-        s_ready_nonce[0] != '\0' && now >= s_next_reply_at_us) {
+    const bool reply_due = s_reply_pending && s_pending == Command::None && s_link_present &&
+        !s_candidate_present && s_storage_error == ESP_OK && s_ready_nonce[0] != '\0' &&
+        LUNASHELL::codex_presence::ready_current(s_link_snapshot, now) && now >= s_next_reply_at_us;
+    const auto durable = reply_due ? LUNASHELL::codex_recovery::answer_ready(
+        s_event_snapshot.request_id, s_event_snapshot.selected_id) : ESP_ERR_NOT_FINISHED;
+    if (reply_due && durable != ESP_OK && durable != ESP_ERR_NOT_FINISHED &&
+        durable != s_event_snapshot.last_error) {
+        s_event_snapshot.last_error = durable;
+        changed = true;
+    }
+    if (reply_due && durable == ESP_OK) {
         s_next_reply_at_us = now + kFindIntervalUs;
         char input[256]{};
         const int input_size = std::snprintf(input, sizeof(input), "reply|%s|%s|%s|%s|%s",
@@ -4609,6 +4649,7 @@ void processCommand()
             LUNASHELL::codex_saved::reset_after_erase();
             error = LUNASHELL::codex_state_saved::erase();
         }
+        if (error == ESP_OK) error = LUNASHELL::codex_recovery::erase();
         if (error == ESP_OK) {
             error = eraseLinkRecord(kPendingPairingSetting);
         }
@@ -4661,8 +4702,12 @@ void checkpointDomainState()
     // Pairing mutations also run on this worker, so the retained key cannot
     // change during the synchronous settings call. Do not hold the CCP mutex.
     const auto now = esp_timer_get_time();
-    if (now > 0) LUNASHELL::codex_state_saved::checkpoint(s_persisted_link.pc_id,
-        s_persisted_link.link_key, static_cast<uint64_t>(now));
+    if (now > 0) {
+        LUNASHELL::codex_recovery::checkpoint(s_persisted_link.pc_id, s_persisted_link.link_key,
+            static_cast<uint64_t>(now));
+        LUNASHELL::codex_state_saved::checkpoint(s_persisted_link.pc_id, s_persisted_link.link_key,
+            static_cast<uint64_t>(now));
+    }
 }
 
 // context: Unused singleton-task context; static state is protected by s_mutex.
@@ -4746,6 +4791,45 @@ esp_err_t LUNASHELL::readCodexDomain(const CODY::Domain::StateQuery &query,
     const auto now = esp_timer_get_time();
     return codex_state::copy_query(query, result, now > 0 ? static_cast<uint64_t>(now) : 0,
         now > 0 && stateLinkEligibleLocked());
+}
+
+// chat: Exact current authenticated chat, or explicit zero to clear the pairing's bookmark.
+esp_err_t LUNASHELL::saveCodexSelection(const CODY::Domain::ChatId &chat)
+{
+    std::unique_lock<std::mutex> guard(s_mutex, std::try_to_lock);
+    if (!guard.owns_lock()) return ESP_ERR_TIMEOUT;
+    if (!s_link_present || s_candidate_present || s_pending != Command::None) return ESP_ERR_INVALID_STATE;
+    if (s_storage_error != ESP_OK) return s_storage_error;
+    const auto now = esp_timer_get_time();
+    if (now <= 0) return ESP_ERR_INVALID_STATE;
+    if (chat != CODY::Domain::ChatId{}) {
+        if (!stateLinkEligibleLocked()) return ESP_ERR_INVALID_STATE;
+        const auto validation = codex_state::validate_bookmark(chat, static_cast<uint64_t>(now));
+        if (validation != ESP_OK) return validation;
+    }
+    const auto error = codex_recovery::queue_selection(chat, static_cast<uint64_t>(now));
+    if (error == ESP_OK && s_worker) xTaskNotifyGive(s_worker);
+    return error;
+}
+
+// chat: Verified retained bookmark, independent of the current route and never live authority.
+esp_err_t LUNASHELL::readCodexSelection(CODY::Domain::ChatId &chat)
+{
+    std::unique_lock<std::mutex> guard(s_mutex, std::try_to_lock);
+    if (!guard.owns_lock()) return ESP_ERR_TIMEOUT;
+    if (!s_link_present || s_candidate_present || s_pending != Command::None) return ESP_ERR_NOT_FOUND;
+    if (s_storage_error != ESP_OK) return s_storage_error;
+    return codex_recovery::read_selection(chat);
+}
+
+// result: Historical question/answer projection, with no live ticket authority.
+esp_err_t LUNASHELL::readCodexRecovery(CodexRecoveryObservation &result)
+{
+    std::unique_lock<std::mutex> guard(s_mutex, std::try_to_lock);
+    if (!guard.owns_lock()) return ESP_ERR_TIMEOUT;
+    if (!s_link_present || s_candidate_present || s_pending != Command::None) return ESP_ERR_NOT_FOUND;
+    if (s_storage_error != ESP_OK) return s_storage_error;
+    return codex_recovery::read_recovery(result);
 }
 
 // executor: Sole settings owner; repeat registration of that owner is idempotent.
@@ -4853,6 +4937,8 @@ extern "C" esp_err_t LUNASHELL_codex_link_service_init(void)
     esp_err_t error = loadPersistedLink();
     LUNASHELL::codex_saved::load();
     LUNASHELL::codex_state_saved::load(s_link_present ? s_persisted_link.pc_id : nullptr,
+        s_link_present ? s_persisted_link.link_key : nullptr);
+    LUNASHELL::codex_recovery::load(s_link_present ? s_persisted_link.pc_id : nullptr,
         s_link_present ? s_persisted_link.link_key : nullptr);
     // An optional CCP storage fault keeps a repair-only command owner alive.
     // Initialization still returns the original error and the snapshot remains failed.
@@ -5026,10 +5112,15 @@ extern "C" esp_err_t LUNASHELL_codex_link_copy_pairing_code(
 extern "C" esp_err_t LUNASHELL_codex_event_reply(const char *expected_request_id, const char *choice_id)
 {
     std::lock_guard<std::mutex> guard(s_mutex);
+    const auto now = esp_timer_get_time();
     const bool fresh = s_worker != nullptr && s_pending == Command::None && s_link_present &&
-        s_link_snapshot.state == State::Connected && s_event_snapshot.data_valid && !s_event_snapshot.data_stale;
+        !s_candidate_present && s_storage_error == ESP_OK &&
+        LUNASHELL::codex_presence::ready_current(s_link_snapshot, now) &&
+        s_event_snapshot.data_valid && !s_event_snapshot.data_stale &&
+        now >= s_event_snapshot.last_success_at_us &&
+        now - s_event_snapshot.last_success_at_us < kReadyExpiryUs;
     esp_err_t error = LUNASHELL::submitCodexChoice(eventTransactionLocked(), expected_request_id,
-        choice_id, fresh, esp_timer_get_time());
+        choice_id, fresh, now);
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "CCP decision reply admission rejected (%s)", esp_err_to_name(error));
         return error;
@@ -5042,6 +5133,21 @@ extern "C" esp_err_t LUNASHELL_codex_event_reply(const char *expected_request_id
         s_event_snapshot.selected_id[0] = '\0';
         s_event_snapshot.last_error = error;
         ++s_event_snapshot.revision;
+        return error;
+    }
+    error = now > 0 ? LUNASHELL::codex_recovery::queue_answer(expected_request_id, choice_id,
+        static_cast<uint64_t>(now)) : ESP_ERR_INVALID_STATE;
+    if (error != ESP_OK) {
+        // The visible attempt was not admitted to write-ahead storage. Do not
+        // leave a reply pending, and show the reason against the same question.
+        s_event_snapshot.state = LUNASHELL::CodexEventState::Pending;
+        s_event_snapshot.selected_id[0] = '\0';
+        s_event_snapshot.last_error = error;
+        ++s_event_snapshot.revision;
+        const auto publication = publishEventLocked();
+        if (publication != ESP_OK) {
+            ESP_LOGE(kTag, "CCP durable answer admission publication failed (%s)", esp_err_to_name(publication));
+        }
         return error;
     }
     s_reply_pending = true;
@@ -5182,6 +5288,27 @@ esp_err_t LUNASHELL::readCodexDomain(const CODY::Domain::StateQuery &query,
                                     CODY::Domain::StateQueryResult &result)
 {
     (void)query;
+    (void)result;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// chat: Unused selection in a profile without the Cody domain.
+esp_err_t LUNASHELL::saveCodexSelection(const CODY::Domain::ChatId &chat)
+{
+    (void)chat;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// chat: Unchanged in a profile without the Cody domain.
+esp_err_t LUNASHELL::readCodexSelection(CODY::Domain::ChatId &chat)
+{
+    (void)chat;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// result: Unchanged in a profile without the Cody domain.
+esp_err_t LUNASHELL::readCodexRecovery(CodexRecoveryObservation &result)
+{
     (void)result;
     return ESP_ERR_NOT_SUPPORTED;
 }

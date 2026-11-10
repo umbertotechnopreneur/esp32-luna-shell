@@ -1436,10 +1436,12 @@ class CcpService:
     # pricing: Optional portable catalog owned and started by the exclusive runtime broker.
     # subscriptions: Optional public subscription catalog owned by the same broker.
     # registry_storage: Optional durable registry supplied by the exclusive production broker.
+    # question_storage: Separate authenticated checkpoint for semantic questions and attempts.
     # Raises RuntimeError or OSError when state or the fixed UDP listener is unavailable.
     def __init__(self, pricing: PriceCache | None = None,
                  subscriptions: SubscriptionCatalog | None = None,
-                 registry_storage: RegistryStorage | None = None) -> None:
+                 registry_storage: RegistryStorage | None = None,
+                 question_storage: RegistryStorage | None = None) -> None:
         # Acquire ownership first: a second process must fail without creating,
         # reading or overwriting the first process's PC identity and records.
         listener = open_companion_listener()
@@ -1447,7 +1449,7 @@ class CcpService:
             self.state = StateStore()
             registry = StateRegistry(registry_storage, self.state.pc_id) if registry_storage is not None else None
             self.activity = ActivityStore(pricing, state_registry=registry)
-            self.interactions = interactions.InteractionStore()
+            self.interactions = interactions.InteractionStore(storage=question_storage, owner_id=self.state.pc_id)
             self.notifications_error: str | None = None
             self._hook_lock = threading.Lock()
             self.responder = CompanionResponder(self.state, listener, self.activity, self.interactions, subscriptions)

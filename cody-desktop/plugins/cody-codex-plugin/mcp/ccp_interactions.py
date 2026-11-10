@@ -30,6 +30,8 @@ import threading
 import time
 from typing import Any
 
+from ccp_state_storage import RegistryStorage, RegistryStorageError
+
 
 MAX_EVENT_DATAGRAM_BYTES = 4096
 MAX_TICKETS = 128
@@ -47,6 +49,9 @@ DEVICE_STATES = frozenset(("none", "pending", "sending", "received", "delivered"
 OPEN_DEVICE_STATES = frozenset(("pending", "sending", "received"))
 ACK_STATES = frozenset(("received", "delivered", "expired", "cancelled", "conflict", "unknown"))
 TERMINAL_STATES = frozenset(("delivered", "cancelled", "expired"))
+CLOSED_TICKETS = TERMINAL_STATES | {"unavailable"}
+DEVICE_TERMINAL_STATES = TERMINAL_STATES | {"rejected"}
+ZERO_TICKET = "0" * 32
 CHECK_STATES = frozenset(("pending", "running", "passed", "failed", "cancelled", "skipped", "unknown"))
 
 
@@ -127,6 +132,10 @@ class Ticket:
     published: bool = False
     device_terminal_state: str = ""
     active_on_device: bool = False
+    question_id: str = ""
+    question_state: str = ""
+    capability_digest: str = ""
+    device_closure_evidence: str = ""
 
 
 # value: Caller-supplied text, retained exactly rather than projected or truncated.
@@ -415,21 +424,207 @@ def payload_from_arguments(arguments: dict[str, Any], question: bool) -> EventPa
 
 
 class InteractionStore:
-    # self: Volatile ticket owner; reboot cannot replay a request or manufacture an answer.
-    # clock: Monotonic source for expiry, recipient deadlines and bounded retention.
-    def __init__(self, clock=time.monotonic) -> None:
+    # clock: Monotonic source for current-process deadlines and terminal retention.
+    # storage: Optional atomic authenticated checkpoint provided by the exclusive broker.
+    # owner_id: Retained PC identity binding the private question ledger.
+    # Raises RegistryStorageError if a configured ledger cannot be safely opened.
+    def __init__(self, clock=time.monotonic, *, storage: RegistryStorage | None = None,
+                 owner_id: str | None = None) -> None:
         self._clock = clock
         self._condition = threading.Condition(threading.RLock())
         self._tickets: dict[str, Ticket] = {}
+        self._storage = storage
+        self._owner_id = owner_id
+        self._storage_failure: RegistryStorageError | None = None
+        if storage is not None:
+            if not isinstance(owner_id, str) or IDENTITY.fullmatch(owner_id) is None:
+                raise RegistryStorageError("Question ledger requires a retained PC identity")
+            document = storage.load()
+            if document is None:
+                self._save(self._tickets)
+            else:
+                self._restore(document)
 
-    # self: Locked store pruning only expired terminal records, never silently evicting a live question.
+    # tickets: Complete candidate ticket set. Only questions are durable.
+    # Raises RegistryStorageError if the authenticated commit does not complete.
+    def _save(self, tickets: dict[str, Ticket]) -> None:
+        if self._storage is None:
+            return
+        if self._storage_failure is not None:
+            raise self._storage_failure
+        rows = []
+        for ticket in tickets.values():
+            if ticket.payload.kind != EventKind.QUESTION:
+                continue
+            rows.append({
+                "request_id": ticket.request_id, "question_id": ticket.question_id,
+                "capability_digest": ticket.capability_digest,
+                "device_id": ticket.device_id, "association": ticket.association_id,
+                "payload": encode_payload(ticket.payload), "source": ticket.source,
+                "state": ticket.state, "question_state": ticket.question_state,
+                "answer_id": ticket.answer_id, "selected_id": ticket.selected_id,
+                "published": ticket.published, "active": ticket.active_on_device,
+                "device_terminal_state": ticket.device_terminal_state,
+                "device_closure_evidence": ticket.device_closure_evidence,
+            })
+        try:
+            self._storage.save({"version": 1, "owner": self._owner_id, "questions": rows})
+        except RegistryStorageError as error:
+            self._storage_failure = error
+            raise
+
+    # row: Exact retained semantic question, original ticket and optional answer.
+    # now: New process clock, used only for closed retention, never for reviving deadlines.
+    # Raises ValueError for inconsistent identity, immutable content or acknowledgement.
+    def _stored_question(self, row: Any, now: float) -> Ticket:
+        expected = {
+            "request_id", "question_id", "capability_digest", "device_id", "association",
+            "payload", "source", "state", "question_state", "answer_id", "selected_id",
+            "published", "active", "device_terminal_state", "device_closure_evidence",
+        }
+        if not isinstance(row, dict) or set(row) != expected:
+            raise ValueError("Invalid question checkpoint fields")
+        for name in expected - {"published", "active"}:
+            if not isinstance(row[name], str):
+                raise ValueError("Invalid question checkpoint value type")
+        if type(row["published"]) is not bool or type(row["active"]) is not bool:
+            raise ValueError("Invalid question presentation flags")
+        if (IDENTITY.fullmatch(row["request_id"]) is None or row["request_id"] == ZERO_TICKET
+                or IDENTITY.fullmatch(row["question_id"]) is None or row["question_id"] == ZERO_TICKET
+                or row["question_id"] == row["request_id"]
+                or CAPABILITY.fullmatch(row["capability_digest"]) is None
+                or DEVICE_ID.fullmatch(row["device_id"]) is None
+                or CAPABILITY.fullmatch(row["association"]) is None
+                or row["source"] not in {"LAN", "SIMULATED"}):
+            raise ValueError("Invalid question checkpoint identity")
+        payload = decode_payload(row["payload"])
+        if (payload.kind != EventKind.QUESTION or payload.selected_id
+                or payload.pending_question_count or payload.pending_questions
+                or encode_payload(payload) != row["payload"]):
+            raise ValueError("Question checkpoint payload is not an immutable original question")
+        selected = row["selected_id"]
+        answer_id = row["answer_id"]
+        if bool(selected) != bool(answer_id) or (selected and (
+                IDENTITY.fullmatch(answer_id) is None or answer_id == ZERO_TICKET
+                or selected not in {choice.choice_id for choice in payload.choices})):
+            raise ValueError("Question checkpoint answer has no exact immutable choice")
+        state = row["state"]
+        semantic = row["question_state"]
+        device_state = row["device_terminal_state"]
+        closure_evidence = row["device_closure_evidence"]
+        if (state not in CLOSED_TICKETS | {"pending", "received"}
+                or semantic not in {"open", "resolved", "cancelled"}
+                or (state == "delivered") != (semantic == "resolved")
+                or (state in {"pending", "received"} and semantic != "open")
+                or (state == "cancelled" and semantic != "cancelled")
+                or (state == "pending" and selected)
+                or (state in {"received", "delivered"} and not selected)
+                or (selected and not row["published"])
+                or (row["active"] and not row["published"])
+                or bool(device_state) != bool(closure_evidence)
+                or (device_state and (
+                    device_state not in DEVICE_TERMINAL_STATES or state not in CLOSED_TICKETS
+                    or (device_state == "delivered" and state != "delivered")
+                    or closure_evidence not in {"event_ack", "device_observation"}
+                    or (closure_evidence == "device_observation" and state != "unavailable")
+                    or not row["published"]))):
+            raise ValueError("Question checkpoint lifecycle is inconsistent")
+        # Monotonic ticket deadlines cannot reattach across broker processes.
+        # Preserve the attempt and semantic identity, but close the old delivery path.
+        if state in {"pending", "received"}:
+            state = "unavailable"
+        return Ticket(
+            row["request_id"], "", row["device_id"], payload, row["source"], now, now,
+            state=state, answer_id=answer_id, selected_id=selected, terminal_at=now,
+            association_id=row["association"], published=row["published"],
+            device_terminal_state=device_state, active_on_device=row["active"],
+            question_id=row["question_id"], question_state=semantic,
+            capability_digest=row["capability_digest"], device_closure_evidence=closure_evidence,
+        )
+
+    # document: Authenticated complete checkpoint bound to the retained PC.
+    # Raises RegistryStorageError for an untrustworthy ledger or restart transition.
+    def _restore(self, document: dict[str, Any]) -> None:
+        try:
+            if (set(document) != {"version", "owner", "questions"}
+                    or type(document["version"]) is not int or document["version"] != 1
+                    or document["owner"] != self._owner_id
+                    or not isinstance(document["questions"], list)
+                    or len(document["questions"]) > MAX_TICKETS):
+                raise ValueError("Invalid question ledger version, owner or bounds")
+            tickets: dict[str, Ticket] = {}
+            identities: set[str] = set()
+            active_associations: set[tuple[str, str]] = set()
+            unavailable = False
+            now = self._clock()
+            for row in document["questions"]:
+                ticket = self._stored_question(row, now)
+                present = {ticket.request_id, ticket.question_id}
+                if ticket.answer_id:
+                    present.add(ticket.answer_id)
+                if len(present) != 2 + bool(ticket.answer_id) or present & identities:
+                    raise ValueError("Duplicate question, ticket or answer checkpoint identity")
+                identities.update(present)
+                if ticket.active_on_device:
+                    association = (ticket.device_id, ticket.association_id)
+                    if association in active_associations:
+                        raise ValueError("Question checkpoint has competing active presentations")
+                    active_associations.add(association)
+                tickets[ticket.request_id] = ticket
+                unavailable |= row["state"] != ticket.state
+        except ValueError as error:
+            raise RegistryStorageError(f"Question ledger validation failed: {error}") from error
+        if unavailable:
+            self._save(tickets)
+        self._tickets = tickets
+
+    # changes: Whole replacements/deletions prepared under the condition lock.
+    # Raises RegistryStorageError before publishing an uncommitted durable mutation.
+    def _commit(self, changes: dict[str, Ticket | None]) -> None:
+        if not changes:
+            return
+        staged = self._tickets.copy()
+        durable = False
+        for identity, candidate in changes.items():
+            prior = staged.get(identity)
+            if candidate == prior:
+                continue
+            ticket = candidate if candidate is not None else prior
+            durable |= ticket is not None and ticket.payload.kind == EventKind.QUESTION
+            if candidate is None:
+                staged.pop(identity, None)
+            else:
+                staged[identity] = candidate
+        if durable:
+            self._save(staged)
+        self._tickets = staged
+        self._condition.notify_all()
+
+    # No parameters: expire delivery tickets without resolving their semantic questions.
+    # Raises RegistryStorageError if the terminal transport transition cannot be retained.
     def _expire(self) -> None:
         now = self._clock()
-        for ticket in self._tickets.values():
-            if ticket.state not in TERMINAL_STATES and now >= ticket.expires_at:
-                ticket.state, ticket.terminal_at = "expired", now
-        self._tickets = {identity: ticket for identity, ticket in self._tickets.items()
-                         if ticket.terminal_at is None or now - ticket.terminal_at < TERMINAL_RETENTION_SECONDS}
+        changes: dict[str, Ticket | None] = {}
+        for identity, ticket in self._tickets.items():
+            if ticket.state not in CLOSED_TICKETS and now >= ticket.expires_at:
+                changes[identity] = replace(ticket, state="expired", terminal_at=now)
+                continue
+            if ticket.terminal_at is None or now - ticket.terminal_at < TERMINAL_RETENTION_SECONDS:
+                continue
+            if self._storage is not None and ticket.payload.kind == EventKind.QUESTION:
+                if ticket.question_state == "open" or (ticket.active_on_device and not ticket.device_terminal_state):
+                    continue
+            changes[identity] = None
+        self._commit(changes)
+
+    # No parameters: produce a unique opaque identity in the bounded interaction registry.
+    def _new_id(self) -> str:
+        used = {identity for ticket in self._tickets.values()
+                for identity in (ticket.request_id, ticket.question_id, ticket.answer_id)}
+        identity = secrets.token_hex(16)
+        while identity == ZERO_TICKET or identity in used:
+            identity = secrets.token_hex(16)
+        return identity
 
     # self: Sole interaction owner, independent of the activity snapshot.
     # device_id: Explicit retained target identity.
@@ -449,6 +644,11 @@ class InteractionStore:
             raise ValueError("ttl_seconds must be between 15 and 180")
         if association_id and CAPABILITY.fullmatch(association_id) is None:
             raise ValueError("Interaction association identity is invalid")
+        question = payload.kind == EventKind.QUESTION
+        if question and self._storage is not None and (not association_id or source == "UNOBSERVED"):
+            raise ValueError("Durable question requires a confirmed active association")
+        if question and (payload.selected_id or payload.pending_question_count or payload.pending_questions):
+            raise ValueError("Question admission requires the original unanswered payload")
         encoded = encode_payload(payload)
         # Reserve the worst-case selected answer and envelope before mutating the queue.
         if len(encoded) + 740 > MAX_EVENT_DATAGRAM_BYTES:
@@ -457,26 +657,32 @@ class InteractionStore:
             self._expire()
             if len(self._tickets) >= MAX_TICKETS:
                 raise ValueError("CCP request registry is full; wait for terminal records to expire")
-            active = [item for item in self._tickets.values() if item.device_id == device_id
-                      and item.state not in TERMINAL_STATES]
+            changes: dict[str, Ticket | None] = {}
             now = self._clock()
-            if payload.kind != EventKind.QUESTION:
-                # Informational snapshots supersede one another. Keeping an
-                # older PR snapshot queued would let old failures reappear after
-                # a newer passed snapshot expires. Questions retain ownership.
-                for item in active:
-                    if (item.payload.kind != EventKind.QUESTION and
-                            ((native_session and item.native_session == native_session and item.payload.kind == payload.kind) or
-                             (not native_session and not item.native_session))):
-                        item.state, item.terminal_at = "cancelled", now
-            ticket = Ticket(secrets.token_hex(16), secrets.token_hex(32), device_id, payload, source,
-                            now, now + ttl_seconds, association_id=association_id, native_session=native_session)
-            while ticket.request_id == "0" * 32 or ticket.request_id in self._tickets:
-                ticket.request_id = secrets.token_hex(16)
-            self._tickets[ticket.request_id] = ticket
-            self._condition.notify_all()
-            return {"request_id": ticket.request_id, "capability": ticket.capability,
-                    "state": ticket.state, "source": source, "expires_in_seconds": ttl_seconds}
+            if not question:
+                for item in self._tickets.values():
+                    if (item.device_id == device_id and item.state not in CLOSED_TICKETS
+                            and item.payload.kind != EventKind.QUESTION
+                            and ((native_session and item.native_session == native_session and item.payload.kind == payload.kind)
+                                 or (not native_session and not item.native_session))):
+                        changes[item.request_id] = replace(item, state="cancelled", terminal_at=now)
+            request_id = self._new_id()
+            question_id = self._new_id() if question else ""
+            while question and question_id == request_id:
+                question_id = self._new_id()
+            capability = secrets.token_hex(32)
+            durable = question and self._storage is not None
+            ticket = Ticket(
+                request_id, "" if durable else capability, device_id, payload, source, now, now + ttl_seconds,
+                association_id=association_id, native_session=native_session,
+                question_id=question_id, question_state="open" if question else "",
+                capability_digest=hashlib.sha256(bytes.fromhex(capability)).hexdigest() if durable else "",
+            )
+            changes[request_id] = ticket
+            self._commit(changes)
+            result = self._public(ticket)
+            result["capability"] = capability
+            return result
 
     # self: Locked request registry protecting the creator's response and cancellation capability.
     # request_id: Opaque ticket returned to one MCP caller.
@@ -488,8 +694,16 @@ class InteractionStore:
         if not isinstance(capability, str) or CAPABILITY.fullmatch(capability) is None:
             raise ValueError("Invalid request capability")
         ticket = self._tickets.get(request_id)
-        if ticket is None or not hmac.compare_digest(ticket.capability, capability):
+        if ticket is None:
             raise ValueError("Unknown or unauthorized request ticket")
+        expected, supplied = ticket.capability, capability
+        if ticket.capability_digest:
+            expected = ticket.capability_digest
+            supplied = hashlib.sha256(bytes.fromhex(capability)).hexdigest()
+        if not hmac.compare_digest(expected, supplied):
+            raise ValueError("Unknown or unauthorized request ticket")
+        if ticket.payload.kind == EventKind.QUESTION and self._storage_failure is not None:
+            raise self._storage_failure
         return ticket
 
     # self: Owner returning the exact answer only to the original tool recipient.
@@ -498,6 +712,22 @@ class InteractionStore:
         result: dict[str, Any] = {"request_id": ticket.request_id, "state": ticket.state,
                                   "source": ticket.source, "kind": ticket.payload.kind.name.lower(),
                                   "expires_in_seconds": max(0, math.ceil(ticket.expires_at - self._clock()))}
+        if ticket.payload.kind == EventKind.QUESTION:
+            if ticket.state == "delivered":
+                delivery = "recipient_confirmed"
+            elif ticket.state == "received":
+                delivery = "broker_received"
+            elif ticket.question_state == "cancelled":
+                delivery = "cancelled"
+            elif ticket.state == "pending":
+                delivery = "pending"
+            else:
+                delivery = "unconfirmed" if ticket.selected_id else "unavailable"
+            result.update(question_id=ticket.question_id, question_state=ticket.question_state,
+                          delivery_state=delivery, chat_id=None, turn_id=None,
+                          device_closure={"state": ticket.device_terminal_state,
+                                          "evidence": ticket.device_closure_evidence}
+                          if ticket.device_terminal_state else None)
         if ticket.selected_id and ticket.state in {"received", "delivered"}:
             choice = next(choice for choice in ticket.payload.choices if choice.choice_id == ticket.selected_id)
             result["answer"] = {"id": choice.choice_id, "label": choice.label, "detail": choice.detail}
@@ -526,16 +756,17 @@ class InteractionStore:
                 if ticket.state not in {"received", "delivered"}:
                     raise ValueError("The answer is no longer available for recipient acknowledgement")
                 if ticket.state == "received":
-                    ticket.state, ticket.terminal_at = "delivered", self._clock()
-                    self._condition.notify_all()
+                    ticket = replace(ticket, state="delivered", terminal_at=self._clock(), question_state="resolved")
+                    self._commit({ticket.request_id: ticket})
             while ticket.state == "pending" and time.monotonic() < deadline:
                 remaining = min(deadline - time.monotonic(), max(0.0, ticket.expires_at - self._clock()))
                 if remaining <= 0:
                     break
                 self._condition.wait(remaining)
                 self._expire()
+                ticket = self._owned(request_id, capability)
             self._expire()
-            return self._public(ticket)
+            return self._public(self._owned(request_id, capability))
 
     # self: Request owner receiving an explicit cancellation from its original caller.
     # request_id: Ticket whose state may be retired, never implicitly answered.
@@ -547,9 +778,13 @@ class InteractionStore:
             ticket = self._owned(request_id, capability)
             if ticket.state == "delivered":
                 raise ValueError("A recipient-confirmed answer cannot be cancelled")
-            if ticket.state not in TERMINAL_STATES:
-                ticket.state, ticket.terminal_at = "cancelled", self._clock()
-                self._condition.notify_all()
+            if ticket.payload.kind == EventKind.QUESTION and ticket.question_state == "open":
+                state = ticket.state if ticket.state in CLOSED_TICKETS else "cancelled"
+                ticket = replace(ticket, state=state, question_state="cancelled", terminal_at=self._clock())
+                self._commit({ticket.request_id: ticket})
+            elif ticket.state not in CLOSED_TICKETS:
+                ticket = replace(ticket, state="cancelled", terminal_at=self._clock())
+                self._commit({ticket.request_id: ticket})
             return self._public(ticket)
 
     # self: Authenticated UDP answer owner; no application work is executed by receiving this value.
@@ -564,30 +799,50 @@ class InteractionStore:
             ticket = self._tickets.get(request_id)
             if ticket is None or ticket.device_id != device_id or ticket.payload.kind != EventKind.QUESTION:
                 return "unknown"
-            if association_id and ticket.association_id and not hmac.compare_digest(association_id, ticket.association_id):
-                if ticket.state not in TERMINAL_STATES:
-                    ticket.state, ticket.terminal_at = "cancelled", self._clock()
-                    self._condition.notify_all()
+            if self._storage_failure is not None:
+                raise self._storage_failure
+            if (ticket.association_id and (association_id or self._storage is not None)
+                    and not hmac.compare_digest(association_id, ticket.association_id)):
+                if association_id and ticket.state not in CLOSED_TICKETS:
+                    retired = self._retire_association(ticket, self._clock())
+                    self._commit({ticket.request_id: retired})
                 return "unknown"
-            if ticket.state in {"cancelled", "expired"}:
-                return ticket.state
             if choice_id not in {choice.choice_id for choice in ticket.payload.choices}:
                 return "conflict"
             if ticket.selected_id and ticket.selected_id != choice_id:
                 return "conflict"
+            if ticket.state == "unavailable":
+                return "unknown"
+            if ticket.state in {"cancelled", "expired"}:
+                return ticket.state
+            if self._storage is not None and not ticket.published:
+                return "unknown"
+            changes: dict[str, Ticket | None] = {}
             if ticket.published:
-                # An authenticated reply confirms which previously offered
-                # question actually reached Cody, even before its next FIND.
                 for item in self._tickets.values():
                     if (item.device_id == device_id and item.association_id == ticket.association_id
                             and item.payload.kind == EventKind.QUESTION):
-                        item.active_on_device = item is ticket
+                        active = item.request_id == ticket.request_id
+                        if item.active_on_device != active:
+                            changes[item.request_id] = replace(item, active_on_device=active)
+                ticket = changes.get(ticket.request_id, ticket)
             if not ticket.selected_id:
-                ticket.selected_id = choice_id
-                ticket.answer_id = secrets.token_hex(16)
-                ticket.state = "received"
-                self._condition.notify_all()
+                ticket = replace(ticket, selected_id=choice_id, answer_id=self._new_id(), state="received")
+                changes[ticket.request_id] = ticket
+            # Receipt is emitted only after the exact immutable answer was committed.
+            self._commit(changes)
             return ticket.state
+
+    # ticket: Ticket bound to the retired active key.
+    # now: Same-process monotonic time of the observed association replacement.
+    def _retire_association(self, ticket: Ticket, now: float) -> Ticket:
+        if self._storage is not None and ticket.payload.kind == EventKind.QUESTION:
+            state = ticket.state if ticket.state in CLOSED_TICKETS else "unavailable"
+            return replace(ticket, state=state, terminal_at=ticket.terminal_at or now,
+                           active_on_device=False)
+        if ticket.state in CLOSED_TICKETS:
+            return replace(ticket, active_on_device=False)
+        return replace(ticket, state="cancelled", terminal_at=now)
 
     # self: Automatic-notice owner; retiring a hook context never affects caller-owned questions.
     # session_id: Genuine native session, or None to retire all native notices.
@@ -596,9 +851,10 @@ class InteractionStore:
         with self._condition:
             self._expire()
             for ticket in self._tickets.values():
-                if (ticket.native_session and (session_id is None or ticket.native_session == session_id)
+                if (ticket.payload.kind != EventKind.QUESTION and ticket.native_session
+                        and (session_id is None or ticket.native_session == session_id)
                         and (kind is None or ticket.payload.kind == kind)
-                        and ticket.state not in TERMINAL_STATES):
+                        and ticket.state not in CLOSED_TICKETS):
                     ticket.state, ticket.terminal_at = "cancelled", self._clock()
                     if ticket.payload.kind == EventKind.APPROVAL_ON_PC:
                         chat = hashlib.sha256(ticket.native_session.encode("ascii")).hexdigest()[:12]
@@ -618,16 +874,20 @@ class InteractionStore:
             self._expire()
             ticket = self._tickets.get(request_id)
             if (ticket is None or ticket.device_id != device_id or not ticket.published
-                    or ticket.payload.kind != EventKind.QUESTION or ticket.state not in TERMINAL_STATES):
+                    or ticket.payload.kind != EventKind.QUESTION or ticket.state not in CLOSED_TICKETS):
                 raise ValueError("Terminal acknowledgement has no published closed question")
-            if state not in TERMINAL_STATES | {"rejected"}:
+            if state not in DEVICE_TERMINAL_STATES:
                 raise ValueError("Terminal acknowledgement cannot close a live device request")
+            if state == "delivered" and ticket.state != "delivered":
+                raise ValueError("Device closure cannot claim delivery without recipient confirmation")
             if not association_id or not hmac.compare_digest(association_id, ticket.association_id):
                 raise ValueError("Terminal acknowledgement belongs to a different association")
-            # An expired device can have missed Delivered. Record its real closure
-            # without changing the recipient-confirmed answer or claiming Reply sent.
-            ticket.device_terminal_state = state
-            self._condition.notify_all()
+            if ticket.device_terminal_state and ticket.device_terminal_state != state:
+                raise ValueError("Conflicting device terminal acknowledgement")
+            # An expired device can have missed Delivered. Preserve its actual
+            # local closure independently of the recipient-confirmed result.
+            closed = replace(ticket, device_terminal_state=state, device_closure_evidence="event_ack")
+            self._commit({ticket.request_id: closed})
 
     # self: Informational queue owner retiring only a notice actually dismissed on Cody.
     # device_id: Authenticated peer identity.
@@ -713,61 +973,83 @@ class InteractionStore:
         with self._condition:
             self._expire()
             now = self._clock()
-            relevant = []
+            changes: dict[str, Ticket | None] = {}
+            relevant: dict[str, Ticket] = {}
             for item in self._tickets.values():
                 if item.device_id != device_id:
                     continue
-                if association_id and item.association_id and not hmac.compare_digest(association_id, item.association_id):
-                    if item.state not in TERMINAL_STATES:
-                        item.state, item.terminal_at = "cancelled", now
-                        self._condition.notify_all()
+                if (item.association_id and (association_id or self._storage is not None)
+                        and not hmac.compare_digest(association_id, item.association_id)):
+                    if association_id and (item.state not in CLOSED_TICKETS or item.active_on_device):
+                        changes[item.request_id] = self._retire_association(item, now)
                     continue
-                relevant.append(item)
-            current = next((item for item in relevant if item.request_id == current_id), None)
-            if current_state in OPEN_DEVICE_STATES:
-                if current is None or not current.published or current.payload.kind != EventKind.QUESTION:
-                    # Volatile broker state can disappear while Cody still owns
-                    # a question. Its signed next FIND confirms retirement; no
-                    # successor is published until that observation is terminal.
-                    return current_id, "unavailable", "0", "-"
+                if item.payload.kind == EventKind.QUESTION and self._storage_failure is not None:
+                    raise self._storage_failure
+                if current_id == ZERO_TICKET and item.state == "unavailable" and item.active_on_device:
+                    # The peer reports no displayed ticket. This clears the
+                    # presentation claim without claiming an EVENTACK.
+                    item = replace(item, active_on_device=False)
+                    changes[item.request_id] = item
+                relevant[item.request_id] = item
+
+            current = relevant.get(current_id)
+            if current_state in OPEN_DEVICE_STATES and (
+                    current is None or not current.published or current.payload.kind != EventKind.QUESTION
+                    or current.state == "unavailable"):
+                self._commit(changes)
+                return current_id, "unavailable", "0", "-"
             if current is not None and current.published and current.payload.kind == EventKind.QUESTION:
-                # Sending an EVENT is only an offer. The signed next FIND
-                # confirms the handoff; a lost offer must leave its predecessor
-                # able to close, and an expired offer must never await an ACK.
-                for item in relevant:
-                    if item.payload.kind == EventKind.QUESTION:
-                        item.active_on_device = item is current
-            questions = [item for item in relevant if item.payload.kind == EventKind.QUESTION
-                          and item.state not in TERMINAL_STATES]
-            closing = [item for item in relevant if item.payload.kind == EventKind.QUESTION
-                       and item.active_on_device and item.published and item.state in TERMINAL_STATES and not item.device_terminal_state]
-            recent = [item for item in relevant if item.payload.kind == EventKind.QUESTION
-                      and item.active_on_device and item.terminal_at is not None and now - item.terminal_at < TERMINAL_DISPLAY_SECONDS]
-            notices = [item for item in relevant if item.payload.kind != EventKind.QUESTION and item.state == "pending"]
+                if current.state == "unavailable":
+                    # A recovered ticket has no live delivery path. Its
+                    # authenticated terminal FIND can establish device closure,
+                    # without creating recipient confirmation or replaying data.
+                    if (current_state in DEVICE_TERMINAL_STATES - {"delivered"}
+                            and not current.device_terminal_state):
+                        current = replace(current, active_on_device=False, device_terminal_state=current_state,
+                                          device_closure_evidence="device_observation")
+                        changes[current_id] = current
+                        relevant[current_id] = current
+                else:
+                    for identity, item in relevant.items():
+                        if item.payload.kind == EventKind.QUESTION and item.active_on_device != (identity == current_id):
+                            item = replace(item, active_on_device=identity == current_id)
+                            changes[identity] = item
+                            relevant[identity] = item
+                    current = relevant[current_id]
+
+            questions = [item for item in relevant.values() if item.payload.kind == EventKind.QUESTION
+                         and item.state not in CLOSED_TICKETS]
+            closing = [item for item in relevant.values() if item.payload.kind == EventKind.QUESTION
+                       and item.active_on_device and item.published and item.state in TERMINAL_STATES
+                       and not item.device_terminal_state]
+            recent = [item for item in relevant.values() if item.payload.kind == EventKind.QUESTION
+                      and item.active_on_device and item.state in TERMINAL_STATES and item.terminal_at is not None
+                      and now - item.terminal_at < TERMINAL_DISPLAY_SECONDS]
+            notices = [item for item in relevant.values() if item.payload.kind != EventKind.QUESTION
+                       and item.state == "pending"]
             target = None
-            if selection_request_id != "0" * 32:
+            if selection_request_id != ZERO_TICKET:
                 if current_state == "none" or (current is not None and current.state == "pending" and not current.selected_id):
                     target = next((item for item in questions if item.request_id == selection_request_id
                                    and item.state == "pending" and not item.selected_id), None)
                 if target is None:
                     print("CCP interactions: requested pending question is no longer selectable", file=sys.stderr)
-            # Queuing the next question must not hide the previous closure before
-            # Cody has applied it. Repeat the terminal snapshot until its signed ACK.
+            # A terminal question remains ahead of its successor until Cody
+            # actually closes the retained presentation.
             active_current = current if current in questions else None
             ticket = (closing[0] if closing else target if target is not None else
                       active_current if active_current is not None else questions[0] if questions else
                       recent[-1] if recent else notices[0] if notices else None)
             if ticket is None:
-                return "0" * 32, "none", "0", "-"
-            ticket.published = True
+                self._commit(changes)
+                return ZERO_TICKET, "none", "0", "-"
+
             payload = replace(ticket.payload, selected_id=ticket.selected_id)
             if ticket.payload.kind == EventKind.QUESTION:
-                if current_id == "0" * 32:
-                    # Initial ownership has no predecessor to strand. Repeat a
-                    # published closure until Cody confirms or acknowledges it.
-                    for item in relevant:
-                        if item.payload.kind == EventKind.QUESTION:
-                            item.active_on_device = item is ticket
+                if current_id == ZERO_TICKET:
+                    for identity, item in relevant.items():
+                        if item.payload.kind == EventKind.QUESTION and item.active_on_device != (identity == ticket.request_id):
+                            changes[identity] = replace(item, active_on_device=identity == ticket.request_id)
                 pending = [item for item in questions if item.state == "pending" and not item.selected_id]
                 if ticket in pending:
                     first = pending.index(ticket)
@@ -775,10 +1057,12 @@ class InteractionStore:
                 entries = tuple(PendingQuestion(item.request_id, item.payload.context, item.payload.title)
                                 for item in pending[:2])
                 payload = replace(payload, pending_question_count=len(questions), pending_questions=entries)
-            # Ceil prevents a live last-fraction-of-a-second request from being
-            # published as Pending with ttl=0; the host deadline remains exact.
+            ticket = replace(changes.get(ticket.request_id, ticket), published=True)
+            changes[ticket.request_id] = ticket
+            # Persist original ticket ownership before publishing the offer.
+            self._commit(changes)
             ttl = max(0, min(MAX_TTL_SECONDS, math.ceil(ticket.expires_at - now)))
-            return (ticket.request_id, ticket.state, str(ttl), encode_payload(payload))
+            return ticket.request_id, ticket.state, str(ttl), encode_payload(payload)
 
 
 # No parameters: exposes semantic requests, private response access and read-only PR notifications.
@@ -835,7 +1119,7 @@ def tool_catalog() -> list[dict[str, Any]]:
         },
         {
             "name": "ccp_poll_request", "title": "Read or acknowledge Cody's reply",
-            "description": "Read only the ticket owned by this capability. After receiving answer_id, call again with acknowledge_answer_id to confirm delivery and enable Reply sent. A timeout or expired/cancelled state is not a decision.",
+            "description": "Read the owned question, transport and device closure. After receiving answer_id, acknowledge that exact ID before acting. Only recipient_confirmed records a delivered answer. Unavailable or unconfirmed delivery can leave the question open.",
             "inputSchema": {"type": "object", "properties": {**ownership,
                 "wait_ms": {"type": "integer", "minimum": 0, "maximum": 15000, "default": 0},
                 "acknowledge_answer_id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
@@ -844,7 +1128,7 @@ def tool_catalog() -> list[dict[str, Any]]:
         },
         {
             "name": "ccp_cancel_request", "title": "Cancel an owned Cody request",
-            "description": "Explicitly retire this caller's pending request without selecting an option. Recipient-confirmed answers cannot be cancelled.",
+            "description": "Explicitly cancel this caller's unresolved semantic question, including one whose transport expired. Recipient-confirmed answers cannot be cancelled.",
             "inputSchema": {"type": "object", "properties": ownership,
                             "required": ["request_id", "capability"], "additionalProperties": False},
             "annotations": annotations,

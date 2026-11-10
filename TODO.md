@@ -12,7 +12,10 @@ specification is in [planned-todo.md](planned-todo.md#cody-next---domain-model-a
 | CODY-NEXT-02 | Implemented / validation pending | G01/G02 design/source review complete for [protocol, schema and examples](cody-desktop/plugins/cody-codex-plugin/protocol/CODY_STATE_V1.md); schema execution, helper compilation and live protocol acceptance remain pending |
 | CODY-NEXT-14 | In progress | Portable store, shared firmware/host composition, Muse frame boundary and Waveshare descriptor are connected. Review current-target capacity, OS boundaries and scenario integration before G01. |
 | CODY-NEXT-03 | In progress (broker restart restore wired) | The private checkpoint restores stable records and historical evidence under a new epoch. The plugin exposes bounded state-v1 pages. Question correlation and executed acceptance remain open. |
-| CODY-NEXT-05 | In progress (canonical query and recovery wired) | DeviceSnapshotService exposes generation-bound views and the paired device restores historical diagnostic counts. Durable unresolved records, a selection bookmark, new screen consumers and executed acceptance remain open. |
+| CODY-NEXT-04 | In progress (Codex ledger wired) | Broker retains exact question, answer and confirmation evidence. Signed CCP1 still owns delivery. Native turn correlation, state-v1 question publication and executed restart/race acceptance remain open. |
+| CODY-NEXT-05 | In progress (canonical query and recovery wired) | DeviceSnapshotService exposes generation-bound views. The paired device restores historical counts, a bookmark and unresolved references. Executed storage and recovery acceptance remains open. |
+| CODY-NEXT-07 | In progress (native pose showcase wired) | Original floppy sequence and moving Muse use native CODY2D. The visible showcase changes pose every ten seconds. Domain-driven direction and physical acceptance remain open. |
+| CODY-NEXT-09 | In progress (native Codex browser wired) | Chats, Turns, Tool calls, Active calls, Events and Statistics are reachable from Codex. Home/Tools gestures, two-dot chrome and device acceptance remain open. |
 
 Keep this table, the phase table, the individual markers and the progress
 summary in [planned-todo.md](planned-todo.md) aligned at each checkpoint.
@@ -22,8 +25,10 @@ The broker and paired firmware share the authenticated state-v1 socket path.
 The initial profile admits source, chat, turn, tool definition and tool call
 records. It exposes unsupported categories explicitly. The broker keeps an
 authenticated private checkpoint. The device restores a historical summary
-and starts from a fresh snapshot. The canonical query API exposes bounded pages.
-New screen consumers and the semantic question lifecycle remain open.
+and starts from a fresh snapshot. The native browser consumes bounded pages
+and restores a validated chat bookmark. The signed Codex question flow retains
+durable attempts and exposes unconfirmed delivery after restart. Other providers
+and the state-v1 question/answer projection remain deferred.
 
 Phase 11 must compile the headers and exercise the JSON schema/examples,
 chunk/revision helpers and specified scenarios against the phase-05 reducer.

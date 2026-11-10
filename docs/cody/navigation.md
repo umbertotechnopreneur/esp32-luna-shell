@@ -8,8 +8,20 @@ The VibeWare floppy animation plays once after a cold boot or software reset.
 The display then shows Muse waking. The showcase changes its pose every ten
 seconds while Muse is visible. Tap
 the character to trigger its reaction and the optional Cody touch sound.
-Press BOOT to open Options and choose Connections or the statistics screens.
+Press BOOT to open Options and choose Connections or Codex.
 If setup is already active, BOOT reveals that journey. Home returns to Muse.
+
+The native **Codex** hub in Options opens **Chats**, **Active calls**,
+**Events** and **Statistics**. Open a chat to see its turns, then open a turn
+to see its calls. The lateral Back control returns to the parent view.
+Pages use one canonical generation. If that generation changes, paging starts
+again at the first page. Historical and stale facts are labeled separately
+from current observations. **Resume** is available after the saved chat ID
+matches a record in the current paired source. The signed Events flow
+continues to own question review and Send. Cody saves the exact unresolved
+ticket and selected option before the first Send. On restart the saved
+reference is historical and cannot send an answer. Only the current signed
+exchange can confirm delivery or cancellation.
 
 Connection status follows the saved network and pairing state.
 

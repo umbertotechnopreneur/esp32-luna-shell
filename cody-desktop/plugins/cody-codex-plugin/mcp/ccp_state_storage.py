@@ -12,10 +12,11 @@ import tempfile
 from typing import Any
 
 
-_MAGIC = b"CODY-REGISTRY/1\n"
-_DOMAIN = b"Cody broker registry checkpoint v1\0"
+_PURPOSES = {
+    "registry": (b"CODY-REGISTRY/1\n", b"Cody broker registry checkpoint v1\0"),
+    "questions": (b"CODY-QUESTIONS/1\n", b"Cody broker semantic question ledger v1\0"),
+}
 _MAX_DOCUMENT_BYTES = 1024 * 1024
-_MAX_FILE_BYTES = len(_MAGIC) + 65 + _MAX_DOCUMENT_BYTES
 
 
 class RegistryStorageError(RuntimeError):
@@ -44,12 +45,15 @@ class RegistryStorage:
 
     # path: Exact checkpoint path inside the private broker runtime directory.
     # control_key: Existing 32-byte local control credential, already unprotected by its owner.
-    # Raises ValueError for an invalid credential.
-    def __init__(self, path: Path, control_key: bytes) -> None:
-        if len(control_key) != 32:
-            raise ValueError("Registry storage requires the protected local control credential")
+    # purpose: Distinct authenticated checkpoint format with its own MAC domain.
+    # Raises ValueError for an invalid credential or checkpoint purpose.
+    def __init__(self, path: Path, control_key: bytes, *, purpose: str = "registry") -> None:
+        if len(control_key) != 32 or purpose not in _PURPOSES:
+            raise ValueError("Checkpoint requires the protected local control credential and known purpose")
         self._path = path
-        self._key = hmac.digest(control_key, _DOMAIN, "sha256")
+        self._magic, self._domain = _PURPOSES[purpose]
+        self._file_limit = len(self._magic) + 65 + _MAX_DOCUMENT_BYTES
+        self._key = hmac.digest(control_key, self._domain, "sha256")
 
     # No parameters: reads the exact owned file into the bounded input buffer.
     # Raises OSError on open/read failure or RegistryStorageError on unsafe state or size overflow.
@@ -60,8 +64,8 @@ class RegistryStorage:
         if os.name == "posix" and (metadata.st_uid != os.getuid() or metadata.st_mode & 0o077):
             raise RegistryStorageError("Registry checkpoint must be private to the broker user")
         with self._path.open("rb") as source:
-            data = source.read(_MAX_FILE_BYTES + 1)
-        if len(data) > _MAX_FILE_BYTES:
+            data = source.read(self._file_limit + 1)
+        if len(data) > self._file_limit:
             raise RegistryStorageError("Registry checkpoint exceeds its file bound")
         return data
 
@@ -78,13 +82,13 @@ class RegistryStorage:
         except OSError as error:
             raise RegistryStorageError(f"Registry checkpoint read failed: {error.strerror}") from error
 
-        proof_start = len(_MAGIC)
+        proof_start = len(self._magic)
         proof_end = proof_start + 64
-        if (not raw.startswith(_MAGIC) or raw[proof_end:proof_end + 1] != b"\n"
+        if (not raw.startswith(self._magic) or raw[proof_end:proof_end + 1] != b"\n"
                 or len(raw) <= proof_end + 1):
             raise RegistryStorageError("Registry checkpoint header is invalid")
         body = raw[proof_end + 1:]
-        expected = hmac.digest(self._key, _DOMAIN + body, "sha256").hex().encode("ascii")
+        expected = hmac.digest(self._key, self._domain + body, "sha256").hex().encode("ascii")
         if not hmac.compare_digest(raw[proof_start:proof_end], expected):
             raise RegistryStorageError("Registry checkpoint authentication failed")
         try:
@@ -102,8 +106,8 @@ class RegistryStorage:
         body = json.dumps(document, ensure_ascii=True, allow_nan=False, separators=(",", ":")).encode("ascii")
         if len(body) > _MAX_DOCUMENT_BYTES:
             raise RegistryStorageError("Registry checkpoint exceeds its document bound")
-        proof = hmac.digest(self._key, _DOMAIN + body, "sha256").hex().encode("ascii")
-        raw = _MAGIC + proof + b"\n" + body
+        proof = hmac.digest(self._key, self._domain + body, "sha256").hex().encode("ascii")
+        raw = self._magic + proof + b"\n" + body
         temporary = None
         try:
             with tempfile.NamedTemporaryFile(

@@ -77,8 +77,9 @@ Track implementation and validation separately: `planned`, `implementing`,
 - Preserve Muse's round-display Wi-Fi text-entry design as a reference. Its
   LVGL controls are not imported into Cody. A native CODY2D adaptation is a
   separately staged UI extension, retaining the existing Wi-Fi pairing route.
-- Start with the existing Codex broker and documented hooks. Other providers
-  and cloud delivery use the same domain contract later, through explicit adapters.
+- The current profile supports Codex only, through the existing broker and
+  documented hooks. Other providers and cloud delivery are deferred to explicit
+  adapters under phase 12. The shared domain types remain provider-neutral.
 - A pending question retains its identity until an observed semantic resolution.
   Navigation, a reaction, stale data, ticket expiry or loss of connection cannot
   silently answer or erase it. Native permission decisions remain on the PC.
@@ -136,12 +137,12 @@ their exact filenames in 01 while retaining the ownership boundaries below.
 | CODY-NEXT-01 | Domain schema, invariants and capacity policy | 00 | 🟡 Design reviewed · validation pending |
 | CODY-NEXT-02 | Versioned JSON, wire mapping and synchronization rules | 01 | 🟡 Design reviewed · validation pending |
 | CODY-NEXT-03 | Codex adapter and complete broker registry | 02, 14 | 🟡 Multi-turn sync and restart restore wired · question correlation pending |
-| CODY-NEXT-04 | Durable question and answer lifecycle | 02, 03 | ⚪ Planned |
-| CODY-NEXT-05 | Device domain store, synchronization and recovery | 02, 03, 04, 14 | 🟡 Canonical queries and historical checkpoint wired · durable questions pending |
+| CODY-NEXT-04 | Durable question and answer lifecycle | 02, 03 | 🟡 Durable Codex question ledger wired · unified correlation pending |
+| CODY-NEXT-05 | Device domain store, synchronization and recovery | 02, 03, 04, 14 | 🟡 Canonical queries and pairing-bound recovery wired · acceptance pending |
 | CODY-NEXT-06 | Deterministic scenario driver and inspection tools | 01, 02; integrate after 05 | ⚪ Planned |
 | CODY-NEXT-07 | Domain-to-Muse direction and pose transitions | 05, 06 | 🟡 Native pose showcase wired · domain direction pending |
 | CODY-NEXT-08 | Muse acting, particles and audio policy | 07 | ⚪ Planned |
-| CODY-NEXT-09 | Separate mascot/UI routes and reusable screens | 00, 05, 07 | ⚪ Planned |
+| CODY-NEXT-09 | Separate mascot/UI routes and reusable screens | 00, 05, 07 | 🟡 Native Codex browser wired · Home gestures and physical acceptance pending |
 | CODY-NEXT-10 | Subagents and observable asynchronous operations | 03, 05, 06 | ⚪ Planned |
 | CODY-NEXT-11 | Authorized final validation and hardware acceptance | 00-10 and 14 implemented and statically reviewed | ⚪ Planned |
 | CODY-NEXT-12 | Additional source adapters | 11 accepted; separate source activation | 🟣 Optional · deferred |
@@ -375,35 +376,41 @@ Real hook delivery remains a later authorized acceptance item.
 
 **Outcome:** questions survive presentation changes and ambiguous delivery.
 
-- [ ] ⚪ **CODY-NEXT-04.01** Separate semantic Question identity from an expiring
+**Current scope:** the Codex broker durably retains questions and attempts on
+the signed CCP1 ticket path. It preserves the last accepted choice and separates
+broker receipt, recipient confirmation and device closure. After restart,
+unconfirmed work stays uncertain and the old delivery path stays closed. Exact
+native chat/turn correlation and state-v1 question publication remain open.
+
+- [x] 🟢 **CODY-NEXT-04.01** Separate semantic Question identity from an expiring
   transport ticket and its recipient capability. Define open, resolved,
   cancelled, explicitly expired and unresolved/unavailable states. A local TTL
   expiration disables that reply path without inventing semantic resolution.
-- [ ] ⚪ **CODY-NEXT-04.02** Establish chat/turn association from trustworthy broker
+- [ ] 🟡 **CODY-NEXT-04.02** Establish chat/turn association from trustworthy broker
   invocation context. The existing caller-declared context label is not identity.
   When association is unavailable, keep an unassociated question visible in the
   global attention set; never attach it to the current foreground chat by guess.
-- [ ] ⚪ **CODY-NEXT-04.03** Specify AnswerAttempt transitions: local Send admission,
+- [x] 🟢 **CODY-NEXT-04.03** Specify AnswerAttempt transitions: local Send admission,
   broker_received, recipient_confirmed and uncertain/rejected outcomes. Retain
   immutable choice IDs and the current exact-answer acknowledgement discipline.
   Repeated delivery of one attempt is idempotent; a conflicting choice is rejected.
-- [ ] ⚪ **CODY-NEXT-04.04** Implement a bounded durable broker ledger. Persist an
+- [x] 🟢 **CODY-NEXT-04.04** Implement a bounded durable broker ledger. Persist an
   accepted answer before reporting durable receipt; preserve original failure
   if storage fails. Persist terminal outcomes/tombstones and recipient correlation
   under the existing credential owner. Do not store authorization in public snapshots.
-- [ ] ⚪ **CODY-NEXT-04.05** Define provider-supported reattachment after broker restart.
+- [x] 🟢 **CODY-NEXT-04.05** Define provider-supported reattachment after broker restart.
   If the recipient cannot safely resume polling, expose delivery unavailable or
   unconfirmed. Do not revive expired capabilities, replay an answer as a new
   action or manufacture recipient confirmation from the persisted ledger.
-- [ ] ⚪ **CODY-NEXT-04.06** Track all admitted open questions, present one at a time
+- [x] 🟢 **CODY-NEXT-04.06** Track all admitted open questions, present one at a time
   and preserve the others. Define deterministic ordering, inspection/dismissal
   distinct from resolution, queue capacity and overflow behavior.
-- [ ] ⚪ **CODY-NEXT-04.07** Preserve recipient delivery and device presentation closure
+- [x] 🟢 **CODY-NEXT-04.07** Preserve recipient delivery and device presentation closure
   as separate acknowledgements. Repeated terminal state remains recoverable
   until acknowledged; a late ACK cannot reopen or rewrite a terminal local result.
-- [ ] ⚪ **CODY-NEXT-04.08** Keep native PermissionRequest advisory and PC-only.
+- [x] 🟢 **CODY-NEXT-04.08** Keep native PermissionRequest advisory and PC-only.
   Opening its notice or touching the mascot cannot authorize a native approval.
-- [ ] ⚪ **CODY-NEXT-04.09** Serialize answer-versus-cancel races and competing answers
+- [ ] 🟡 **CODY-NEXT-04.09** Serialize answer-versus-cancel races and competing answers
   from multiple devices around one durable decision. Define first-accepted choice,
   transaction boundaries and crash outcomes before/after persistence and each ACK.
   Retain sufficient terminal tombstones during compaction to reject late replay.
@@ -421,9 +428,10 @@ five record kinds into a PSRAM staging bank. A digest-verified transaction
 publishes one coherent generation; rejection retains the previous bank.
 DeviceSnapshotService exposes bounded status, selected-chat and paged
 chat, turn and call queries with evidence, coverage and attention counts.
-The device restores a pairing-bound historical summary after reboot and requests
-a fresh authenticated snapshot. Durable question/answer state, a selection
-bookmark and physical acceptance remain pending.
+The device restores a pairing-bound historical summary and selected-chat
+bookmark, then requests a fresh authenticated snapshot. The checkpoint also
+retains the last open ticket reference and bounded unresolved answer attempts.
+Recovered references cannot submit an answer. Physical acceptance is pending.
 
 - [x] 🟢 **CODY-NEXT-05.01** Implement typed entity stores and indexes with one mutation
   owner. Fit budgets from 01 before adding snapshot fields; keep large pools and
@@ -440,18 +448,20 @@ bookmark and physical acceptance remain pending.
   active calls, pending questions and aggregate attention. Query results are
   disposable projections, not UI-owned domain state. The initial profile
   exposes chat, turn, call and attention views. Pending questions report unsupported.
-- [ ] 🟡 **CODY-NEXT-05.05** Persist minimal unresolved question/answer records and
+- [x] 🟢 **CODY-NEXT-05.05** Persist minimal unresolved question/answer records and
   useful selection references through the existing storage owner. Define schema,
   integrity, atomic replacement, retention and write coalescing. Do not write
   animation ticks, heartbeats, every tool update or whole transcripts to flash.
   The existing settings owner writes a coalesced, versioned and authenticated
-  summary. The question/answer ledger and selected-chat bookmark remain open.
-- [ ] 🟡 **CODY-NEXT-05.06** Restore persisted facts as historical/unverified until
+  summary and bookmark. The recovery record preserves the last open ticket and
+  up to four unresolved exact choices, committed before first transmission.
+- [x] 🟢 **CODY-NEXT-05.06** Restore persisted facts as historical/unverified until
   reconciled. Preserve unknown outcomes, storage errors and data from a missing
   source. A changed pairing/source cannot inherit another peer's questions or
   response authority; partition or retire association explicitly. The restored
   summary is historical and cannot supply a page or a delta baseline. Pairing
-  replacement or Forget retires it. Restoring unresolved records depends on 04.
+  replacement or Forget retires the summary, bookmark and ticket references.
+  Restored attempts have no live authorization or automatic Send.
 - [ ] 🟡 **CODY-NEXT-05.07** Handle standby, reboot and clock discontinuity separately.
   Semantic deadlines/freshness continue according to their clock contract;
   paused animation time cannot extend a response deadline or make old work fresh.
@@ -595,36 +605,42 @@ outside the renderer. Visual/audible quality and throughput await phase 11.
 
 **Outcome:** useful existing UI survives, while Muse has its own screen.
 
-- [ ] ⚪ **CODY-NEXT-09.01** Implement mutually exclusive mascot/UI scene kinds.
+**Current scope:** the native Codex hub and its Chats, Turns, Tool calls and
+Active calls pages use bounded canonical queries and stable catalog IDs
+101 through 105. Events and Statistics retain their owners and return to the
+hub. Resume revalidates the durable chat bookmark against the current source.
+Horizontal Home/Tools gestures, two-dot chrome and device acceptance remain open.
+
+- [x] 🟢 **CODY-NEXT-09.01** Implement mutually exclusive mascot/UI scene kinds.
   Remove the character from reused UI presenters without deleting their controls,
   data paths or original catalog references. Preserve pairing/recovery usability.
-- [ ] ⚪ **CODY-NEXT-09.02** Retain VibeWare -> Muse Home (16), horizontal navigation
+- [ ] 🟡 **CODY-NEXT-09.02** Retain VibeWare -> Muse Home (16), horizontal navigation
   between Home and Tools (10), and BOOT access to Tools. Define two dots strictly
   as navigation chrome, not data widgets. Confirm their placement/visibility
   against the mascot-only requirement before final layout; leave rim semantics open.
-- [ ] ⚪ **CODY-NEXT-09.03** Resolve gesture ownership on the completely displayed
+- [ ] 🟡 **CODY-NEXT-09.03** Resolve gesture ownership on the completely displayed
   frame: horizontal swipe navigates; a short tap with pending attention opens
   the selected pending question; without attention it triggers the Muse reaction.
   A swipe or wake touch cannot also send a choice or trigger an underlying action.
-- [ ] ⚪ **CODY-NEXT-09.04** Provide UI-only access to all chats, selected-chat/turn
+- [x] 🟢 **CODY-NEXT-09.04** Provide UI-only access to all chats, selected-chat/turn
   detail, tool calls and pending questions. Map new routes only after the catalog
   audit; assign permanent unique codes then. Retain 26/27/31 question/delivery
   meanings and existing pairing codes, including review-before-Send and Back.
-- [ ] ⚪ **CODY-NEXT-09.05** Show tool icons via a presentation-owned category/artwork
+- [x] 🟢 **CODY-NEXT-09.05** Show tool icons via a presentation-owned category/artwork
   catalog; retain textual names, independent call status and unknown-tool fallback.
   Read model projections rather than maintaining UI-owned tool/session records.
-- [ ] ⚪ **CODY-NEXT-09.06** Keep background questions reachable on UI-only screens
+- [ ] 🟡 **CODY-NEXT-09.06** Keep background questions reachable on UI-only screens
   through an attention entry without replacing an in-progress choice/review or
   changing the foreground chat. Opening a question retains caller route, selected
   chat, scroll and stable question ID; Back restores them without resolving it.
-- [ ] ⚪ **CODY-NEXT-09.07** Reuse counters/statistics, Connections, settings and recovery
+- [ ] 🟡 **CODY-NEXT-09.07** Reuse counters/statistics, Connections, settings and recovery
   screens through Tools. Child Back returns to its actual caller; Home returns to
   the mascot. Retain last statistics page without converting it into the mascot.
-- [ ] ⚪ **CODY-NEXT-09.08** Update navigation/layout/atlas sources to the implemented
+- [ ] 🟡 **CODY-NEXT-09.08** Update navigation/layout/atlas sources to the implemented
   routes, replacing obsolete mixed-panel descriptions. Preserve historical screen
   codes and evidence. Reconcile text completion, touch admission, circular bounds,
   full Back target and 0/90/180/270-degree rotation.
-- [ ] ⚪ **CODY-NEXT-09.09** Preserve the existing push-to-talk/manual Record voice
+- [ ] 🟡 **CODY-NEXT-09.09** Preserve the existing push-to-talk/manual Record voice
   control and its recording, cancellation and delivery pages as UI-only routes.
   Reuse VoiceInputTrigger::DeviceButton and requestVoiceInput through the current
   voice owner. Preserve actual stop/send behavior, profile/capture availability,

@@ -48,6 +48,7 @@ idf_component_register(
         "src/scenes/CODY_onboarding.cpp"
         "src/scenes/CODY_device_view.cpp"
         "src/scenes/CODY_codex_panels.cpp"
+        "src/scenes/CODY_codex_browser.cpp"
         "src/scenes/CODY_system_info.cpp"
         "src/scenes/CODY_local_timer_view.cpp"
         "src/scenes/CODY_screensaver.cpp"

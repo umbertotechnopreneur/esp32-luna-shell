@@ -1395,7 +1395,7 @@ RejectCode StateStore::query(const StateQuery &request, uint64_t now_us, bool li
     const auto source = bank.summary.source;
     const auto &cursor = request.cursor;
     if (request.kind != StateQueryKind::Summary && request.kind != StateQueryKind::Chat &&
-        !first_page(cursor) && (cursor.source != source || cursor.epoch != bank.summary.epoch ||
+        request.kind != StateQueryKind::Turn && !first_page(cursor) && (cursor.source != source || cursor.epoch != bank.summary.epoch ||
         cursor.revision != bank.summary.revision || cursor.generation != generation_)) {
         return RejectCode::NeedSnapshot;
     }
@@ -1416,6 +1416,18 @@ RejectCode StateStore::query(const StateQuery &request, uint64_t now_us, bool li
         if (!row) return RejectCode::MissingReference;
         auto &page = result.page.emplace<StateChatPage>();
         project_chat(bank, *row, clock, page.rows[0]);
+        page.count = 1;
+        return RejectCode::None;
+    }
+    case StateQueryKind::Turn: {
+        if (!first_page(cursor) || request.chat != ChatId{} || !request.turn.valid()) {
+            return RejectCode::Malformed;
+        }
+        if (request.turn.source != source) return RejectCode::WrongBinding;
+        const auto *row = find_row(bank, {EntityKind::Turn, request.turn.value});
+        if (!row) return RejectCode::MissingReference;
+        auto &page = result.page.emplace<StateTurnPage>();
+        project_turn(bank, *row, clock, page.rows[0]);
         page.count = 1;
         return RejectCode::None;
     }

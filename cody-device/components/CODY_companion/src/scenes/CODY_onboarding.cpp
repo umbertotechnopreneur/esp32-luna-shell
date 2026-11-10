@@ -202,7 +202,7 @@ enum class OnboardingAction : uint8_t {
     ForgetPairing, ConfirmForget, KeepSaved, DisplayOptions, BehaviorOptions, MoreBehavior,
     Connections, CodexStatistics, VisibleScreens, OpenPairingGuide, GoHome,
     FactoryReset, ConfirmFactoryReset, LocalTimer, RestartDevice, ConfirmRestart, QuickGuide,
-    CheckRelay, SynthOptions,
+    CheckRelay, SynthOptions, BrowseCodex,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
@@ -1214,6 +1214,9 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         break;
     case OnboardingAction::CodexStatistics:
         label = "Codex stats";
+        break;
+    case OnboardingAction::BrowseCodex:
+        label = "Codex";
         break;
     case OnboardingAction::LocalTimer:
         label = "Timer";
@@ -2599,6 +2602,7 @@ MenuAppearance menu_appearance(OnboardingAction action)
     switch (action) {
     case OnboardingAction::Connections: return {Icon::Link, 0xBD9F, "Wi-Fi and PC"};
     case OnboardingAction::CodexStatistics: return {Icon::Statistics, 0x7759, "Limits and credits"};
+    case OnboardingAction::BrowseCodex: return {Icon::Statistics, 0x7759, "Chats, events and limits"};
     case OnboardingAction::LocalTimer: return {Icon::Clock, 0xFDA9, "Focus countdown"};
     case OnboardingAction::VisibleScreens: return {Icon::PlanBusiness, 0x6F9E, "Dashboard pages"};
     case OnboardingAction::DisplayOptions: return {Icon::Orientation, 0xFDA9, "Light and rotation"};
@@ -2696,7 +2700,7 @@ esp_err_t prepare_options_content(SceneFrame &scene,
             OnboardingAction::DisplayOptions, OnboardingAction::BehaviorOptions,
         };
         constexpr OnboardingAction device_actions[] = {
-            OnboardingAction::Connections, OnboardingAction::CodexStatistics, OnboardingAction::LocalTimer,
+            OnboardingAction::Connections, OnboardingAction::BrowseCodex, OnboardingAction::LocalTimer,
             OnboardingAction::VisibleScreens, OnboardingAction::DisplayOptions, OnboardingAction::BehaviorOptions,
             OnboardingAction::RestartDevice, OnboardingAction::FactoryReset, OnboardingAction::QuickGuide,
         };
@@ -5013,6 +5017,13 @@ bool onboarding_saved_wifi_startup_offline(int64_t now_us)
 }
 
 // No parameters: keep setup, connection attempts and attention screens in their own routes.
+bool onboarding_codex_tools_active()
+{
+    return kDeviceFirstSetup && s_route == Route::MakeItYours10 && s_options_page == OptionsPage::Menu &&
+        !maintenance_pending() && !s_command_pending;
+}
+
+// No parameters: true on the existing connected dashboard route.
 bool onboarding_dashboard_active()
 {
     switch (s_route) {
@@ -6683,6 +6694,9 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
                     return show_options_page(scene, OptionsPage::RestartConfirm);
                 case OnboardingAction::Cancel:
                     return show_options_page(scene, OptionsPage::MenuMaintenance);
+                case OnboardingAction::BrowseCodex:
+                    s_widget_open_request = WidgetOpenRequest::CodexBrowser;
+                    return ESP_OK;
                 case OnboardingAction::CodexStatistics:
                     s_widget_open_request = WidgetOpenRequest::Statistics;
                     return ESP_OK;

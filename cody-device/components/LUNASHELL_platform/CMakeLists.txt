@@ -141,6 +141,7 @@ if(CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION AND
     list(APPEND LUNASHELL_platform_srcs
         "src/network/LUNASHELL_codex_state_wire.cpp"
         "src/network/LUNASHELL_codex_state_saved.cpp"
+        "src/network/LUNASHELL_codex_recovery_saved.cpp"
     )
 endif()
 

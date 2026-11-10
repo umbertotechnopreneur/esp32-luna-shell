@@ -4,9 +4,18 @@
 #include "CODY_state_store.hpp"
 #include "esp_err.h"
 
+#include <cstddef>
 #include <cstdint>
 
 namespace LUNASHELL::codex_state_saved {
+
+// record: Payload followed by the 32-byte tag; caller owns the complete buffer.
+// payload_bytes: Exact byte length of the versioned payload, at most 256.
+// domain: NUL-terminated purpose label, including its terminator in the MAC.
+// key: Retained pairing key, borrowed only during this operation.
+// verify: True for verification, false to generate the tag.
+esp_err_t authenticate_checkpoint(uint8_t *record, size_t payload_bytes, const char *domain,
+                                  const uint8_t *key, bool verify);
 
 // peer: Current retained PC ID, or null with key when unpaired.
 // key: Current persisted and read-back pairing key, never stored in this record.

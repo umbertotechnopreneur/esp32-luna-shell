@@ -70,6 +70,7 @@ struct FinalAck {
 
 struct Wire {
     Domain::StateStore store;
+    Domain::StateQueryResult bookmark_query{};
     Protocol::ReceiveWindow window;
     Protocol::ReplayWindow replay;
     ControlJson json;
@@ -548,7 +549,9 @@ RejectCode admit_offer(Wire &wire, const JsonNode *document, uint64_t request_id
             if (previous.source == binding.source || (previous.provider == binding.provider &&
                 previous.native_namespace == binding.native_namespace)) return RejectCode::Malformed;
         }
-        if (!chosen && binding.supports_core) chosen = &binding;
+        // This firmware profile admits only the currently supported Codex adapter.
+        if (!chosen && binding.supports_core && binding.provider == "codex" &&
+            binding.native_namespace == "codex.command-hooks") chosen = &binding;
     }
     if (!chosen) return RejectCode::UnsupportedCapability;
 
@@ -1251,6 +1254,19 @@ esp_err_t copy_query(const Domain::StateQuery &query, Domain::StateQueryResult &
     if (saved.revision != 0) result.health = Domain::StateViewHealth::Historical;
     if (storage_error != ESP_OK) return storage_error;
     return result.summary.revision != 0 ? ESP_OK : ESP_ERR_INVALID_STATE;
+}
+
+// chat: Exact chat identity supplied by an explicit local selection.
+// now_us: Receiver clock used to reject stale authenticated leases.
+esp_err_t validate_bookmark(const Domain::ChatId &chat, uint64_t now_us)
+{
+    if (!chat.valid()) return ESP_ERR_INVALID_ARG;
+    if (!s_wire || !link_ready(*s_wire, s_wire->store.summary(), now_us)) return ESP_ERR_INVALID_STATE;
+    Domain::StateQuery query{};
+    query.kind = Domain::StateQueryKind::Chat;
+    query.chat = chat;
+    const auto error = s_wire->store.query(query, now_us, true, s_wire->bookmark_query);
+    return query_error(error);
 }
 
 } // namespace LUNASHELL::codex_state

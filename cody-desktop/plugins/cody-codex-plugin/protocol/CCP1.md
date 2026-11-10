@@ -688,8 +688,15 @@ TTL is remaining seconds rounded up, 0..180, not UTC; pending/received require
 at least one second. Repetition never extends the original local deadline.
 Offline retains question/route; timeout, restart or LAN return never selects a choice.
 
-An open question unknown to the current association's broker
-(for example after restart) first receives EVENT unavailable with the same ID,
+The authenticated broker ledger retains a semantic question ID separately from
+the transport ticket. It commits the exact choice and answer identity before
+acknowledging broker receipt. A retained received answer and a device closure
+are separate records. Broker restart preserves the question and recorded
+attempt while disabling the former delivery ticket. No monotonic deadline,
+private bearer token or automatic Send is reconstructed.
+
+An open question unavailable to the current association's broker
+first receives EVENT unavailable with the same ID,
 ttl=0 and data=-. A queued successor waits. Cody retires only its own question,
 keeps the local choice as unconfirmed delivery and publishes rejected with
 ESP_ERR_NOT_FOUND. A later signed terminal FIND, or absence after Done, confirms

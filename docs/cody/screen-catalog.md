@@ -116,6 +116,11 @@ identify the owning journey; exact current controls remain in navigation.md.
 | ui-v1:diagnostics, memory-detail | `CODY_debug_views.cpp`, UI diagnostics layer | Debug/Release entry -> overview -> retained route | Active source |
 | ui-v1:screensaver | `CODY_screensaver.cpp` | Enabled idle policy -> first-touch dismissal | Active source, setting initially disabled |
 | ui-v1:activity-events, current-turn, reply, statistics | CP; UI `ActivityPage` | Activity navigation -> event/detail/statistics | Active source, canonical selected-chat projection only |
+| next-v1:101 / codex | Native Codex browser hub | Options -> Chats, Active calls, Events or Statistics | Source |
+| next-v1:102 / chats | Canonical chat page | Codex -> selected chat / Turns; Back -> Codex | Source |
+| next-v1:103 / turns | Exact chat and its turns | Chats or Resume -> Tool calls; Back -> caller | Source |
+| next-v1:104 / tool-calls | Calls belonging to one exact turn | Turns -> Tool calls; Back -> Turns | Source |
+| next-v1:105 / active-calls | Source active-call page | Codex -> Active calls; Back -> Codex | Source |
 | legacy-v1:technical-panels, home-identity, character-direction | `CODY_technical_panels.cpp`, `CODY_home_identity.cpp`, `CODY_character_direction.cpp` | Retained behavior/presenters for selective reuse | S; not an instruction to restore the vector face |
 | reference-v1:muse-wifi-keypad | External Muse settings/keypad sources below | Network SSID/password editor -> Wi-Fi owner | Reference only; no Cody native port yet |
 
