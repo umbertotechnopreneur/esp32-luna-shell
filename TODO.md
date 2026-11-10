@@ -9,8 +9,11 @@ specification is in [planned-todo.md](planned-todo.md#cody-next---domain-model-a
 | --- | --- | --- |
 | CODY-NEXT-00 | Accepted (source inventory) | G01/G02 document review complete in [screen catalog](docs/cody/screen-catalog.md); physical/route acceptance remains in 09/11 |
 | CODY-NEXT-01 | Implemented / validation pending | Schema and design review (G01/G02) in [domain contract](docs/cody/domain-model.md); header compilation, actual memory layout and runtime evidence remain pending |
+| CODY-NEXT-02 | Implementing | G01/G02: logical JSON, authenticated bounded wire contract, negotiation, recovery and independent implementation examples |
 
-Next dependency: `CODY-NEXT-02`, then portability foundation `CODY-NEXT-14`.
+Current phase: `CODY-NEXT-02`; next dependency: portability foundation `CODY-NEXT-14`.
+Keep this table and the ASCII progress summary at the top of `planned-todo.md`
+aligned at every phase checkpoint; static readiness never counts as executed tests.
 Runtime integration, Muse direction and route changes follow their named phases.
 The new `CODY_domain` headers define values and a storage-budget calculation;
 they are not yet connected to a build target, broker, device store or UI.
