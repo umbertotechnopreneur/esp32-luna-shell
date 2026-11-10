@@ -17,6 +17,7 @@
 #include "CODY_local_timer_view.hpp"
 #include "CODY_audio_view.hpp"
 #include "CODY_pixel_demo.hpp"
+#include "CODY_pet_service.hpp"
 #include "CODY_screensaver.hpp"
 #include "CODY_status_overlay.hpp"
 #include "CODY_onboarding.hpp"
@@ -1475,6 +1476,11 @@ esp_err_t sample_touch()
         }
         if (CODY::observe_pixel_demo_touch(ui.pixel_demo, point, sample.pressed, pressed_edge,
                 sample.sample_timestamp_us, ui.retired.display_revision)) {
+            const auto pet_error = CODY::record_pet_tap(sample.sample_timestamp_us);
+            if (pet_error != ESP_OK) {
+                ESP_LOGE(kTag, "Pet tap publication failed (%s)", esp_err_to_name(pet_error));
+                return pet_error;
+            }
             if (ui.pixel_demo.elapsed_us >= CODY::kPixelDemoWakingUs) ui.home_menu.interact(esp_timer_get_time());
             play_touch_cue(ui);
         }
@@ -1710,8 +1716,7 @@ esp_err_t apply_command(Command command)
         ui.statistics_entry = false;
         ui.activity_page = ActivityPage::Events;
         ui.mascot_home = true;
-        ui.pixel_demo.pet.showcase.reset(static_cast<uint32_t>(now_us));
-        ui.pixel_demo.pet.visual_valid = false;
+        ui.pixel_demo.showcase.reset(static_cast<uint32_t>(now_us));
     }
     if (command == Command::Sleep || command == Command::Shutdown) {
         set_audio_demand(false);
