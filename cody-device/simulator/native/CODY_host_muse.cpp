@@ -1,4 +1,5 @@
 #include "CODY_pixel_avatar.hpp"
+#include "CODY_muse_showcase.hpp"
 
 #include <cstddef>
 
@@ -8,11 +9,16 @@
 #define CODY_HOST_EXPORT extern "C" __attribute__((visibility("default")))
 #endif
 
+namespace {
+CODY::MuseShowcase s_showcase{};
+}
+
 // seed: Artistic seed for a new scenario, with zero selecting startup defaults.
 // The same preview owner must serialize reset and frame calls.
 CODY_HOST_EXPORT void cody_host_muse_reset(uint32_t seed)
 {
     CODY::reset_muse_animation(seed);
+    s_showcase.reset(seed);
 }
 
 // pose: Numeric PixelAvatarPose value; the host ABI rejects unknown values.
@@ -58,12 +64,10 @@ CODY_HOST_EXPORT esp_err_t cody_host_muse_frame(uint32_t time_ms, uint32_t react
     uint16_t *pixels, size_t count)
 {
     constexpr uint16_t side = 320;
-    constexpr uint32_t waking_ms = 1500;
     if (pixels == nullptr || count != side * side) {
         return ESP_ERR_INVALID_ARG;
     }
-    const bool waking = time_ms < waking_ms;
-    const auto pose = waking ? CODY::PixelAvatarPose::Waking : CODY::PixelAvatarPose::Idle;
-    return cody_host_muse_pose_frame(static_cast<uint32_t>(pose), time_ms,
-        waking ? time_ms : time_ms - waking_ms, reaction_ms, 0.0f, 0, side, pixels, count);
+    const auto pose = s_showcase.sample(time_ms);
+    return cody_host_muse_pose_frame(static_cast<uint32_t>(pose.pose), time_ms,
+        pose.pose_ms, reaction_ms, 0.0f, pose.working ? 1U : 0U, side, pixels, count);
 }

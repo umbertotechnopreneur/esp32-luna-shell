@@ -6,8 +6,15 @@ The model owns the selected screen, visibility policy, gestures and acquired
 projections. The renderer owns prepared glyphs, layouts and the last retired
 frame. Partial writes never become the next displayed-state reference.
 
-Cold startup retires the VibeWare animation before presenting Muse. The wake,
-idle and tap animations use Muse's procedural renderer. The Cody display worker
+Cold startup retires the original VibeWare floppy-disk animation before
+presenting Muse. The native CODY2D profile excludes LVGL. Muse wakes, settles
+into Idle and then draws one different showcase pose every ten seconds of visible
+time. Each shuffled cycle shows Idle, Listening, Thinking, Working, Reply, Error,
+Sleep and Waking. The Sleep preview stays dimly visible. Hidden routes and
+standby pause the showcase. These poses demonstrate animation and do not represent
+real microphone, task, reply, error or power state.
+
+The Cody display worker
 handles touch and requests the existing touch sound. PWR hands display ownership to the power service for standby.
 An authenticated question or Chat waiting event can wake software standby when
 the LAN link remains available. Optional audio follows Sounds and quiet hours.

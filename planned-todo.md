@@ -139,7 +139,7 @@ their exact filenames in 01 while retaining the ownership boundaries below.
 | CODY-NEXT-04 | Durable question and answer lifecycle | 02, 03 | ⚪ Planned |
 | CODY-NEXT-05 | Device domain store, synchronization and recovery | 02, 03, 04, 14 | 🟡 Canonical queries and historical checkpoint wired · durable questions pending |
 | CODY-NEXT-06 | Deterministic scenario driver and inspection tools | 01, 02; integrate after 05 | ⚪ Planned |
-| CODY-NEXT-07 | Domain-to-Muse direction and pose transitions | 05, 06 | ⚪ Planned |
+| CODY-NEXT-07 | Domain-to-Muse direction and pose transitions | 05, 06 | 🟡 Native pose showcase wired · domain direction pending |
 | CODY-NEXT-08 | Muse acting, particles and audio policy | 07 | ⚪ Planned |
 | CODY-NEXT-09 | Separate mascot/UI routes and reusable screens | 00, 05, 07 | ⚪ Planned |
 | CODY-NEXT-10 | Subagents and observable asynchronous operations | 03, 05, 06 | ⚪ Planned |
@@ -539,6 +539,12 @@ phase-11 gates; authoring fixtures does not establish parity or hardware behavio
 - [ ] ⚪ **CODY-NEXT-07.07** Replace the demo's wake/idle-only decision with the intent
   integration while retaining completed-frame damage comparison and retirement.
   Prevent offline or sending states from silently removing unresolved attention.
+
+- [x] 🟢 **CODY-NEXT-07.08** Retain the original VibeWare floppy-disk sequence
+  on the native profile. After boot, showcase Muse poses in random order every
+  ten seconds of mascot-visible time. Use a bounded shuffle bag, keep sleep
+  visible and pause while hidden. Showcase pose changes have no domain, audio,
+  microphone or power effects. The firmware and native preview share the scheduler.
 
 **Completion:** each supported domain situation has an explicit Muse mapping;
 transition scenarios have expected poses and effect identities. The renderer

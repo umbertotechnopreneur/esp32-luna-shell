@@ -5,7 +5,8 @@
 ## Start and connect
 
 The VibeWare floppy animation plays once after a cold boot or software reset.
-The display then shows Muse waking and settling into its idle animation. Tap
+The display then shows Muse waking. The showcase changes its pose every ten
+seconds while Muse is visible. Tap
 the character to trigger its reaction and the optional Cody touch sound.
 Press BOOT to open Options and choose Connections or the statistics screens.
 If setup is already active, BOOT reveals that journey. Home returns to Muse.

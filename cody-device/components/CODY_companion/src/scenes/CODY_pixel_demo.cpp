@@ -44,18 +44,16 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
     view.observed_active_us = active_us;
     view.visible = true;
 
-    const bool waking = view.elapsed_us < kPixelDemoWakingUs;
-    const uint64_t pose_us = waking ? view.elapsed_us : view.elapsed_us - kPixelDemoWakingUs;
+    const auto pose = view.showcase.sample(view.elapsed_us / 1000U);
     uint32_t reaction_ms = kPixelAvatarReactionMs;
     if (view.reaction_active) {
         const uint64_t elapsed_ms = (view.elapsed_us - view.reaction_started_us) / 1000U;
         reaction_ms = static_cast<uint32_t>(std::min<uint64_t>(elapsed_ms, kPixelAvatarReactionMs));
         view.reaction_active = reaction_ms < kPixelAvatarReactionMs;
     }
-    compose_pixel_avatar(view.frames[view.write_buffer],
-        waking ? PixelAvatarPose::Waking : PixelAvatarPose::Idle,
-        static_cast<uint32_t>(view.elapsed_us / 1000U),
-        static_cast<uint32_t>(pose_us / 1000U), reaction_ms);
+    compose_pixel_avatar(view.frames[view.write_buffer], pose.pose,
+        static_cast<uint32_t>(view.elapsed_us / 1000U), pose.pose_ms,
+        reaction_ms, 0.0f, pose.working);
 
     const auto viewport = avatar_bounds(view.viewport);
     const DamageRect mascot_bounds{viewport.x, viewport.y,

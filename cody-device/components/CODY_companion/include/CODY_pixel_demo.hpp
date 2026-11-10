@@ -2,11 +2,12 @@
 
 #include "CODY_device_capabilities.hpp"
 #include "CODY_pixel_avatar.hpp"
+#include "CODY_muse_showcase.hpp"
 #include "CODY_scene.hpp"
 
 namespace CODY {
 
-inline constexpr uint64_t kPixelDemoWakingUs = 1500000;
+inline constexpr uint64_t kPixelDemoWakingUs = kMuseShowcaseWakeMs * 1000U;
 
 // The display worker owns both indexed frames in PSRAM through DMA retirement.
 struct PixelDemoView {
@@ -14,6 +15,7 @@ struct PixelDemoView {
     explicit PixelDemoView(LogicalRect logical_viewport) : viewport(logical_viewport) {}
 
     const LogicalRect viewport;
+    MuseShowcase showcase{};
     std::array<PixelAvatarFrame, 2> frames{};
     DamageRect damage{};
     uint64_t elapsed_us = 0;
