@@ -22,6 +22,7 @@
 
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_assistant_service.hpp"
 #include "LUNASHELL_snapshot_aging.hpp"
 #include "LUNASHELL_snapshot_internal.hpp"
 #include "LUNASHELL_acquisition_internal.hpp"
@@ -2837,6 +2838,20 @@ esp_err_t DeviceSnapshotService::readCodexDomainObservation(const CODY::Domain::
     return LUNASHELL::readCodexDomain(request, result);
 }
 
+// status: Copied metadata for the committed CCP assistant source.
+// Exception: Returns the network owner's original availability or synchronization error.
+esp_err_t DeviceSnapshotService::readCodexAssistantStatus(CODY::Domain::AssistantStatus &status) const
+{
+    return LUNASHELL::readCodexAssistantStatus(status);
+}
+
+// catalog: Independent source observations; no canonical hardware lock is nested.
+// Exception: Preserves all row errors and returns the first failing source result.
+esp_err_t DeviceSnapshotService::readAssistantStatuses(AssistantCatalog &catalog) const
+{
+    return readAssistantCatalog(catalog);
+}
+
 // status: Copies one generation's link and recovery status.
 // Exception: Returns the underlying owner error.
 esp_err_t DeviceSnapshotService::readCodexDomainStatus(CodexDomainStatus &status) const
@@ -3330,6 +3345,65 @@ esp_err_t DeviceSnapshotService::readDisplayPolicyObservation(
     return ESP_OK;
 }
 
+// status: Receives hardware observations and their original measurement metadata.
+// Exception: Returns the canonical lock/release error without replacing status.
+esp_err_t DeviceSnapshotService::readHardwareStatus(HardwareStatus &status) const
+{
+    HardwareStatus copy;
+    const esp_err_t lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "hardware status read");
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(TAG, "Hardware status lock failed (%s)", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    copy.battery = s_snapshot.battery;
+    copy.clock = s_snapshot.clock;
+    copy.wifi = s_snapshot.radios.wifi;
+    copy.ble = s_snapshot.radios.ble;
+    const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
+    const esp_err_t release_error = give_snapshot_mutex("hardware status read");
+    if (release_error != ESP_OK) {
+        ESP_LOGE(TAG, "Hardware status release failed (%s)", esp_err_to_name(release_error));
+        return release_error;
+    }
+    const int64_t now_us = esp_timer_get_time();
+    age_measured_sample(copy.battery, now_us, ttl_us);
+    age_measured_sample(copy.clock, now_us, ttl_us);
+    age_wifi_signal(copy.wifi, now_us, ttl_us);
+    status = copy;
+    return ESP_OK;
+}
+
+// link: Canonical CCP acquisition; caller holds the snapshot lock.
+// status: Receives original link metadata and independently aged app presence.
+static void project_codex_presence(const CodexLinkSnapshot &link, CodexPresenceStatus &status)
+{
+    status.codex_link = link;
+    status.codex_link_state = link.state;
+    const int64_t now_us = esp_timer_get_time();
+    status.codex_app_open = codex_presence::ready_current(link, now_us) &&
+        codex_presence::is_open(link.app_presence, now_us);
+}
+
+// status: Receives application presence independently of hardware projections.
+// Exception: Preserves the original lock/release error without replacing status.
+esp_err_t DeviceSnapshotService::readCodexPresenceStatus(CodexPresenceStatus &status) const
+{
+    CodexPresenceStatus copy;
+    const auto lock_error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "Codex presence read");
+    if (lock_error != ESP_OK) {
+        ESP_LOGE(TAG, "Codex presence lock failed (%s)", esp_err_to_name(lock_error));
+        return lock_error;
+    }
+    project_codex_presence(s_snapshot.radios.codex_link, copy);
+    const auto release_error = give_snapshot_mutex("Codex presence read");
+    if (release_error != ESP_OK) {
+        ESP_LOGE(TAG, "Codex presence release failed (%s)", esp_err_to_name(release_error));
+        return release_error;
+    }
+    status = copy;
+    return ESP_OK;
+}
+
 // observation: Receives coherent battery, clock, Wi-Fi, BLE and scalar Codex state.
 // The renderer never samples the PMU, system clock, Wi-Fi or BLE driver through this path.
 // Exception: Returns the original canonical lock/release failure.
@@ -3348,12 +3422,7 @@ esp_err_t DeviceSnapshotService::readDeviceStatusObservation(
     copy.clock = s_snapshot.clock;
     copy.wifi = s_snapshot.radios.wifi;
     copy.ble = s_snapshot.radios.ble;
-    copy.codex_link = s_snapshot.radios.codex_link;
-    copy.codex_link_state = s_snapshot.radios.codex_link.state;
-    const auto &link = s_snapshot.radios.codex_link;
-    const int64_t presence_now_us = esp_timer_get_time();
-    copy.codex_app_open = codex_presence::ready_current(link, presence_now_us) &&
-        codex_presence::is_open(link.app_presence, presence_now_us);
+    project_codex_presence(s_snapshot.radios.codex_link, copy);
     const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
     const esp_err_t release_error = give_snapshot_mutex("device status read");
     if (release_error != ESP_OK) {

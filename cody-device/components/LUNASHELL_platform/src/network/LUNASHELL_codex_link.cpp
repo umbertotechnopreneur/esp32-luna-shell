@@ -4793,6 +4793,17 @@ esp_err_t LUNASHELL::readCodexDomain(const CODY::Domain::StateQuery &query,
         now > 0 && stateLinkEligibleLocked());
 }
 
+// status: Receives the committed source projection, not a borrowed registry pointer.
+// Exception: Owner contention or an unavailable generation leaves status unchanged.
+esp_err_t LUNASHELL::readCodexAssistantStatus(CODY::Domain::AssistantStatus &status)
+{
+    std::unique_lock<std::mutex> guard(s_mutex, std::try_to_lock);
+    if (!guard.owns_lock()) return ESP_ERR_TIMEOUT;
+    const auto now = esp_timer_get_time();
+    return codex_state::copy_assistant_status(status, now > 0 ? static_cast<uint64_t>(now) : 0,
+        now > 0 && stateLinkEligibleLocked());
+}
+
 // chat: Exact current authenticated chat, or explicit zero to clear the pairing's bookmark.
 esp_err_t LUNASHELL::saveCodexSelection(const CODY::Domain::ChatId &chat)
 {
@@ -5274,6 +5285,14 @@ extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_
 }
 
 #else
+
+// status: Unchanged when this profile excludes the Cody state link.
+// Exception: Returns the unsupported-profile error.
+esp_err_t LUNASHELL::readCodexAssistantStatus(CODY::Domain::AssistantStatus &status)
+{
+    (void)status;
+    return ESP_ERR_NOT_SUPPORTED;
+}
 
 // status: Cleared when the selected profile excludes the Cody state link.
 esp_err_t LUNASHELL::readCodexDomainStatus(CodexDomainStatus &status)

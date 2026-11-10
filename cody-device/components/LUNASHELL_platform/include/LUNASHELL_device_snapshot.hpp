@@ -48,6 +48,8 @@
 
 namespace LUNASHELL {
 
+struct AssistantCatalog;
+
 struct SensorFusionResult;
 
 enum class DeviceHealth : uint8_t {
@@ -1180,17 +1182,25 @@ struct DisplayPolicyObservation {
         UiHardwareSnapshot::DisplayPowerMode::Unknown;
 };
 
-// A small coherent projection for informational chrome in either renderer.
-// Calendar fields are published by the clock owner; consumers never read live time.
-struct DeviceStatusObservation {
+// A bounded hardware-only view of the existing acquisition owner's snapshot.
+// Each measurement retains its own validity, error and acquisition timestamps.
+struct HardwareStatus {
     BatterySnapshot battery;
     ClockSnapshot clock;
     WifiSnapshot wifi;
     BleSnapshot ble;
+};
+
+// Legacy CCP application presence is separate from hardware and domain sources.
+// It cannot establish the presence of another assistant provider.
+struct CodexPresenceStatus {
     ComponentSnapshot codex_link;
     CodexLinkState codex_link_state = CodexLinkState::Idle;
     bool codex_app_open = false;
 };
+
+// Compatibility projection for consumers not yet migrated to separate reads.
+struct DeviceStatusObservation : HardwareStatus, CodexPresenceStatus {};
 
 // One coherent projection for the native diagnostics HUD, without spectra or routes.
 struct DiagnosticsObservation {
@@ -1271,6 +1281,12 @@ public:
     // destination: Caller-owned full buffer; usable only when this read returns ESP_OK.
     // Exception: Returns the original canonical lock/release error without reading hardware.
     esp_err_t readSnapshot(DeviceSnapshot &destination) const;
+    // status: Bounded hardware-only projection from the existing canonical owner.
+    // Exception: Returns the original lock/release error without changing status.
+    esp_err_t readHardwareStatus(HardwareStatus &status) const;
+    // status: Legacy CCP presence without battery, clock or radio observations.
+    // Exception: Returns the original snapshot lock/release error without replacing status.
+    esp_err_t readCodexPresenceStatus(CodexPresenceStatus &status) const;
     // destination: Small caller-owned projection, no full snapshot on its stack.
     // Exception: Returns the original canonical snapshot lock error.
     esp_err_t readActivity(ActivitySnapshot &destination) const;
@@ -1320,6 +1336,12 @@ public:
     // Exception: Returns original link/owner availability errors. No I/O or snapshot lock nesting.
     esp_err_t readCodexDomainObservation(const CODY::Domain::StateQuery &request,
                                          CODY::Domain::StateQueryResult &result) const;
+    // status: Caller-owned metadata of the current committed CCP assistant source.
+    // Exception: Returns the original owner error without changing status.
+    esp_err_t readCodexAssistantStatus(CODY::Domain::AssistantStatus &status) const;
+    // catalog: Caller-owned status/error for each independently registered assistant owner.
+    // Exception: Returns the first source error while retaining all partial observations.
+    esp_err_t readAssistantStatuses(AssistantCatalog &catalog) const;
     // status: Caller-owned counts, generation and link/recovery state.
     // Exception: Returns the original owner error, including an unavailable profile.
     esp_err_t readCodexDomainStatus(CodexDomainStatus &status) const;

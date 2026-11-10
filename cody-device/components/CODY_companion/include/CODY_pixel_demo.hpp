@@ -87,14 +87,17 @@ void retire_pixel_demo(PixelDemoView &view);
 // view: Hidden or invalidated mascot; retain the clock and discard touch ownership.
 void hide_pixel_demo(PixelDemoView &view);
 
-// view: Display-owned contact and reaction state.
+// view: Display-owned contact state; recognition never starts a reaction.
 // point: Acquired logical coordinate; release coordinates are never used for travel.
 // pressed: Real acquired contact state.
 // pressed_edge: First acquired pressed sample of this contact.
 // sampled_at_us: Original touch acquisition time.
 // display_revision: Current retired panel/touch mapping identity.
-// Returns true only when a tap starts the Muse reaction.
+// Returns true once for a recognized tap, before semantic delivery.
 bool observe_pixel_demo_touch(PixelDemoView &view, CODY2D::Point point,
     bool pressed, bool pressed_edge, int64_t sampled_at_us, uint32_t display_revision);
+
+// view: Visible mascot whose tap has already been accepted by the pet owner.
+void start_pixel_demo_reaction(PixelDemoView &view);
 
 } // namespace CODY

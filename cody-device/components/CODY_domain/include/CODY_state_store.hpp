@@ -65,6 +65,12 @@ public:
     // No parameters: copies a bounded summary of the last committed generation.
     StateSummary summary() const;
 
+    // now_us: Current receiver monotonic time used to age the original evidence.
+    // link_ready: Verified lease for this store's committed source and epoch.
+    // status: Caller-owned assistant metadata; unchanged on failure.
+    // Exception: Returns NeedSnapshot or MissingReference for unavailable data.
+    Protocol::RejectCode assistant_status(uint64_t now_us, bool link_ready, AssistantStatus &status) const;
+
     // request: Bounded page or single entity in one committed generation.
     // now_us: Current receiver clock, used to age original evidence conservatively.
     // link_ready: True only for a confirmed lease and the queried source/epoch.

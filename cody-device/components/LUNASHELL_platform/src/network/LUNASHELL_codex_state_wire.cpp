@@ -1283,6 +1283,17 @@ esp_err_t copy_query(const Domain::StateQuery &query, Domain::StateQueryResult &
     return result.summary.revision != 0 ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
+// status: Receives one committed source projection, unchanged on failure.
+// now_us: Receiver clock used to evaluate the authenticated source lease.
+// link_eligible: The current retained association still permits live use.
+esp_err_t copy_assistant_status(Domain::AssistantStatus &status, uint64_t now_us, bool link_eligible)
+{
+    if (!s_wire) return s_allocation_error;
+    const auto summary = s_wire->store.summary();
+    const bool ready = link_eligible && link_ready(*s_wire, summary, now_us);
+    return query_error(s_wire->store.assistant_status(now_us, ready, status));
+}
+
 // chat: Exact chat identity supplied by an explicit local selection.
 // now_us: Receiver clock used to reject stale authenticated leases.
 esp_err_t validate_bookmark(const Domain::ChatId &chat, uint64_t now_us)

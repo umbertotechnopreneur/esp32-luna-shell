@@ -169,14 +169,15 @@ void attach_message(const PlainView &plain, DeviceFrameContent &frame)
 // data: Canonical observation whose authenticated app presence is aged by its owner.
 const char *connection_caption(const DeviceDashboardData &data)
 {
-    if (!data.connection_valid) return "Status unavailable";
-    const auto &status = data.connection;
+    if (data.codex_presence_error != ESP_OK) return "Status unavailable";
+    const auto &status = data.codex_presence;
     if (status.codex_app_open) return "Codex connected";
     if (current(status.codex_link) && status.codex_link_state == LUNASHELL::CodexLinkState::Connected) {
         return "PC linked";
     }
-    if (status.wifi.connection_state_valid && !status.wifi.data_stale &&
-        (!status.wifi.connected || !status.wifi.ip_acquired)) {
+    const auto &wifi = data.hardware.wifi;
+    if (data.hardware_error == ESP_OK && wifi.connection_state_valid && !wifi.data_stale &&
+        (!wifi.connected || !wifi.ip_acquired)) {
         return "Wi-Fi offline";
     }
     if (status.codex_link_state == LUNASHELL::CodexLinkState::Discovering) return "Looking for Codex";
@@ -194,8 +195,8 @@ OverviewStatus overview_codex_status(const DeviceDashboardData &data)
 {
     using Icon = CODY2D::ActionIcon;
     using Link = LUNASHELL::CodexLinkState;
-    const auto &status = data.connection;
-    if (!data.connection_valid || status.codex_link.data_stale ||
+    const auto &status = data.codex_presence;
+    if (data.codex_presence_error != ESP_OK || status.codex_link.data_stale ||
         (!status.codex_link.data_valid && status.codex_link.last_attempt_at_us <= 0)) {
         return {"Unavailable", Icon::Link, kMuted};
     }
@@ -216,8 +217,8 @@ OverviewStatus overview_codex_status(const DeviceDashboardData &data)
 OverviewStatus overview_wifi_status(const DeviceDashboardData &data)
 {
     using Icon = CODY2D::ActionIcon;
-    const auto &wifi = data.connection.wifi;
-    if (!data.connection_valid || !wifi.connection_state_valid || wifi.data_stale) {
+    const auto &wifi = data.hardware.wifi;
+    if (data.hardware_error != ESP_OK || !wifi.connection_state_valid || wifi.data_stale) {
         return {"Unavailable", Icon::Wifi, kMuted};
     }
     if (wifi.started && wifi.connected && wifi.ip_acquired && wifi.ip_address[0] != '\0') {
@@ -316,8 +317,8 @@ esp_err_t prepare_device_home(DeviceView &view, DeviceFrameContent &frame, const
 {
     view.plain.valid = false;
     auto &overview = view.overview;
-    const auto &battery = data.connection.battery;
-    const bool battery_current = data.connection_valid && current(battery);
+    const auto &battery = data.hardware.battery;
+    const bool battery_current = data.hardware_error == ESP_OK && current(battery);
     const bool level_valid = battery_current && battery.level_percent_valid &&
         battery.level_percent >= 0 && battery.level_percent <= 100;
     const int16_t level = level_valid ? static_cast<int16_t>(battery.level_percent) : -1;
@@ -329,7 +330,7 @@ esp_err_t prepare_device_home(DeviceView &view, DeviceFrameContent &frame, const
         {battery_value, CODY2D::ActionIcon::None, !level_valid ? kMuted : level <= 20 ? kAttention : kAccent}}};
     decltype(overview.chat) chat{};
     const auto &activity = data.context.link.activity;
-    if (data.connection_valid && data.connection.codex_app_open && current(activity)) {
+    if (data.codex_presence_error == ESP_OK && data.codex_presence.codex_app_open && current(activity)) {
         const char *title = codex_chat_title_caption(activity, now_us);
         // The existing freshness helper returns the actual buffer only for a current title.
         if (title == activity.title) {
@@ -400,7 +401,8 @@ esp_err_t prepare_device_home(DeviceView &view, DeviceFrameContent &frame, const
 esp_err_t prepare_device_chrome(DeviceChrome &chrome, const DeviceDashboardData &data,
     bool show_connection, const BatteryAlertNotice &battery, int64_t saved_epoch)
 {
-    const bool show_problem = show_connection && (!data.connection_valid || !data.connection.codex_app_open);
+    const bool show_problem = show_connection &&
+        (data.codex_presence_error != ESP_OK || !data.codex_presence.codex_app_open);
     const char *connection = show_problem && saved_epoch == 0 ? connection_caption(data) : nullptr;
     if (connection != chrome.connection_text || saved_epoch != chrome.saved_epoch) {
         chrome.connection = {};

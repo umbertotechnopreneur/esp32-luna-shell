@@ -6,6 +6,7 @@
 #include "CODY_battery_alerts.hpp"
 #include "CODY_device_effects.hpp"
 #include "CODY_local_timer.hpp"
+#include "CODY_pet_service.hpp"
 #include "CODY_screensaver.hpp"
 #include "CODY_companion_gestures.hpp"
 #include "CODY_navigation_visibility.hpp"
@@ -13,19 +14,26 @@
 #include "CODY_token_history.hpp"
 #include "CODY_widget_state.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_assistant_service.hpp"
 #include "LUNASHELL_build_metadata.hpp"
 
 namespace CODY {
 
 // Canonical model projections. The display renderer borrows these read-only.
 struct DeviceDashboardData {
+    PetObservation pet{};
+    LUNASHELL::AssistantCatalog assistants{};
+    esp_err_t assistants_error = ESP_ERR_INVALID_STATE;
     LUNASHELL::CodexWeeklyLimitSnapshot weekly{};
     LUNASHELL::CodexAccountSnapshot details{};
     LUNASHELL::CodexVoucherSnapshot vouchers{};
     LUNASHELL::CodexSavedSnapshot saved{};
     LUNASHELL::CodexTokenIntervalsSnapshot intervals{};
     LUNASHELL::ClockSnapshot clock{};
-    LUNASHELL::DeviceStatusObservation connection{};
+    LUNASHELL::HardwareStatus hardware{};
+    LUNASHELL::CodexPresenceStatus codex_presence{};
+    esp_err_t hardware_error = ESP_ERR_INVALID_STATE;
+    esp_err_t codex_presence_error = ESP_ERR_INVALID_STATE;
     LUNASHELL::CodexTechnicalObservation context{};
     LUNASHELL::ClockLocalCalendar reset_local{};
     TokenHistoryLocalRange history_local{};
@@ -34,7 +42,6 @@ struct DeviceDashboardData {
     uint32_t uptime_seconds = 0;
     uint32_t previous_uptime_seconds = 0;
     bool previous_uptime_valid = false;
-    bool connection_valid = false;
     bool voice_ready = false;
 };
 
@@ -83,7 +90,7 @@ struct DeviceModel {
     bool editing = false;
 };
 
-// data: Receives canonical weekly, voucher and clock observations shared by awake screens.
+// data: Receives independent pet, hardware, assistant and legacy account observations.
 void update_device_observations(DeviceDashboardData &data);
 
 // data: Canonical live voucher projection and authenticated app presence.

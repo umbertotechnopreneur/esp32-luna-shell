@@ -1376,6 +1376,26 @@ void copy_view_text(const Bank &bank, TextRef ref, std::array<char, Size> &out)
     out[count] = '\0';
 }
 
+// bank: Current committed source generation.
+// row: Source entity from that generation.
+// clock: Receiver clock and verified lease.
+// generation: Local committed generation identity.
+// status: Caller-owned bounded source projection.
+void project_assistant(const Bank &bank, const Entity &row, QueryClock clock,
+                       uint64_t generation, AssistantStatus &status)
+{
+    status.source = bank.summary.source;
+    status.epoch = bank.summary.epoch;
+    status.revision = bank.summary.revision;
+    status.generation = generation;
+    status.health = clock.ready ? StateViewHealth::Live : StateViewHealth::Stale;
+    copy_view_text(bank, row.text[0], status.provider);
+    copy_view_text(bank, row.text[1], status.native_namespace);
+    status.capabilities = {row.caps[0], row.caps[1], row.caps[2], row.caps[3],
+                           row.caps[4], row.caps[5], row.caps[6], row.caps[7]};
+    status.link = scalar_view(bank, row.facts[0], clock, static_cast<LinkState>(row.facts[0].value));
+}
+
 // bank: Committed entity graph.
 // row: Exact chat record.
 // clock: Query clock and link readiness.
@@ -1569,6 +1589,23 @@ void copy_page(const Bank &bank, const StateQuery &request, EntityKind kind, Que
 }
 
 } // namespace
+
+// now_us: Current receiver monotonic time for the source evidence.
+// link_ready: Verified lease for the exact committed source and epoch.
+// status: Receives a copied source projection only on success.
+// Exception: Leaves status untouched when the generation or source is unavailable.
+RejectCode StateStore::assistant_status(uint64_t now_us, bool link_ready, AssistantStatus &status) const
+{
+    if (!storage_ || storage_->live().summary.revision == 0) return RejectCode::NeedSnapshot;
+    const auto &bank = storage_->live();
+    const auto *source = find_row(bank, {EntityKind::Source, bank.summary.source.value});
+    if (!source) return RejectCode::MissingReference;
+    const QueryClock clock{now_us, link_ready && now_us >= bank.committed_at_us};
+    AssistantStatus copy{};
+    project_assistant(bank, *source, clock, generation_, copy);
+    status = copy;
+    return RejectCode::None;
+}
 
 // request: Exact single entity or bounded page for a stable identity scope.
 // now_us: Current receiver clock reading. A regressed clock cannot refresh facts.

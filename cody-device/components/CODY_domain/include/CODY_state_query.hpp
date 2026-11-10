@@ -63,6 +63,21 @@ struct StateValueView {
     StateFactView fact{};
 };
 
+// One independently qualified assistant source, copied from its committed owner.
+// Provider and namespace are identities supplied by that source, not an enum of brands.
+struct AssistantStatus {
+    SourceId source{};
+    EpochId epoch{};
+    uint64_t revision = 0;
+    uint64_t generation = 0;
+    std::array<char, 65> provider{};
+    std::array<char, 129> native_namespace{};
+    SemanticCapabilities capabilities{};
+    StateValueView<LinkState> link{};
+    StateViewHealth health = StateViewHealth::Unavailable;
+};
+static_assert(sizeof(AssistantStatus) <= 512, "Keep each source projection bounded");
+
 struct StateChatRow {
     ChatId id{};
     StateValueView<std::array<char, 256>> title{};
@@ -126,6 +141,8 @@ struct StateAttention {
     bool questions_complete = false;
 };
 
+// One bounded, evidence-qualified view of an assistant source. The current
+// CCP store admits one source; this type does not claim multi-provider support.
 struct StateQueryResult {
     StateSummary summary{};
     StateViewHealth health = StateViewHealth::Unavailable;

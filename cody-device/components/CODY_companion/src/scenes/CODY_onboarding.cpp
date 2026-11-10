@@ -415,13 +415,13 @@ struct LocalWifiCredentials {
 };
 LocalWifiCredentials s_local_wifi_credentials{};
 #ifdef ESP_PLATFORM
-// Menu entry and Debug exit borrow the same display-owned observation buffer.
-alignas(LUNASHELL::DeviceStatusObservation) EXT_RAM_BSS_ATTR
-    uint8_t s_connection_status_storage[sizeof(LUNASHELL::DeviceStatusObservation)]{};
-LUNASHELL::DeviceStatusObservation &s_connection_status =
-    *new (s_connection_status_storage) LUNASHELL::DeviceStatusObservation{};
+// Menu entry and Debug exit share one hardware-only buffer outside the touch stack.
+alignas(LUNASHELL::HardwareStatus) EXT_RAM_BSS_ATTR
+    uint8_t s_connection_status_storage[sizeof(LUNASHELL::HardwareStatus)]{};
+LUNASHELL::HardwareStatus &s_connection_status =
+    *new (s_connection_status_storage) LUNASHELL::HardwareStatus{};
 #else
-LUNASHELL::DeviceStatusObservation s_connection_status{};
+LUNASHELL::HardwareStatus s_connection_status{};
 #endif
 #ifdef ESP_PLATFORM
 // One canonical observation stays outside the nested display worker call chain.
@@ -3564,7 +3564,7 @@ esp_err_t enter_route(Route route, SceneFrame &scene, const LUNASHELL::WifiSnaps
     } else if (s_home_wifi_flow && route == Route::Invitation05 && !s_home_wifi_intro) {
         error = set_scene_title(prepared, {wifi_menu_art::kHeadingText, sizeof(wifi_menu_art::kHeadingText) - 1U});
         if (error == ESP_OK) error = LUNASHELL::DeviceSnapshotService::instance()
-            .readDeviceStatusObservation(s_connection_status);
+            .readHardwareStatus(s_connection_status);
         if (error == ESP_OK) {
             s_view.wifi_menu = true;
             update_wifi_menu_name(s_view, s_connection_status.ble);
@@ -7539,7 +7539,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
         const LUNASHELL::WifiSnapshot *wifi = nullptr;
         if (kDeviceFirstSetup) {
             const auto error = LUNASHELL::DeviceSnapshotService::instance()
-                .readDeviceStatusObservation(s_connection_status);
+                .readHardwareStatus(s_connection_status);
             if (error != ESP_OK) { return error; }
             wifi = &s_connection_status.wifi;
         }

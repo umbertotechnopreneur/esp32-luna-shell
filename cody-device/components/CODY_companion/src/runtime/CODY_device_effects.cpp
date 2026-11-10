@@ -225,7 +225,7 @@ void observe_event(DeviceEffectsModel &model, int64_t now_us, SoundRequest &requ
 // status_valid: A failed snapshot copy is not evidence that a peer disconnected.
 // now_us: Monotonic time; transient lease gaps do not repeatedly ring.
 // request: Receives one connection edge after the observed transition.
-void observe_connection(DeviceEffectsModel &model, const LUNASHELL::DeviceStatusObservation &status,
+void observe_connection(DeviceEffectsModel &model, const LUNASHELL::CodexPresenceStatus &status,
     bool status_valid, int64_t now_us, SoundRequest &request)
 {
     if (!status_valid) {
@@ -564,13 +564,16 @@ void play_device_tap_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapsh
 // model: Retained effect identities and canonical projection scratch, never a scene-owned cache.
 // status: Existing canonical status used for source admission and connection edges.
 // status_valid: Read success for status; false never manufactures a disconnection event.
+// wifi: Independent canonical hardware Wi-Fi observation.
+// wifi_valid: Read success for Wi-Fi, independent of the application projection.
 // battery: Existing warning identity without altering its independent visual acknowledgment.
 // voice: Optional already-read canonical recording observation.
 // now_us: Monotonic time for expiry, debouncing and reminder policy.
 // startup_wifi_offline: The startup owner's saved-network wait has settled offline.
 // Exception: Preserves the first original read or playback error, logging only cause changes.
 esp_err_t update_device_effects(DeviceEffectsModel &model,
-    const LUNASHELL::DeviceStatusObservation &status, bool status_valid,
+    const LUNASHELL::CodexPresenceStatus &status, bool status_valid,
+    const LUNASHELL::WifiSnapshot &wifi, bool wifi_valid,
     const BatteryAlertNotice &battery, const LUNASHELL::VoiceSnapshot *voice, int64_t now_us,
     bool startup_wifi_offline)
 {
@@ -613,7 +616,7 @@ esp_err_t update_device_effects(DeviceEffectsModel &model,
     observe_event(model, now_us, request);
     const auto event_sound_error = select_event_sound(model, request);
     observe_connection(model, status, status_valid, now_us, request);
-    observe_wifi(model, status.wifi, status_valid, now_us, startup_wifi_offline, request);
+    observe_wifi(model, wifi, wifi_valid, now_us, startup_wifi_offline, request);
     if (model.pairing_error == ESP_OK) {
         observe_pairing(model, request);
     }

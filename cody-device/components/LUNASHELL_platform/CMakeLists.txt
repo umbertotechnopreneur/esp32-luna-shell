@@ -15,6 +15,7 @@
 # VBWR E
 
 set(LUNASHELL_platform_srcs
+    "src/runtime/LUNASHELL_assistant_service.cpp"
     "src/snapshot/LUNASHELL_hardware.cpp"
     "src/snapshot/LUNASHELL_acquisition_i2c.cpp"
     "src/snapshot/LUNASHELL_acquisition_pmu.cpp"
@@ -47,6 +48,7 @@ set(LUNASHELL_platform_srcs
 )
 
 set(LUNASHELL_platform_requires
+    CODY_domain
     esp_event
     esp_timer
     heap
@@ -269,7 +271,7 @@ if(CONFIG_LUNASHELL_BUILD_ENABLE_WIFI)
 endif()
 if(CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION AND
    CONFIG_LUNASHELL_BUILD_ENABLE_WIFI AND CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX)
-    idf_component_optional_requires(PRIVATE mbedtls CODY_domain)
+    idf_component_optional_requires(PRIVATE mbedtls)
 endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_PROVISIONING)
     idf_component_optional_requires(PUBLIC network_provisioning)

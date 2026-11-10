@@ -17,6 +17,7 @@
 #include "CODY_local_timer_view.hpp"
 #include "CODY_audio_view.hpp"
 #include "CODY_pixel_demo.hpp"
+#include "CODY_pet_service.hpp"
 #include "CODY_screensaver.hpp"
 #include "CODY_status_overlay.hpp"
 #include "CODY_onboarding.hpp"
@@ -444,9 +445,9 @@ void prepare_device_voice_ribbon(DeviceUi &ui, FrameView &frame, esp_err_t motio
 // Exception: Returns original glyph preparation or identity formatting errors.
 esp_err_t prepare_home_wifi_notice(DeviceUi &ui)
 {
-    const auto &status = ui.model.dashboard.connection;
+    const auto &status = ui.model.dashboard.hardware;
     const auto &wifi = status.wifi;
-    const bool offline = ui.model.dashboard.connection_valid && wifi.connection_state_valid &&
+    const bool offline = ui.model.dashboard.hardware_error == ESP_OK && wifi.connection_state_valid &&
         !wifi.data_stale && wifi.last_attempt_at_us > 0 && (!wifi.connected || !wifi.ip_acquired);
     const uint64_t visible_us = ui.pixel_demo.elapsed_us;
     constexpr uint64_t start_us = CODY::kPixelDemoWakingUs + 4000000ULL;
@@ -634,8 +635,9 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
     const bool tracking_alarm = timer.alarm_request_sequence != 0;
     if (tracking_alarm) CODY::update_local_timer_alarm(timer, now_us, voice_busy);
     // Optional sound failures remain in the effects model; visual controls keep working.
-    (void)CODY::update_device_effects(ui.model.effects, ui.model.dashboard.connection,
-        ui.model.dashboard.connection_valid, ui.model.battery_banner, voice, now_us,
+    (void)CODY::update_device_effects(ui.model.effects, ui.model.dashboard.codex_presence,
+        ui.model.dashboard.codex_presence_error == ESP_OK, ui.model.dashboard.hardware.wifi,
+        ui.model.dashboard.hardware_error == ESP_OK, ui.model.battery_banner, voice, now_us,
         CODY::onboarding_saved_wifi_startup_offline(now_us));
     if (!tracking_alarm) CODY::update_local_timer_alarm(timer, now_us, voice_busy);
     const bool voucher_attention_allowed = !ui.mascot_home && CODY::onboarding_dashboard_active() &&
@@ -880,14 +882,14 @@ esp_err_t render(const FrameView &frame, bool force = false)
     // retains its authored boot animation and Blank represents the powered-off panel.
     const bool show_status = frame.layer != Layer::Blank && frame.layer != Layer::Branding;
     if (show_status) {
-        const auto status_error = CODY::prepare_status_overlay(ui.model.dashboard.connection, ui.status, ui.show_battery_percentage);
+        const auto status_error = CODY::prepare_status_overlay(ui.model.dashboard.hardware, ui.status, ui.show_battery_percentage);
         if (status_error != ESP_OK) return status_error;
     }
     const bool status_changed = show_status && (!ui.status_retired ||
         !CODY::status_overlay_equal(ui.status, ui.retired_status));
     const uint16_t allowance = show_battery ? CODY::device_allowance_ring(ui.model.dashboard) : 0;
-    const auto &battery = ui.model.dashboard.connection.battery;
-    const bool battery_current = show_battery && ui.model.dashboard.connection_valid &&
+    const auto &battery = ui.model.dashboard.hardware.battery;
+    const bool battery_current = show_battery && ui.model.dashboard.hardware_error == ESP_OK &&
         battery.data_valid && !battery.data_stale && battery.last_error == ESP_OK &&
         battery.level_percent_valid && battery.level_percent >= 0 && battery.level_percent <= 100;
     const int8_t battery_percent = battery_current ? static_cast<int8_t>(battery.level_percent) : -1;
@@ -1410,6 +1412,7 @@ void play_touch_cue(DeviceUi &ui)
 
 // No parameters: read touch and dispatch it only to the retired visible route.
 // Exception: Returns a mandatory input acquisition or route error.
+// Pet delivery is optional for display operation; its failure remains in dashboard.pet.
 esp_err_t sample_touch()
 {
     auto &ui = *s_ui;
@@ -1486,6 +1489,13 @@ esp_err_t sample_touch()
         }
         if (CODY::observe_pixel_demo_touch(ui.pixel_demo, point, sample.pressed, pressed_edge,
                 sample.sample_timestamp_us, ui.retired.display_revision)) {
+            const auto pet_error = CODY::record_pet_tap(sample.sample_timestamp_us, ui.model.dashboard.pet);
+            if (pet_error != ESP_OK) {
+                // The owner logs and publishes rejection. Do not acknowledge it
+                // with a reaction or stop the unrelated display worker.
+                return ESP_OK;
+            }
+            CODY::start_pixel_demo_reaction(ui.pixel_demo);
             if (ui.pixel_demo.elapsed_us >= CODY::kPixelDemoWakingUs) ui.home_menu.interact(esp_timer_get_time());
             play_touch_cue(ui);
         }

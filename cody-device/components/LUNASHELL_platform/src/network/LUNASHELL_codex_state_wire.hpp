@@ -53,6 +53,11 @@ esp_err_t copy_status(CodexDomainStatus &status, uint64_t now_us, bool link_elig
 esp_err_t copy_query(const CODY::Domain::StateQuery &query, CODY::Domain::StateQueryResult &result,
                      uint64_t now_us, bool link_eligible);
 
+// status: Caller-owned source projection; caller holds the CCP serialization mutex.
+// now_us: Receiver monotonic time for evidence aging.
+// link_eligible: Current retained association is still eligible for live data.
+esp_err_t copy_assistant_status(CODY::Domain::AssistantStatus &status, uint64_t now_us, bool link_eligible);
+
 // chat: Source-qualified bookmark requiring a verified current chat.
 // now_us: Current monotonic clock for the active authenticated lease.
 esp_err_t validate_bookmark(const CODY::Domain::ChatId &chat, uint64_t now_us);
