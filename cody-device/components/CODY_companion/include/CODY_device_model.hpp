@@ -27,7 +27,10 @@ struct DeviceDashboardData {
     LUNASHELL::CodexSavedSnapshot saved{};
     LUNASHELL::CodexTokenIntervalsSnapshot intervals{};
     LUNASHELL::ClockSnapshot clock{};
-    LUNASHELL::DeviceStatusObservation connection{};
+    LUNASHELL::HardwareStatus hardware{};
+    LUNASHELL::CodexPresenceStatus codex_presence{};
+    esp_err_t hardware_error = ESP_ERR_INVALID_STATE;
+    esp_err_t codex_presence_error = ESP_ERR_INVALID_STATE;
     LUNASHELL::CodexTechnicalObservation context{};
     LUNASHELL::ClockLocalCalendar reset_local{};
     TokenHistoryLocalRange history_local{};
@@ -36,7 +39,6 @@ struct DeviceDashboardData {
     uint32_t uptime_seconds = 0;
     uint32_t previous_uptime_seconds = 0;
     bool previous_uptime_valid = false;
-    bool connection_valid = false;
     bool voice_ready = false;
 };
 

@@ -475,7 +475,7 @@ DamageRect status_overlay_damage_bounds()
 // overlay: Receives a complete truthful presentation only after bounded formatting.
 // show_battery_percentage: Whether the valid numeric percentage accompanies the icon.
 // Exception: Returns a formatting or snapshot-contract error without plausible fallback values.
-esp_err_t prepare_status_overlay(const LUNASHELL::DeviceStatusObservation &observation,
+esp_err_t prepare_status_overlay(const LUNASHELL::HardwareStatus &observation,
                                  StatusOverlay &overlay, bool show_battery_percentage)
 {
     StatusOverlay next;

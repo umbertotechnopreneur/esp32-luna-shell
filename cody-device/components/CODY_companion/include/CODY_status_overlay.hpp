@@ -76,7 +76,7 @@ DamageRect status_overlay_damage_bounds();
 // show_battery_percentage: False hides only a valid numeric percentage, never an error.
 // Exception: Returns a formatting or snapshot-contract error without plausible fallback values.
 esp_err_t prepare_status_overlay(
-    const LUNASHELL::DeviceStatusObservation &observation,
+    const LUNASHELL::HardwareStatus &observation,
     StatusOverlay &overlay,
     bool show_battery_percentage = true
 );

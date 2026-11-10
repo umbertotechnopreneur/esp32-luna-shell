@@ -1189,12 +1189,16 @@ struct HardwareStatus {
     BleSnapshot ble;
 };
 
-// Legacy combined projection for chrome until its consumers are separated.
-struct DeviceStatusObservation : HardwareStatus {
+// Legacy CCP application presence is separate from hardware and domain sources.
+// It cannot establish the presence of another assistant provider.
+struct CodexPresenceStatus {
     ComponentSnapshot codex_link;
     CodexLinkState codex_link_state = CodexLinkState::Idle;
     bool codex_app_open = false;
 };
+
+// Compatibility projection for consumers not yet migrated to separate reads.
+struct DeviceStatusObservation : HardwareStatus, CodexPresenceStatus {};
 
 // One coherent projection for the native diagnostics HUD, without spectra or routes.
 struct DiagnosticsObservation {
@@ -1278,6 +1282,9 @@ public:
     // status: Bounded hardware-only projection from the existing canonical owner.
     // Exception: Returns the original lock/release error without changing status.
     esp_err_t readHardwareStatus(HardwareStatus &status) const;
+    // status: Legacy CCP presence without battery, clock or radio observations.
+    // Exception: Returns the original snapshot lock/release error without replacing status.
+    esp_err_t readCodexPresenceStatus(CodexPresenceStatus &status) const;
     // destination: Small caller-owned projection, no full snapshot on its stack.
     // Exception: Returns the original canonical snapshot lock error.
     esp_err_t readActivity(ActivitySnapshot &destination) const;

@@ -84,13 +84,16 @@ void play_device_tap_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapsh
 // model: Sole owner of consumed event identities and observed playback disposition.
 // status: Already-aged connection snapshot shared with the device model.
 // status_valid: True only after the canonical status projection was read successfully.
+// wifi: Independently acquired hardware Wi-Fi observation.
+// wifi_valid: Read success of the hardware projection, independent of app presence.
 // battery: Current canonical threshold notice; its sequence admits at most one sound.
 // voice: Optional current voice snapshot, null when the feature is absent.
 // now_us: Monotonic runtime time, never a wall clock or a scene animation clock.
 // startup_wifi_offline: The saved-network startup wait settled without a local Wi-Fi lease.
 // Exception: Returns the first original projection/admission failure and retains its cause.
 esp_err_t update_device_effects(DeviceEffectsModel &model,
-    const LUNASHELL::DeviceStatusObservation &status, bool status_valid,
+    const LUNASHELL::CodexPresenceStatus &status, bool status_valid,
+    const LUNASHELL::WifiSnapshot &wifi, bool wifi_valid,
     const BatteryAlertNotice &battery, const LUNASHELL::VoiceSnapshot *voice, int64_t now_us,
     bool startup_wifi_offline = false);
 

@@ -77,10 +77,12 @@ void update_device_observations(DeviceDashboardData &data)
         data.vouchers = {};
         data.vouchers.last_error = voucher_error;
     }
-    data.connection_valid = snapshots.readDeviceStatusObservation(data.connection) == ESP_OK;
-    if (!data.connection_valid) data.connection = {};
-    data.clock = data.connection.clock;
-    if (data.connection_valid && !data.connection.codex_app_open) {
+    data.hardware_error = snapshots.readHardwareStatus(data.hardware);
+    if (data.hardware_error != ESP_OK) data.hardware = {};
+    data.codex_presence_error = snapshots.readCodexPresenceStatus(data.codex_presence);
+    if (data.codex_presence_error != ESP_OK) data.codex_presence = {};
+    data.clock = data.hardware.clock;
+    if (data.codex_presence_error == ESP_OK && !data.codex_presence.codex_app_open) {
         const auto error = snapshots.readCodexSaved(data.saved);
         if (error != ESP_OK) {
             data.saved = {};
@@ -91,7 +93,7 @@ void update_device_observations(DeviceDashboardData &data)
     }
     data.voice_ready = false;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-    data.voice_ready = data.connection_valid && record_voice_available(snapshots);
+    data.voice_ready = data.codex_presence_error == ESP_OK && record_voice_available(snapshots);
 #endif
 }
 
@@ -99,7 +101,7 @@ void update_device_observations(DeviceDashboardData &data)
 bool device_voucher_expiries_current(const DeviceDashboardData &data)
 {
     const auto &vouchers = data.vouchers;
-    return data.connection_valid && data.connection.codex_app_open &&
+    return data.codex_presence_error == ESP_OK && data.codex_presence.codex_app_open &&
         vouchers.health == LUNASHELL::DeviceHealth::Ready && vouchers.last_error == ESP_OK &&
         vouchers.data_valid && !vouchers.data_stale && vouchers.series != 0 && vouchers.expiries_valid &&
         vouchers.expiry_count <= vouchers.kMaximumExpiries;
@@ -230,7 +232,7 @@ void update_device_battery(DeviceModel &model, int64_t now_us)
 {
     const auto old_error = model.battery.source_error;
     BatteryAlertNotice notice{};
-    const auto error = update_battery_alert(model.battery, model.dashboard.connection.battery, notice);
+    const auto error = update_battery_alert(model.battery, model.dashboard.hardware.battery, notice);
     if (error != ESP_OK && error != old_error) {
         ESP_LOGW("CODY_device_model", "Battery notice rejected (%s)", esp_err_to_name(error));
     }
@@ -246,7 +248,7 @@ void update_device_battery(DeviceModel &model, int64_t now_us)
 // data: Authenticated app presence, current allowance and clock for the shared perimeter.
 uint16_t device_allowance_ring(const DeviceDashboardData &data)
 {
-    if (!data.connection_valid || !data.connection.codex_app_open) {
+    if (data.codex_presence_error != ESP_OK || !data.codex_presence.codex_app_open) {
         return 0;
     }
     const auto &weekly = data.weekly;

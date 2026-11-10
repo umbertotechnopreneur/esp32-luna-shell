@@ -10,7 +10,11 @@ imply that all existing state has already moved.
 | `PetStatus` | `PetModel` behind `record_pet_tap` and `read_pet_status` | Session-only count and original monotonic time of recognized mascot taps. The model has no renderer, driver or assistant dependency. `PetObservation` includes the latest delivery error and original attempt time. |
 | `AssistantStatus` | `readCodexAssistantStatus` over the committed domain store | One independently identified source with provider, native namespace, epoch, revision, local generation, negotiated capabilities and evidence-qualified link. Source metadata is copied from the committed generation, not from an uncommitted offer. |
 
-The Wi-Fi setup debug path consumes the hardware-only view. A recognized tap on
+The native dashboard, battery notices, status overlay and Wi-Fi cues consume the
+hardware-only view. Legacy Codex presence is read separately through
+`readCodexPresenceStatus`, with its own read error; it is not a generic assistant
+presence signal. Neither read claims an atomic snapshot across those owners.
+A recognized tap on
 the mascot publishes one pet interaction before starting its visual reaction;
 the view keeps its own showcase and animation clock. Readers and writers serialize
 the small scalar update/copy under one mutex, with no I/O, callbacks or logging
@@ -29,8 +33,9 @@ cross-source atomic snapshot. Each source retains its own generation, health and
 link evidence. The current CCP owner supplies one source; additional owners,
 discovery, pagination and adapters are not implemented by this type.
 
-The legacy `DeviceSnapshot` and `DeviceStatusObservation` still contain mixed hardware and
-Codex/application data, and most consumers have not migrated. No persistent pet
+The legacy `DeviceSnapshot` and compatibility `DeviceStatusObservation` still
+contain mixed hardware and Codex/application data for remaining consumers.
+The native dashboard no longer reads that combined projection. No persistent pet
 lifecycle, multi-assistant registry or Claude, Groq or Copilot adapter is
 implemented here.
 
