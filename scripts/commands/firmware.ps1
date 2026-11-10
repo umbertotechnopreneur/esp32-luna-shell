@@ -653,6 +653,16 @@ Import-FirmwareToolchainEnvironment -Toolchain $toolchain -IdfToolsPy $IdfToolsP
 # Keep that invocation on the same interpreter selected for the firmware CLI.
 $pythonDirectory = Split-Path -Parent $PythonExe
 $env:PATH = $pythonDirectory + [IO.Path]::PathSeparator + $env:PATH
+if ($IsWindows) {
+    # cmd.exe drops an inherited PATH longer than 8191 characters. ESP-IDF's
+    # exported paths can repeat host entries, so keep the first occurrence.
+    $seenPathEntries = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    $pathEntries = @($env:PATH -split ';' | Where-Object { $seenPathEntries.Add($_) })
+    $env:PATH = $pathEntries -join ';'
+    if ($env:PATH.Length -gt 8191) {
+        throw 'The exported firmware PATH exceeds the Windows cmd.exe limit after removing duplicate entries.'
+    }
+}
 
 # Parallel ccache processes intermittently exit without diagnostics on this
 # Windows workstation; deterministic firmware builds are more valuable here.
