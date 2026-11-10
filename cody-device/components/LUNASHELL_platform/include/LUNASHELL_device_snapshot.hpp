@@ -1327,6 +1327,9 @@ public:
     // Exception: Returns original link/owner availability errors. No I/O or snapshot lock nesting.
     esp_err_t readCodexDomainObservation(const CODY::Domain::StateQuery &request,
                                          CODY::Domain::StateQueryResult &result) const;
+    // status: Caller-owned metadata of the current committed CCP assistant source.
+    // Exception: Returns the original owner error without changing status.
+    esp_err_t readCodexAssistantStatus(CODY::Domain::AssistantStatus &status) const;
     // status: Caller-owned counts, generation and link/recovery state.
     // Exception: Returns the original owner error, including an unavailable profile.
     esp_err_t readCodexDomainStatus(CodexDomainStatus &status) const;

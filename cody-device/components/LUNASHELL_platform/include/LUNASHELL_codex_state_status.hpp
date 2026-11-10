@@ -7,6 +7,7 @@
 namespace CODY::Domain {
 struct StateQuery;
 struct StateQueryResult;
+struct AssistantStatus;
 } // namespace CODY::Domain
 
 namespace LUNASHELL {
@@ -35,5 +36,9 @@ esp_err_t readCodexDomainStatus(CodexDomainStatus &status);
 // result: Caller-owned copy. A busy/unavailable profile leaves it untouched.
 // Exception: Returns ESP_ERR_TIMEOUT on owner contention, or the query failure.
 esp_err_t readCodexDomain(const CODY::Domain::StateQuery &query, CODY::Domain::StateQueryResult &result);
+
+// status: Copied source metadata and evidence from the committed CCP owner.
+// Exception: Returns the original owner error without changing status.
+esp_err_t readCodexAssistantStatus(CODY::Domain::AssistantStatus &status);
 
 } // namespace LUNASHELL

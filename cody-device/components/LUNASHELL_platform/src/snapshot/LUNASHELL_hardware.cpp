@@ -2837,6 +2837,13 @@ esp_err_t DeviceSnapshotService::readCodexDomainObservation(const CODY::Domain::
     return LUNASHELL::readCodexDomain(request, result);
 }
 
+// status: Copied metadata for the committed CCP assistant source.
+// Exception: Returns the network owner's original availability or synchronization error.
+esp_err_t DeviceSnapshotService::readCodexAssistantStatus(CODY::Domain::AssistantStatus &status) const
+{
+    return LUNASHELL::readCodexAssistantStatus(status);
+}
+
 // status: Copies one generation's link and recovery status.
 // Exception: Returns the underlying owner error.
 esp_err_t DeviceSnapshotService::readCodexDomainStatus(CodexDomainStatus &status) const

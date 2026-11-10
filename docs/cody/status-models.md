@@ -7,15 +7,26 @@ imply that all existing state has already moved.
 | Model | Current source | Boundary |
 | --- | --- | --- |
 | `HardwareStatus` | `DeviceSnapshotService::readHardwareStatus` | A bounded, coherent battery, clock, Wi-Fi and BLE projection. Original validity, age and errors stay with the measurements; it performs no hardware acquisition. |
-| `PetStatus` | Display-owned Muse showcase | The latest prepared artistic pose and its playback state for this session. A hidden view invalidates that pose; preparation does not prove a frame reached the display. This is not yet a persistent pet, a needs model or evidence of assistant work. |
-| `AssistantStatus` | The existing domain query result | One bounded, source-qualified query including health, freshness, coverage and a page where requested. The existing authenticated CCP owner remains the sole store owner; the current profile admits one source. |
+| `PetStatus` | `PetModel` behind `record_pet_tap` and `read_pet_status` | Session-only count and original monotonic time of recognized mascot taps. The model has no renderer, driver or assistant dependency. The service serializes access and reports contention and rejected events. |
+| `AssistantStatus` | `readCodexAssistantStatus` over the committed domain store | One independently identified source with provider, native namespace, epoch, revision, local generation, negotiated capabilities and evidence-qualified link. Source metadata is copied from the committed generation, not from an uncommitted offer. |
 
-The Wi-Fi setup debug path consumes the hardware-only view and the Codex
-browser consumes the assistant query under its new model name. The legacy
-`DeviceSnapshot` and `DeviceStatusObservation` still contain mixed hardware and
-Codex/application data, and most consumers have not migrated. Pet playback is
-still owned by the display worker. No independent pet lifecycle, persistence,
-multi-assistant registry or Claude, Groq or Copilot adapter is implemented here.
+The Wi-Fi setup debug path consumes the hardware-only view. A recognized tap on
+the mascot publishes one pet interaction; the view keeps its own showcase and
+animation clock. Hiding, re-creating or changing the view does not clear the pet
+model. The model is memory-only and starts empty on firmware restart. It does not
+infer mood, needs or a physical interaction from a showcase pose.
+
+`AssistantStatusPage` assembles up to three independently obtained source views
+and rejects duplicate source IDs or overflow. It is caller-owned scratch, not a
+second registry, and does not claim that a page is a complete source list or a
+cross-source atomic snapshot. Each source retains its own generation, health and
+link evidence. The current CCP owner supplies one source; additional owners,
+discovery, pagination and adapters are not implemented by this type.
+
+The legacy `DeviceSnapshot` and `DeviceStatusObservation` still contain mixed hardware and
+Codex/application data, and most consumers have not migrated. No persistent pet
+lifecycle, multi-assistant registry or Claude, Groq or Copilot adapter is
+implemented here.
 
 Further separation must retain existing acquisition owners, source identities,
 per-field freshness and errors. Do not copy a second mutable registry into the
