@@ -54,14 +54,17 @@ static_assert(kMuseViewport.width != 0, "The Cody display must admit a full Muse
 constexpr uint32_t kFrameBudgetMs = 500;
 constexpr uint32_t kPollMs = 100;
 constexpr uint32_t kPowerTimeoutMs = 2500;
+constexpr uint32_t kBirthFrameCount = 100;
+constexpr uint32_t kBirthFrameMs = 50;
 // Ready includes one complete branding cycle after the radio owners release the display.
 constexpr uint32_t kReadyTimeoutMs = kPowerTimeoutMs + VIBEWARE_BOOT_DURATION_MS +
-    VIBEWARE_BOOT_FRAME_COUNT * (kFrameBudgetMs + kPollMs);
+    VIBEWARE_BOOT_FRAME_COUNT * (kFrameBudgetMs + kPollMs) +
+    kBirthFrameCount * (kFrameBudgetMs + kBirthFrameMs);
 // The onboarding and CCP projections still use the existing display task stack budget.
 constexpr uint32_t kWorkerStackBytes = 12288;
 
 enum class Layer : uint8_t {
-    Branding, Mascot, Animation, Message, Scene, Dashboard, AboutLink, Visibility, Timer, Voice, Diagnostics,
+    Branding, Birth, Mascot, Animation, Message, Scene, Dashboard, AboutLink, Visibility, Timer, Voice, Diagnostics,
     VoucherWarning, Events, CurrentTurn, EventReply, CodexBrowser, Screensaver, Blank, Audio
 };
 enum class Command : uint8_t { Ready = 1, Sleep, Wake, Shutdown, ShutdownFailed };
@@ -148,6 +151,13 @@ struct DeviceUi {
     int64_t branding_due_us = 0;
     uint16_t branding_frame = 0;
     BrandingPhase branding_phase = BrandingPhase::Inactive;
+    CODY::PixelAvatarFrame birth_avatar{};
+    CODY2D::TextLine birth_welcome{};
+    int64_t birth_due_us = 0;
+    uint32_t birth_frame = 0;
+    uint16_t birth_background = 0;
+    bool birth_pending = false;
+    bool birth_active = false;
 
     CODY::DeviceView view{};
     CODY::PixelDemoView pixel_demo{kMuseViewport};
@@ -888,7 +898,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const auto screen = ui.model.widgets.selected_screen;
     const bool show_connection = (frame.layer == Layer::Dashboard && screen != WidgetScreen::Device) ||
         frame.layer == Layer::AboutLink || frame.layer == Layer::VoucherWarning;
-    const bool show_battery = frame.layer != Layer::Blank && frame.layer != Layer::Branding &&
+    const bool show_battery = frame.layer != Layer::Blank && frame.layer != Layer::Branding && frame.layer != Layer::Birth &&
         frame.layer != Layer::Screensaver && frame.layer != Layer::Mascot && frame.layer != Layer::Animation;
     const auto saved_epoch = frame.layer == Layer::Dashboard && !frame.statistics_unavailable
         ? CODY::device_saved_page_epoch(ui.model.dashboard, screen) : 0;
@@ -898,7 +908,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const auto &chrome = ui.view.chrome;
     // The same status chrome belongs to every awake content surface. Branding
     // retains its authored boot animation and Blank represents the powered-off panel.
-    const bool show_status = frame.layer != Layer::Blank && frame.layer != Layer::Branding;
+    const bool show_status = frame.layer != Layer::Blank && frame.layer != Layer::Branding && frame.layer != Layer::Birth;
     if (show_status) {
         const auto status_error = CODY::prepare_status_overlay(ui.model.dashboard.hardware, ui.status, ui.show_battery_percentage);
         if (status_error != ESP_OK) return status_error;
@@ -1024,10 +1034,16 @@ esp_err_t render(const FrameView &frame, bool force = false)
             const auto rows = static_cast<uint16_t>(std::min<size_t>(max_rows, bottom - row));
             const CODY2D::Surface strip{static_cast<uint16_t *>(pixels), width, rows, width,
                 static_cast<uint32_t>(capacity / sizeof(uint16_t)), CODY2D::Rgb565ByteOrder::ByteSwapped};
-            const uint16_t background = frame.layer == Layer::Scene ? ui.scene.definition->background_rgb565 : 0;
+            const uint16_t background = frame.layer == Layer::Scene ? ui.scene.definition->background_rgb565 :
+                frame.layer == Layer::Birth ? ui.birth_background : 0;
             error = CODY2D::clear(strip, background);
             if (error == ESP_OK && frame.layer == Layer::Branding) {
                 error = CODY::BootBranding::draw_rows(ui.branding, ui.branding_scratch, ui.branding_frame, strip, row);
+            } else if (error == ESP_OK && frame.layer == Layer::Birth && ui.birth_frame >= 40) {
+                error = CODY::draw_pixel_avatar_rows(ui.birth_avatar, {105, 72, 256, 256}, strip, row, left);
+                if (error == ESP_OK && ui.birth_frame >= 72) {
+                    error = CODY2D::draw_text_rows(ui.birth_welcome, ui.birth_welcome.text.length, strip, row, left);
+                }
             } else if (error == ESP_OK && frame.layer == Layer::Scene) {
                 error = CODY::draw_scene_rows(ui.scene, strip, row, left);
                 if (error == ESP_OK && frame.connection_activity_phase != 0) {
@@ -1062,7 +1078,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
             if (error == ESP_OK && show_status) {
                 error = CODY::draw_status_overlay_rows(ui.status, opacity, background, strip, row, left);
             }
-            if (error == ESP_OK) error = CODY::draw_device_chrome(chrome, strip, row, left);
+            if (error == ESP_OK && frame.layer != Layer::Birth) error = CODY::draw_device_chrome(chrome, strip, row, left);
             if (error == ESP_OK) {
                 error = LUNASHELL_display_frame_submit_rgb565(left, row, right, row + rows, pixels);
             }
@@ -2015,6 +2031,7 @@ esp_err_t advance_branding(DeviceUi &ui)
     const uint16_t next = starting ? 0 : static_cast<uint16_t>(ui.branding_frame + 1U);
     if (next == VIBEWARE_BOOT_FRAME_COUNT) {
         ui.branding_phase = BrandingPhase::Inactive;
+        ui.birth_active = ui.birth_pending;
         ESP_LOGI(kTag, "Boot disk animation completed: %u frames retired", VIBEWARE_BOOT_FRAME_COUNT);
         return ESP_OK;
     }
@@ -2028,12 +2045,39 @@ esp_err_t advance_branding(DeviceUi &ui)
         if (starting) {
             ui.branding_phase = BrandingPhase::Playing;
             ESP_LOGI(kTag, "Boot disk visible cycle started after service readiness");
-            (void)CODY::play_device_boot_cue(ui.model.effects);
+            if (!ui.birth_pending) (void)CODY::play_device_boot_cue(ui.model.effects);
         }
     } else if (error == ESP_ERR_NOT_FINISHED) {
         ui.branding_frame = previous;
     }
     return error;
+}
+
+// ui: Serialized startup state; only successfully retired frames advance the sequence.
+// Exception: Preserves the original rendering failure; parked frames can be retried.
+esp_err_t advance_birth_intro(DeviceUi &ui)
+{
+    if (!LUNASHELL_display_runtime_writes_allowed() || esp_timer_get_time() < ui.birth_due_us) return ESP_OK;
+    if (ui.birth_frame == 0) (void)CODY::play_device_boot_cue(ui.model.effects);
+    uint8_t white = 0;
+    if (ui.birth_frame < 12) white = 255;
+    else if (ui.birth_frame < 40) white = static_cast<uint8_t>((39U - ui.birth_frame) * 255U / 27U);
+    ui.birth_background = CODY2D::fade_rgb565_to_black(0xffff, white);
+    if (ui.birth_frame >= 40) {
+        CODY::compose_pixel_avatar(ui.birth_avatar, CODY::PixelAvatarPose::Idle,
+            (ui.birth_frame - 40U) * kBirthFrameMs, (ui.birth_frame - 40U) * kBirthFrameMs,
+            CODY::kPixelAvatarReactionMs);
+        const auto opacity = static_cast<uint8_t>(std::min(255U, (ui.birth_frame - 40U) * 255U / 31U));
+        for (auto &color : ui.birth_avatar.palette) color = CODY2D::fade_rgb565_to_black(color, opacity);
+        for (auto &color : ui.birth_avatar.dim_palette) color = CODY2D::fade_rgb565_to_black(color, opacity);
+    }
+    FrameView frame{};
+    frame.layer = Layer::Birth;
+    const auto error = render(frame, true);
+    if (error != ESP_OK) return error;
+    ++ui.birth_frame;
+    ui.birth_due_us = esp_timer_get_time() + kBirthFrameMs * 1000LL;
+    return ESP_OK;
 }
 
 // ui: Worker-owned timer and retained navigation state.
@@ -2063,6 +2107,22 @@ void device_ui_worker(void *context)
                 const uint32_t wait_ms = ui.branding_phase == BrandingPhase::AwaitingReady ? kPollMs : 10U;
                 vTaskDelay(std::max<TickType_t>(1, pdMS_TO_TICKS(wait_ms)));
             }
+            continue;
+        }
+        if (ui.birth_active) {
+            if (ui.birth_frame == kBirthFrameCount && esp_timer_get_time() >= ui.birth_due_us) {
+                // All frames and the final visible dwell precede the durable completion record.
+                error = CODY::persist_birth_intro_pending(false);
+                if (error == ESP_OK) {
+                    ui.birth_pending = false;
+                    ui.birth_active = false;
+                    ESP_LOGI(kTag, "Muse birth introduction completed and saved");
+                }
+            } else if (ui.birth_frame < kBirthFrameCount) {
+                error = advance_birth_intro(ui);
+                if (error == ESP_ERR_NOT_FINISHED) error = ESP_OK;
+            }
+            if (error == ESP_OK && ui.birth_active) vTaskDelay(std::max<TickType_t>(1, pdMS_TO_TICKS(10)));
             continue;
         }
         const uint32_t request = s_command.exchange(0, std::memory_order_acq_rel);
@@ -2123,6 +2183,18 @@ extern "C" esp_err_t CODY_companion_start(void)
     // A failed optional sound worker does not remove pairing or power controls.
     (void)CODY::prepare_device_effects(s_ui->model.effects);
     s_ui->first_boot = settings.effective_first_boot;
+    s_ui->birth_pending = settings.birth_intro_pending && esp_reset_reason() != ESP_RST_DEEPSLEEP;
+    static constexpr char welcome[] = "Welcome!";
+    const CODY2D::TextSpan welcome_text{welcome, sizeof(welcome) - 1U};
+    uint32_t welcome_width = 0;
+    error = CODY2D::measure_text_width(CODY::SceneData::title_font, welcome_text, welcome_width);
+    if (error == ESP_OK && welcome_width <= 320) {
+        error = CODY2D::prepare_text_line(CODY::SceneData::title_font, welcome_text,
+            {static_cast<int16_t>((kGeometry.width - welcome_width) / 2), 356}, 0xffff, s_ui->birth_welcome);
+    } else if (error == ESP_OK) {
+        error = ESP_ERR_INVALID_SIZE;
+    }
+    if (error != ESP_OK) return error;
     CODY::WidgetVisibility visibility{};
     s_ui->model.settings_error = CODY::load_widget_visibility(visibility);
     if (s_ui->model.settings_error == ESP_OK) CODY::apply_widget_visibility(s_ui->model.widgets, visibility);

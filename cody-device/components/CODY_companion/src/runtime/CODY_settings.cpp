@@ -30,6 +30,7 @@ namespace CODY {
 namespace {
 constexpr char kTag[] = "CODY_settings";
 constexpr char kFirstBootKey[] = "cody_firstboot";
+constexpr char kBirthIntroKey[] = "cody_birth";
 constexpr char kShakeKey[] = "cody_shake";
 constexpr char kSoundsKey[] = "cody_sounds";
 constexpr char kScreensaverKey[] = "cody_saver";
@@ -652,6 +653,17 @@ esp_err_t load_onboarding_settings(OnboardingSettings &settings)
             kFirstBootKey, esp_err_to_name(error));
         return error;
     }
+    error = store.getBool(kBirthIntroKey, &loaded.birth_intro_pending);
+    if (error == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGI(kTag, "Birth intro: key '%s' absent; persisting default=1", kBirthIntroKey);
+        error = persist_birth_intro_pending(true);
+        if (error == ESP_OK) loaded.birth_intro_pending = true;
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Birth intro read/default persistence '%s' failed (%s)",
+            kBirthIntroKey, esp_err_to_name(error));
+        return error;
+    }
 #if CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT
     loaded.force_first_boot = true;
 #endif
@@ -688,5 +700,21 @@ esp_err_t persist_first_boot(bool first_boot)
     }
     ESP_LOGI(kTag, "Explicit first-boot preference persisted: '%s'=%u", kFirstBootKey, first_boot);
     return ESP_OK;
+}
+
+// pending: Whether a fully retired introduction remains outstanding.
+// Exception: Returns the original write/readback error or a readback mismatch.
+esp_err_t persist_birth_intro_pending(bool pending)
+{
+    auto &store = LUNASHELL::UserSettingsService::instance();
+    auto error = store.setBool(kBirthIntroKey, pending);
+    bool stored = !pending;
+    if (error == ESP_OK) error = store.getBool(kBirthIntroKey, &stored);
+    if (error == ESP_OK && stored != pending) error = ESP_ERR_INVALID_RESPONSE;
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Birth intro preference '%s'=%u failed (%s)",
+            kBirthIntroKey, pending, esp_err_to_name(error));
+    }
+    return error;
 }
 } // namespace CODY
