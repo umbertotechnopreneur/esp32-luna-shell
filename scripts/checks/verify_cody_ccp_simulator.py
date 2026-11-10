@@ -1375,11 +1375,13 @@ class SimulatorProtocolTests(unittest.TestCase):
 
 # loader: Existing unittest loader invoked by the public cody-ccp-simulator check.
 # standard_tests: Protocol and presentation cases already discovered in this module.
-# pattern: unittest discovery input; this suite intentionally loads only the named batch fixture.
+# pattern: unittest discovery input; this suite loads the named Studio fixtures.
 # Raises original import/native errors rather than silently skipping action-raster coverage.
 def load_tests(loader, standard_tests, pattern):
     standard_tests.addTests(loader.discover(str(ROOT / "cody-device/simulator/windows/tests"),
                                            pattern="test_event_action_batch.py"))
+    standard_tests.addTests(loader.discover(str(ROOT / "cody-device/simulator/windows/tests"),
+                                           pattern="test_animation_controls.py"))
     return standard_tests
 
 

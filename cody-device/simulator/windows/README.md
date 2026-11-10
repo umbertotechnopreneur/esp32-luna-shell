@@ -436,7 +436,8 @@ by [AGENTS.md](../../../AGENTS.md) before each execution:
 
 The two CCP suites do not open windows or send hooks to Codex. The simulator suite
 includes real UDP on temporary loopback ports and isolated synthetic state, with
-no LAN broadcast or access to personal associations.
+no LAN broadcast or access to personal associations. It requires the current
+`cody-simulator-graphics` driver generated in this checkout before the suite runs.
 The character suite runs the real C++ direction binding, saves labelled synthetic
 frames and exercises a withdrawn Tk window with its scheduled renderer. Prepare
 both `cody-simulator-graphics` and `cody-simulator-audio` through the console first.
