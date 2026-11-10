@@ -1111,10 +1111,10 @@ class ChatActivityTests(unittest.TestCase):
                     patch.object(runtime, "read_branch", return_value="synthetic-branch"):
                 runtime.run_hook()
         submitted = exchange.call_args.args[1]
-        self.assertEqual(set(submitted), {"hook_event_name", "session_id", "turn_id", "cwd", "emitted_ns", "branch", "model", "trigger", "transcript_path"})
+        self.assertEqual(set(submitted), {"hook_event_name", "session_id", "turn_id", "cwd", "emitted_ns", "branch", "model", "transcript_path"})
         self.assertEqual(submitted["transcript_path"], original["transcript_path"])
         self.assertEqual(submitted["model"], "reported-model")
-        self.assertEqual(submitted["trigger"], "auto")
+        self.assertNotIn("trigger", submitted)
 
 
 class HookRoutingTests(unittest.TestCase):

@@ -370,9 +370,29 @@ Before a prompt, screen 15 shows **Connected / Ready to team up** and
 **Start a chat in Codex**, confirming the PC link without claiming active work.
 
 Activity contains the work phase, chat identity and short project name. Chats
-in one project retain different IDs. `Stop` means response ready, without proving
-task success. Active work without updates becomes **UNAVAILABLE** after 120 s.
-Broker restart waits for a new prompt; LAN reconnect returns the current snapshot.
+in one project retain different IDs. `Stop` supplies the advisory response-ready
+cue, and subsequent native work can resume the same turn. Active work without
+updates becomes **UNAVAILABLE** after 120 s. Broker restart waits for a new
+prompt, and LAN reconnect returns the current snapshot.
+
+The [Codex hook contract](https://learn.chatgpt.com/docs/hooks) describes which
+events are observable. The adapter retains the documented `SessionStart` source
+and the `Stop` continuation flag when provided. That flag describes an earlier
+continuation, so the broker waits for actual evidence of subsequent work.
+`SessionEnd` records the session lifecycle independently of which tab is visible.
+Within each current turn, the broker retains each observed tool call by its
+native ID and checks matching completion against its start. The broker keeps
+up to 128 observed completions across current turns and evicts the oldest
+completion first. The limit preserves active calls. `PostToolUse` can also
+follow a failed command. Hosted tools and other paths that bypass the
+hooks have incomplete coverage. An exact active background turn can report its
+own progress without changing the followed chat. The current device activity
+projection still follows one chat.
+
+The desktop storage, credential protection, process launch and exclusive
+socket setup use `mcp/ccp_windows.py` on the existing Windows/Linux paths.
+`mcp/ccp_repository.py` interprets hook working directories using the host's
+path rules and reads only bounded Git checkout metadata.
 
 `mcp/ccp_tool_labels.py` owns the display-only English tool table. For example,
 `mcp__codex_apps__github_fetch_file` becomes `Tool: GitHub: read file`, and
@@ -398,7 +418,8 @@ native transport's Open/Closed/Unavailable evidence.
 | `ccp_discover_devices` | Current offers; `include_simulator` defaults to false |
 | `ccp_pair_device` | Pair the uniquely matching visible code; replacement needs explicit consent |
 | `ccp_connection_status` | Identity, authenticated presence and latest broker snapshot |
-| `ccp_list_sessions` | Observed metadata and `followed`; no manual session selector |
+| `ccp_list_sessions` | Observed metadata and the followed chat |
+| `ccp_report_progress` | Describe actual work for an exact active chat and turn |
 | `ccp_ask_question` | Self-contained question with two/three choices and private ticket/capability |
 | `ccp_publish_notification` | Known fact or read-only PR snapshot with exact-head metadata |
 | `ccp_poll_request` | Read a reply, then acknowledge its `answer_id` in a second poll |

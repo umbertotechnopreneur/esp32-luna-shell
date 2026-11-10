@@ -14,20 +14,20 @@
 #
 # VBWR E
 
-"""Follow the latest user-prompt hook; retain activity metadata, never chat contents."""
+"""Track native observations by chat; follow the latest user prompt for legacy displays."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
 from enum import Enum
 import hashlib
-from pathlib import PureWindowsPath
-import re
 import sqlite3
 import sys
 import threading
 import time
 from typing import Any
+from ccp_codex_hooks import ToolKind, decode_hook, require_id
+from ccp_repository import checkout_leaf
 from ccp_pricing import PriceCache, PriceProjection
 from ccp_usage import NativeUsageReader, safe_usage_error
 from ccp_chat_title import ChatTitleObservation, NativeChatTitleReader, TITLE_LEASE_SECONDS, TITLE_MAX_BYTES, TitleState
@@ -56,25 +56,16 @@ class Compaction(str, Enum):
     STALE = "stale"
 
 
-EVENTS = frozenset({
-    "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-    "PermissionRequest", "Stop", "Interrupt", "SessionEnd", "PreCompact", "PostCompact",
-})
 MAX_SESSIONS = 64
+MAX_ACTIVE_TOOLS = 64
+MAX_TERMINAL_TOOL_CALLS = 128
 ACTIVITY_LEASE_SECONDS = 120.0
 MAX_DESCRIPTION_LENGTH = MAX_TOOL_LABEL_LENGTH
-OPAQUE_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
-
-
-# value: Optional genuine hook model slug; absence remains unavailable.
-# Raises ValueError for unsupported or unrepresentable reported model metadata.
-def hook_model(value: Any) -> str:
-    if value is None:
-        return ""
-    if (not isinstance(value, str) or not 1 <= len(value) <= 128
-            or any(not 33 <= ord(character) <= 126 for character in value)):
-        raise ValueError("Hook model must contain 1-128 printable ASCII characters without spaces")
-    return value
+TOOL_PHASES = {
+    ToolKind.EDIT: Phase.EDITING,
+    ToolKind.COMMAND: Phase.RUNNING,
+    ToolKind.OTHER: Phase.WORKING,
+}
 
 
 # seconds: Nonnegative duration or age measured only within the PC monotonic clock domain.
@@ -87,35 +78,11 @@ def wire_milliseconds(seconds: float) -> str:
     return str(milliseconds)
 
 
-# tool_name: Genuine hook tool identity, never command text or model-generated intent.
-# Raises ValueError when the native tool identity is empty or outside its bounded ASCII contract.
-def tool_phase(tool_name: Any) -> Phase:
-    if (not isinstance(tool_name, str) or not tool_name or len(tool_name) > 256
-            or any(not 32 <= ord(character) <= 126 for character in tool_name)):
-        raise ValueError("Hook tool_name must be bounded printable ASCII")
-    # Namespaces are native tool identities, not clues extracted from arguments.
-    leaf = tool_name.rsplit(".", 1)[-1]
-    if leaf == "apply_patch":
-        return Phase.EDITING
-    if leaf in {"Bash", "exec_command", "write_stdin", "shell_command"}:
-        return Phase.RUNNING
-    return Phase.WORKING
-
-
-# value: Caller-supplied stable identity, never a storage index or display name.
-# label: Non-secret field name used in rejection diagnostics.
-# Raises ValueError for unsupported or ambiguous identities.
-def require_id(value: Any, label: str) -> str:
-    if not isinstance(value, str) or OPAQUE_ID.fullmatch(value) is None:
-        raise ValueError(f"{label} must be a bounded opaque identifier")
-    return value
-
-
 # cwd: Validated hook working directory, used only as a display label.
 def project_label(cwd: str) -> str:
     # This bounded ASCII projection is not an identity or a chat title. The full
     # session digest distinguishes chats even when their display labels match.
-    leaf = PureWindowsPath(cwd).name
+    leaf = checkout_leaf(cwd)
     if not leaf:
         print("CCP activity: workspace root uses the Codex display label", file=sys.stderr)
         return "Codex"
@@ -123,6 +90,14 @@ def project_label(cwd: str) -> str:
         print("CCP activity: workspace label unavailable outside 1-64 printable ASCII characters", file=sys.stderr)
         return "UNAVAILABLE"
     return leaf
+
+
+@dataclass(frozen=True)
+class ToolCallObservation:
+    tool_use_id: str
+    tool_name: str
+    started_ns: int
+    finished_ns: int | None = None
 
 
 @dataclass
@@ -137,6 +112,9 @@ class Session:
     observed_at: float = 0.0
     tools: dict[str, Phase] = field(default_factory=dict)
     tool_labels: dict[str, str] = field(default_factory=dict)
+    tool_calls: dict[str, ToolCallObservation] = field(default_factory=dict)
+    start_source: str = ""
+    stop_hook_active: bool | None = None
     interrupted: bool = False
     description: str = ""
     description_observed_at: float = 0.0
@@ -165,6 +143,7 @@ class HookObservation:
     phase: Phase
     reply_ready: bool
     title: str = ""
+    resumed_after_stop: bool = False
 
 
 # title: Original canonical native metadata, including its exact observation timestamp.
@@ -197,6 +176,7 @@ class ActivityStore:
         self._lock = threading.Lock()
         self._pricing = pricing
         self._sessions: dict[str, Session] = {}
+        self._finished_tools: dict[tuple[str, str], None] = {}
         self._followed_session_id = ""
         self._last_prompt_ns = 0
         self._revision = 0
@@ -206,37 +186,40 @@ class ActivityStore:
         self._usage_lock = threading.Lock()
         self._usage_error = ""
 
+    # session: Session whose current turn is being replaced or whose slot is being retired.
+    # Caller holds _lock so the global terminal index and session history change together.
+    def _discard_tool_history(self, session: Session) -> None:
+        for tool_id in session.tool_calls:
+            self._finished_tools.pop((session.session_id, tool_id), None)
+        session.tool_calls.clear()
+
+    # session: Session containing the matched invocation.
+    # started: Previously admitted invocation, with its original start evidence.
+    # emitted_ns: Source time of the accepted matching PostToolUse event.
+    # Caller holds _lock. Only observed completions enter the eviction index.
+    def _remember_tool_completion(self, session: Session, started: ToolCallObservation, emitted_ns: int) -> None:
+        tool_id = started.tool_use_id
+        session.tool_calls[tool_id] = replace(started, finished_ns=emitted_ns)
+        self._finished_tools[(session.session_id, tool_id)] = None
+        if len(self._finished_tools) > MAX_TERMINAL_TOOL_CALLS:
+            old_session, old_tool = next(iter(self._finished_tools))
+            del self._finished_tools[(old_session, old_tool)]
+            del self._sessions[old_session].tool_calls[old_tool]
+
     # self: Canonical owner of bounded native hook identities and accepted lifecycle state.
     # event: Allowlisted metadata from one genuine Codex hook invocation.
     # Raises ValueError for malformed, stale or contradictory event metadata.
     def observe(self, event: dict[str, Any]) -> HookObservation:
-        name = event.get("hook_event_name")
-        if name not in EVENTS:
-            raise ValueError("Unsupported CCP hook event")
-        session_id = require_id(event.get("session_id"), "session_id")
-        cwd = event.get("cwd")
-        if not isinstance(cwd, str) or not cwd or len(cwd) > 4096:
-            raise ValueError("Hook cwd must be a bounded nonempty path")
-        branch = event.get("branch", "")
-        if (not isinstance(branch, str) or len(branch) > 64
-                or any(not 32 <= ord(character) <= 126 for character in branch)):
-            raise ValueError("Hook branch must be bounded printable ASCII checkout metadata")
-        emitted_ns = event.get("emitted_ns")
-        if type(emitted_ns) is not int or not 0 < emitted_ns <= time.monotonic_ns():
-            raise ValueError("Hook emission timestamp is invalid")
-        turn_id = ""
-        if name not in {"SessionStart", "SessionEnd"}:
-            turn_id = require_id(event.get("turn_id"), "turn_id")
-        model = hook_model(event.get("model"))
-        locator = event.get("transcript_path")
-        if locator is None:
-            # Explicit null has the same meaning as an omitted optional locator.
-            locator = ""
-        if not isinstance(locator, str) or len(locator) > 4096 or "\x00" in locator:
-            raise ValueError("Native transcript locator is invalid")
-        trigger = event.get("trigger")
-        if name in {"PreCompact", "PostCompact"} and (not isinstance(trigger, str) or trigger not in {"auto", "manual"}):
-            raise ValueError("Compaction trigger must be the genuine auto or manual hook value")
+        native = decode_hook(event, time.monotonic_ns())
+        name = native.event.value
+        session_id = native.session_id
+        cwd = native.cwd
+        branch = native.branch
+        emitted_ns = native.emitted_ns
+        turn_id = native.turn_id
+        model = native.model
+        locator = native.transcript_path
+        trigger = native.compaction_trigger
         with self._lock:
             if name == "UserPromptSubmit" and emitted_ns == self._last_prompt_ns:
                 raise ValueError("Duplicate or ambiguous prompt timestamp rejected")
@@ -251,11 +234,14 @@ class ActivityStore:
                                     and identity != self._followed_session_id), None)
                     if expired is None:
                         raise ValueError("CCP chat registry is full; close unused Codex chats")
-                    del self._sessions[expired]
+                    self._discard_tool_history(self._sessions.pop(expired))
                 session = Session(session_id, cwd, project_label(cwd))
                 self._sessions[session_id] = session
             if emitted_ns <= session.last_event_ns:
                 raise ValueError("Late or duplicate hook event rejected")
+            resumed_after_stop = session.phase is Phase.READY and name in {
+                "UserPromptSubmit", "PreToolUse", "PermissionRequest",
+            }
             if name == "UserPromptSubmit":
                 new_turn = turn_id != session.turn_id
                 if new_turn:
@@ -263,6 +249,8 @@ class ActivityStore:
                     session.turn_ended_at = 0.0
                     session.tools.clear()
                     session.tool_labels.clear()
+                    self._discard_tool_history(session)
+                    session.stop_hook_active = None
                     session.model = ""
                     session.model_observed_at = 0.0
                     session.compaction = Compaction.NONE
@@ -284,12 +272,15 @@ class ActivityStore:
                     self._followed_session_id = session_id
                     self._last_prompt_ns = emitted_ns
             elif name == "SessionStart":
+                session.start_source = native.session_source
                 # Resume/compaction does not erase an in-progress or completed turn.
                 if session.phase == Phase.ENDED:
                     session.phase = Phase.ACTIVE
                     session.turn_id = ""
                     session.tools.clear()
                     session.tool_labels.clear()
+                    self._discard_tool_history(session)
+                    session.stop_hook_active = None
                     session.model = ""
                     session.model_observed_at = 0.0
                     session.turn_started_at = 0.0
@@ -320,17 +311,26 @@ class ActivityStore:
                 if session.interrupted and name not in {"PostToolUse", "Interrupt"}:
                     raise ValueError("Interrupted turn cannot resume without a new prompt")
                 if name == "PreToolUse":
-                    tool_id = require_id(event.get("tool_use_id"), "tool_use_id")
-                    if tool_id in session.tools or len(session.tools) >= 64:
-                        raise ValueError("Duplicate tool identity or too many concurrent tools")
-                    phase = tool_phase(event.get("tool_name"))
+                    tool_id = native.tool_use_id
+                    if tool_id in session.tool_calls:
+                        raise ValueError("Duplicate tool identity for the current turn")
+                    if len(session.tools) >= MAX_ACTIVE_TOOLS:
+                        raise ValueError("CCP concurrent tools capacity exceeded")
+                    phase = TOOL_PHASES[native.tool_kind]
+                    label = tool_display_label(native.tool_name)
                     session.tools[tool_id] = phase
-                    session.tool_labels[tool_id] = tool_display_label(event["tool_name"])
+                    session.tool_labels[tool_id] = label
+                    session.tool_calls[tool_id] = ToolCallObservation(tool_id, native.tool_name, emitted_ns)
                     session.phase = phase
                 elif name == "PostToolUse":
-                    tool_id = require_id(event.get("tool_use_id"), "tool_use_id")
+                    tool_id = native.tool_use_id
                     if tool_id not in session.tools:
                         raise ValueError("Tool completion has no matching start")
+                    started = session.tool_calls[tool_id]
+                    if native.tool_name and native.tool_name != started.tool_name:
+                        raise ValueError("Tool completion name conflicts with its observed start")
+                    # PostToolUse observes completion even if the invocation failed.
+                    self._remember_tool_completion(session, started, emitted_ns)
                     del session.tools[tool_id]
                     del session.tool_labels[tool_id]
                     # A late command completion cannot undo Stop/Interrupt.
@@ -346,6 +346,7 @@ class ActivityStore:
                             session.compaction = Compaction.INTERRUPTED
                             session.compact_observed_at = emitted_ns / 1_000_000_000
                 elif name == "Stop":
+                    session.stop_hook_active = native.stop_hook_active
                     session.phase = Phase.READY
                     session.description = ""
                     session.turn_ended_at = emitted_ns / 1_000_000_000
@@ -377,6 +378,11 @@ class ActivityStore:
                     session.compact_last_event = name
                     session.compact_observed_at = emitted_ns / 1_000_000_000
                     # The final hook confirms compaction only; it supplies no refreshed usage counters.
+            if resumed_after_stop:
+                # A correlated work event supersedes the provisional stop time.
+                # A late PostToolUse can retire a call but does not resume work.
+                session.turn_ended_at = 0.0
+                session.reply_notice_turn = ""
             if model and (name == "UserPromptSubmit" or turn_id == session.turn_id and turn_id):
                 session.model = model
                 session.model_observed_at = emitted_ns / 1_000_000_000
@@ -406,7 +412,8 @@ class ActivityStore:
             # refresh this exact completion through the title owner.
             notice_title = displayable_notice_title(session.chat_title, time.monotonic(), 63)
             return HookObservation(name, session_id, session.turn_id, session.project,
-                                   session_id == self._followed_session_id, session.phase, reply_ready, notice_title)
+                                   session_id == self._followed_session_id, session.phase,
+                                   reply_ready, notice_title, resumed_after_stop)
 
     # self: Lifecycle owner; the caller must hold _lock for this identity check.
     # observation: Immutable accepted native event and its exact originating turn.
@@ -515,8 +522,8 @@ class ActivityStore:
                     "phase": self._effective_phase(session).value,
                     "age_ms": age_ms if 0 <= age_ms <= 0xffffffff else None}
 
-    # session_id: Hook-observed chat identity; only the currently followed chat may report progress.
-    # turn_id: Exact current hook turn identity, rejecting delayed and background reports.
+    # session_id: Hook-observed chat identity, independent of the displayed chat.
+    # turn_id: Exact current hook turn identity, rejecting delayed or misattributed reports.
     # description: Agent-authored actual purpose in bounded printable English ASCII, without commands or logs.
     # Raises ValueError for stale identities, inactive work or unsupported description bytes.
     def report_progress(self, session_id: Any, turn_id: Any, description: Any) -> dict[str, str]:
@@ -528,9 +535,9 @@ class ActivityStore:
             raise ValueError("Progress description must contain 1-192 printable ASCII characters")
         with self._lock:
             session = self._sessions.get(session_id)
-            if (session is None or session_id != self._followed_session_id or session.turn_id != turn_id
+            if (session is None or session.turn_id != turn_id
                     or self._effective_phase(session) not in {Phase.WORKING, Phase.EDITING, Phase.RUNNING}):
-                raise ValueError("Progress requires the followed chat's current active hook turn")
+                raise ValueError("Progress requires the chat's current active hook turn")
             session.description = description
             session.description_observed_at = time.monotonic()
             self._revision += 1

@@ -8,7 +8,8 @@ percentage to the nearest integer; each phase fills two ASCII `#` cells. The
 `diff` addition line renders green in supporting Markdown viewers and remains
 readable as plain ASCII. This is phase progress, not effort or runtime acceptance.
 Executed validation remains pending. Update this summary whenever phase status
-changes in [TODO.md](TODO.md#cody-next---multi-chat-domain-and-muse).
+changes in [TODO.md](TODO.md#cody-next---multi-chat-domain-and-muse). Update the phase
+table and affected subtask markers at the same checkpoint.
 
 # Deferred work
 
@@ -17,10 +18,12 @@ Activate a stable ID in [TODO.md](TODO.md) before starting deferred work.
 ## CODY-NEXT - Domain model and Muse implementation plan
 
 This is the implementation plan for Cody's multi-chat domain model and Muse
-character. Phase activation, implementation status and remaining gates live in
-[TODO.md](TODO.md#cody-next---multi-chat-domain-and-muse). Checkboxes below describe
-the phase specification; they are not a second progress tracker. Activation does
-not authorize validation. Preserve unrelated work in the existing checkout and branch.
+character. Phase activation and remaining gates live in
+[TODO.md](TODO.md#cody-next---multi-chat-domain-and-muse). Keep the table and
+individual task markers here aligned with the available evidence at every
+checkpoint. Check off a task when its specified deliverable is complete.
+A completed design or source task does not pass an execution gate.
+Activation does not authorize validation. Preserve unrelated work in this branch.
 
 Phase identifiers `CODY-NEXT-00` through `CODY-NEXT-14` are permanent. Task
 identifiers append a two-digit suffix, for example `CODY-NEXT-04.03`. Do not
@@ -127,23 +130,29 @@ their exact filenames in 01 while retaining the ownership boundaries below.
 
 ### Phase order and dependencies
 
-| Phase | Deliverable | Dependencies |
-| --- | --- | --- |
-| CODY-NEXT-00 | Baseline, screen catalog and ownership map | None |
-| CODY-NEXT-01 | Domain schema, invariants and capacity policy | 00 |
-| CODY-NEXT-02 | Versioned JSON, wire mapping and synchronization rules | 01 |
-| CODY-NEXT-03 | Codex adapter and complete broker registry | 02, 14 |
-| CODY-NEXT-04 | Durable question and answer lifecycle | 02, 03 |
-| CODY-NEXT-05 | Device domain store, synchronization and recovery | 02, 03, 04, 14 |
-| CODY-NEXT-06 | Deterministic scenario driver and inspection tools | 01, 02; integrate after 05 |
-| CODY-NEXT-07 | Domain-to-Muse direction and pose transitions | 05, 06 |
-| CODY-NEXT-08 | Muse acting, particles and audio policy | 07 |
-| CODY-NEXT-09 | Separate mascot/UI routes and reusable screens | 00, 05, 07 |
-| CODY-NEXT-10 | Subagents and observable asynchronous operations | 03, 05, 06 |
-| CODY-NEXT-11 | Authorized final validation and hardware acceptance | 00-10 and 14 implemented and statically reviewed |
-| CODY-NEXT-12 | Additional source adapters | 11 accepted; separate source activation |
-| CODY-NEXT-13 | Muse-inspired native Wi-Fi keyboard | 00, 09, 14; design first, separate integration/acceptance |
-| CODY-NEXT-14 | Prepare portable core and platform/device adapters | 00, 01, 02; foundation before 03/05 |
+| Phase | Deliverable | Dependencies | Done |
+| --- | --- | --- | --- |
+| CODY-NEXT-00 | Baseline, screen catalog and ownership map | None | 🟢 Accepted · document review |
+| CODY-NEXT-01 | Domain schema, invariants and capacity policy | 00 | 🟡 Design reviewed · validation pending |
+| CODY-NEXT-02 | Versioned JSON, wire mapping and synchronization rules | 01 | 🟡 Design reviewed · validation pending |
+| CODY-NEXT-03 | Codex adapter and complete broker registry | 02, 14 | 🟡 In progress |
+| CODY-NEXT-04 | Durable question and answer lifecycle | 02, 03 | ⚪ Planned |
+| CODY-NEXT-05 | Device domain store, synchronization and recovery | 02, 03, 04, 14 | 🟡 In progress |
+| CODY-NEXT-06 | Deterministic scenario driver and inspection tools | 01, 02; integrate after 05 | ⚪ Planned |
+| CODY-NEXT-07 | Domain-to-Muse direction and pose transitions | 05, 06 | ⚪ Planned |
+| CODY-NEXT-08 | Muse acting, particles and audio policy | 07 | ⚪ Planned |
+| CODY-NEXT-09 | Separate mascot/UI routes and reusable screens | 00, 05, 07 | ⚪ Planned |
+| CODY-NEXT-10 | Subagents and observable asynchronous operations | 03, 05, 06 | ⚪ Planned |
+| CODY-NEXT-11 | Authorized final validation and hardware acceptance | 00-10 and 14 implemented and statically reviewed | ⚪ Planned |
+| CODY-NEXT-12 | Additional source adapters | 11 accepted; separate source activation | 🟣 Optional · deferred |
+| CODY-NEXT-13 | Muse-inspired native Wi-Fi keyboard | 00, 09, 14; design first, separate integration/acceptance | 🟣 Optional · deferred |
+| CODY-NEXT-14 | Prepare portable core and platform/device adapters | 00, 01, 02; foundation before 03/05 | 🟡 In progress |
+
+🟢 **Complete** for the stated review or deliverable. 🟡 **In progress** or
+**validation pending**. ⚪ **Planned**. 🟣 **Optional and deferred**. The
+phase table summarizes readiness, and the task markers below record individual
+deliverables. See [TODO.md](TODO.md#cody-next---multi-chat-domain-and-muse)
+for current work and remaining gates.
 
 Main order: 00 -> 01 -> 02 -> 14 -> 03 -> 04 -> 05 -> 06 -> 07 -> 08 -> 09 -> 10 -> 11.
 Phase 14 was assigned a new permanent ID rather than renumbering earlier phases;
@@ -160,38 +169,38 @@ not a dependency of the first Codex delivery or of phase 12.
 
 **Outcome:** a recoverable implementation baseline and an unambiguous inventory.
 
-- [ ] **CODY-NEXT-00.01** Read current repository instructions, worktree status,
+- [x] 🟢 **CODY-NEXT-00.01** Read current repository instructions, worktree status,
   source/docs differences and outstanding acceptance gates. Identify local work
   that must be preserved; do not reset, clean, move or overwrite it.
-- [ ] **CODY-NEXT-00.02** Inventory every retained screen: original code, stable
+- [x] 🟢 **CODY-NEXT-00.02** Inventory every retained screen: original code, stable
   symbolic key, title, source presenter/assets, entry/return routes, data owner,
   dependencies, active/inactive status and evidence type. Separate source,
   editorial preview and actual hardware observations.
-- [ ] **CODY-NEXT-00.03** Reconcile 16/Muse Home and 10/Tools with the atlas and
+- [x] 🟢 **CODY-NEXT-00.03** Reconcile 16/Muse Home and 10/Tools with the atlas and
   older IDs. Preserve historical codes in a versioned namespace when necessary;
   no ambiguous numeric lookup and no reuse of retired codes for unrelated screens.
-- [ ] **CODY-NEXT-00.04** Retain original reusable screen sources/assets with
+- [x] 🟢 **CODY-NEXT-00.04** Retain original reusable screen sources/assets with
   explicit catalog references. Prefer retaining them in place and removing only
   navigation exposure. If a physical move is necessary, preserve dependencies
   and imports before changing routes. An archive must remain useful source,
   not screenshots alone or an unmaintained copy of the application.
-- [ ] **CODY-NEXT-00.05** Map owners for network ingress, canonical observations,
+- [x] 🟢 **CODY-NEXT-00.05** Map owners for network ingress, canonical observations,
   domain mutation, display, touch, settings, persistence and audio. Record lock,
   buffer and callback lifetimes before extending snapshots.
-- [ ] **CODY-NEXT-00.06** Identify the existing two-dot/swipe implementation or
+- [x] 🟢 **CODY-NEXT-00.06** Identify the existing two-dot/swipe implementation or
   its missing pieces, font-source availability and simulator dependencies.
   Record gaps without regenerating assets or running the simulator.
-- [ ] **CODY-NEXT-00.07** Include existing manual recording/push-to-talk and voice
+- [x] 🟢 **CODY-NEXT-00.07** Include existing manual recording/push-to-talk and voice
   pages in the retained catalog, with actual implemented states distinguished
   from future atlas illustrations. Record the Record voice -> DeviceButton ->
   requestVoiceInput path, profile availability, current destination binding,
   cancellation and delivery behavior; preserve screen IDs 28-30 where assigned.
-- [ ] **CODY-NEXT-00.08** Preserve references to Muse's `muse_settings_ui.c`
+- [x] 🟢 **CODY-NEXT-00.08** Preserve references to Muse's `muse_settings_ui.c`
   (`build_text_page`, `build_keyboard`, `on_wifi_pass`) and `muse_keypad.c`
   (`muse_keypad_create`). The source selects its large-key keypad below 2 inches
   or on narrow panels, and a full keyboard otherwise; both paths here use LVGL.
   Record the round-layout and text-editing behavior for phase 13.
-- [ ] **CODY-NEXT-00.09** Inventory platform assumptions in the PC broker, device
+- [x] 🟢 **CODY-NEXT-00.09** Inventory platform assumptions in the PC broker, device
   domain, Muse bridge and UI: OS paths/processes/credentials, ESP-IDF/BSP types,
   display size/shape, touch/buttons, audio channels, storage and PSRAM. Map existing
   adapter boundaries and reusable Muse device-descriptor ideas for phase 14.
@@ -205,7 +214,7 @@ documentation when routes actually change, not as if proposed routes already run
 
 **Outcome:** one presentation-independent schema with explicit invariants.
 
-- [ ] **CODY-NEXT-01.01** Specify typed IDs and relationships for the objects
+- [x] 🟢 **CODY-NEXT-01.01** Specify typed IDs and relationships for the objects
   below. IDs survive reordering, reconnects and broker epochs; namespace them by
   stable source/provider identity so future sources cannot collide.
 
@@ -221,42 +230,43 @@ documentation when routes actually change, not as if proposed routes already run
   | Question | Stable request ID, trustworthy chat/turn association and semantic lifecycle |
   | AnswerAttempt | Question ID, immutable selected choice and delivery correlation |
 
-- [ ] **CODY-NEXT-01.02** Specify observation metadata: original source age/time
+- [x] 🟢 **CODY-NEXT-01.02** Specify observation metadata: original source age/time
   domain, revision, validity, coverage, last error and provenance. Unknown,
   absent, zero, stale and unsupported must remain distinct. A transport heartbeat
   never refreshes old source evidence.
-- [ ] **CODY-NEXT-01.03** Separate chat lifecycle, turn execution, turn outcome,
+- [x] 🟢 **CODY-NEXT-01.03** Separate chat lifecycle, turn execution, turn outcome,
   connection and observation freshness. Define legal transitions and contradictory
   event handling. Stop/reply availability does not prove success; Interrupt does
   not close the chat; tool/subagent completion does not complete the parent turn.
-- [ ] **CODY-NEXT-01.04** Define waits for user/tool/agent/service/unknown, including
+- [x] 🟢 **CODY-NEXT-01.04** Define waits for user/tool/agent/service/unknown, including
   simultaneous dependencies. A user question may coexist with running tools.
   Only mark the parent as waiting on a child when correlation supports it.
-- [ ] **CODY-NEXT-01.05** Separate ToolDefinition from ToolCall. Define stable
+- [x] 🟢 **CODY-NEXT-01.05** Separate ToolDefinition from ToolCall. Define stable
   categories such as command, file_read, file_edit, search, browser, agent and
   unknown; keep artwork, screen coordinates and animation names out of the domain.
   Preserve unknown tools instead of guessing their meaning from arbitrary inputs.
-- [ ] **CODY-NEXT-01.06** Define bounded stores for all 64 currently admitted chats,
+- [ ] 🟡 **CODY-NEXT-01.06** Define bounded stores for all 64 currently admitted chats,
   all admitted in-flight calls and unresolved questions. Budget active records,
   terminal history, dictionaries, indexes, tombstones, synchronization staging and
   persistence scratch space. Evaluate up to 4,096 active-call records against
   actual structures and PSRAM availability; do not promise that footprint in advance.
-- [ ] **CODY-NEXT-01.07** Specify overflow/backpressure and history eviction.
+  The structure-based budget is written. Compiled sizes and board PSRAM measurements remain open.
+- [x] 🟢 **CODY-NEXT-01.07** Specify overflow/backpressure and history eviction.
   Never evict unresolved questions or active calls silently. Negotiate capacities,
   expose partial coverage and omitted counts, and reject excess admission with
   a specific error when completeness cannot be maintained. Keep bounded terminal
   history locally and longer history on the PC.
-- [ ] **CODY-NEXT-01.08** Define SelectionState separately: local foreground chat,
+- [x] 🟢 **CODY-NEXT-01.08** Define SelectionState separately: local foreground chat,
   auto-follow/manual selection mode and return context. Default may follow a
   genuine prompt; manual inspection remains pinned until explicitly released.
   Local selection does not claim native app focus or change a voice destination.
-- [ ] **CODY-NEXT-01.09** Write transition examples for two chats, overlapping tool
+- [x] 🟢 **CODY-NEXT-01.09** Write transition examples for two chats, overlapping tool
   calls, a background question, out-of-order events and a source restart. Specify
   summaries as derived queries, never competing mutable copies of domain truth.
-- [ ] **CODY-NEXT-01.10** Keep an original Turn record while active calls, questions
+- [x] 🟢 **CODY-NEXT-01.10** Keep an original Turn record while active calls, questions
   or child agents still reference it, even when the chat starts another turn.
   Route late events to that exact turn; never rewrite them onto current_turn_id.
-- [ ] **CODY-NEXT-01.11** Keep domain types and transition logic free of Windows,
+- [x] 🟢 **CODY-NEXT-01.11** Keep domain types and transition logic free of Windows,
   ESP-IDF, board pin, display-coordinate and microphone-channel assumptions.
   Define typed capability/limit inputs independently of semantic entity state.
   A board without a microphone still represents all chats, tools and questions.
@@ -269,45 +279,45 @@ ingestion decisions. Native approvals are distinct from answerable questions.
 
 **Outcome:** a provider-neutral logical contract and an implementable wire mapping.
 
-- [ ] **CODY-NEXT-02.01** Define `cody.state/1` envelopes with stable source_id,
+- [x] 🟢 **CODY-NEXT-02.01** Define `cody.state/1` envelopes with stable source_id,
   epoch, revision, kind and coverage. Define full snapshots, deltas with
   base_revision, explicit removals/tombstones and recovery requests. Specify
   integer widths, ID/text bounds, ASCII policy, enum validation and error replies.
-- [ ] **CODY-NEXT-02.02** Define coherent entity references and atomic admission.
+- [x] 🟢 **CODY-NEXT-02.02** Define coherent entity references and atomic admission.
   A snapshot cannot expose a turn whose chat is missing or a call whose tool
   definition is unresolved without an explicitly modeled incomplete reference.
   Missing entities in partial snapshots never imply closure/deletion.
-- [ ] **CODY-NEXT-02.03** Specify duplicate/late revision rejection, missing-delta
+- [x] 🟢 **CODY-NEXT-02.03** Specify duplicate/late revision rejection, missing-delta
   recovery and epoch changes. Preserve semantic identities across epochs.
   Separate link liveness from observation age and prevent deadline renewal by
   retransmission. Bind epoch adoption to the current authenticated association
   handshake; random epoch IDs are not ordered. Reject retired epochs so delayed
   packets cannot roll back the model or cause resync oscillation. Define behavior
   when clocks are invalid or reset.
-- [ ] **CODY-NEXT-02.04** Negotiate protocol version, capacities and capabilities.
+- [x] 🟢 **CODY-NEXT-02.04** Negotiate protocol version, capacities and capabilities.
   Retain explicit pairing/authentication guarantees, without preserving the old
   wire format. Reject old ACTIVITY/TECH peers as unsupported for vNext; do not
   implement a compatibility projection or reinterpret them as a full registry.
-- [ ] **CODY-NEXT-02.05** Map logical JSON to a bounded authenticated versioned wire contract.
+- [x] 🟢 **CODY-NEXT-02.05** Map logical JSON to a bounded authenticated versioned wire contract.
   Specify maximum packet size and application-level snapshot chunks with common
   transfer ID, epoch, revision, chunk count and completion integrity. Account for
   reordering, duplicate/missing chunks, timeout, retries, authenticated endpoint
   changes and aggregate memory limits; do not rely on IP fragmentation.
-- [ ] **CODY-NEXT-02.06** Keep the last coherent domain view until a full replacement
+- [x] 🟢 **CODY-NEXT-02.06** Keep the last coherent domain view until a full replacement
   is admitted. Bound staging time/memory and expose resyncing/stale status. Commit
   one generation atomically; cancellation or allocation failure retains the old
   generation with the original error. Define how updates arriving during a
   snapshot are retained or replayed from its exact revision, with bounded backlog
   and explicit restart/backpressure when that backlog overflows.
-- [ ] **CODY-NEXT-02.07** Specify initial synchronization without replaying old
+- [x] 🟢 **CODY-NEXT-02.07** Specify initial synchronization without replaying old
   celebration/sound events. Define event identities/watermarks separately from
   state revisions, including reconnect and post-reboot behavior.
-- [ ] **CODY-NEXT-02.08** Document the replacement protocol, delivery and ownership
+- [x] 🟢 **CODY-NEXT-02.08** Document the replacement protocol, delivery and ownership
   rules plus bounded examples; link its explicit version boundary from CCP1.md.
   Require matching vNext peers, without an old-protocol fallback or migration.
   Describe authentication separately from payload
   confidentiality; do not claim the existing HMAC transport encrypts metadata.
-- [ ] **CODY-NEXT-02.09** Negotiate semantic/transport capabilities and capacities
+- [x] 🟢 **CODY-NEXT-02.09** Negotiate semantic/transport capabilities and capacities
   without identifying behavior solely by board or OS name. Use explicit wire
   sizes/byte order; never serialize platform structs, native pointers or local
   monotonic timestamps as cross-device identities. Unsupported optional features
@@ -321,28 +331,28 @@ to select a facial expression or perform an unspecified privileged action.
 
 **Outcome:** actual Codex observations populate the complete domain registry.
 
-- [ ] **CODY-NEXT-03.01** Separate provider translation from ActivityStore's generic
+- [ ] 🟡 **CODY-NEXT-03.01** Separate provider translation from ActivityStore's generic
   lifecycle/storage responsibilities. Replace followed-chat-only consumers with
   domain queries as they are integrated; no legacy compatibility projection is
   required. Reuse current hooks rather than install a second competing observer.
-- [ ] **CODY-NEXT-03.02** Verify documented native event semantics at implementation
+- [ ] 🟡 **CODY-NEXT-03.02** Verify documented native event semantics at implementation
   time and map admitted hooks to domain facts. Handle Stop continuation, resumed
   sessions, Interrupt, compaction and SessionEnd without inferred task success.
   Distinguish observed session lifecycle from visibility of a native application tab.
-- [ ] **CODY-NEXT-03.03** Preserve each invocation's tool_use_id and reliable turn/
+- [ ] 🟡 **CODY-NEXT-03.03** Preserve each invocation's tool_use_id and reliable turn/
   session association. Normalize ToolDefinition once and create separate ToolCall
   instances. Do not ingest command contents merely to choose a decorative icon.
-- [ ] **CODY-NEXT-03.04** Make progress, tools, turns and questions from background
+- [ ] 🟡 **CODY-NEXT-03.04** Make progress, tools, turns and questions from background
   chats update their own records. Foreground selection cannot suppress their
   publication or be stolen by routine background events.
-- [ ] **CODY-NEXT-03.05** Handle late, duplicate and conflicting native observations
+- [ ] 🟡 **CODY-NEXT-03.05** Handle late, duplicate and conflicting native observations
   before assigning outbound revisions. A broker sequence orders admitted evidence;
   it cannot recreate missing provider events. Preserve uncertainty when the
   source lacks stable event IDs, completion evidence or correlation.
-- [ ] **CODY-NEXT-03.06** Publish complete registry snapshots and bounded deltas;
+- [ ] ⚪ **CODY-NEXT-03.06** Publish complete registry snapshots and bounded deltas;
   include source ages and coverage. Add backpressure and meaningful rejection
   results. Keep public plugin operations and schema changes explicit.
-- [ ] **CODY-NEXT-03.07** Reconstruct known registry metadata after restart from
+- [ ] ⚪ **CODY-NEXT-03.07** Reconstruct known registry metadata after restart from
   its own persisted evidence or supported source APIs. Mark prior active states
   unverified until reconciled. Do not replay hooks, fabricate fresh prompts or
   infer focus/activity from undocumented transcript formats.
@@ -355,35 +365,35 @@ Real hook delivery remains a later authorized acceptance item.
 
 **Outcome:** questions survive presentation changes and ambiguous delivery.
 
-- [ ] **CODY-NEXT-04.01** Separate semantic Question identity from an expiring
+- [ ] ⚪ **CODY-NEXT-04.01** Separate semantic Question identity from an expiring
   transport ticket and its recipient capability. Define open, resolved,
   cancelled, explicitly expired and unresolved/unavailable states. A local TTL
   expiration disables that reply path without inventing semantic resolution.
-- [ ] **CODY-NEXT-04.02** Establish chat/turn association from trustworthy broker
+- [ ] ⚪ **CODY-NEXT-04.02** Establish chat/turn association from trustworthy broker
   invocation context. The existing caller-declared context label is not identity.
   When association is unavailable, keep an unassociated question visible in the
   global attention set; never attach it to the current foreground chat by guess.
-- [ ] **CODY-NEXT-04.03** Specify AnswerAttempt transitions: local Send admission,
+- [ ] ⚪ **CODY-NEXT-04.03** Specify AnswerAttempt transitions: local Send admission,
   broker_received, recipient_confirmed and uncertain/rejected outcomes. Retain
   immutable choice IDs and the current exact-answer acknowledgement discipline.
   Repeated delivery of one attempt is idempotent; a conflicting choice is rejected.
-- [ ] **CODY-NEXT-04.04** Implement a bounded durable broker ledger. Persist an
+- [ ] ⚪ **CODY-NEXT-04.04** Implement a bounded durable broker ledger. Persist an
   accepted answer before reporting durable receipt; preserve original failure
   if storage fails. Persist terminal outcomes/tombstones and recipient correlation
   under the existing credential owner. Do not store authorization in public snapshots.
-- [ ] **CODY-NEXT-04.05** Define provider-supported reattachment after broker restart.
+- [ ] ⚪ **CODY-NEXT-04.05** Define provider-supported reattachment after broker restart.
   If the recipient cannot safely resume polling, expose delivery unavailable or
   unconfirmed. Do not revive expired capabilities, replay an answer as a new
   action or manufacture recipient confirmation from the persisted ledger.
-- [ ] **CODY-NEXT-04.06** Track all admitted open questions, present one at a time
+- [ ] ⚪ **CODY-NEXT-04.06** Track all admitted open questions, present one at a time
   and preserve the others. Define deterministic ordering, inspection/dismissal
   distinct from resolution, queue capacity and overflow behavior.
-- [ ] **CODY-NEXT-04.07** Preserve recipient delivery and device presentation closure
+- [ ] ⚪ **CODY-NEXT-04.07** Preserve recipient delivery and device presentation closure
   as separate acknowledgements. Repeated terminal state remains recoverable
   until acknowledged; a late ACK cannot reopen or rewrite a terminal local result.
-- [ ] **CODY-NEXT-04.08** Keep native PermissionRequest advisory and PC-only.
+- [ ] ⚪ **CODY-NEXT-04.08** Keep native PermissionRequest advisory and PC-only.
   Opening its notice or touching the mascot cannot authorize a native approval.
-- [ ] **CODY-NEXT-04.09** Serialize answer-versus-cancel races and competing answers
+- [ ] ⚪ **CODY-NEXT-04.09** Serialize answer-versus-cancel races and competing answers
   from multiple devices around one durable decision. Define first-accepted choice,
   transaction boundaries and crash outcomes before/after persistence and each ACK.
   Retain sufficient terminal tombstones during compaction to reject late replay.
@@ -396,32 +406,32 @@ No deadline, stale snapshot, Back action or new foreground chat silently clears 
 
 **Outcome:** a bounded complete local model independent of UI routes.
 
-- [ ] **CODY-NEXT-05.01** Implement typed entity stores and indexes with one mutation
+- [ ] ⚪ **CODY-NEXT-05.01** Implement typed entity stores and indexes with one mutation
   owner. Fit budgets from 01 before adding snapshot fields; keep large pools and
   staging buffers off callback/task stacks and use PSRAM only under valid access
   conditions. Specify pointer/handle lifetime across generation changes.
-- [ ] **CODY-NEXT-05.02** Integrate the authenticated acquisition owner and canonical
+- [ ] ⚪ **CODY-NEXT-05.02** Integrate the authenticated acquisition owner and canonical
   DeviceSnapshotService publication. Publish narrow synchronized domain views or
   generation handles, not full registry copies in every sensor snapshot. UI and
   mascot readers never acquire hardware or maintain competing network caches.
-- [ ] **CODY-NEXT-05.03** Implement snapshot/delta admission, referential integrity,
+- [ ] 🟡 **CODY-NEXT-05.03** Implement snapshot/delta admission, referential integrity,
   ordering, transfer cleanup, explicit freshness and partial-coverage reporting.
   Updates to invisible chats follow exactly the same rules as foreground updates.
-- [ ] **CODY-NEXT-05.04** Expose bounded queries for selected chat, all chats,
+- [ ] ⚪ **CODY-NEXT-05.04** Expose bounded queries for selected chat, all chats,
   active calls, pending questions and aggregate attention. Query results are
   disposable projections, not UI-owned domain state.
-- [ ] **CODY-NEXT-05.05** Persist minimal unresolved question/answer records and
+- [ ] ⚪ **CODY-NEXT-05.05** Persist minimal unresolved question/answer records and
   useful selection references through the existing storage owner. Define schema,
   integrity, atomic replacement, retention and write coalescing. Do not write
   animation ticks, heartbeats, every tool update or whole transcripts to flash.
-- [ ] **CODY-NEXT-05.06** Restore persisted facts as historical/unverified until
+- [ ] ⚪ **CODY-NEXT-05.06** Restore persisted facts as historical/unverified until
   reconciled. Preserve unknown outcomes, storage errors and data from a missing
   source. A changed pairing/source cannot inherit another peer's questions or
   response authority; partition or retire association explicitly.
-- [ ] **CODY-NEXT-05.07** Handle standby, reboot and clock discontinuity separately.
+- [ ] ⚪ **CODY-NEXT-05.07** Handle standby, reboot and clock discontinuity separately.
   Semantic deadlines/freshness continue according to their clock contract;
   paused animation time cannot extend a response deadline or make old work fresh.
-- [ ] **CODY-NEXT-05.08** Add bounded diagnostics for counts, bytes, pool occupancy,
+- [ ] ⚪ **CODY-NEXT-05.08** Add bounded diagnostics for counts, bytes, pool occupancy,
   dropped/rejected admission, revision, resync and original errors. Keep diagnostic
   data out of ordinary product flows except when the user needs an incomplete-data status.
 
@@ -433,20 +443,20 @@ estimates exist, while actual stack/heap measurements remain pending phase 11.
 
 **Outcome:** repeatable domain and animation inputs without depending on live work.
 
-- [ ] **CODY-NEXT-06.01** Build an explicitly synthetic host scenario driver with
+- [ ] ⚪ **CODY-NEXT-06.01** Build an explicitly synthetic host scenario driver with
   injectable source/animation clocks and deterministic randomness. Feed the same
   domain reducer and Muse integration used by firmware; do not duplicate behavior
   in a Python-only mock. Keep synthetic data out of production snapshots.
-- [ ] **CODY-NEXT-06.02** Provide host controls for start/pause, single step, seek by
+- [ ] ⚪ **CODY-NEXT-06.02** Provide host controls for start/pause, single step, seek by
   replay from a known initial state, speed and scenario selection. Reset Muse's
   retained clocks/random state deterministically rather than passing time backwards.
-- [ ] **CODY-NEXT-06.03** Expose a host inspector for entity IDs/relations, coverage,
+- [ ] ⚪ **CODY-NEXT-06.03** Expose a host inspector for entity IDs/relations, coverage,
   freshness, question/answer lifecycle, requested/visible pose and effect identity.
   This is a development tool, not a facial-channel screen on the device.
-- [ ] **CODY-NEXT-06.04** Author the scenario matrix below with expected domain,
+- [ ] ⚪ **CODY-NEXT-06.04** Author the scenario matrix below with expected domain,
   presentation and audio outcomes. Cover externally meaningful invariants instead
   of tests that merely repeat implementation steps.
-- [ ] **CODY-NEXT-06.05** Integrate scenario entry points under the public
+- [ ] ⚪ **CODY-NEXT-06.05** Integrate scenario entry points under the public
   `scripts/device.ps1` workflow. Document exact runnable commands when implemented.
   Do not invent flags in advance or execute a suite without its required authorization.
 
@@ -482,27 +492,27 @@ phase-11 gates; authoring fixtures does not establish parity or hardware behavio
 
 **Outcome:** Muse responds to real domain facts with interruptible continuity.
 
-- [ ] **CODY-NEXT-07.01** Define a bounded CharacterIntent derived from the domain:
+- [ ] ⚪ **CODY-NEXT-07.01** Define a bounded CharacterIntent derived from the domain:
   selected-chat activity, global pending-question attention, uncertainty and an
   eligible semantic reaction. Keep provider names and raw tool events out of Muse.
-- [ ] **CODY-NEXT-07.02** Implement requested pose, visible pose, transient reaction
+- [ ] ⚪ **CODY-NEXT-07.02** Implement requested pose, visible pose, transient reaction
   and ambient state separately. Continue updating the base intent during a touch
   reaction; resume the current intent rather than a stale saved Idle pose.
-- [ ] **CODY-NEXT-07.03** Define priority and interruption rules. A pending question
+- [ ] ⚪ **CODY-NEXT-07.03** Define priority and interruption rules. A pending question
   remains recognizable through routine work/completion/touch; an unrelated tool
   result cannot celebrate over unresolved user attention. Handle multiple questions
   deterministically without cycling through a backlog of decorative reactions.
-- [ ] **CODY-NEXT-07.04** Map rest, work, external wait, user attention, reply-ready,
+- [ ] ⚪ **CODY-NEXT-07.04** Map rest, work, external wait, user attention, reply-ready,
   observed error, interruption and wake to Muse behavior. Extend Muse's own mode/
   pose parameters if necessary; do not imply actual listening/speaking without
   an actual audio source. Work completion and successful outcome stay distinct.
-- [ ] **CODY-NEXT-07.05** Interpolate from the currently visible pose when interrupted.
+- [ ] ⚪ **CODY-NEXT-07.05** Interpolate from the currently visible pose when interrupted.
   Use neutral bridging only where needed, preserve blink/gaze continuity and
   define minimum dwell/coalescing so tool bursts do not flicker between expressions.
-- [ ] **CODY-NEXT-07.06** Keep artistic clocks independent of domain deadlines.
+- [ ] ⚪ **CODY-NEXT-07.06** Keep artistic clocks independent of domain deadlines.
   Define hide/standby/wake behavior, pause without accumulated cue replay and safe
   long-frame handling. Respect Muse's retained state and single renderer ownership.
-- [ ] **CODY-NEXT-07.07** Replace the demo's wake/idle-only decision with the intent
+- [ ] ⚪ **CODY-NEXT-07.07** Replace the demo's wake/idle-only decision with the intent
   integration while retaining completed-frame damage comparison and retirement.
   Prevent offline or sending states from silently removing unresolved attention.
 
@@ -514,26 +524,26 @@ continues to use Muse/CODY2D with no alternate face pipeline.
 
 **Outcome:** a calm, expressive companion with event-driven accents.
 
-- [ ] **CODY-NEXT-08.01** Preserve the current Muse face language and evolve its
+- [ ] ⚪ **CODY-NEXT-08.01** Preserve the current Muse face language and evolve its
   gaze, lids, mouth and brows within that renderer. Keep the body relatively calm;
   tune breathing and small sway before adding larger gestures. Reuse ideas from
   existing direction code without introducing its old graphical backend.
-- [ ] **CODY-NEXT-08.02** Keep blink, gaze and ambient movement on independent,
+- [ ] ⚪ **CODY-NEXT-08.02** Keep blink, gaze and ambient movement on independent,
   bounded schedules. Use irregular pauses and occasional small variations;
   avoid constant whole-body motion or unattended repeated celebration.
-- [ ] **CODY-NEXT-08.03** Start with authored timing candidates: 120-220 ms blink,
+- [ ] ⚪ **CODY-NEXT-08.03** Start with authored timing candidates: 120-220 ms blink,
   200-450 ms facial transitions, 0.8-1.5 s wake, current 1.6 s tap reaction and
   final 400 ms fade. These are tuning inputs, not accepted hardware results.
-- [ ] **CODY-NEXT-08.04** Add a small bounded accent set within Muse: wake sparkles,
+- [ ] ⚪ **CODY-NEXT-08.04** Add a small bounded accent set within Muse: wake sparkles,
   a brief question symbol, a restrained reply-ready accent and touch particles.
   Start with 0.6-1.2 s effects, limited concurrency and behind/in-front passes.
   A persistent question uses a persistent recognizable expression after the
   accent disappears. No inferred task-success celebration.
-- [ ] **CODY-NEXT-08.05** Trigger existing Cody audio through the effects/audio
+- [ ] ⚪ **CODY-NEXT-08.05** Trigger existing Cody audio through the effects/audio
   owner on admitted semantic transitions, never from raster calls. Deduplicate
   cues by event/attempt identity; preserve mute, volume, capture/timer priorities,
   cancellation and no replay after reconnect/wake.
-- [ ] **CODY-NEXT-08.06** Keep quiet-hours configuration supported but apply the
+- [ ] ⚪ **CODY-NEXT-08.06** Keep quiet-hours configuration supported but apply the
   requested disabled state through the settings owner for this rollout. Default
   only absent keys; preserve a valid saved schedule and report persistence errors
   rather than disguising an update as first-boot defaulting. Disabled quiet hours
@@ -542,7 +552,7 @@ continues to use Muse/CODY2D with no alternate face pipeline.
   is activated; preserve the schedule/timezone and verify the observed result.
   Saved enabled settings survive firmware updates, so a new default or hardcoded
   audio bypass is insufficient. Do not automatically enable a night schedule.
-- [ ] **CODY-NEXT-08.07** Bound dirty regions, palette changes and effect extents.
+- [ ] ⚪ **CODY-NEXT-08.07** Bound dirty regions, palette changes and effect extents.
   Keep indexed frame ownership until all strips retire; include removed particles
   in damage. Treat 192/256/320-pixel avatar sizing as a later explicit layout
   choice within Muse, not an implicit renderer change.
@@ -555,36 +565,36 @@ outside the renderer. Visual/audible quality and throughput await phase 11.
 
 **Outcome:** useful existing UI survives, while Muse has its own screen.
 
-- [ ] **CODY-NEXT-09.01** Implement mutually exclusive mascot/UI scene kinds.
+- [ ] ⚪ **CODY-NEXT-09.01** Implement mutually exclusive mascot/UI scene kinds.
   Remove the character from reused UI presenters without deleting their controls,
   data paths or original catalog references. Preserve pairing/recovery usability.
-- [ ] **CODY-NEXT-09.02** Retain VibeWare -> Muse Home (16), horizontal navigation
+- [ ] ⚪ **CODY-NEXT-09.02** Retain VibeWare -> Muse Home (16), horizontal navigation
   between Home and Tools (10), and BOOT access to Tools. Define two dots strictly
   as navigation chrome, not data widgets. Confirm their placement/visibility
   against the mascot-only requirement before final layout; leave rim semantics open.
-- [ ] **CODY-NEXT-09.03** Resolve gesture ownership on the completely displayed
+- [ ] ⚪ **CODY-NEXT-09.03** Resolve gesture ownership on the completely displayed
   frame: horizontal swipe navigates; a short tap with pending attention opens
   the selected pending question; without attention it triggers the Muse reaction.
   A swipe or wake touch cannot also send a choice or trigger an underlying action.
-- [ ] **CODY-NEXT-09.04** Provide UI-only access to all chats, selected-chat/turn
+- [ ] ⚪ **CODY-NEXT-09.04** Provide UI-only access to all chats, selected-chat/turn
   detail, tool calls and pending questions. Map new routes only after the catalog
   audit; assign permanent unique codes then. Retain 26/27/31 question/delivery
   meanings and existing pairing codes, including review-before-Send and Back.
-- [ ] **CODY-NEXT-09.05** Show tool icons via a presentation-owned category/artwork
+- [ ] ⚪ **CODY-NEXT-09.05** Show tool icons via a presentation-owned category/artwork
   catalog; retain textual names, independent call status and unknown-tool fallback.
   Read model projections rather than maintaining UI-owned tool/session records.
-- [ ] **CODY-NEXT-09.06** Keep background questions reachable on UI-only screens
+- [ ] ⚪ **CODY-NEXT-09.06** Keep background questions reachable on UI-only screens
   through an attention entry without replacing an in-progress choice/review or
   changing the foreground chat. Opening a question retains caller route, selected
   chat, scroll and stable question ID; Back restores them without resolving it.
-- [ ] **CODY-NEXT-09.07** Reuse counters/statistics, Connections, settings and recovery
+- [ ] ⚪ **CODY-NEXT-09.07** Reuse counters/statistics, Connections, settings and recovery
   screens through Tools. Child Back returns to its actual caller; Home returns to
   the mascot. Retain last statistics page without converting it into the mascot.
-- [ ] **CODY-NEXT-09.08** Update navigation/layout/atlas sources to the implemented
+- [ ] ⚪ **CODY-NEXT-09.08** Update navigation/layout/atlas sources to the implemented
   routes, replacing obsolete mixed-panel descriptions. Preserve historical screen
   codes and evidence. Reconcile text completion, touch admission, circular bounds,
   full Back target and 0/90/180/270-degree rotation.
-- [ ] **CODY-NEXT-09.09** Preserve the existing push-to-talk/manual Record voice
+- [ ] ⚪ **CODY-NEXT-09.09** Preserve the existing push-to-talk/manual Record voice
   control and its recording, cancellation and delivery pages as UI-only routes.
   Reuse VoiceInputTrigger::DeviceButton and requestVoiceInput through the current
   voice owner. Preserve actual stop/send behavior, profile/capture availability,
@@ -594,7 +604,7 @@ outside the renderer. Visual/audible quality and throughput await phase 11.
   the existing active-recording precedence: recording retains its Cancel/Send
   controls before BOOT may open Options/Tools. Preserve existing gestures only
   on routes where admitted.
-- [ ] **CODY-NEXT-09.10** Keep the Wi-Fi keyboard reference accessible by catalog
+- [ ] ⚪ **CODY-NEXT-09.10** Keep the Wi-Fi keyboard reference accessible by catalog
   code and link its proposed route to phase 13. Existing BLE/QR provisioning and
   recovery stay available while native text entry is designed.
 
@@ -606,20 +616,20 @@ the character. Source/preview/hardware evidence remains clearly distinguished.
 
 **Outcome:** richer execution detail without guessing parent/child semantics.
 
-- [ ] **CODY-NEXT-10.01** Add documented SubagentStart/SubagentStop support across
+- [ ] ⚪ **CODY-NEXT-10.01** Add documented SubagentStart/SubagentStop support across
   hook manifest, input validation, normalization, registry and device storage.
   Keep hook review/trust in the native supported flow; never rewrite trust state.
-- [ ] **CODY-NEXT-10.02** Preserve parent chat, parent turn, agent ID and nested
+- [ ] ⚪ **CODY-NEXT-10.02** Preserve parent chat, parent turn, agent ID and nested
   parent-agent relation only when actually supplied. Keep missing relationships
   explicitly incomplete. Completion of one child never completes the root turn.
-- [ ] **CODY-NEXT-10.03** Distinguish tool return from persistent process/job exit.
+- [ ] ⚪ **CODY-NEXT-10.03** Distinguish tool return from persistent process/job exit.
   Ingest supported operation IDs and lifecycle evidence; link polling to the
   existing operation. If the provider exposes no reliable outcome, keep unknown
   rather than inferring success from a returned tool invocation.
-- [ ] **CODY-NEXT-10.04** Handle late child completion after parent interruption,
+- [ ] ⚪ **CODY-NEXT-10.04** Handle late child completion after parent interruption,
   stop or closure, orphaned events, restart and stale leases. Expired freshness
   does not invent a cancelled/completed child.
-- [ ] **CODY-NEXT-10.05** Extend domain queries, UI tool/agent detail and scenario
+- [ ] ⚪ **CODY-NEXT-10.05** Extend domain queries, UI tool/agent detail and scenario
   inputs; keep the same Muse intent vocabulary. More children must not generate
   an unbounded animation/sound queue or change the user's foreground selection.
 
@@ -631,46 +641,46 @@ behind a fabricated complete execution tree.
 
 **Outcome:** evidence for the integrated source, with unverified behavior explicit.
 
-- [ ] **CODY-NEXT-11.01** Complete implementation and static source review before
+- [ ] ⚪ **CODY-NEXT-11.01** Complete implementation and static source review before
   validation. Reconcile requirements, interfaces, ID references, memory estimates,
   error propagation and preservation of unrelated work. Identify exact commands
   through `scripts/device.ps1`; obtain the authorization required for each run.
-- [ ] **CODY-NEXT-11.02** Run authorized domain/protocol/ledger scenarios covering
+- [ ] ⚪ **CODY-NEXT-11.02** Run authorized domain/protocol/ledger scenarios covering
   CODY-SC-01 through 21, malformed/incompatible payloads, referential integrity,
   ordering, snapshot chunk loss and persistence failure. Assert semantic outcomes
   and bounded resources rather than only pixel snapshots.
-- [ ] **CODY-NEXT-11.03** Run authorized host playback and UI verification using
+- [ ] ⚪ **CODY-NEXT-11.03** Run authorized host playback and UI verification using
   current source. Inspect long idle, rapid transitions, question readability,
   removed-effect damage, deterministic restart, gesture arbitration and route
   restoration. Host results do not establish target performance or audible output.
-- [ ] **CODY-NEXT-11.04** Run the authorized final firmware build/size checks under
+- [ ] ⚪ **CODY-NEXT-11.04** Run the authorized final firmware build/size checks under
   repository limits. Verify native Cody composition without LVGL, flash/PSRAM
   budgets, generated input consistency and compiled stack frames where applicable.
   A compiler failure is fixed at its cause; reruns follow the same authorization rules.
-- [ ] **CODY-NEXT-11.05** With separate flash/device authorization, verify actual
+- [ ] ⚪ **CODY-NEXT-11.05** With separate flash/device authorization, verify actual
   VibeWare/Muse handoff, genuine Codex hook delivery, multiple chats/tool calls,
   question delivery/recovery and all retained setup/recovery routes. Observe the
   exact running image and paired plugin revision; synthetic traces are not live evidence.
-- [ ] **CODY-NEXT-11.06** Measure composition/damage/transfer time separately,
+- [ ] ⚪ **CODY-NEXT-11.06** Measure composition/damage/transfer time separately,
   completed-frame FPS, missed cadence, touch latency, deepest stack margins,
   internal heap, PSRAM and synchronization peak allocation. Include idle, particles,
   all supported rotations, active networking and a catalog at configured capacity.
   Target requested 40 ms pacing without claiming 25 completed FPS until measured.
-- [ ] **CODY-NEXT-11.07** Listen to admitted cues, mute/volume behavior and disabled
+- [ ] ⚪ **CODY-NEXT-11.07** Listen to admitted cues, mute/volume behavior and disabled
   quiet hours. Verify enabled quiet-hours behavior only through an explicit test
   setting, then restore the requested disabled state with confirmed persistence.
   Check standby/wake and no historical cue replay.
-- [ ] **CODY-NEXT-11.08** Resolve failures or retain named unaccepted gates. Update
+- [ ] ⚪ **CODY-NEXT-11.08** Resolve failures or retain named unaccepted gates. Update
   current docs and the single latest validation summary in done.md; do not create
   historical validation logs/docs. Record remaining work under its stable phase ID.
   Commits/publication follow repository authorization; no push, PR or release is
   implied by accepting this plan or by completing local validation.
-- [ ] **CODY-NEXT-11.09** Check retained push-to-talk wiring and UI routes as part
+- [ ] ⚪ **CODY-NEXT-11.09** Check retained push-to-talk wiring and UI routes as part
   of the integration. Actual microphone capture and speech-to-Codex behavior
   remain separate physical voice gates under VOICE-01; execute only when those
   trials are explicitly activated. Preserving an existing path does not establish
   model-side speech understanding or a working transcript-review page.
-- [ ] **CODY-NEXT-11.10** Validate phase-14 portability boundaries through authorized
+- [ ] ⚪ **CODY-NEXT-11.10** Validate phase-14 portability boundaries through authorized
   host/current-board compositions: same domain/Muse behavior, declared capacities,
   geometry adapters, unavailable optional input/audio and clean adapter ownership.
   Distinguish a simulated capability case from support for a physical board.
@@ -687,15 +697,15 @@ results support the chosen capacity and appearance. Open failures remain visible
 **Activation:** phase 11 accepted and a specific provider/cloud source requested.
 This phase is not required for the first Codex delivery.
 
-- [ ] **CODY-NEXT-12.01** Verify the new source's documented public integration,
+- [ ] 🟣 **CODY-NEXT-12.01** Verify the new source's documented public integration,
   lifecycle events, IDs, response acknowledgements and restart behavior.
-- [ ] **CODY-NEXT-12.02** Implement a source adapter to the existing domain schema
+- [ ] 🟣 **CODY-NEXT-12.02** Implement a source adapter to the existing domain schema
   and declare capabilities/coverage. Add provider-specific facts only when the
   generic contract cannot express them without losing meaning.
-- [ ] **CODY-NEXT-12.03** Namespace source identities and deduplicate observations
+- [ ] 🟣 **CODY-NEXT-12.03** Namespace source identities and deduplicate observations
   arriving over alternate transports. Define source failover explicitly; a cloud
   connection cannot create a second copy of the same chat or replay a response.
-- [ ] **CODY-NEXT-12.04** Reuse the scenario matrix with provider-specific fixtures
+- [ ] 🟣 **CODY-NEXT-12.04** Reuse the scenario matrix with provider-specific fixtures
   and separately authorized live acceptance. Integrate cloud transport through
   CLOUD-02/CLOUD-03 owners when activated; do not implement a parallel relay here.
 
@@ -717,38 +727,38 @@ textarea. `build_text_page()` selects the large-key keypad for sub-2-inch/narrow
 displays. The round keypad adjusts bottom-row spacers/padding and text placement.
 This source evidence does not prove Cody geometry, touch comfort or performance.
 
-- [ ] **CODY-NEXT-13.01** Catalog the reference's key maps, group/multi-tap timing,
+- [ ] 🟣 **CODY-NEXT-13.01** Catalog the reference's key maps, group/multi-tap timing,
   uppercase/numeric/symbol entry, deletion, password visibility, confirm/cancel,
   swipe suppression and round-screen geometry. Preserve the exact reference and
   license boundary; do not import LVGL dependencies as part of the Muse avatar.
-- [ ] **CODY-NEXT-13.02** Produce a native UI-only layout specification for the
+- [ ] 🟣 **CODY-NEXT-13.02** Produce a native UI-only layout specification for the
   466 x 466 panel. Prefer the large-key small-screen behavior as the starting
   point; assess full-keyboard feasibility separately. Fit complete key hit bounds,
   field, title, Back and confirm actions against each occupied circular chord.
   Retain Cody's font/ASCII contracts and usable password symbols.
-- [ ] **CODY-NEXT-13.03** Define a renderer-independent bounded text-entry state
+- [ ] 🟣 **CODY-NEXT-13.03** Define a renderer-independent bounded text-entry state
   owned by the UI input controller: buffer length, cursor, current character
   group, pending multi-tap commit, mode and cancellation. Render with CODY2D and
   route acquired touch through the existing owner; no LVGL or second touch reader.
-- [ ] **CODY-NEXT-13.04** Integrate network selection/manual SSID and password
+- [ ] 🟣 **CODY-NEXT-13.04** Integrate network selection/manual SSID and password
   submission with the existing Wi-Fi owner. Define supported network/security
   cases, field limits and original connection/storage errors. Never imply a
   successful connection from text submission or remove the existing BLE/QR route.
-- [ ] **CODY-NEXT-13.05** Preserve credentials only as required by the existing
+- [ ] 🟣 **CODY-NEXT-13.05** Preserve credentials only as required by the existing
   configuration owner. Mask passwords by default, make visibility explicit and
   clear temporary input on cancellation or final exit from the entry flow.
   Navigation within that flow may retain the bounded draft as specified in 13.06.
   Keep credentials out of logs,
   domain telemetry, screenshots and public diagnostics.
-- [ ] **CODY-NEXT-13.06** Assign a permanent catalog/route code after 00's ID audit.
+- [ ] 🟣 **CODY-NEXT-13.06** Assign a permanent catalog/route code after 00's ID audit.
   Preserve caller context and entered text under deliberate local navigation as
   specified; accidental swipe must not submit or discard credentials. Cancel
   restores its caller without replacing a valid saved network.
-- [ ] **CODY-NEXT-13.07** Author scenarios for multi-tap timeout, rapid/repeated
+- [ ] 🟣 **CODY-NEXT-13.07** Author scenarios for multi-tap timeout, rapid/repeated
   presses, deletion, symbols, long SSIDs/passwords, rotation, cancel, failed
   connection and missing/stale network results. Gate execution under the same
   host/build/device authorization rules as phase 11.
-- [ ] **CODY-NEXT-13.08** After implementation and static review, obtain applicable
+- [ ] 🟣 **CODY-NEXT-13.08** After implementation and static review, obtain applicable
   authorized visual and physical acceptance for hit accuracy, legibility, circle
   clearance and real network connection/persistence. If not activated, retain
   the design/reference as planned; do not claim a keyboard is already on Cody.
@@ -769,58 +779,58 @@ Use the current Windows host/native simulator and Waveshare firmware as concrete
 consumers. Future Linux/macOS and different devices remain separately activated
 ports, not presumed working products.
 
-- [ ] **CODY-NEXT-14.01** Write a dependency map separating portable domain/reducer,
+- [x] 🟢 **CODY-NEXT-14.01** Write a dependency map separating portable domain/reducer,
   provider adapters, transport, desktop OS services, Muse direction/rendering,
   display/input adapters, BSP and optional hardware services. Compare Muse's device
   descriptor approach as a reference; reuse useful boundaries without importing
   its LVGL dependency or whole application lifecycle.
-- [ ] **CODY-NEXT-14.02** Keep the domain reducer, identifiers, state transitions
+- [ ] 🟡 **CODY-NEXT-14.02** Keep the domain reducer, identifiers, state transitions
   and logical protocol independent of OS and MCU headers. Supply time, admitted
   observations and bounded storage through explicit interfaces. Keep platform
   error causes visible at the adapter boundary rather than converting failures
   to success or forcing platform error types into every domain object.
-- [ ] **CODY-NEXT-14.03** Keep Muse character behavior and its C rendering core
+- [x] 🟢 **CODY-NEXT-14.03** Keep Muse character behavior and its C rendering core
   portable. Separate pose/time/audio-energy inputs from device acquisition and
   RGB565 display transfer. Maintain one source implementation for host preview
   and firmware; do not fork expression behavior for individual boards. Make
   artistic randomness seedable for scenarios; keep credential/cryptographic
   randomness owned by the platform security services, never by that artistic seed.
-- [ ] **CODY-NEXT-14.04** Isolate PC-specific paths, credential storage, process
+- [ ] 🟡 **CODY-NEXT-14.04** Isolate PC-specific paths, credential storage, process
   launch, executable discovery and local IPC behind the appropriate existing
   OS owners. Use platform-correct path semantics, preserve provider-native IDs
   and avoid embedding drive letters, Windows-only shell commands or credential
   APIs in provider-neutral broker logic. Keep Windows behavior operational.
-- [ ] **CODY-NEXT-14.05** Define a typed device-capability descriptor from actual
+- [x] 🟢 **CODY-NEXT-14.05** Define a typed device-capability descriptor from actual
   board configuration/owners: display dimensions/shape/rotation/pixel format,
   touch and physical inputs, audio input/output and channel count, storage,
   available memory classes and optional sensors. Capabilities describe availability;
   health/freshness still report whether an available component currently works.
-- [ ] **CODY-NEXT-14.06** Route viewport, clipping, scaling and hit geometry through
+- [x] 🟢 **CODY-NEXT-14.06** Route viewport, clipping, scaling and hit geometry through
   board/display adapters. Preserve the current 466 x 466 circular layout and its
   accepted bounds as the first implementation. Prepare separate geometry policies
   for other shapes/resolutions without assuming every device has a 320-pixel safe
   square. Use the same acquired logical coordinates for drawing and touch.
-- [ ] **CODY-NEXT-14.07** Keep physical board, build profile and optional services
+- [ ] 🟡 **CODY-NEXT-14.07** Keep physical board, build profile and optional services
   orthogonal. A microphone-free profile disables recording entry cleanly while
   retaining the domain and mascot; a single microphone never creates two channels.
   Parameterize memory budgets/capacities explicitly and keep overflow behavior
   truthful on a smaller-memory device. Missing PSRAM is not silent fallback success.
-- [ ] **CODY-NEXT-14.08** Reuse existing native host and board adapters for clock,
+- [ ] 🟡 **CODY-NEXT-14.08** Reuse existing native host and board adapters for clock,
   persistence, input/audio observations and display submission. Add only the
   interfaces required by this plan; avoid a speculative universal hardware layer
   or replacing unrelated BSP functionality. Preserve canonical acquisition owners.
   Specify each adapter's actual durability and memory guarantees: atomic file
   commit, DMA alignment/retirement and PSRAM/cache access remain target-owned,
   not assumptions of a generic allocation or persistence wrapper.
-- [ ] **CODY-NEXT-14.09** Wire portable sources and adapter selection into existing
+- [x] 🟢 **CODY-NEXT-14.09** Wire portable sources and adapter selection into existing
   build/profile composition through scripts/device.ps1. Keep generic code free
   of scattered board-name branches; put unavoidable platform conditionals at
   the adapter/build boundary. No unsupported OS/board is advertised as enabled.
-- [ ] **CODY-NEXT-14.10** Author conformance scenarios for the same domain events
+- [ ] 🟡 **CODY-NEXT-14.10** Author conformance scenarios for the same domain events
   and Muse inputs across host/current-board adapters, capability absence, smaller
   capacities and alternate geometry fixtures. Run them only under phase-11
   authorization; label simulated geometry and devices explicitly.
-- [ ] **CODY-NEXT-14.11** Document how to add one PC OS adapter or one device:
+- [x] 🟢 **CODY-NEXT-14.11** Document how to add one PC OS adapter or one device:
   required capabilities/interfaces, source/build registration, ownership,
   resource budget and acceptance evidence. A future port should not require
   rewriting Chat/Turn/ToolCall/Question or Muse expressions. Select actual future

@@ -66,6 +66,13 @@ def runtime_directory() -> Path:
     return directory
 
 
+# No parameters: selects the existing credential file name for the current OS.
+# Raises RuntimeError if per-user runtime storage is unavailable or unsafe.
+def control_key_path() -> Path:
+    directory = runtime_directory()
+    return directory / ("control-key.dpapi" if os.name == "nt" else "control-key.credential")
+
+
 # arguments: Fixed libsecret CLI operation and non-secret item attributes.
 # secret: Optional secret bytes passed through stdin only, never arguments or logs.
 # Raises RuntimeError for absent, locked, unavailable or failed Secret Service access.

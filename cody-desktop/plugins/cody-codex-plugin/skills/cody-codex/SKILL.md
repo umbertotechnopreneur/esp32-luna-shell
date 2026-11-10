@@ -47,14 +47,14 @@ After pairing, follow authentic metadata:
   never displays a GUID, switches the followed chat or replaces an open
   question. Do not duplicate this hook notice with an MCP notification.
 - At the start of substantive work and when its actual purpose changes, read
-  `ccp_list_sessions` and call `ccp_report_progress` with the exact currently
-  followed `session_id` and `turn_id`. Describe what you are doing in a short
+  `ccp_list_sessions` and call `ccp_report_progress` with your exact observed
+  `session_id` and current `turn_id` when both are known. Describe the work in a short
   English ASCII sentence, preferably 30-80 characters and at most 192. Examples:
   **Adding sounds to Codex screens**, **Fixing standby notifications**, or
   **Reviewing the pairing flow**. Report actual work only; never invent elapsed
   progress, percentages, completion, estimates, commands or transcript excerpts.
-  A background agent must not report another chat's work. Re-read identities
-  after a rejected or stale report; never overwrite selection or hook state.
+  Skip the report if the originating chat is ambiguous. Re-read identities
+  after a rejected or stale report. The report keeps the current chat selection.
   Reports expire and are cleared on the next prompt or terminal hook. A report
   does not prove that the device rendered its text.
 - After broker restart, await a new prompt; LAN reconnection alone preserves the

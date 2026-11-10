@@ -33,13 +33,13 @@ from typing import Any
 import ccp_server as ccp
 from ccp_pricing import PriceCache
 from ccp_subscription_catalog import SubscriptionCatalog
-from ccp_activity import EVENTS
+from ccp_codex_hooks import decode_hook, hook_metadata, unique_hook_object
 from ccp_repository import read_branch
 from ccp_security import RejectionReporter, configure_runtime_logging
 from ccp_presence import AppState
 from ccp_source import current_source
-from ccp_windows import (CONTROL_PORT, configure_exclusive_socket, control_port_available,
-                         launch_runtime, runtime_directory)
+from ccp_windows import (CONTROL_PORT, configure_exclusive_socket, control_key_path,
+                         control_port_available, launch_runtime, runtime_directory)
 
 
 MAX_REQUEST_BYTES = 65536
@@ -56,7 +56,7 @@ class BrokerTransportError(RuntimeError):
 # create: Only the process owning the exclusive control listener may create a missing key.
 # Raises OSError or RuntimeError for every read, protection or atomic-write failure.
 def control_secret(create: bool = False) -> str:
-    path = runtime_directory() / ("control-key.dpapi" if os.name == "nt" else "control-key.credential")
+    path = control_key_path()
     try:
         protected = path.read_text(encoding="ascii")
     except FileNotFoundError:
@@ -523,15 +523,11 @@ def run_hook() -> int:
     raw = sys.stdin.buffer.read(16 * 1024 * 1024 + 1)
     if len(raw) > 16 * 1024 * 1024:
         raise ValueError("CCP hook input exceeds its bound")
-    original = json.loads(raw)
-    if not isinstance(original, dict) or original.get("hook_event_name") not in EVENTS:
-        raise ValueError("CCP hook event is not supported")
-    allowed = ("hook_event_name", "session_id", "cwd", "turn_id", "tool_name", "tool_use_id", "model", "trigger", "transcript_path")
-    event = {key: original[key] for key in allowed if key in original}
+    event = hook_metadata(json.loads(raw, object_pairs_hook=unique_hook_object))
     event["emitted_ns"] = emitted_ns
-    # Only checkout metadata is read; tool arguments and all chat contents remain discarded.
-    if isinstance(event.get("cwd"), str) and 0 < len(event["cwd"]) <= 4096:
-        event["branch"] = read_branch(event["cwd"])
+    # Reject malformed field values before any filesystem access or IPC.
+    native = decode_hook(event, emitted_ns)
+    event["branch"] = read_branch(native.cwd)
     # Only lifecycle entry points can start the owner. Interrupt must finish
     # within Codex's three-second limit, even when the runtime is unavailable.
     secret = (ensure_runtime() if event["hook_event_name"] in {"SessionStart", "UserPromptSubmit"}

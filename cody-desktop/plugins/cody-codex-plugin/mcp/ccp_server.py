@@ -1481,6 +1481,9 @@ class CcpService:
                 or observation.event == "Stop" and observation.reply_ready):
             # Other chats keep their unread replies.
             self.interactions.retire_native(observation.session_id)
+        elif observation.resumed_after_stop:
+            # The new native work supersedes only this session's provisional reply.
+            self.interactions.retire_native(observation.session_id, interactions.EventKind.REPLY_READY)
         if (observation.event in {"PreToolUse", "PostToolUse"}
                 and observation.phase not in {Phase.PAUSED, Phase.INTERRUPTED}):
             # Native hook activity has resumed. Retire only this chat's advisory
@@ -2127,7 +2130,7 @@ def activity_tool_catalog() -> list[dict[str, Any]]:
              "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
              "annotations": {"readOnlyHint": True, "destructiveHint": False, "openWorldHint": False}},
             {"name": "ccp_report_progress", "title": "Describe current work on Cody",
-             "description": "Report a short English ASCII description of actual current work, such as Adding sounds to Codex screens. Use current followed session_id and turn_id from ccp_list_sessions; never fabricate progress, commands, logs, percentages or estimates. This cannot select a chat or change its hook phase.",
+             "description": "Report a short English ASCII description of actual current work, such as Adding sounds to Codex screens. Use the originating session_id and its current turn_id from ccp_list_sessions; never fabricate progress, commands, logs, percentages or estimates. This cannot select a chat or change its hook phase.",
              "inputSchema": {"type": "object", "additionalProperties": False,
                  "properties": {"session_id": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,128}$"},
                      "turn_id": {"type": "string", "pattern": "^[A-Za-z0-9_.:-]{1,128}$"},

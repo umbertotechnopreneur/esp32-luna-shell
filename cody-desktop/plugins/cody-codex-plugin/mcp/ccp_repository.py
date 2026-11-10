@@ -5,6 +5,11 @@ import re
 import sys
 
 
+# cwd: Native hook path, interpreted with the receiving desktop OS's path rules.
+def checkout_leaf(cwd: str) -> str:
+    return Path(cwd).name
+
+
 # path: Exact Git administrative file; only HEAD and an optional worktree gitdir pointer are admitted.
 # maximum: Explicit byte limit before decoding metadata.
 # Raises OSError or ValueError for genuine read, size or ASCII encoding failures.
