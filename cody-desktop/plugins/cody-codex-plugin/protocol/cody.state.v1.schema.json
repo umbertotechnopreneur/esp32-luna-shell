@@ -1,0 +1,3218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Cody state protocol 1",
+  "description": "CODY-NEXT-02 source contract. Authentication, semantic references, scalar ranges, capacities and transitions additionally require CODY_STATE_V1.md.",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/message_offer"
+    },
+    {
+      "$ref": "#/$defs/message_select"
+    },
+    {
+      "$ref": "#/$defs/message_accepted"
+    },
+    {
+      "$ref": "#/$defs/message_resync"
+    },
+    {
+      "$ref": "#/$defs/message_next"
+    },
+    {
+      "$ref": "#/$defs/message_no_change"
+    },
+    {
+      "$ref": "#/$defs/message_snapshot"
+    },
+    {
+      "$ref": "#/$defs/message_delta"
+    },
+    {
+      "$ref": "#/$defs/message_error"
+    }
+  ],
+  "$defs": {
+    "hex64": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$(?![\\s\\S])"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^(?!0000000000000000$)[0-9a-f]{16}$(?![\\s\\S])"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$(?![\\s\\S])"
+    },
+    "original_code": {
+      "type": "string",
+      "maxLength": 20,
+      "pattern": "^(0|-?[1-9][0-9]{0,18})$(?![\\s\\S])"
+    },
+    "entity_kind": {
+      "type": "string",
+      "enum": [
+        "source",
+        "chat",
+        "turn",
+        "tool_definition",
+        "tool_call",
+        "agent_task",
+        "external_operation",
+        "question",
+        "choice",
+        "answer_attempt",
+        "wait"
+      ]
+    },
+    "capability": {
+      "type": "string",
+      "enum": [
+        "unknown",
+        "supported",
+        "unsupported"
+      ]
+    },
+    "capabilities": {
+      "type": "object",
+      "properties": {
+        "chats": {
+          "$ref": "#/$defs/capability"
+        },
+        "turns": {
+          "$ref": "#/$defs/capability"
+        },
+        "tool_calls": {
+          "$ref": "#/$defs/capability"
+        },
+        "agents": {
+          "$ref": "#/$defs/capability"
+        },
+        "external_operations": {
+          "$ref": "#/$defs/capability"
+        },
+        "questions": {
+          "$ref": "#/$defs/capability"
+        },
+        "recipient_acknowledgement": {
+          "$ref": "#/$defs/capability"
+        },
+        "resume_questions": {
+          "$ref": "#/$defs/capability"
+        }
+      },
+      "required": [
+        "chats",
+        "turns",
+        "tool_calls",
+        "agents",
+        "external_operations",
+        "questions",
+        "recipient_acknowledgement",
+        "resume_questions"
+      ],
+      "additionalProperties": false
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "sources": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "chats": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64
+        },
+        "turns": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "tool_definitions": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 512
+        },
+        "active_calls": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "terminal_calls": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "agents": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "operations": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "open_questions": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1024
+        },
+        "resolved_questions": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1024
+        },
+        "choices": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 6144
+        },
+        "answer_attempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "waits": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8192
+        },
+        "evidence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "tombstones": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 8192
+        },
+        "text_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2097152
+        },
+        "decode_scratch_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1048576
+        },
+        "persistence_scratch_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1048576
+        }
+      },
+      "required": [
+        "sources",
+        "chats",
+        "turns",
+        "tool_definitions",
+        "active_calls",
+        "terminal_calls",
+        "agents",
+        "operations",
+        "open_questions",
+        "resolved_questions",
+        "choices",
+        "answer_attempts",
+        "waits",
+        "evidence",
+        "tombstones",
+        "text_bytes",
+        "decode_scratch_bytes",
+        "persistence_scratch_bytes"
+      ],
+      "additionalProperties": false
+    },
+    "transport": {
+      "type": "object",
+      "properties": {
+        "document_bytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 8388608
+        },
+        "window_chunks": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16
+        }
+      },
+      "required": [
+        "document_bytes",
+        "window_chunks"
+      ],
+      "additionalProperties": false
+    },
+    "error_detail": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "invalid_identity",
+            "duplicate_identity",
+            "invalid_value",
+            "missing_reference",
+            "revision_conflict",
+            "capacity_exceeded",
+            "unsupported",
+            "persistence",
+            "transport",
+            "provider"
+          ]
+        },
+        "original_code": {
+          "$ref": "#/$defs/original_code"
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512,
+          "pattern": "^[ -~]*$(?![\\s\\S])"
+        }
+      },
+      "required": [
+        "kind",
+        "original_code",
+        "detail"
+      ],
+      "additionalProperties": false
+    },
+    "observed_at": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "basis": {
+              "type": "string",
+              "enum": [
+                "unix_microseconds",
+                "monotonic_microseconds"
+              ]
+            },
+            "clock_id": {
+              "$ref": "#/$defs/id"
+            },
+            "microseconds": {
+              "$ref": "#/$defs/hex64"
+            }
+          },
+          "required": [
+            "basis",
+            "clock_id",
+            "microseconds"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "evidence": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "origin_epoch": {
+          "$ref": "#/$defs/id"
+        },
+        "origin_revision": {
+          "$ref": "#/$defs/id"
+        },
+        "observed_at": {
+          "$ref": "#/$defs/observed_at"
+        },
+        "source_age_ms": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "lease_ms": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 120000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "freshness": {
+          "type": "string",
+          "enum": [
+            "unknown",
+            "current",
+            "stale",
+            "historical"
+          ]
+        },
+        "provenance": {
+          "type": "string",
+          "enum": [
+            "native_event",
+            "native_read",
+            "broker",
+            "device_action",
+            "restored",
+            "synthetic"
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/error_detail"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "origin_epoch",
+        "origin_revision",
+        "observed_at",
+        "source_age_ms",
+        "lease_ms",
+        "freshness",
+        "provenance",
+        "error"
+      ],
+      "additionalProperties": false
+    },
+    "fact_id": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "$ref": "#/$defs/id"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_bool": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "boolean"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_title": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 255,
+              "pattern": "^[ -~]*$(?![\\s\\S])"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_label": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 96,
+              "pattern": "^[ -~]*$(?![\\s\\S])"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_native_identity": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 0,
+              "maxLength": 128,
+              "pattern": "^[ -~]*$(?![\\s\\S])"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_prompt": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512,
+              "pattern": "^[ -~]*$(?![\\s\\S])"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_choice_label": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 96,
+              "pattern": "^[ -~]*$(?![\\s\\S])"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_choice_detail": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 1024,
+              "pattern": "^[ -~]*$(?![\\s\\S])"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_link": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "enum": [
+                "unknown",
+                "disconnected",
+                "connecting",
+                "authenticated",
+                "failed"
+              ]
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_chat_lifecycle": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "enum": [
+                "unknown",
+                "open",
+                "closed",
+                "archived"
+              ]
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_execution": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "enum": [
+                "unknown",
+                "queued",
+                "running",
+                "waiting",
+                "stopped",
+                "interrupted"
+              ]
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_outcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "enum": [
+                "unknown",
+                "succeeded",
+                "failed",
+                "cancelled"
+              ]
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_reply": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "enum": [
+                "unknown",
+                "unavailable",
+                "available"
+              ]
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_category": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "enum": [
+                "unknown",
+                "command",
+                "file_read",
+                "file_edit",
+                "search",
+                "browser",
+                "agent",
+                "service"
+              ]
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_call_state": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "enum": [
+                "unknown",
+                "queued",
+                "running",
+                "returned",
+                "failed",
+                "cancelled"
+              ]
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_agent_state": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "enum": [
+                "unknown",
+                "queued",
+                "running",
+                "waiting",
+                "stopped",
+                "failed",
+                "cancelled"
+              ]
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_operation_state": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "enum": [
+                "unknown",
+                "pending",
+                "running",
+                "finished",
+                "failed",
+                "cancelled"
+              ]
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_question_kind": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "enum": [
+                "unknown",
+                "answerable",
+                "native_approval_notice"
+              ]
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_question_state": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "enum": [
+                "unknown",
+                "open",
+                "answered",
+                "cancelled",
+                "superseded"
+              ]
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_ticket": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "enum": [
+                "unknown",
+                "available",
+                "expired",
+                "unavailable"
+              ]
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "fact_answer_state": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "known"
+            },
+            "value": {
+              "type": "string",
+              "enum": [
+                "unknown",
+                "admitted",
+                "persisted",
+                "sending",
+                "broker_received",
+                "recipient_delivered",
+                "rejected",
+                "cancelled",
+                "unconfirmed"
+              ]
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "const": "unknown"
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/id"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "state": {
+              "type": "string",
+              "enum": [
+                "absent",
+                "unsupported",
+                "failed",
+                "conflict"
+              ]
+            },
+            "value": {
+              "type": "null"
+            },
+            "evidence": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "state",
+            "value",
+            "evidence"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "source": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "source"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[ -~]*$(?![\\s\\S])"
+        },
+        "native_namespace": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[ -~]*$(?![\\s\\S])"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/capabilities"
+        },
+        "link": {
+          "$ref": "#/$defs/fact_link"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "provider",
+        "native_namespace",
+        "capabilities",
+        "link"
+      ],
+      "additionalProperties": false
+    },
+    "chat": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "chat"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "title": {
+          "$ref": "#/$defs/fact_title"
+        },
+        "lifecycle": {
+          "$ref": "#/$defs/fact_chat_lifecycle"
+        },
+        "current_turn": {
+          "$ref": "#/$defs/fact_id"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "title",
+        "lifecycle",
+        "current_turn"
+      ],
+      "additionalProperties": false
+    },
+    "turn": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "turn"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "chat": {
+          "$ref": "#/$defs/id"
+        },
+        "execution": {
+          "$ref": "#/$defs/fact_execution"
+        },
+        "outcome": {
+          "$ref": "#/$defs/fact_outcome"
+        },
+        "reply": {
+          "$ref": "#/$defs/fact_reply"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "chat",
+        "execution",
+        "outcome",
+        "reply"
+      ],
+      "additionalProperties": false
+    },
+    "tool_definition": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "tool_definition"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "original_name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[ -~]*$(?![\\s\\S])"
+        },
+        "display_label": {
+          "$ref": "#/$defs/fact_label"
+        },
+        "category": {
+          "$ref": "#/$defs/fact_category"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "original_name",
+        "display_label",
+        "category"
+      ],
+      "additionalProperties": false
+    },
+    "tool_call": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "tool_call"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "turn": {
+          "$ref": "#/$defs/id"
+        },
+        "definition": {
+          "$ref": "#/$defs/id"
+        },
+        "executing_agent": {
+          "$ref": "#/$defs/fact_id"
+        },
+        "state": {
+          "$ref": "#/$defs/fact_call_state"
+        },
+        "outcome": {
+          "$ref": "#/$defs/fact_outcome"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "turn",
+        "definition",
+        "executing_agent",
+        "state",
+        "outcome"
+      ],
+      "additionalProperties": false
+    },
+    "agent_task": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "agent_task"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "owning_turn": {
+          "$ref": "#/$defs/id"
+        },
+        "parent": {
+          "$ref": "#/$defs/fact_id"
+        },
+        "state": {
+          "$ref": "#/$defs/fact_agent_state"
+        },
+        "outcome": {
+          "$ref": "#/$defs/fact_outcome"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "owning_turn",
+        "parent",
+        "state",
+        "outcome"
+      ],
+      "additionalProperties": false
+    },
+    "external_operation": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "external_operation"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "owning_turn": {
+          "$ref": "#/$defs/id"
+        },
+        "originating_call": {
+          "$ref": "#/$defs/fact_id"
+        },
+        "native_identity": {
+          "$ref": "#/$defs/fact_native_identity"
+        },
+        "state": {
+          "$ref": "#/$defs/fact_operation_state"
+        },
+        "outcome": {
+          "$ref": "#/$defs/fact_outcome"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "owning_turn",
+        "originating_call",
+        "native_identity",
+        "state",
+        "outcome"
+      ],
+      "additionalProperties": false
+    },
+    "question": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "question"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "chat": {
+          "$ref": "#/$defs/fact_id"
+        },
+        "turn": {
+          "$ref": "#/$defs/fact_id"
+        },
+        "kind": {
+          "$ref": "#/$defs/fact_question_kind"
+        },
+        "state": {
+          "$ref": "#/$defs/fact_question_state"
+        },
+        "prompt": {
+          "$ref": "#/$defs/fact_prompt"
+        },
+        "ticket": {
+          "$ref": "#/$defs/fact_ticket"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "chat",
+        "turn",
+        "kind",
+        "state",
+        "prompt",
+        "ticket"
+      ],
+      "additionalProperties": false
+    },
+    "choice": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "choice"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "question": {
+          "$ref": "#/$defs/id"
+        },
+        "display_order": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "label": {
+          "$ref": "#/$defs/fact_choice_label"
+        },
+        "detail": {
+          "$ref": "#/$defs/fact_choice_detail"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "question",
+        "display_order",
+        "label",
+        "detail"
+      ],
+      "additionalProperties": false
+    },
+    "answer_attempt": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "answer_attempt"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "question": {
+          "$ref": "#/$defs/id"
+        },
+        "choice": {
+          "$ref": "#/$defs/id"
+        },
+        "state": {
+          "$ref": "#/$defs/fact_answer_state"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "question",
+        "choice",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "wait_target": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "unknown"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "user"
+            },
+            "question": {
+              "$ref": "#/$defs/fact_id"
+            }
+          },
+          "required": [
+            "kind",
+            "question"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "tool"
+            },
+            "call": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "kind",
+            "call"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "agent"
+            },
+            "agent": {
+              "$ref": "#/$defs/id"
+            }
+          },
+          "required": [
+            "kind",
+            "agent"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "const": "service"
+            },
+            "operation": {
+              "$ref": "#/$defs/fact_id"
+            }
+          },
+          "required": [
+            "kind",
+            "operation"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "wait": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "const": "wait"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "turn": {
+          "$ref": "#/$defs/id"
+        },
+        "target": {
+          "$ref": "#/$defs/wait_target"
+        },
+        "blocking": {
+          "$ref": "#/$defs/fact_bool"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "turn",
+        "target",
+        "blocking"
+      ],
+      "additionalProperties": false
+    },
+    "record": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/source"
+        },
+        {
+          "$ref": "#/$defs/chat"
+        },
+        {
+          "$ref": "#/$defs/turn"
+        },
+        {
+          "$ref": "#/$defs/tool_definition"
+        },
+        {
+          "$ref": "#/$defs/tool_call"
+        },
+        {
+          "$ref": "#/$defs/agent_task"
+        },
+        {
+          "$ref": "#/$defs/external_operation"
+        },
+        {
+          "$ref": "#/$defs/question"
+        },
+        {
+          "$ref": "#/$defs/choice"
+        },
+        {
+          "$ref": "#/$defs/answer_attempt"
+        },
+        {
+          "$ref": "#/$defs/wait"
+        }
+      ]
+    },
+    "coverage": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/entity_kind"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "unknown",
+            "complete",
+            "partial",
+            "unsupported"
+          ]
+        },
+        "admitted": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "omitted": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "state",
+        "admitted",
+        "omitted"
+      ],
+      "additionalProperties": false
+    },
+    "removal": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/$defs/entity_kind"
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "revision": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "cue": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "question",
+            "turn"
+          ]
+        },
+        "entity_id": {
+          "$ref": "#/$defs/id"
+        },
+        "event": {
+          "type": "string",
+          "enum": [
+            "question_opened",
+            "reply_available",
+            "turn_outcome"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "type",
+        "entity_id",
+        "event"
+      ],
+      "additionalProperties": false
+    },
+    "binding": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "$ref": "#/$defs/id"
+        },
+        "epoch": {
+          "$ref": "#/$defs/id"
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[ -~]*$(?![\\s\\S])"
+        },
+        "native_namespace": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[ -~]*$(?![\\s\\S])"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/capabilities"
+        }
+      },
+      "required": [
+        "source_id",
+        "epoch",
+        "provider",
+        "native_namespace",
+        "capabilities"
+      ],
+      "additionalProperties": false
+    },
+    "message_offer": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "cody.state/1"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "const": "offer"
+        },
+        "bindings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/binding"
+          },
+          "minItems": 1,
+          "maxItems": 4
+        },
+        "limits": {
+          "$ref": "#/$defs/limits"
+        },
+        "transport": {
+          "$ref": "#/$defs/transport"
+        }
+      },
+      "required": [
+        "schema",
+        "request_id",
+        "kind",
+        "bindings",
+        "limits",
+        "transport"
+      ],
+      "additionalProperties": false
+    },
+    "message_select": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "cody.state/1"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "const": "select"
+        },
+        "offer_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true
+        },
+        "limits": {
+          "$ref": "#/$defs/limits"
+        },
+        "transport": {
+          "$ref": "#/$defs/transport"
+        }
+      },
+      "required": [
+        "schema",
+        "request_id",
+        "kind",
+        "offer_digest",
+        "sources",
+        "limits",
+        "transport"
+      ],
+      "additionalProperties": false
+    },
+    "message_accepted": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "cody.state/1"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "const": "accepted"
+        },
+        "offer_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "selection_digest": {
+          "$ref": "#/$defs/digest"
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 1,
+          "maxItems": 4,
+          "uniqueItems": true
+        },
+        "limits": {
+          "$ref": "#/$defs/limits"
+        },
+        "transport": {
+          "$ref": "#/$defs/transport"
+        }
+      },
+      "required": [
+        "schema",
+        "request_id",
+        "kind",
+        "offer_digest",
+        "selection_digest",
+        "sources",
+        "limits",
+        "transport"
+      ],
+      "additionalProperties": false
+    },
+    "message_resync": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "cody.state/1"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "const": "resync"
+        },
+        "source_id": {
+          "$ref": "#/$defs/id"
+        },
+        "epoch": {
+          "$ref": "#/$defs/id"
+        },
+        "revision": {
+          "$ref": "#/$defs/hex64"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "initial",
+            "gap",
+            "epoch_changed",
+            "reboot",
+            "capacity",
+            "journal_overflow",
+            "integrity",
+            "clock_reset",
+            "reconciliation"
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "request_id",
+        "kind",
+        "source_id",
+        "epoch",
+        "revision",
+        "reason"
+      ],
+      "additionalProperties": false
+    },
+    "message_next": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "cody.state/1"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "const": "next"
+        },
+        "source_id": {
+          "$ref": "#/$defs/id"
+        },
+        "epoch": {
+          "$ref": "#/$defs/id"
+        },
+        "base_revision": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "schema",
+        "request_id",
+        "kind",
+        "source_id",
+        "epoch",
+        "base_revision"
+      ],
+      "additionalProperties": false
+    },
+    "message_no_change": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "cody.state/1"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "const": "no_change"
+        },
+        "source_id": {
+          "$ref": "#/$defs/id"
+        },
+        "epoch": {
+          "$ref": "#/$defs/id"
+        },
+        "revision": {
+          "$ref": "#/$defs/id"
+        }
+      },
+      "required": [
+        "schema",
+        "request_id",
+        "kind",
+        "source_id",
+        "epoch",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "message_snapshot": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "cody.state/1"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "const": "snapshot"
+        },
+        "source_id": {
+          "$ref": "#/$defs/id"
+        },
+        "epoch": {
+          "$ref": "#/$defs/id"
+        },
+        "revision": {
+          "$ref": "#/$defs/id"
+        },
+        "base_revision": {
+          "const": "0000000000000000"
+        },
+        "coverage": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coverage"
+          },
+          "minItems": 11,
+          "maxItems": 11
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "minItems": 0,
+          "maxItems": 65536
+        },
+        "upserts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/record"
+          },
+          "minItems": 0,
+          "maxItems": 32768
+        },
+        "remove": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/removal"
+          },
+          "minItems": 0,
+          "maxItems": 8192
+        },
+        "cue_watermark": {
+          "$ref": "#/$defs/hex64"
+        },
+        "cues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cue"
+          },
+          "minItems": 0,
+          "maxItems": 0
+        }
+      },
+      "required": [
+        "schema",
+        "request_id",
+        "kind",
+        "source_id",
+        "epoch",
+        "revision",
+        "base_revision",
+        "coverage",
+        "evidence",
+        "upserts",
+        "remove",
+        "cue_watermark",
+        "cues"
+      ],
+      "additionalProperties": false
+    },
+    "message_delta": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "cody.state/1"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "const": "delta"
+        },
+        "source_id": {
+          "$ref": "#/$defs/id"
+        },
+        "epoch": {
+          "$ref": "#/$defs/id"
+        },
+        "revision": {
+          "$ref": "#/$defs/id"
+        },
+        "base_revision": {
+          "$ref": "#/$defs/hex64"
+        },
+        "coverage": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/coverage"
+          },
+          "minItems": 11,
+          "maxItems": 11
+        },
+        "evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/evidence"
+          },
+          "minItems": 0,
+          "maxItems": 65536
+        },
+        "upserts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/record"
+          },
+          "minItems": 0,
+          "maxItems": 32768
+        },
+        "remove": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/removal"
+          },
+          "minItems": 0,
+          "maxItems": 8192
+        },
+        "cue_watermark": {
+          "$ref": "#/$defs/hex64"
+        },
+        "cues": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/cue"
+          },
+          "minItems": 0,
+          "maxItems": 32
+        }
+      },
+      "required": [
+        "schema",
+        "request_id",
+        "kind",
+        "source_id",
+        "epoch",
+        "revision",
+        "base_revision",
+        "coverage",
+        "evidence",
+        "upserts",
+        "remove",
+        "cue_watermark",
+        "cues"
+      ],
+      "additionalProperties": false
+    },
+    "message_error": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "const": "cody.state/1"
+        },
+        "request_id": {
+          "$ref": "#/$defs/id"
+        },
+        "kind": {
+          "const": "error"
+        },
+        "code": {
+          "type": "string",
+          "enum": [
+            "malformed",
+            "unsupported_version",
+            "unsupported_capability",
+            "wrong_binding",
+            "revision_conflict",
+            "need_snapshot",
+            "missing_reference",
+            "capacity_exceeded",
+            "transfer_timeout",
+            "integrity",
+            "busy",
+            "persistence",
+            "invalid_transition"
+          ]
+        },
+        "pool": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "pattern": "^[ -~]*$(?![\\s\\S])"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "detail": {
+          "type": "string",
+          "minLength": 0,
+          "maxLength": 512,
+          "pattern": "^[ -~]*$(?![\\s\\S])"
+        },
+        "revision": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/hex64"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "schema",
+        "request_id",
+        "kind",
+        "code",
+        "pool",
+        "detail",
+        "revision"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

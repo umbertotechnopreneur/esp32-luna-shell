@@ -1,5 +1,14 @@
 # CCP1 local pairing protocol
 
+## vNext version boundary
+
+[Cody state protocol 1](CODY_STATE_V1.md) defines the `CODY-NEXT-02` replacement
+for multi-chat domain synchronization, with its JSON schema, examples and bounded
+authenticated transport. It requires matching vNext peers; no ACTIVITY/TECH
+compatibility projection or downgrade is planned. That contract is not yet
+connected to the live broker/firmware. The sections below describe the existing
+runtime and retained commissioning/service owners until their integration phases.
+
 ## Supported activity contract
 
 The responder accepts only `activity=5` when activity is advertised, with

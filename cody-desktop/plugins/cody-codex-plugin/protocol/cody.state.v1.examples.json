@@ -1,0 +1,1053 @@
+{
+  "format": "cody.state.examples/1",
+  "evidence": "Synthetic source fixtures and expected outcomes only. Not executed; no real authentication or hardware evidence. Production adapters must reject synthetic provenance.",
+  "messages": [
+    {
+      "name": "initial-two-chat-snapshot",
+      "request": {
+        "schema": "cody.state/1",
+        "kind": "resync",
+        "request_id": "0000000000000064",
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000000",
+        "reason": "initial"
+      },
+      "message": {
+        "schema": "cody.state/1",
+        "kind": "snapshot",
+        "request_id": "0000000000000064",
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000001",
+        "base_revision": "0000000000000000",
+        "coverage": [
+          {
+            "kind": "source",
+            "state": "complete",
+            "admitted": 1,
+            "omitted": 0
+          },
+          {
+            "kind": "chat",
+            "state": "complete",
+            "admitted": 2,
+            "omitted": 0
+          },
+          {
+            "kind": "turn",
+            "state": "complete",
+            "admitted": 2,
+            "omitted": 0
+          },
+          {
+            "kind": "tool_definition",
+            "state": "complete",
+            "admitted": 1,
+            "omitted": 0
+          },
+          {
+            "kind": "tool_call",
+            "state": "complete",
+            "admitted": 2,
+            "omitted": 0
+          },
+          {
+            "kind": "agent_task",
+            "state": "complete",
+            "admitted": 0,
+            "omitted": 0
+          },
+          {
+            "kind": "external_operation",
+            "state": "complete",
+            "admitted": 0,
+            "omitted": 0
+          },
+          {
+            "kind": "question",
+            "state": "complete",
+            "admitted": 0,
+            "omitted": 0
+          },
+          {
+            "kind": "choice",
+            "state": "complete",
+            "admitted": 0,
+            "omitted": 0
+          },
+          {
+            "kind": "answer_attempt",
+            "state": "complete",
+            "admitted": 0,
+            "omitted": 0
+          },
+          {
+            "kind": "wait",
+            "state": "complete",
+            "admitted": 0,
+            "omitted": 0
+          }
+        ],
+        "evidence": [
+          {
+            "id": "0000000000000001",
+            "origin_epoch": "00000000000000a1",
+            "origin_revision": "0000000000000001",
+            "observed_at": {
+              "basis": "monotonic_microseconds",
+              "clock_id": "0000000000000001",
+              "microseconds": "00000000000f4240"
+            },
+            "source_age_ms": 0,
+            "lease_ms": 120000,
+            "freshness": "current",
+            "provenance": "synthetic",
+            "error": null
+          }
+        ],
+        "upserts": [
+          {
+            "type": "source",
+            "id": "0000000000000001",
+            "provider": "fixture",
+            "native_namespace": "cody.synthetic.protocol.examples",
+            "capabilities": {
+              "chats": "supported",
+              "turns": "supported",
+              "tool_calls": "supported",
+              "agents": "supported",
+              "external_operations": "supported",
+              "questions": "supported",
+              "recipient_acknowledgement": "supported",
+              "resume_questions": "supported"
+            },
+            "link": {
+              "state": "known",
+              "value": "authenticated",
+              "evidence": "0000000000000001"
+            }
+          },
+          {
+            "type": "chat",
+            "id": "0000000000000001",
+            "title": {
+              "state": "known",
+              "value": "Chat A",
+              "evidence": "0000000000000001"
+            },
+            "lifecycle": {
+              "state": "known",
+              "value": "open",
+              "evidence": "0000000000000001"
+            },
+            "current_turn": {
+              "state": "known",
+              "value": "0000000000000010",
+              "evidence": "0000000000000001"
+            }
+          },
+          {
+            "type": "chat",
+            "id": "0000000000000002",
+            "title": {
+              "state": "known",
+              "value": "Chat B",
+              "evidence": "0000000000000001"
+            },
+            "lifecycle": {
+              "state": "known",
+              "value": "open",
+              "evidence": "0000000000000001"
+            },
+            "current_turn": {
+              "state": "known",
+              "value": "0000000000000020",
+              "evidence": "0000000000000001"
+            }
+          },
+          {
+            "type": "turn",
+            "id": "0000000000000010",
+            "chat": "0000000000000001",
+            "execution": {
+              "state": "known",
+              "value": "running",
+              "evidence": "0000000000000001"
+            },
+            "outcome": {
+              "state": "unknown",
+              "value": null,
+              "evidence": null
+            },
+            "reply": {
+              "state": "unknown",
+              "value": null,
+              "evidence": null
+            }
+          },
+          {
+            "type": "turn",
+            "id": "0000000000000020",
+            "chat": "0000000000000002",
+            "execution": {
+              "state": "known",
+              "value": "running",
+              "evidence": "0000000000000001"
+            },
+            "outcome": {
+              "state": "unknown",
+              "value": null,
+              "evidence": null
+            },
+            "reply": {
+              "state": "unknown",
+              "value": null,
+              "evidence": null
+            }
+          },
+          {
+            "type": "tool_definition",
+            "id": "0000000000000001",
+            "original_name": "exec_command",
+            "display_label": {
+              "state": "known",
+              "value": "Command",
+              "evidence": "0000000000000001"
+            },
+            "category": {
+              "state": "known",
+              "value": "command",
+              "evidence": "0000000000000001"
+            }
+          },
+          {
+            "type": "tool_call",
+            "id": "0000000000000001",
+            "turn": "0000000000000010",
+            "definition": "0000000000000001",
+            "executing_agent": {
+              "state": "unknown",
+              "value": null,
+              "evidence": null
+            },
+            "state": {
+              "state": "known",
+              "value": "running",
+              "evidence": "0000000000000001"
+            },
+            "outcome": {
+              "state": "unknown",
+              "value": null,
+              "evidence": null
+            }
+          },
+          {
+            "type": "tool_call",
+            "id": "0000000000000002",
+            "turn": "0000000000000010",
+            "definition": "0000000000000001",
+            "executing_agent": {
+              "state": "unknown",
+              "value": null,
+              "evidence": null
+            },
+            "state": {
+              "state": "known",
+              "value": "running",
+              "evidence": "0000000000000001"
+            },
+            "outcome": {
+              "state": "unknown",
+              "value": null,
+              "evidence": null
+            }
+          }
+        ],
+        "remove": [],
+        "cue_watermark": "0000000000000000",
+        "cues": []
+      },
+      "expected": "Atomic generation 1; two chats, two distinct calls of one tool; no cue replay."
+    },
+    {
+      "name": "second-tool-returns",
+      "request": {
+        "schema": "cody.state/1",
+        "kind": "next",
+        "request_id": "0000000000000065",
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "base_revision": "0000000000000001"
+      },
+      "message": {
+        "schema": "cody.state/1",
+        "kind": "delta",
+        "request_id": "0000000000000065",
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000002",
+        "base_revision": "0000000000000001",
+        "coverage": [
+          {
+            "kind": "source",
+            "state": "complete",
+            "admitted": 1,
+            "omitted": 0
+          },
+          {
+            "kind": "chat",
+            "state": "complete",
+            "admitted": 2,
+            "omitted": 0
+          },
+          {
+            "kind": "turn",
+            "state": "complete",
+            "admitted": 2,
+            "omitted": 0
+          },
+          {
+            "kind": "tool_definition",
+            "state": "complete",
+            "admitted": 1,
+            "omitted": 0
+          },
+          {
+            "kind": "tool_call",
+            "state": "complete",
+            "admitted": 2,
+            "omitted": 0
+          },
+          {
+            "kind": "agent_task",
+            "state": "complete",
+            "admitted": 0,
+            "omitted": 0
+          },
+          {
+            "kind": "external_operation",
+            "state": "complete",
+            "admitted": 0,
+            "omitted": 0
+          },
+          {
+            "kind": "question",
+            "state": "complete",
+            "admitted": 0,
+            "omitted": 0
+          },
+          {
+            "kind": "choice",
+            "state": "complete",
+            "admitted": 0,
+            "omitted": 0
+          },
+          {
+            "kind": "answer_attempt",
+            "state": "complete",
+            "admitted": 0,
+            "omitted": 0
+          },
+          {
+            "kind": "wait",
+            "state": "complete",
+            "admitted": 0,
+            "omitted": 0
+          }
+        ],
+        "evidence": [
+          {
+            "id": "0000000000000002",
+            "origin_epoch": "00000000000000a1",
+            "origin_revision": "0000000000000002",
+            "observed_at": {
+              "basis": "monotonic_microseconds",
+              "clock_id": "0000000000000001",
+              "microseconds": "00000000001e8480"
+            },
+            "source_age_ms": 0,
+            "lease_ms": 120000,
+            "freshness": "current",
+            "provenance": "synthetic",
+            "error": null
+          }
+        ],
+        "upserts": [
+          {
+            "type": "tool_call",
+            "id": "0000000000000002",
+            "turn": "0000000000000010",
+            "definition": "0000000000000001",
+            "executing_agent": {
+              "state": "unknown",
+              "value": null,
+              "evidence": null
+            },
+            "state": {
+              "state": "known",
+              "value": "returned",
+              "evidence": "0000000000000002"
+            },
+            "outcome": {
+              "state": "unknown",
+              "value": null,
+              "evidence": null
+            }
+          }
+        ],
+        "remove": [],
+        "cue_watermark": "0000000000000000",
+        "cues": []
+      },
+      "expected": "Generation 2; call 1 remains Running, call 2 Returned; turn outcome stays Unknown."
+    },
+    {
+      "name": "background-question",
+      "request": {
+        "schema": "cody.state/1",
+        "kind": "next",
+        "request_id": "0000000000000066",
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "base_revision": "0000000000000002"
+      },
+      "message": {
+        "schema": "cody.state/1",
+        "kind": "delta",
+        "request_id": "0000000000000066",
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "base_revision": "0000000000000002",
+        "coverage": [
+          {
+            "kind": "source",
+            "state": "complete",
+            "admitted": 1,
+            "omitted": 0
+          },
+          {
+            "kind": "chat",
+            "state": "complete",
+            "admitted": 2,
+            "omitted": 0
+          },
+          {
+            "kind": "turn",
+            "state": "complete",
+            "admitted": 2,
+            "omitted": 0
+          },
+          {
+            "kind": "tool_definition",
+            "state": "complete",
+            "admitted": 1,
+            "omitted": 0
+          },
+          {
+            "kind": "tool_call",
+            "state": "complete",
+            "admitted": 2,
+            "omitted": 0
+          },
+          {
+            "kind": "agent_task",
+            "state": "complete",
+            "admitted": 0,
+            "omitted": 0
+          },
+          {
+            "kind": "external_operation",
+            "state": "complete",
+            "admitted": 0,
+            "omitted": 0
+          },
+          {
+            "kind": "question",
+            "state": "complete",
+            "admitted": 1,
+            "omitted": 0
+          },
+          {
+            "kind": "choice",
+            "state": "complete",
+            "admitted": 2,
+            "omitted": 0
+          },
+          {
+            "kind": "answer_attempt",
+            "state": "complete",
+            "admitted": 0,
+            "omitted": 0
+          },
+          {
+            "kind": "wait",
+            "state": "complete",
+            "admitted": 0,
+            "omitted": 0
+          }
+        ],
+        "evidence": [
+          {
+            "id": "0000000000000003",
+            "origin_epoch": "00000000000000a1",
+            "origin_revision": "0000000000000003",
+            "observed_at": {
+              "basis": "monotonic_microseconds",
+              "clock_id": "0000000000000001",
+              "microseconds": "00000000002dc6c0"
+            },
+            "source_age_ms": 0,
+            "lease_ms": 120000,
+            "freshness": "current",
+            "provenance": "synthetic",
+            "error": null
+          }
+        ],
+        "upserts": [
+          {
+            "type": "question",
+            "id": "0000000000000001",
+            "chat": {
+              "state": "known",
+              "value": "0000000000000002",
+              "evidence": "0000000000000003"
+            },
+            "turn": {
+              "state": "known",
+              "value": "0000000000000020",
+              "evidence": "0000000000000003"
+            },
+            "kind": {
+              "state": "known",
+              "value": "answerable",
+              "evidence": "0000000000000003"
+            },
+            "state": {
+              "state": "known",
+              "value": "open",
+              "evidence": "0000000000000003"
+            },
+            "prompt": {
+              "state": "known",
+              "value": "Which approach should Chat B use?",
+              "evidence": "0000000000000003"
+            },
+            "ticket": {
+              "state": "known",
+              "value": "available",
+              "evidence": "0000000000000003"
+            }
+          },
+          {
+            "type": "choice",
+            "id": "0000000000000001",
+            "question": "0000000000000001",
+            "display_order": 1,
+            "label": {
+              "state": "known",
+              "value": "Small change",
+              "evidence": "0000000000000003"
+            },
+            "detail": {
+              "state": "known",
+              "value": "Keep the implementation focused on the current behavior.",
+              "evidence": "0000000000000003"
+            }
+          },
+          {
+            "type": "choice",
+            "id": "0000000000000002",
+            "question": "0000000000000001",
+            "display_order": 2,
+            "label": {
+              "state": "known",
+              "value": "Broader change",
+              "evidence": "0000000000000003"
+            },
+            "detail": {
+              "state": "known",
+              "value": "Include the related behavior in the same implementation.",
+              "evidence": "0000000000000003"
+            }
+          }
+        ],
+        "remove": [],
+        "cue_watermark": "0000000000000001",
+        "cues": [
+          {
+            "id": "0000000000000001",
+            "type": "question",
+            "entity_id": "0000000000000001",
+            "event": "question_opened"
+          }
+        ]
+      },
+      "expected": "Generation 3; Chat B question Open while Chat A is locally pinned; one new semantic cue; call 1 remains Running."
+    }
+  ],
+  "revision_cases": [
+    {
+      "name": "contiguous-delta",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "has_snapshot": true,
+        "needs_snapshot": false
+      },
+      "transaction": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000004",
+        "base_revision": "0000000000000003",
+        "kind": "delta",
+        "request_matched": true
+      },
+      "expected": "StageDelta"
+    },
+    {
+      "name": "coalesced-journal",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "has_snapshot": true,
+        "needs_snapshot": false
+      },
+      "transaction": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000008",
+        "base_revision": "0000000000000003",
+        "kind": "delta",
+        "request_matched": true
+      },
+      "expected": "StageDelta"
+    },
+    {
+      "name": "missing-base",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "has_snapshot": true,
+        "needs_snapshot": false
+      },
+      "transaction": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000005",
+        "base_revision": "0000000000000004",
+        "kind": "delta",
+        "request_matched": true
+      },
+      "expected": "NeedSnapshot"
+    },
+    {
+      "name": "overlapping-base",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "has_snapshot": true,
+        "needs_snapshot": false
+      },
+      "transaction": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000005",
+        "base_revision": "0000000000000002",
+        "kind": "delta",
+        "request_matched": true
+      },
+      "expected": "NeedSnapshot"
+    },
+    {
+      "name": "equal-revision-needs-digest",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "has_snapshot": true,
+        "needs_snapshot": false
+      },
+      "transaction": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "base_revision": "0000000000000002",
+        "kind": "delta",
+        "request_matched": true
+      },
+      "expected": "CheckDuplicate"
+    },
+    {
+      "name": "late-delta",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "has_snapshot": true,
+        "needs_snapshot": false
+      },
+      "transaction": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000002",
+        "base_revision": "0000000000000001",
+        "kind": "delta",
+        "request_matched": true
+      },
+      "expected": "IgnoreStale"
+    },
+    {
+      "name": "foreign-source",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "has_snapshot": true,
+        "needs_snapshot": false
+      },
+      "transaction": {
+        "source_id": "0000000000000002",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000004",
+        "base_revision": "0000000000000003",
+        "kind": "delta",
+        "request_matched": true
+      },
+      "expected": "RejectBinding"
+    },
+    {
+      "name": "unnegotiated-epoch",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "has_snapshot": true,
+        "needs_snapshot": false
+      },
+      "transaction": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a2",
+        "revision": "0000000000000004",
+        "base_revision": "0000000000000003",
+        "kind": "delta",
+        "request_matched": true
+      },
+      "expected": "RejectBinding"
+    },
+    {
+      "name": "gap-already-detected",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "has_snapshot": true,
+        "needs_snapshot": true
+      },
+      "transaction": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000004",
+        "base_revision": "0000000000000003",
+        "kind": "delta",
+        "request_matched": true
+      },
+      "expected": "NeedSnapshot"
+    },
+    {
+      "name": "initial-snapshot",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000000",
+        "has_snapshot": false,
+        "needs_snapshot": true
+      },
+      "transaction": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000001",
+        "base_revision": "0000000000000000",
+        "kind": "snapshot",
+        "request_matched": true
+      },
+      "expected": "StageSnapshot"
+    },
+    {
+      "name": "delta-before-snapshot",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000000",
+        "has_snapshot": false,
+        "needs_snapshot": true
+      },
+      "transaction": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000001",
+        "base_revision": "0000000000000000",
+        "kind": "delta",
+        "request_matched": true
+      },
+      "expected": "NeedSnapshot"
+    },
+    {
+      "name": "solicited-same-revision-snapshot",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "has_snapshot": true,
+        "needs_snapshot": false
+      },
+      "transaction": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "base_revision": "0000000000000000",
+        "kind": "snapshot",
+        "request_matched": true
+      },
+      "expected": "StageSnapshot"
+    },
+    {
+      "name": "older-snapshot",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "has_snapshot": true,
+        "needs_snapshot": false
+      },
+      "transaction": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000002",
+        "base_revision": "0000000000000000",
+        "kind": "snapshot",
+        "request_matched": true
+      },
+      "expected": "IgnoreStale"
+    },
+    {
+      "name": "snapshot-with-base",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "has_snapshot": true,
+        "needs_snapshot": false
+      },
+      "transaction": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000004",
+        "base_revision": "0000000000000001",
+        "kind": "snapshot",
+        "request_matched": true
+      },
+      "expected": "RejectEnvelope"
+    },
+    {
+      "name": "unsolicited-update",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "has_snapshot": true,
+        "needs_snapshot": false
+      },
+      "transaction": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000004",
+        "base_revision": "0000000000000003",
+        "kind": "delta",
+        "request_matched": false
+      },
+      "expected": "RejectUnrequestedUpdate"
+    },
+    {
+      "name": "zero-target-revision",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "has_snapshot": true,
+        "needs_snapshot": false
+      },
+      "transaction": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000000",
+        "base_revision": "0000000000000003",
+        "kind": "delta",
+        "request_matched": true
+      },
+      "expected": "RejectEnvelope"
+    },
+    {
+      "name": "invalid-delta-range",
+      "cursor": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000003",
+        "has_snapshot": true,
+        "needs_snapshot": false
+      },
+      "transaction": {
+        "source_id": "0000000000000001",
+        "epoch": "00000000000000a1",
+        "revision": "0000000000000004",
+        "base_revision": "0000000000000004",
+        "kind": "delta",
+        "request_matched": true
+      },
+      "expected": "RejectEnvelope"
+    }
+  ],
+  "chunk_cases": [
+    {
+      "name": "empty",
+      "document_bytes": 0,
+      "chunk_count": 0,
+      "chunk_index": 0,
+      "payload_bytes": 0,
+      "expected": "Malformed"
+    },
+    {
+      "name": "small-document",
+      "document_bytes": 10,
+      "chunk_count": 1,
+      "chunk_index": 0,
+      "payload_bytes": 10,
+      "expected": "None"
+    },
+    {
+      "name": "exact-chunk",
+      "document_bytes": 1024,
+      "chunk_count": 1,
+      "chunk_index": 0,
+      "payload_bytes": 1024,
+      "expected": "None"
+    },
+    {
+      "name": "last-remainder",
+      "document_bytes": 1025,
+      "chunk_count": 2,
+      "chunk_index": 1,
+      "payload_bytes": 1,
+      "expected": "None"
+    },
+    {
+      "name": "short-nonfinal-chunk",
+      "document_bytes": 1025,
+      "chunk_count": 2,
+      "chunk_index": 0,
+      "payload_bytes": 1023,
+      "expected": "Malformed"
+    },
+    {
+      "name": "bad-index",
+      "document_bytes": 1025,
+      "chunk_count": 2,
+      "chunk_index": 2,
+      "payload_bytes": 1,
+      "expected": "Malformed"
+    },
+    {
+      "name": "maximum-document",
+      "document_bytes": 8388608,
+      "chunk_count": 8192,
+      "chunk_index": 8191,
+      "payload_bytes": 1024,
+      "expected": "None"
+    },
+    {
+      "name": "oversize-document",
+      "document_bytes": 8388609,
+      "chunk_count": 8193,
+      "chunk_index": 0,
+      "payload_bytes": 1024,
+      "expected": "Malformed"
+    }
+  ],
+  "recovery_cases": [
+    {
+      "name": "changed-content-same-revision",
+      "input": "Replay generation 3 delta with a different exact document digest.",
+      "expected": "RevisionConflict; retain generation 3 and watermark 1; no new cue."
+    },
+    {
+      "name": "source-restart",
+      "input": "New endpoint handshake negotiates epoch 162; old epoch 161 packets arrive.",
+      "expected": "Reject old session/binding; keep stale generation until requested new-epoch snapshot reconciles pinned questions."
+    },
+    {
+      "name": "missing-chunk",
+      "input": "Receive chunks 0 and 2, lose 1.",
+      "expected": "Buffer 2 within window, ACK next_missing=1 with bitmap bit 1 set; no generation swap."
+    },
+    {
+      "name": "lost-commit-ack",
+      "input": "Commit generation 3; its terminal ACK is lost and the sender retries.",
+      "expected": "Repeat retained commit ACK, without cue replay or renewed evidence age."
+    },
+    {
+      "name": "conflicting-chunk",
+      "input": "Same transfer/index repeats with different bytes inside the retained window.",
+      "expected": "Reject transfer; committed generation unchanged."
+    },
+    {
+      "name": "memory-exhaustion",
+      "input": "New active call exceeds a negotiated pool or decoder scratch.",
+      "expected": "CapacityExceeded with pool; no partial insertion, eviction or revision advance."
+    },
+    {
+      "name": "pinned-question-removal",
+      "input": "Remove question 1 and both choices while its semantic state remains Open.",
+      "expected": "InvalidTransition; retain unresolved question and original turn."
+    },
+    {
+      "name": "partial-snapshot",
+      "input": "Partial coverage snapshot omits an already retained terminal row.",
+      "expected": "Retain the omitted row; no inferred deletion; resulting coverage counts include it."
+    },
+    {
+      "name": "journal-overflow-during-snapshot",
+      "input": "Producer exceeds its journal bound while an immutable snapshot is in flight.",
+      "expected": "Snapshot can commit coherently; next request from unavailable base gets NeedSnapshot."
+    },
+    {
+      "name": "expired-evidence",
+      "input": "Sender age 44,000 ms, lease 45,000 ms; response commits 1,500 ms after original request.",
+      "expected": "Conservative age at least 45,500 ms; fact Stale, never Current."
+    },
+    {
+      "name": "retransmission-age",
+      "input": "Retry a frozen response five seconds after its initial request.",
+      "expected": "Use original request time and greater previous observation age; no lease renewal."
+    },
+    {
+      "name": "clock-reset",
+      "input": "Receiver monotonic clock changes while a response is in flight.",
+      "expected": "Reject response, keep historical state, establish new session/request before live claims."
+    },
+    {
+      "name": "synthetic-on-firmware",
+      "input": "Send any message fixture in this file through a production firmware adapter.",
+      "expected": "Reject synthetic evidence before publication."
+    },
+    {
+      "name": "unsupported-peer",
+      "input": "Peer advertises only old ACTIVITY/TECH support.",
+      "expected": "UnsupportedVersion/Capability; no downgrade, silent empty model or compatibility projection."
+    }
+  ]
+}

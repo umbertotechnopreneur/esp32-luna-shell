@@ -4,7 +4,8 @@
 are in [CODY_domain_types.hpp](../../cody-device/components/CODY_domain/include/CODY_domain_types.hpp);
 its capacity calculation is in [CODY_domain_capacity.hpp](../../cody-device/components/CODY_domain/include/CODY_domain_capacity.hpp).
 These headers are an implementation foundation, not an integrated runtime store.
-Phase 02 owns serialization; 14 owns platform/build boundaries; 03-05 own live
+The [phase-02 protocol](../../cody-desktop/plugins/cody-codex-plugin/protocol/CODY_STATE_V1.md)
+defines serialization and synchronization; 14 owns platform/build boundaries; 03-05 own live
 adapters, durable answers and the device store. No compiler, simulator or board
 result is implied by source review.
 
@@ -37,6 +38,9 @@ of the old broker cache.
 is not part of an entity's identity. Reordering, reconnecting or restarting the
 broker does not rename a chat, call or unresolved question. Evidence IDs are
 separate store-local tokens: they are not provider IDs or wire addresses.
+`ObservationId` names the source-qualified original broker observation on the
+wire; `Evidence.observation` preserves it across transfers, independently of
+the local handle. Retransmission cannot turn it into a new observation.
 
 | Object | Mandatory association | Independently observed facts / lifetime |
 | --- | --- | --- |
@@ -73,7 +77,9 @@ notice is not an answerable question and never admits a Choice or AnswerAttempt.
 
 Known does not mean fresh. Each evidence record separately carries freshness,
 provenance, source epoch/revision, original observation time and clock identity,
-reported source age, receiver clock/time and error kind/original code/detail.
+reported source age, explicit validity lease, receiver clock/time and error
+kind/original code/detail. Unknown lease is not zero; wire leases and original
+observation identities are retained for subsequent local aging.
 The local store assigns `admitted_sequence` for retention ordering across
 sources/epochs; source revision numbers cannot provide that global ordering.
 Unknown age is not zero. Monotonic values are comparable only within their exact
@@ -185,7 +191,8 @@ chats, tools and questions.
 
 The budget helper uses `sizeof` of the actual C++ records and sorted index
 entries, with 64-bit arithmetic on 32-bit targets. It includes per-kind coverage,
-evidence lookup, pooled text and tombstones, then reserves another complete
+both evidence indexes (local handle and original observation), pooled text and
+tombstones, then reserves another complete
 generation for atomic replacement. Both scratch areas are additional. No array
 or heap allocation occurs in these headers. Adapters must also reserve allocator
 alignment/bookkeeping, retained-reader lifetime, existing firmware, Muse, audio,

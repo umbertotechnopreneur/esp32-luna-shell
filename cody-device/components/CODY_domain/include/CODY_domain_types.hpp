@@ -80,6 +80,7 @@ using QuestionId = EntityId<struct QuestionTag>;
 using ChoiceId = EntityId<struct ChoiceTag>;
 using AnswerAttemptId = EntityId<struct AnswerAttemptTag>;
 using WaitId = EntityId<struct WaitTag>;
+using ObservationId = EntityId<struct ObservationTag>;
 
 // Text offsets are storage details, valid only within their owning generation.
 // Text is length-delimited printable ASCII; an empty known string is not unknown.
@@ -111,6 +112,8 @@ struct SourceTime {
 
 struct Evidence {
     EvidenceId id{};
+    // Stable broker observation identity; id above is the receiver-local handle.
+    ObservationId observation{};
     SourceId source{};
     EpochId epoch{};
     uint64_t revision = 0;
@@ -120,6 +123,8 @@ struct Evidence {
     SourceTime observed_at{};
     uint64_t age_at_receive_us = 0;
     Availability age_state = Availability::Unknown;
+    uint32_t lease_ms = 0;
+    Availability lease_state = Availability::Unknown;
     uint64_t received_at_us = 0;
     ClockId receiver_clock{};
     Freshness freshness = Freshness::Unknown;

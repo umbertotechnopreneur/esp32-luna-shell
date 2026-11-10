@@ -75,9 +75,9 @@ constexpr StorageBudget storage_budget(const CapacityLimits &limits)
         uint64_t{limits.answer_attempts} * sizeof(AnswerAttempt) +
         uint64_t{limits.waits} * sizeof(WaitDependency) +
         uint64_t{limits.sources} * static_cast<uint8_t>(EntityKind::Count) * sizeof(Coverage);
-    // Evidence references also need a bounded lookup; conservatively reserve
-    // the same entry size as entity indexes, rather than assuming direct slots.
-    result.index_bytes = (indexed_records + limits.evidence) * sizeof(IndexEntry);
+    // Evidence needs both local-handle lookup and original-observation lookup
+    // to deduplicate retransmissions without renewing source freshness.
+    result.index_bytes = (indexed_records + uint64_t{limits.evidence} * 2U) * sizeof(IndexEntry);
     result.evidence_bytes = uint64_t{limits.evidence} * sizeof(Evidence);
     result.text_bytes = limits.text_bytes;
     result.tombstone_bytes = uint64_t{limits.tombstones} * sizeof(Tombstone);
