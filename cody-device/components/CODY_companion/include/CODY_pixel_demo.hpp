@@ -17,7 +17,7 @@ struct PixelDemoView {
     const LogicalRect viewport;
     MuseShowcase showcase{};
     std::array<PixelAvatarFrame, 2> frames{};
-    DamageRect damage{};
+    PixelAvatarDamage damage{};
     uint64_t elapsed_us = 0;
     uint64_t reaction_started_us = 0;
     int64_t observed_active_us = 0;
@@ -33,7 +33,7 @@ struct PixelDemoView {
 };
 static_assert(sizeof(PixelDemoView) <= 10 * 1024, "Keep mascot frames in the display owner's PSRAM budget");
 
-// view: Display-owned state and two borrowed RGB565 frames.
+// view: Display-owned state and two indexed frames.
 // active_us: Existing awake clock, excluding standby.
 // content: Mascot-only scene callback and its centered draw bounds.
 // Exception: Rejects a negative or reversed clock.

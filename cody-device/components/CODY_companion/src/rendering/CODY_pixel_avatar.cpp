@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstring>
 
 #include "esp_log.h"
 
@@ -62,45 +63,71 @@ void compose_pixel_avatar(PixelAvatarFrame &frame, PixelAvatarPose pose,
     frame.dim_palette.fill(0);
 }
 
-// previous: Borrowed previous frame; includes its own palette.
+// previous: Borrowed retired frame, including its own palettes.
 // current: Borrowed newly composed frame.
 // viewport: Integer-scaled logical square, independent of display orientation.
-// Exception: Invalid viewport returns an empty rectangle after logging its values.
-CODY2D::Rect pixel_avatar_damage(const PixelAvatarFrame &previous,
-    const PixelAvatarFrame &current, CODY2D::Rect viewport)
+// damage: Display-owned row scratch, reduced to at most eight rectangles.
+// Exception: Invalid viewport leaves the plan empty after logging its values.
+void plan_pixel_avatar_damage(const PixelAvatarFrame &previous,
+    const PixelAvatarFrame &current, CODY2D::Rect viewport, PixelAvatarDamage &damage)
 {
-    if (validate_viewport(viewport) != ESP_OK) {
-        return {};
-    }
-    int left = kGridSize;
-    int top = kGridSize;
-    int right = 0;
-    int bottom = 0;
+    damage.count = 0;
+    if (validate_viewport(viewport) != ESP_OK) return;
+
+    const int scale = viewport.width / kGridSize;
+    const bool grid = scale >= 3;
     for (int y = 0; y < kGridSize; ++y) {
+        int left = kGridSize;
+        int right = 0;
         for (int x = 0; x < kGridSize; ++x) {
             const size_t index = static_cast<size_t>(y * kGridSize + x);
             const auto before = previous.cells[index];
             const auto after = current.cells[index];
-            const bool grid = viewport.width >= 3 * kGridSize;
             if (previous.palette[before] != current.palette[after] ||
                 (grid && previous.dim_palette[before] != current.dim_palette[after])) {
                 left = std::min(left, x);
-                top = std::min(top, y);
-                right = std::max(right, x + 1);
-                bottom = std::max(bottom, y + 1);
+                right = x + 1;
             }
         }
+        if (left < right) {
+            damage.rectangles[damage.count++] = {
+                static_cast<uint16_t>(viewport.x + left * scale),
+                static_cast<uint16_t>(viewport.y + y * scale),
+                static_cast<uint16_t>((right - left) * scale),
+                static_cast<uint16_t>(scale),
+            };
+        }
     }
-    if (left == kGridSize) {
-        return {};
+
+    // Like Muse, merge the cheapest neighboring spans before dispatching strips.
+    constexpr size_t max_rectangles = 8;
+    constexpr int extra_merge_pixels = 2048;
+    while (damage.count > 1) {
+        size_t best = 0;
+        int best_cost = CODY2D::kMaxDimension * CODY2D::kMaxDimension + 1;
+        CODY2D::Rect combined{};
+        for (size_t i = 0; i + 1 < damage.count; ++i) {
+            const auto &upper = damage.rectangles[i];
+            const auto &lower = damage.rectangles[i + 1];
+            const auto left = std::min(upper.x, lower.x);
+            const int right = std::max(upper.x + upper.width, lower.x + lower.width);
+            const int width = right - left;
+            const int height = lower.y + lower.height - upper.y;
+            const int cost = width * height - upper.width * upper.height - lower.width * lower.height;
+            if (cost < best_cost) {
+                best = i;
+                best_cost = cost;
+                combined = {left, upper.y, static_cast<uint16_t>(width), static_cast<uint16_t>(height)};
+            }
+        }
+        if (damage.count <= max_rectangles && best_cost > extra_merge_pixels) break;
+
+        damage.rectangles[best] = combined;
+        for (size_t i = best + 1; i + 1 < damage.count; ++i) {
+            damage.rectangles[i] = damage.rectangles[i + 1];
+        }
+        --damage.count;
     }
-    const uint32_t scale = viewport.width / kGridSize;
-    return {
-        static_cast<uint16_t>(viewport.x + static_cast<uint32_t>(left) * scale),
-        static_cast<uint16_t>(viewport.y + static_cast<uint32_t>(top) * scale),
-        static_cast<uint16_t>(static_cast<uint32_t>(right - left) * scale),
-        static_cast<uint16_t>(static_cast<uint32_t>(bottom - top) * scale),
-    };
 }
 
 // frame: Borrowed indexed artwork; uses the retained Muse palettes.
@@ -138,19 +165,46 @@ esp_err_t draw_pixel_avatar_rows(const PixelAvatarFrame &frame,
     }
     const uint32_t scale = viewport.width / kGridSize;
     const bool grid = scale >= 3;
+    const uint32_t first_cell = (left - viewport.x) / scale;
+    const uint32_t first_cell_right = viewport.x + (first_cell + 1) * scale;
+    const size_t row_bytes = (right - left) * sizeof(uint16_t);
+    const uint16_t *previous = nullptr;
+    uint32_t previous_cell_row = 0;
+    bool previous_row_edge = false;
+
     for (uint32_t y = top; y < bottom; ++y) {
         const uint32_t row = y - viewport.y;
-        const bool row_edge = grid && row % scale == scale - 1;
-        const auto *source = frame.cells.data() + (row / scale) * kGridSize;
-        uint16_t *destination = strip.pixels + (y - first_row) * strip.stride;
-        for (uint32_t x = left; x < right; ++x) {
-            const uint32_t column = x - viewport.x;
-            // Same last-pixel shading rule as the upstream muse_pixel_scale.
-            const bool edge = row_edge || (grid && column % scale == scale - 1);
-            const auto &palette = edge ? frame.dim_palette : frame.palette;
-            destination[x - first_column] = CODY2D::rgb565_native_to_stored(
-                palette[source[column / scale]], strip.byte_order);
+        const uint32_t cell_row = row / scale;
+        const bool row_edge = grid && row + 1 == (cell_row + 1) * scale;
+        uint16_t *destination = strip.pixels + (y - first_row) * strip.stride + (left - first_column);
+        if (previous != nullptr && cell_row == previous_cell_row && row_edge == previous_row_edge) {
+            // Reuse only the clipped pixels already expanded in this tile.
+            std::memcpy(destination, previous, row_bytes);
+            continue;
         }
+
+        const auto *source = frame.cells.data() + cell_row * kGridSize;
+        const auto &palette = row_edge ? frame.dim_palette : frame.palette;
+        uint32_t x = left;
+        uint32_t cell_right = first_cell_right;
+        for (uint32_t cell = first_cell; x < right; ++cell) {
+            const uint32_t end = std::min(right, cell_right);
+            // As in Muse, only the last pixel of each column is dimmed on a regular row.
+            const bool dim_last = grid && !row_edge && end == cell_right;
+            const auto color = source[cell];
+            const uint32_t count = end - x;
+            std::fill_n(destination + (x - left), count - static_cast<uint32_t>(dim_last),
+                CODY2D::rgb565_native_to_stored(palette[color], strip.byte_order));
+            if (dim_last) {
+                destination[end - left - 1] = CODY2D::rgb565_native_to_stored(
+                    frame.dim_palette[color], strip.byte_order);
+            }
+            x = end;
+            cell_right += scale;
+        }
+        previous = destination;
+        previous_cell_row = cell_row;
+        previous_row_edge = row_edge;
     }
     return ESP_OK;
 }

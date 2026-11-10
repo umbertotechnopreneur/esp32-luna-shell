@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include <cstddef>
+
 #include "CODY2D.hpp"
 #include "CODY_muse_frame.hpp"
 
@@ -22,13 +24,19 @@ void compose_pixel_avatar(PixelAvatarFrame &frame, PixelAvatarPose pose,
     uint32_t time_ms, uint32_t pose_ms, uint32_t reaction_ms,
     float audio_level = 0.0f, bool working = false);
 
-// previous: Caller-owned previous indexed frame; never copied or modified.
-// current: Caller-owned newly composed indexed frame.
+// One scratch span per grid row, reduced to a bounded transfer plan.
+struct PixelAvatarDamage {
+    std::array<CODY2D::Rect, kPixelAvatarGridSize> rectangles{};
+    std::size_t count = 0;
+};
+
+// previous: Indexed frame from the last completed display transaction.
+// current: Newly composed indexed frame.
 // viewport: Square logical bounds, scaled by an integer multiple of 64.
-// Exception: Invalid bounds are logged and return an empty rectangle.
-// An unchanged frame also returns an empty rectangle; removed cells count as damage.
-CODY2D::Rect pixel_avatar_damage(const PixelAvatarFrame &previous,
-    const PixelAvatarFrame &current, CODY2D::Rect viewport);
+// damage: Display-owned scratch and the resulting changed rectangles.
+// Exception: Logs invalid viewport geometry and leaves the plan empty.
+void plan_pixel_avatar_damage(const PixelAvatarFrame &previous,
+    const PixelAvatarFrame &current, CODY2D::Rect viewport, PixelAvatarDamage &damage);
 
 // frame: Caller-owned indexed Muse artwork and both RGB565 palettes.
 // viewport: Square logical bounds, scaled by an integer multiple of 64.

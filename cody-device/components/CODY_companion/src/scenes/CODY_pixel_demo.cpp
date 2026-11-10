@@ -60,12 +60,11 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
         static_cast<uint16_t>(viewport.x + viewport.width),
         static_cast<uint16_t>(viewport.y + viewport.height)};
     if (!view.retired_valid) {
-        view.damage = mascot_bounds;
+        view.damage.rectangles[0] = viewport;
+        view.damage.count = 1;
     } else {
-        const auto damage = pixel_avatar_damage(view.frames[1U - view.write_buffer],
-            view.frames[view.write_buffer], viewport);
-        view.damage = {damage.x, damage.y, static_cast<uint16_t>(damage.x + damage.width),
-            static_cast<uint16_t>(damage.y + damage.height)};
+        plan_pixel_avatar_damage(view.frames[1U - view.write_buffer],
+            view.frames[view.write_buffer], viewport, view.damage);
     }
     content.bounds = mascot_bounds;
     content.state = &view;
@@ -78,7 +77,7 @@ void retire_pixel_demo(PixelDemoView &view)
 {
     view.write_buffer = static_cast<uint8_t>(1U - view.write_buffer);
     view.retired_valid = true;
-    view.damage = {};
+    view.damage.count = 0;
 }
 
 // view: Hidden or invalidated mascot; retain the clock and discard touch ownership.
