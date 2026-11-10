@@ -1,8 +1,8 @@
 ```diff
-+ [####----------------------] 15% - CODY-NEXT design / implementation
++ [######--------------------] 23% - CODY-NEXT design / implementation
 ```
 
-2 of 13 required phases have reached static readiness: 00 and 01.
+3 of 13 required phases have reached static readiness: 00, 01 and 02.
 Count 00-11 plus 14 equally; optional extensions 12/13 are excluded. Round the
 percentage to the nearest integer; each phase fills two ASCII `#` cells. The
 `diff` addition line renders green in supporting Markdown viewers and remains

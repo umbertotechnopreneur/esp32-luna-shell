@@ -300,9 +300,11 @@ fresh endpoint authentication before new metadata is sent.
 Snapshots begin with base zero and a matching resync request. A fresh authenticated
 binding initially has no live baseline; all new deltas wait for its snapshot.
 Within the same bound epoch, reject snapshots older than the committed revision.
-A solicited snapshot at the same revision may reconcile coverage/ages but cannot
-change semantic facts for an existing immutable observation ID. Unsolicited
-snapshots are rejected. A committed snapshot clears needs-snapshot only after
+A solicited snapshot at the same revision may add previously omitted coverage
+or age evidence, but cannot change already established values, identities,
+relationships or resolutions, even by supplying a different observation ID.
+Such a semantic change requires a newer revision; otherwise reject RevisionConflict.
+Unsolicited snapshots are rejected. A committed snapshot clears needs-snapshot only after
 full integrity, reference, capacity and lifecycle validation.
 
 A delta requires its exact base equal to the committed revision and a greater

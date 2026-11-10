@@ -96,7 +96,7 @@ published into production observations.
 
 The owner must retain each referenced evidence row and text span until no live,
 staged or borrowed generation uses it. Text spans are internal offsets/lengths,
-not pointer values, identities or wire representations. Phase 02 will cap each
+not pointer values, identities or wire representations. The state protocol caps each
 field; all displayed text is printable ASCII. Reject invalid/oversized text
 with a specific cause instead of silently truncating identities or answer meaning.
 
@@ -179,8 +179,8 @@ memory. It contains 4 sources, 64 chats, 192 turns, 128 tool definitions,
 64 open plus 32 resolved questions, 288 choices, 192 answer attempts, 256 wait
 edges, 4,096 evidence records, 512 tombstones and 128 KiB text. Decoder scratch
 is 64 KiB; persistence scratch is 32 KiB. Source count is capacity, not activation
-of additional providers. Question choices initially follow the existing maximum
-of three, pending the explicit phase-02 versioned contract.
+of additional providers. State protocol 1 admits one through three explicit
+choices per answerable question; native approval notices have none.
 
 All limits apply together. A transaction may reach the evidence/text/turn limit
 before its call limit; reject it explicitly instead of promising that every

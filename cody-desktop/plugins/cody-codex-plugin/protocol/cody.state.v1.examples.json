@@ -980,6 +980,16 @@
   ],
   "recovery_cases": [
     {
+      "name": "trailing-line-break-in-text-or-id",
+      "input": "A chat title or hexadecimal ID contains an escaped trailing U+000A.",
+      "expected": "Malformed; printable ASCII and exact identifier bounds apply to the entire decoded string."
+    },
+    {
+      "name": "same-revision-new-observation-cannot-change-state",
+      "input": "A solicited snapshot at the committed revision changes an existing call state using a new observation ID.",
+      "expected": "RevisionConflict; a new observation token does not authorize changing semantics at the same revision."
+    },
+    {
       "name": "changed-content-same-revision",
       "input": "Replay generation 3 delta with a different exact document digest.",
       "expected": "RevisionConflict; retain generation 3 and watermark 1; no new cue."
