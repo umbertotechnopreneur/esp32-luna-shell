@@ -423,6 +423,7 @@ class DeviceStudioWindow:
         self.home_pair_return = WifiSetupRoute.HOME_CHOICES
         self.home_menu_since = None
         self.wifi_networks_scanned = False
+        self.wifi_scan_until = 0.0
         self.wifi_selected_network = ""
         self.wifi_selected_index = -1
         self.wifi_network_scroll_elapsed = 0.0
@@ -607,14 +608,16 @@ class DeviceStudioWindow:
         self.home_pair_return = previous
         self.open(WifiSetupRoute.HOME_PAIR)
 
-    # self: Open the synthetic network picker, retaining completed scan results.
+    # self: Open the synthetic network picker and begin a new simulated scan.
     def open_home_networks(self):
         self.wifi_selected_index = -1
         self.open(WifiSetupRoute.HOME_NETWORKS)
+        self.scan_simulated_networks()
 
     # self: Begin another explicitly synthetic scan and retire the old selection.
     def scan_simulated_networks(self):
-        self.wifi_networks_scanned = True
+        self.wifi_networks_scanned = False
+        self.wifi_scan_until = time.monotonic() + 2.4
         self.wifi_selected_index = -1
         self.wifi_network_scroll_elapsed = 0.0
         self.wifi_network_scroll_last_draw = None
@@ -1280,9 +1283,29 @@ class DeviceStudioWindow:
         elif self.route is WifiSetupRoute.HOME_NETWORKS:
             label(draw, "Wi-Fi networks", 75, 27)
             label(draw, "Replaces saved Wi-Fi", 106, 15, MUTED)
-            label(draw, "Tap again to select" if self.wifi_selected_index >= 0 else
-                  "SIMULATED - no radio scan", 132, 15, MUTED)
-            if self.wifi_networks_scanned:
+            searching = now < self.wifi_scan_until
+            if not searching and self.wifi_scan_until:
+                self.wifi_scan_until = 0.0
+                self.wifi_networks_scanned = True
+            if searching:
+                frame = int(now * 5) % 8
+                for y in range(21):
+                    for x in range(14):
+                        edge = 2 + (y if y <= 10 else 20 - y) // 2
+                        cap = (y <= 1 or y >= 19) and 1 <= x <= 12
+                        glass = 2 <= y <= 18 and x in (edge, 13 - edge)
+                        sand = ((5 + frame // 2 <= y <= 8 or 17 - frame // 2 <= y <= 17)
+                                and edge < x < 13 - edge)
+                        falling = x == 6 + (y + frame) % 2 and 9 <= y <= 15 and (y + frame) % 3 == 0
+                        if cap or glass or sand or falling:
+                            color = (173, 179, 255) if cap else (107, 190, 255) if glass else (255, 213, 0)
+                            draw.rectangle((205 + 4 * x, 174 + 4 * y, 208 + 4 * x, 177 + 4 * y), fill=color)
+                label(draw, "Searching...", 270, 17)
+                label(draw, "SIMULATED", 305, 13, MUTED)
+            else:
+                label(draw, "Tap again to select" if self.wifi_selected_index >= 0 else
+                      "SIMULATED - no radio scan", 132, 15, MUTED)
+            if self.wifi_networks_scanned and not searching:
                 for index, (name, rssi) in enumerate((("SIMULATED Home", -42),
                                                        ("SIMULATED Office", -63),
                                                        ("SIMULATED Guest", -78))):
@@ -1290,8 +1313,9 @@ class DeviceStudioWindow:
                         lambda selected_index=index, selected=name:
                             self.select_simulated_network(selected_index, selected),
                         39, rssi, index == self.wifi_selected_index, now, f"wifi-network-{index}")
-            self.simulated_network_button(draw, "Scan for networks", 342,
-                                          self.scan_simulated_networks, 38)
+            if not searching:
+                self.simulated_network_button(draw, "Scan for networks", 342,
+                                              self.scan_simulated_networks, 38)
         elif self.route is WifiSetupRoute.HOME_PASSWORD:
             self.draw_simulated_wifi_keyboard(draw)
         elif self.route is WifiSetupRoute.HOME_NETWORK_RESULT:

@@ -392,6 +392,7 @@ struct LocalWifiView {
     int64_t connect_started_us = 0;
     uint32_t revision = 0;
     uint8_t offset = 0;
+    uint8_t hourglass_frame = 0;
     int8_t selected_network = -1;
     int8_t touch_control = -1;
     CODY2D::Point touch_start{};
@@ -5494,6 +5495,37 @@ esp_err_t open_wifi_pairing_from_home(SceneFrame &scene)
     return start_error;
 }
 
+// strip: Borrowed RGB565 tile for the completely displayed local Wi-Fi scene.
+// first_row: Logical y coordinate of the tile.
+// first_column: Logical x coordinate of the tile.
+// frame: Small looping animation phase; it does not imply scan progress.
+// Exception: Returns the original raster error.
+esp_err_t draw_wifi_hourglass(CODY2D::Surface strip, uint16_t first_row, uint16_t first_column, uint8_t frame)
+{
+    constexpr int left = 205, top = 174, scale = 4;
+    for (int y = 0; y < 21; ++y) {
+        for (int x = 0; x < 14; ++x) {
+            const bool cap = (y <= 1 || y >= 19) && x >= 1 && x <= 12;
+            const int distance = y <= 10 ? y : 20 - y;
+            const int edge = 2 + distance / 2;
+            const bool glass = y >= 2 && y <= 18 && (x == edge || x == 13 - edge);
+            const bool upper_sand = y >= 5 + frame / 2 && y <= 8 && x > edge && x < 13 - edge;
+            const bool lower_sand = y >= 17 - frame / 2 && y <= 17 && x > edge && x < 13 - edge;
+            const bool falling = x == 6 + (y + frame) % 2 && y >= 9 && y <= 15 && (y + frame) % 3 == 0;
+            if (!cap && !glass && !upper_sand && !lower_sand && !falling) continue;
+            const int px = left + x * scale, py = top + y * scale;
+            const int x0 = std::max<int>(px, first_column), x1 = std::min<int>(px + scale, first_column + strip.width);
+            const int y0 = std::max<int>(py, first_row), y1 = std::min<int>(py + scale, first_row + strip.height);
+            if (x0 >= x1 || y0 >= y1) continue;
+            const auto error = CODY2D::fill_rect(strip, {static_cast<uint16_t>(x0 - first_column),
+                static_cast<uint16_t>(y0 - first_row), static_cast<uint16_t>(x1 - x0),
+                static_cast<uint16_t>(y1 - y0)}, cap ? 0xAD9F : glass ? 0x6DFF : 0xFEA0);
+            if (error != ESP_OK) return error;
+        }
+    }
+    return ESP_OK;
+}
+
 // These screens retain their own complete title and input view below the shared status bar.
 esp_err_t draw_local_wifi_rows(const void *state, CODY2D::Surface strip,
     uint16_t first_row, uint16_t first_column)
@@ -5505,6 +5537,9 @@ esp_err_t draw_local_wifi_rows(const void *state, CODY2D::Surface strip,
     } else {
         for (const auto *line : {&view.title, &view.subtitle, &view.detail}) {
             if (error == ESP_OK && line->valid) error = CODY2D::draw_text_rows(*line, line->text.length, strip, first_row, first_column);
+        }
+        if (error == ESP_OK && view.page == LocalWifiPage::Networks && view.scanning_requested) {
+            error = draw_wifi_hourglass(strip, first_row, first_column, view.hourglass_frame);
         }
         const auto draw = [&](const CODY2D::CapsuleControl &control) {
             return control.caption.valid ? CODY2D::draw_capsule_rows(control, strip, first_row, first_column) : ESP_OK;
@@ -5611,10 +5646,12 @@ esp_err_t attach_local_wifi(SceneFrame &scene)
                 view.page == LocalWifiPage::ConfirmOpen ? "Replaces saved Wi-Fi" : "Waiting for network";
             error = prepare_caption(subtitle, 106, view.subtitle, 300);
         }
-        if (error == ESP_OK && view.detail_text[0] != '\0') {
+        if (error == ESP_OK && view.page == LocalWifiPage::Networks && view.scanning_requested) {
+            error = prepare_caption("Searching...", 270, view.detail, 300);
+        } else if (error == ESP_OK && view.detail_text[0] != '\0') {
             error = prepare_caption(view.detail_text, 132, view.detail, 300);
         }
-        if (error == ESP_OK && view.page == LocalWifiPage::Networks) {
+        if (error == ESP_OK && view.page == LocalWifiPage::Networks && !view.scanning_requested) {
             for (uint8_t i = 0; i < 3 && view.offset + i < view.scan_observation.count; ++i) {
                 const auto &network = view.scan_observation.networks[view.offset + i];
                 size_t len = 0;
@@ -5684,7 +5721,15 @@ esp_err_t open_local_wifi(SceneFrame &scene)
             s_local_wifi.scan_baseline_generation = s_local_wifi.scan_observation.generation - 1U;
             std::snprintf(s_local_wifi.detail_text, sizeof(s_local_wifi.detail_text), "Scanning...");
         } else {
-            std::snprintf(s_local_wifi.detail_text, sizeof(s_local_wifi.detail_text), "Choose a network");
+            s_local_wifi.scan_baseline_generation = s_local_wifi.scan_observation.generation;
+            const auto start = enqueue(Work::LocalWifiScan, 0);
+            if (start == ESP_OK) {
+                s_local_wifi.scanning_requested = true;
+            } else {
+                ESP_LOGE(kTag, "Wi-Fi scan request failed (%s)", esp_err_to_name(start));
+                std::snprintf(s_local_wifi.detail_text, sizeof(s_local_wifi.detail_text), "Scan error 0x%lx",
+                    static_cast<unsigned long>(start));
+            }
         }
     }
     return attach_local_wifi(scene);
@@ -5753,6 +5798,14 @@ esp_err_t update_local_wifi(SceneFrame &scene, int64_t active_time_us, bool scen
 {
     auto &view = s_local_wifi;
     bool redraw = false;
+    bool animation_changed = false;
+    if (view.page == LocalWifiPage::Networks && view.scanning_requested && scene_presented && active_time_us >= 0) {
+        const auto frame = static_cast<uint8_t>((active_time_us / 200000) % 8);
+        if (frame != view.hourglass_frame) {
+            view.hourglass_frame = frame;
+            animation_changed = true;
+        }
+    }
     if (s_result_ready.load(std::memory_order_acquire) &&
         (s_result.command.work == Work::LocalWifiScan || s_result.command.work == Work::LocalWifiConnect)) {
         const Work work = s_result.command.work;
@@ -5798,6 +5851,7 @@ esp_err_t update_local_wifi(SceneFrame &scene, int64_t active_time_us, bool scen
         redraw = redraw || view.page == LocalWifiPage::Networks;
     } else if (scan_error != ESP_OK && view.page == LocalWifiPage::Networks && !s_command_pending) {
         view.selected_network = -1;
+        view.scanning_requested = false;
         view.scan_observation.count = 0;
         view.presented_revision = std::numeric_limits<uint64_t>::max();
         if (std::strcmp(view.detail_text, "Scan unavailable") != 0) {
@@ -5841,6 +5895,11 @@ esp_err_t update_local_wifi(SceneFrame &scene, int64_t active_time_us, bool scen
     if (redraw) {
         changed = true;
         return attach_local_wifi(scene);
+    }
+    if (animation_changed && view.scanning_requested) {
+        // Update artwork only; preserve the retired touch-control generation.
+        scene.content.revision = ++view.revision;
+        changed = true;
     }
     return ESP_OK;
 }
