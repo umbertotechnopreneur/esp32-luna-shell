@@ -22,3 +22,22 @@ and [the console](../../../scripts/README.md) for authorized workflows.
 
 The avatar uses Cody's existing touch input and audio owner. Display state
 advances on retired frames and sound follows the device's current audio policy.
+
+Muse renders on its original 64 by 64 indexed grid. The serialized display
+owner can supply `MuseVisualStyle` to `compose_muse_frame`: pose movement,
+hand and body offsets, gaze and eye openness; particle count, size, speed,
+radius, vertical scale, twinkle, brightness and color; symbol identity, offset,
+scale, color and bobbing speed; and pose transition time. Invalid inputs are
+rejected before rendering. Default particle settings preserve the original
+state-tinted orbit in front of and behind Muse. These are native configuration
+parameters, not settings exposed in the device UI.
+
+The artistic showcase retains the original modes and includes question,
+exclamation, idea, thought, heart, sweat, tension and sleep symbols. Its
+interval defaults to ten seconds of visible mascot time. It does not represent
+real device or Codex events, and it does not play symbol sounds. The host
+preview uses the same showcase and renderer.
+
+On first import of an external library or prebuilt binary, stage and scan the
+archive and extracted imported files with an explicit targeted Microsoft
+Defender scan before use; do not retain scan records.

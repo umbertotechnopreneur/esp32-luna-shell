@@ -45,6 +45,9 @@ enum {
     C_SHADOW,
     C_HEART,
     C_WHITE,
+    C_PARTICLE_FRONT,
+    C_PARTICLE_BACK,
+    C_SYMBOL,
     C_COUNT,
 };
 
@@ -194,7 +197,10 @@ uint32_t muse_pixel_working_accent(void)
     return WORKING_SCHEME.acc;
 }
 
-static void update_palette(const scheme_t *target, float dt)
+/* target: Existing mode palette.
+ * dt: Elapsed animation time.
+ * art: Optional visual configuration; NULL retains the original palette. */
+static void update_palette(const scheme_t *target, float dt, const muse_art_t *art)
 {
     rgb_t tgt[5];
     for (int i = 0; i < 4; i++) {
@@ -222,6 +228,12 @@ static void update_palette(const scheme_t *target, float dt)
     pal[C_AURA1] = scale_rgb(acc, 0.16f);
     pal[C_AURA2] = scale_rgb(acc, 0.34f);
     pal[C_SPK] = mix(acc, pal[C_WHITE], 0.45f);
+    rgb_t particle = art && art->particle_custom_color
+        ? hex_rgb(art->particle_color_rgb) : acc;
+    float brightness = art ? art->particle_brightness : 1.0f;
+    pal[C_PARTICLE_FRONT] = scale_rgb(particle, brightness);
+    pal[C_PARTICLE_BACK] = scale_rgb(particle, brightness * 0.34f);
+    pal[C_SYMBOL] = art && art->symbol_custom_color ? hex_rgb(art->symbol_color_rgb) : acc;
 
     for (int i = 0; i < C_COUNT; i++) {
         s_pal[i] = to565(pal[i]);
@@ -753,43 +765,64 @@ static void draw_mouth(int x, int y, mouth_t m, float open)
     }
 }
 
-static void draw_sparkle(int x, int y, float twinkle, bool front)
+/* x, y: Particle center on the logical pixel grid.
+ * twinkle: Current phase brightness.
+ * front: Whether the particle is in front of the body.
+ * art: Optional particle appearance. */
+static void draw_sparkle(int x, int y, float twinkle, bool front, const muse_art_t *art)
 {
-    uint8_t arm = front ? C_ACC : C_AURA2;
-    uint8_t core = front ? C_WHITE : C_SPK;
+    bool customized = art && (art->particle_custom_color || art->particle_brightness != 1.0f);
+    uint8_t arm = customized ? (front ? C_PARTICLE_FRONT : C_PARTICLE_BACK)
+                             : (front ? C_ACC : C_AURA2);
+    uint8_t core = front && !customized ? C_WHITE : (customized ? arm : C_SPK);
+    int size = art ? art->particle_size : 2;
     if (twinkle > 0.8f) {
         px(x, y, core);
-        for (int k = 1; k <= 2; k++) {
-            uint8_t c = k == 1 ? (front ? C_SPK : arm) : arm;
+        for (int k = 1; k <= size; k++) {
+            uint8_t c = k == 1 && !customized ? (front ? C_SPK : arm) : arm;
             px(x + k, y, c);
             px(x - k, y, c);
             px(x, y + k, c);
             px(x, y - k, c);
         }
     } else if (twinkle > 0.45f) {
-        px(x, y, front ? C_SPK : arm);
-        px(x + 1, y, arm);
-        px(x - 1, y, arm);
-        px(x, y + 1, arm);
-        px(x, y - 1, arm);
+        px(x, y, front && !customized ? C_SPK : arm);
+        if (size >= 1) {
+            px(x + 1, y, arm);
+            px(x - 1, y, arm);
+            px(x, y + 1, arm);
+            px(x, y - 1, arm);
+        }
     } else if (twinkle > 0.15f) {
         px(x, y, arm);
     }
 }
 
+/* p: Validated pose and optional particle configuration.
+ * cx: Horizontal orbit center on the logical grid.
+ * cy: Vertical orbit center on the logical grid.
+ * front: Draw only particles on this side of the character.
+ * speed: Mode-specific base orbit speed.
+ * count: Mode-scaled number of orbiting particles. */
 static void draw_sparkles(const muse_pose_t *p, float cx, float cy, bool front, float speed, int count)
 {
+    const muse_art_t *art = p->art;
+    float radius = art ? art->particle_radius : 25.0f;
+    float vertical = art ? art->particle_vertical_scale : 0.42f;
+    float twinkle_speed = art ? art->particle_twinkle_speed : 5.0f;
+    float speed_multiplier = art ? art->particle_speed : 1.0f;
+    speed *= speed_multiplier;
     for (int i = 0; i < count; i++) {
         float a = p->t * speed + i * TAU / count;
         float s = sinf(a);
         if ((s > 0) != front) {
             continue;
         }
-        float rr = 25.0f + 2.0f * sinf(i * 1.9f + p->t * 0.7f);
+        float rr = radius + 2.0f * sinf(i * 1.9f + p->t * 0.7f * speed_multiplier);
         int x = iround(cx + cosf(a) * rr);
-        int y = iround(cy - 3 + s * rr * 0.42f);
-        float tw = 0.5f + 0.5f * sinf(p->t * 5.0f + i * 1.7f);
-        draw_sparkle(x, y, tw, front);
+        int y = iround(cy - 3 + s * rr * vertical);
+        float tw = 0.5f + 0.5f * sinf(p->t * twinkle_speed + i * 1.7f);
+        draw_sparkle(x, y, tw, front, art);
     }
 }
 
@@ -877,6 +910,66 @@ static void draw_alert(int x, int y)
     stamp(BANG, 6, x - 2, y, C_ACC, C_ACC);
 }
 
+/* art: Validated symbol, colors, offset and integer pixel scale.
+ * cx: Animated body center on the 64 by 64 grid.
+ * top: Animated top edge of the character.
+ * t: Active visible time in seconds. */
+static void draw_manga_symbol(const muse_art_t *art, float cx, float top, float t)
+{
+    if (!art || art->symbol == MUSE_SYMBOL_NONE) return;
+    static const char *const question[] = {
+        ".###.", "#...#", "....#", "...#.", "..#..", ".....", "..#.."
+    };
+    static const char *const exclamation[] = {
+        ".##.", ".##.", ".##.", ".##.", ".##.", "....", ".##."
+    };
+    static const char *const idea[] = {
+        "..#..", ".###.", "#o#o#", "#ooo#", ".###.", "..#..", ".###."
+    };
+    static const char *const thinking[] = {
+        "##.....", "##.##..", "...##.#", "......#"
+    };
+    static const char *const heart[] = {
+        ".#.#.", "#o###", "#####", ".###.", "..#.."
+    };
+    static const char *const sweat[] = {
+        "..#..", "..#..", ".###.", ".###.", "#ooo#", ".###."
+    };
+    static const char *const tension[] = {
+        "#...#", ".#.#.", "..#..", "#####", "..#..", ".#.#.", "#...#"
+    };
+    static const char *const sleep[] = {
+        "###...#", "..#..#.", ".#..#..", "###.###"
+    };
+    const char *const *rows = NULL;
+    int height = 0;
+    switch (art->symbol) {
+    case MUSE_SYMBOL_QUESTION: rows = question; height = 7; break;
+    case MUSE_SYMBOL_EXCLAMATION: rows = exclamation; height = 7; break;
+    case MUSE_SYMBOL_IDEA: rows = idea; height = 7; break;
+    case MUSE_SYMBOL_THINKING: rows = thinking; height = 4; break;
+    case MUSE_SYMBOL_HEART: rows = heart; height = 5; break;
+    case MUSE_SYMBOL_SWEAT: rows = sweat; height = 6; break;
+    case MUSE_SYMBOL_TENSION: rows = tension; height = 7; break;
+    case MUSE_SYMBOL_SLEEP: rows = sleep; height = 4; break;
+    default: return;
+    }
+    int x0 = iround(cx) + art->symbol_offset_x;
+    int y0 = iround(top) + art->symbol_offset_y +
+        (sinf(t * art->symbol_bob_speed) > .5f ? -1 : 0);
+    int scale = art->symbol_scale;
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; rows[y][x]; ++x) {
+            char cell = rows[y][x];
+            if (cell != '#' && cell != 'o') continue;
+            uint8_t color = cell == 'o' ? C_WHITE : C_SYMBOL;
+            for (int sy = 0; sy < scale; ++sy)
+                for (int sx = 0; sx < scale; ++sx)
+                    px(x0 + x * scale + sx, y0 + y * scale + sy, color);
+        }
+    }
+}
+
 /* ---------------------------------------------------------------------------
  * Frame
  * ------------------------------------------------------------------------- */
@@ -931,7 +1024,10 @@ void muse_pixel_scale(uint16_t *dst, int stride_px, int x0, int x1, int y0, int 
 
 static muse_speaking_t s_speech;
 static limb_t s_previous_arms[2], s_from_arms[2];
+static avatar_t s_previous_avatar, s_from_avatar;
 static muse_mode_t s_previous_mode;
+static muse_symbol_t s_previous_symbol;
+static bool s_previous_working;
 static float s_previous_t, s_arm_transition = 1;
 
 // seed: Artistic sequence seed. Xorshift requires a nonzero state.
@@ -969,7 +1065,7 @@ void muse_pixel_render(const muse_pose_t *p)
     bool working = mode == MUSE_MODE_THINKING && p->working > 0.5f;
     muse_speaking_update(speech, mode == MUSE_MODE_SPEAKING, dt, p->mode_t, level);
 
-    update_palette(working ? &WORKING_SCHEME : &SCHEMES[mode], dt);
+    update_palette(working ? &WORKING_SCHEME : &SCHEMES[mode], dt, p->art);
     float blink = eyes_update(p, dt);
 
     memset(s_fb, C_BG, sizeof(s_fb));
@@ -1003,13 +1099,18 @@ void muse_pixel_render(const muse_pose_t *p)
     if (happy > 0) {
         hop = fabsf(sinf(t * 9.0f)) * 3.0f * happy;
     }
+    float motion = p->art ? p->art->motion : 1.0f;
+    breathe_rate = p->art ? p->art->breathing_speed : breathe_rate;
+    bob *= motion;
+    lean *= motion;
+    hop *= motion;
 
     /* Boot: the avatar pops up from a squash, then opens their eyes. */
     float boot = mode == MUSE_MODE_BOOT ? clampf(p->mode_t / 1.4f, 0, 1) : 1.0f;
     float pop = mode == MUSE_MODE_BOOT ? clampf(p->mode_t / 0.6f, 0, 1) : 1.0f;
     float squash = 1.0f - (1.0f - pop) * 0.35f + sinf(pop * 3.1416f) * 0.06f;
 
-    float breathe = sinf(t * breathe_rate + 1.0f) * 0.03f;
+    float breathe = sinf(t * breathe_rate + 1.0f) * 0.03f * motion;
     avatar_t j;
     j.a = 16.0f * (1 + breathe) * (2.0f - squash) + level * 0.8f;
     j.b = 23.0f * (1 - breathe) * squash;
@@ -1020,6 +1121,38 @@ void muse_pixel_render(const muse_pose_t *p)
     j.fx = j.cx + lean * 0.3f;
     j.fy = j.cy - j.b * 0.30f + bob * 0.3f;
     if (mode == MUSE_MODE_SPEAKING) j.fy += speech->nod * .8f;
+    if (p->art) {
+        j.cx += p->art->body_x;
+        j.cy += p->art->body_y;
+        j.fx += p->art->body_x;
+        j.fy += p->art->body_y;
+    }
+
+    /* Interpolate from the last visible pose, never from an invisible frame. */
+    float transition_seconds = p->art ? p->art->pose_transition_seconds : .28f;
+    muse_symbol_t symbol = p->art ? p->art->symbol : MUSE_SYMBOL_NONE;
+    bool pose_changed = mode != s_previous_mode || working != s_previous_working ||
+                        symbol != s_previous_symbol;
+    if (s_previous_t > 0 && p->t - s_previous_t < .25f && pose_changed &&
+        transition_seconds > 0) {
+        memcpy(s_from_arms, s_previous_arms, sizeof(s_from_arms));
+        s_from_avatar = s_previous_avatar;
+        s_arm_transition = 0;
+    }
+    if (p->t - s_previous_t > .25f || transition_seconds <= 0) s_arm_transition = 1;
+    if (s_arm_transition < 1) {
+        s_arm_transition = clampf(s_arm_transition + dt / transition_seconds, 0, 1);
+        float blend = muse_speak_ease(s_arm_transition);
+        j.cx = s_from_avatar.cx + (j.cx - s_from_avatar.cx) * blend;
+        j.cy = s_from_avatar.cy + (j.cy - s_from_avatar.cy) * blend;
+        j.a = s_from_avatar.a + (j.a - s_from_avatar.a) * blend;
+        j.b = s_from_avatar.b + (j.b - s_from_avatar.b) * blend;
+        j.fx = s_from_avatar.fx + (j.fx - s_from_avatar.fx) * blend;
+        j.fy = s_from_avatar.fy + (j.fy - s_from_avatar.fy) * blend;
+        j.fa = s_from_avatar.fa + (j.fa - s_from_avatar.fa) * blend;
+        j.fb = s_from_avatar.fb + (j.fb - s_from_avatar.fb) * blend;
+    }
+    s_previous_avatar = j;
 
     /* ---- background layers ---- */
     float aura_r = 29.0f + level * 4.0f + sinf(t * 1.5f) * 1.0f;
@@ -1035,6 +1168,7 @@ void muse_pixel_render(const muse_pose_t *p)
     float spk_speed = working ? 1.8f : mode == MUSE_MODE_THINKING ? 2.8f : mode == MUSE_MODE_LISTENING ? 1.2f
                     : mode == MUSE_MODE_SPEAKING ? 1.5f : 0.6f;
     int spk_count = mode == MUSE_MODE_BOOT ? (int)(boot * 6) : working ? 3 : (int)(6 * fade);
+    if (p->art) spk_count = (spk_count * p->art->particle_count + 3) / 6;
     draw_sparkles(p, j.cx, j.cy, false, spk_speed, spk_count);
 
     /* ---- limbs ---- */
@@ -1083,7 +1217,7 @@ void muse_pixel_render(const muse_pose_t *p)
     }
     default: {
         float sway = sinf(t * 1.8f + 0.6f) * 0.08f;
-        if (happy > 0) {
+        if (happy > 0 || (p->art && p->art->symbol == MUSE_SYMBOL_HEART)) {
             /* Arms up and wiggling. */
             float wig = sinf(t * 14.0f) * 0.25f;
             arms[0] = (limb_t){ j.cx - adx - 1.0f, j.cy - 4.0f, 2.4f + wig };
@@ -1095,16 +1229,14 @@ void muse_pixel_render(const muse_pose_t *p)
         break;
     }
     }
-    /* Blend from the last visible hand positions when entering or leaving
-     * speaking, including a cut-off short reply. Other states retain their poses. */
-    if (s_previous_t > 0 && p->t - s_previous_t < .25f && mode != s_previous_mode &&
-        (mode == MUSE_MODE_SPEAKING || s_previous_mode == MUSE_MODE_SPEAKING)) {
-        memcpy(s_from_arms, s_previous_arms, sizeof(s_from_arms));
-        s_arm_transition = 0;
+    if (p->art) {
+        arms[0].x += p->art->left_hand_x;
+        arms[0].y += p->art->left_hand_y;
+        arms[1].x += p->art->right_hand_x;
+        arms[1].y += p->art->right_hand_y;
     }
-    if (p->t - s_previous_t > .25f) s_arm_transition = 1;
+    /* Hands use the same interruptible transition as the body. */
     if (s_arm_transition < 1) {
-        s_arm_transition = clampf(s_arm_transition + dt / .28f, 0, 1);
         float blend = muse_speak_ease(s_arm_transition);
         for (int i = 0; i < 2; i++) {
             arms[i].x = s_from_arms[i].x + (arms[i].x - s_from_arms[i].x) * blend;
@@ -1114,6 +1246,8 @@ void muse_pixel_render(const muse_pose_t *p)
     }
     memcpy(s_previous_arms, arms, sizeof(arms));
     s_previous_mode = mode;
+    s_previous_symbol = symbol;
+    s_previous_working = working;
     s_previous_t = p->t;
     draw_avatar(&j, arms, feet);
 
@@ -1157,15 +1291,24 @@ void muse_pixel_render(const muse_pose_t *p)
     default:
         break;
     }
-    if (happy > 0.2f && mode != MUSE_MODE_ERROR) {
+    if ((happy > 0.2f || (p->art && p->art->symbol == MUSE_SYMBOL_HEART)) &&
+        mode != MUSE_MODE_ERROR) {
         style = EYES_HAPPY;
         mouth = MOUTH_GRIN;
+    } else if (p->art && p->art->symbol == MUSE_SYMBOL_SWEAT) {
+        mouth = MOUTH_HMM;
     }
 
     float gaze_x = s_eyes.gx;
+    float gaze_y = s_eyes.gy;
     if (mode == MUSE_MODE_SPEAKING) gaze_x = clampf(gaze_x + speech->gaze, -1, 1);
-    draw_eye(j.fx - eye_dx, eye_y, open, style, gaze_x, s_eyes.gy);
-    draw_eye(j.fx + eye_dx, eye_y, open, style, gaze_x, s_eyes.gy);
+    if (p->art) {
+        gaze_x = clampf(gaze_x + p->art->gaze_x, -1, 1);
+        gaze_y = clampf(gaze_y + p->art->gaze_y, -1, 1);
+        open *= p->art->eye_openness;
+    }
+    draw_eye(j.fx - eye_dx, eye_y, open, style, gaze_x, gaze_y);
+    draw_eye(j.fx + eye_dx, eye_y, open, style, gaze_x, gaze_y);
 
     /* Tiny brows for the expressive states. */
     int bl = iround(j.fx - eye_dx), br = iround(j.fx + eye_dx), by = iround(eye_y) - 4;
@@ -1201,15 +1344,16 @@ void muse_pixel_render(const muse_pose_t *p)
     if (working) {
         draw_keys(j.cx, ay + 4.5f, t);
         draw_spinner(j.cx + 16, top + 3, t);
-    } else if (mode == MUSE_MODE_THINKING) {
+    } else if (mode == MUSE_MODE_THINKING && (!p->art || p->art->symbol == MUSE_SYMBOL_NONE)) {
         draw_thought_dots(j.cx + 14, top + 2, t);
     }
     if (happy > 0) {
         draw_hearts(j.cx, top + 1, t, happy);
     }
-    if (mode == MUSE_MODE_ERROR) {
+    if (mode == MUSE_MODE_ERROR && (!p->art || p->art->symbol == MUSE_SYMBOL_NONE)) {
         draw_alert(iround(j.cx + 18), iround(top - 1));
     }
+    draw_manga_symbol(p->art, j.cx, top, t);
 
 }
 

@@ -5,6 +5,8 @@
 
 #pragma once
 
+#include "CODY_muse_style.hpp"
+
 #include <array>
 #include <cstdint>
 
@@ -24,6 +26,7 @@ enum class PixelAvatarComposeStatus : uint8_t {
     Ok,
     InvalidPose,
     InvalidAudioLevel,
+    InvalidVisualStyle,
 };
 
 inline constexpr int kPixelAvatarGridSize = 64;
@@ -44,6 +47,7 @@ struct PixelAvatarInput {
     uint32_t reaction_ms;  // A value >= kPixelAvatarReactionMs means inactive.
     float audio_level = 0.0f;
     bool working = false;
+    MuseVisualStyle style{};
 };
 
 // frame: Caller-owned indexed output, replaced completely on success.

@@ -30,10 +30,11 @@ CODY_HOST_EXPORT void cody_host_muse_reset(uint32_t seed)
 // side: Requested viewport side, in pixels, as a positive multiple of 64.
 // pixels: Exclusive native RGB565 output.
 // count: Exact writable output length in pixels.
+// style: Validated artwork configuration.
 // Exception: Returns the original draw error or rejects invalid input before composition.
-CODY_HOST_EXPORT esp_err_t cody_host_muse_pose_frame(uint32_t pose, uint32_t time_ms,
+static esp_err_t render_muse_pose(uint32_t pose, uint32_t time_ms,
     uint32_t pose_ms, uint32_t reaction_ms, float audio_level, uint32_t working,
-    uint32_t side, uint16_t *pixels, size_t count)
+    uint32_t side, uint16_t *pixels, size_t count, CODY::MuseVisualStyle style)
 {
     if (pose > static_cast<uint32_t>(CODY::PixelAvatarPose::Sleep) || working > 1 ||
         pixels == nullptr) {
@@ -46,6 +47,7 @@ CODY_HOST_EXPORT esp_err_t cody_host_muse_pose_frame(uint32_t pose, uint32_t tim
     CODY::PixelAvatarFrame frame{};
     const auto status = CODY::compose_muse_frame(frame, {
         static_cast<CODY::PixelAvatarPose>(pose), time_ms, pose_ms, reaction_ms, audio_level, working == 1,
+        style,
     });
     if (status != CODY::PixelAvatarComposeStatus::Ok) {
         return ESP_ERR_INVALID_ARG;
@@ -53,6 +55,24 @@ CODY_HOST_EXPORT esp_err_t cody_host_muse_pose_frame(uint32_t pose, uint32_t tim
     const auto width = static_cast<uint16_t>(side);
     CODY2D::Surface surface{pixels, width, width, width, static_cast<uint32_t>(count)};
     return CODY::draw_pixel_avatar_rows(frame, {0, 0, width, width}, surface, 0, 0);
+}
+
+// pose: Numeric presentation state.
+// time_ms: Active animation time.
+// pose_ms: Time since the current pose started.
+// reaction_ms: Time since the last touch reaction.
+// audio_level: Optional normalized input energy.
+// working: Whether thinking represents active work.
+// side: Requested output width and height.
+// pixels: Exclusive output surface.
+// count: Surface capacity in pixels.
+// Exception: Preserves the native renderer's validation result.
+CODY_HOST_EXPORT esp_err_t cody_host_muse_pose_frame(uint32_t pose, uint32_t time_ms,
+    uint32_t pose_ms, uint32_t reaction_ms, float audio_level, uint32_t working,
+    uint32_t side, uint16_t *pixels, size_t count)
+{
+    return render_muse_pose(pose, time_ms, pose_ms, reaction_ms, audio_level, working,
+        side, pixels, count, {});
 }
 
 // time_ms: Nonnegative active time since the preview starts.
@@ -68,6 +88,8 @@ CODY_HOST_EXPORT esp_err_t cody_host_muse_frame(uint32_t time_ms, uint32_t react
         return ESP_ERR_INVALID_ARG;
     }
     const auto pose = s_showcase.sample(time_ms);
-    return cody_host_muse_pose_frame(static_cast<uint32_t>(pose.pose), time_ms,
-        pose.pose_ms, reaction_ms, 0.0f, pose.working ? 1U : 0U, side, pixels, count);
+    CODY::MuseVisualStyle style{};
+    style.symbol.symbol = pose.symbol;
+    return render_muse_pose(static_cast<uint32_t>(pose.pose), time_ms,
+        pose.pose_ms, reaction_ms, 0.0f, pose.working ? 1U : 0U, side, pixels, count, style);
 }

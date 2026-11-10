@@ -19,10 +19,12 @@ namespace CODY {
 // reaction_ms: Elapsed touch-reaction time; 1600 or greater means inactive.
 // audio_level: Normalized energy supplied by the audio owner when available.
 // working: Whether Thinking represents active work.
-// Exception: An invalid pose or non-finite audio level logs the cause and clears the frame.
+// style: Validated pose, particle, symbol and transition parameters.
+// Exception: Invalid pose, audio or visual settings log the cause and clear the frame.
 void compose_pixel_avatar(PixelAvatarFrame &frame, PixelAvatarPose pose,
     uint32_t time_ms, uint32_t pose_ms, uint32_t reaction_ms,
-    float audio_level = 0.0f, bool working = false);
+    float audio_level = 0.0f, bool working = false,
+    MuseVisualStyle style = {});
 
 // One scratch span per grid row, reduced to a bounded transfer plan.
 struct PixelAvatarDamage {

@@ -98,8 +98,9 @@ The Manifesto link opens only after an explicit click.
 The native preview uses the same showcase scheduler as the firmware. Visible
 time starts with Waking, then Idle. At ten seconds the scheduler draws a pose
 from its shuffle bag. It never repeats the previous pose, and an exhausted bag
-starts another cycle. Sleep holds the visible closed-eye stage. This showcase
-drives artwork only.
+starts another cycle. The bag contains the original modes plus authored manga
+symbol variations. Sleep holds the visible closed-eye stage. This showcase
+drives artwork only; it is not a real activity or sound signal.
 
 The native preview and firmware use the same C renderer and
 [CODY_muse_frame](../../components/CODY_companion/include/CODY_muse_frame.hpp)

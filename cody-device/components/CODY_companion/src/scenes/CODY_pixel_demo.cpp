@@ -51,9 +51,11 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
         reaction_ms = static_cast<uint32_t>(std::min<uint64_t>(elapsed_ms, kPixelAvatarReactionMs));
         view.reaction_active = reaction_ms < kPixelAvatarReactionMs;
     }
+    auto style = view.visual_style;
+    style.symbol.symbol = pose.symbol;
     compose_pixel_avatar(view.frames[view.write_buffer], pose.pose,
         static_cast<uint32_t>(view.elapsed_us / 1000U), pose.pose_ms,
-        reaction_ms, 0.0f, pose.working);
+        reaction_ms, 0.0f, pose.working, style);
 
     const auto viewport = avatar_bounds(view.viewport);
     const DamageRect mascot_bounds{viewport.x, viewport.y,

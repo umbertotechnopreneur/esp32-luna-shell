@@ -16,6 +16,7 @@ struct PixelDemoView {
 
     const LogicalRect viewport;
     MuseShowcase showcase{};
+    MuseVisualStyle visual_style{};
     std::array<PixelAvatarFrame, 2> frames{};
     PixelAvatarDamage damage{};
     uint64_t elapsed_us = 0;

@@ -14,6 +14,7 @@ struct MuseShowcasePose {
     PixelAvatarPose pose;
     uint32_t pose_ms;
     bool working;
+    MuseSymbol symbol;
 };
 
 // Artistic playback owned by the display worker. It has no authority over
@@ -28,8 +29,18 @@ public:
         available_ = kAll;
         index_ = kIdle;
         started_ms_ = kMuseShowcaseWakeMs;
-        next_ms_ = kMuseShowcaseIntervalMs;
+        next_ms_ = interval_ms_;
         last_ms_ = 0;
+    }
+
+    // interval_ms: Time each newly selected showcase entry stays visible.
+    // Returns false for values outside the supported range without changing the schedule.
+    bool set_interval_ms(uint32_t interval_ms)
+    {
+        if (interval_ms < 1000 || interval_ms > 60000) return false;
+        interval_ms_ = interval_ms;
+        next_ms_ = last_ms_ + interval_ms_;
+        return true;
     }
 
     // visible_ms: Elapsed mascot-visible time. Hidden and standby time is excluded.
@@ -38,14 +49,14 @@ public:
         if (visible_ms < last_ms_) reset(seed_);
         last_ms_ = visible_ms;
         if (visible_ms < kMuseShowcaseWakeMs) {
-            return {PixelAvatarPose::Waking, static_cast<uint32_t>(visible_ms), false};
+            return {PixelAvatarPose::Waking, static_cast<uint32_t>(visible_ms), false, MuseSymbol::None};
         }
         if (visible_ms >= next_ms_) {
             select_next();
             // Keep the chosen state on screen for a full slot even if a frame
             // was delayed. Do not replay changes the user could not see.
             started_ms_ = visible_ms;
-            next_ms_ = visible_ms + kMuseShowcaseIntervalMs;
+            next_ms_ = visible_ms + interval_ms_;
         }
         const auto &entry = kEntries[index_];
         uint32_t pose_ms = static_cast<uint32_t>(visible_ms - started_ms_);
@@ -54,16 +65,25 @@ public:
             // stage here so the sleeping character remains visible.
             pose_ms = std::min(pose_ms, uint32_t{1020});
         }
-        return {entry.pose, pose_ms, entry.working};
+        return {entry.pose, pose_ms, entry.working, entry.symbol};
     }
 
 private:
-    struct Entry { PixelAvatarPose pose; bool working; };
-    static constexpr std::array<Entry, 8> kEntries{{
-        {PixelAvatarPose::Idle, false}, {PixelAvatarPose::Listening, false},
-        {PixelAvatarPose::Thinking, false}, {PixelAvatarPose::Thinking, true},
-        {PixelAvatarPose::Reply, false}, {PixelAvatarPose::Error, false},
-        {PixelAvatarPose::Sleep, false}, {PixelAvatarPose::Waking, false},
+    struct Entry { PixelAvatarPose pose; bool working; MuseSymbol symbol; };
+    static constexpr std::array<Entry, 13> kEntries{{
+        {PixelAvatarPose::Idle, false, MuseSymbol::None},
+        {PixelAvatarPose::Listening, false, MuseSymbol::Question},
+        {PixelAvatarPose::Thinking, false, MuseSymbol::Thinking},
+        {PixelAvatarPose::Thinking, true, MuseSymbol::None},
+        {PixelAvatarPose::Reply, false, MuseSymbol::Idea},
+        {PixelAvatarPose::Error, false, MuseSymbol::Exclamation},
+        {PixelAvatarPose::Sleep, false, MuseSymbol::Sleep},
+        {PixelAvatarPose::Waking, false, MuseSymbol::None},
+        {PixelAvatarPose::Idle, false, MuseSymbol::Heart},
+        {PixelAvatarPose::Idle, false, MuseSymbol::Sweat},
+        {PixelAvatarPose::Error, false, MuseSymbol::Tension},
+        {PixelAvatarPose::Thinking, false, MuseSymbol::Question},
+        {PixelAvatarPose::Listening, false, MuseSymbol::Exclamation},
     }};
     static constexpr uint8_t kIdle = 0;
     static constexpr uint16_t kAll = (uint16_t{1} << kEntries.size()) - 1;
@@ -101,6 +121,7 @@ private:
     uint64_t started_ms_ = kMuseShowcaseWakeMs;
     uint64_t next_ms_ = kMuseShowcaseIntervalMs;
     uint64_t last_ms_ = 0;
+    uint32_t interval_ms_ = static_cast<uint32_t>(kMuseShowcaseIntervalMs);
     uint32_t seed_ = kDefaultSeed;
     uint32_t rng_ = kDefaultSeed;
     uint16_t available_ = kAll;

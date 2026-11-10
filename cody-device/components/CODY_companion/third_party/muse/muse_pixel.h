@@ -32,6 +32,32 @@
 #define MUSE_PX_W 64
 #define MUSE_PX_H 64
 
+typedef enum {
+    MUSE_SYMBOL_NONE, MUSE_SYMBOL_QUESTION, MUSE_SYMBOL_EXCLAMATION,
+    MUSE_SYMBOL_IDEA, MUSE_SYMBOL_THINKING, MUSE_SYMBOL_HEART,
+    MUSE_SYMBOL_SWEAT, MUSE_SYMBOL_TENSION, MUSE_SYMBOL_SLEEP,
+    MUSE_SYMBOL_COUNT
+} muse_symbol_t;
+
+/* Artwork-only parameters; all values are validated by the Cody owner. */
+typedef struct {
+    uint8_t particle_count, particle_size;
+    float particle_speed, particle_radius, particle_vertical_scale;
+    float particle_twinkle_speed, particle_brightness;
+    bool particle_custom_color;
+    uint32_t particle_color_rgb;
+    float motion, breathing_speed, body_x, body_y;
+    float left_hand_x, left_hand_y, right_hand_x, right_hand_y;
+    float gaze_x, gaze_y, eye_openness;
+    muse_symbol_t symbol;
+    int8_t symbol_offset_x, symbol_offset_y;
+    uint8_t symbol_scale;
+    float symbol_bob_speed;
+    bool symbol_custom_color;
+    uint32_t symbol_color_rgb;
+    float pose_transition_seconds;
+} muse_art_t;
+
 typedef struct {
     muse_mode_t mode;
     float t;         /* seconds since boot */
@@ -40,6 +66,7 @@ typedef struct {
     float happy;     /* 0..1 pet reaction */
     float working;   /* 0 or 1 in THINKING: a call's Muse is busy on work it was asked
                       * for, nothing playing. A renderer that ignores it shows THINKING. */
+    const muse_art_t *art; /* NULL selects original rendering defaults. */
 } muse_pose_t;
 
 /* Accent colour of a mode (for the surrounding UI), as 0xRRGGBB. */
