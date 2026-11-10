@@ -1257,6 +1257,14 @@ bool on_quick_guide()
         s_options_page == OptionsPage::GuideTouch || s_options_page == OptionsPage::GuideOffline);
 }
 
+// No parameters: these pages use a right swipe to reach the preceding peer page.
+bool options_previous_page_by_swipe()
+{
+    return s_route == Route::MakeItYours10 &&
+        (s_options_page == OptionsPage::MenuMore || s_options_page == OptionsPage::MenuMaintenance ||
+         s_options_page == OptionsPage::GuideTouch || s_options_page == OptionsPage::GuideOffline);
+}
+
 // action: Footer identity that requires a complete, released Options gesture.
 bool released_options_confirmation(OnboardingAction action)
 {
@@ -2411,6 +2419,11 @@ esp_err_t attach_content(SceneFrame &scene)
             content.control_bounds[0] = {10, 203, 70, 263};
             content.control_bounds[1] = {};
         }
+    }
+    if (s_route == Route::MakeItYours10) {
+        // Peer pages navigate by swipe; retain the separate footer and parent Back.
+        if (options_previous_page_by_swipe()) content.control_bounds[0] = {};
+        content.control_bounds[1] = content.bottom_action_bounds;
     }
     return set_scene_content(scene, content);
 }
@@ -7077,6 +7090,7 @@ bool previous_control_visible()
     if (s_home_wifi_pairing_direct && s_route == Route::Failed08) return s_view.actions_visible;
     if (s_home_wifi_flow && s_route == Route::Pairing07) return s_view.actions_visible &&
         s_view.action_id == OnboardingAction::Cancel && s_view.action.enabled;
+    if (options_previous_page_by_swipe()) return false;
     if (on_quick_guide()) return s_view.actions_visible && options_back_available();
     if (is_codex_event_route(s_route)) {
         return s_view.actions_visible && previous_navigation_available();
@@ -7092,6 +7106,7 @@ bool next_control_visible()
 {
     if ((s_route == Route::Install06 || s_route == Route::Pairing07) && s_view.qr.side != 0) return false;
     if (s_local_wifi.page != LocalWifiPage::None) return false;
+    if (s_route == Route::MakeItYours10) return false;
     if (s_home_wifi_flow && (s_route == Route::Install06 ||
         (s_route == Route::Invitation05 && s_home_wifi_intro))) return s_view.actions_visible && !s_command_pending;
     return (options_next_page_available() && s_view.actions_visible) ||
