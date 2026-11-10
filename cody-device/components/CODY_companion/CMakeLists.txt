@@ -51,6 +51,7 @@ idf_component_register(
         "src/scenes/CODY_codex_browser.cpp"
         "src/scenes/CODY_system_info.cpp"
         "src/scenes/CODY_local_timer_view.cpp"
+        "src/scenes/CODY_audio_view.cpp"
         "src/scenes/CODY_text_entry.cpp"
         "src/scenes/CODY_screensaver.cpp"
         "src/scenes/CODY_reset_countdown.cpp"
