@@ -1045,7 +1045,7 @@ class ChatActivityTests(unittest.TestCase):
     def test_manual_selection_is_removed_from_public_tools(self) -> None:
         names = {tool["name"] for tool in ccp.tool_catalog()}
         self.assertEqual(names, {"ccp_discover_devices", "ccp_pair_device",
-                                 "ccp_connection_status", "ccp_list_sessions", "ccp_ask_question",
+                                 "ccp_connection_status", "ccp_list_sessions", "ccp_read_state", "ccp_ask_question",
                                  "ccp_publish_notification", "ccp_poll_request", "ccp_cancel_request",
                                  "ccp_reset_device", "ccp_factory_reset_device", "ccp_debug_screen",
                                  "ccp_read_clock", "ccp_configure_clock", "ccp_report_progress",

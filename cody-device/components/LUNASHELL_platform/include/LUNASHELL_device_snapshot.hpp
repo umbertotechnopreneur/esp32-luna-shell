@@ -29,6 +29,7 @@
 #include "LUNASHELL_provisioning_state.hpp"
 #include "LUNASHELL_codex_events.hpp"
 #include "LUNASHELL_codex_presence.hpp"
+#include "LUNASHELL_codex_state_status.hpp"
 #include "LUNASHELL_voice_input.hpp"
 #include "LUNASHELL_activity.hpp"
 #include "LUNASHELL_battery_endurance.hpp"
@@ -1283,6 +1284,14 @@ public:
     // observation: Caller-owned Events page; its age derives from the authenticated receive time.
     // Exception: Returns the original snapshot synchronization error.
     esp_err_t readCodexInboxObservation(CodexInboxSnapshot &observation) const;
+    // request: Selection, page cursor or summary for the authenticated vNext domain.
+    // result: Caller-owned bounded projection. Use its query status to interpret the page.
+    // Exception: Returns original link/owner availability errors. No I/O or snapshot lock nesting.
+    esp_err_t readCodexDomainObservation(const CODY::Domain::StateQuery &request,
+                                         CODY::Domain::StateQueryResult &result) const;
+    // status: Caller-owned counts, generation and link/recovery state.
+    // Exception: Returns the original owner error, including an unavailable profile.
+    esp_err_t readCodexDomainStatus(CodexDomainStatus &status) const;
 
     // observation: Persistent caller-owned link/telemetry projection, copied under one lock.
     // Exception: Returns original lock/release errors; do not consume output on failure.

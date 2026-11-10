@@ -174,10 +174,12 @@ class ActivityStore:
 
     # self: New broker waits for a genuine prompt before following a chat.
     # pricing: Optional memory-only catalog owner; absence leaves the qualitative band Unknown.
-    def __init__(self, pricing: PriceCache | None = None) -> None:
+    # state_registry: Optional production registry owned by the exclusive broker.
+    def __init__(self, pricing: PriceCache | None = None, state_registry: StateRegistry | None = None) -> None:
         self._lock = threading.Lock()
         self._pricing = pricing
-        self.state_registry = StateRegistry()
+        self.state_registry = state_registry if state_registry is not None else StateRegistry()
+        self._registry_persistence_reported = False
         self._sessions: dict[str, Session] = {}
         self._finished_tools: dict[tuple[str, str], None] = {}
         self._followed_session_id = ""
@@ -209,6 +211,23 @@ class ActivityStore:
             del self._finished_tools[(old_session, old_tool)]
             del self._sessions[old_session].tool_calls[old_tool]
 
+    # error: Original bounded producer rejection. Caller holds the activity lock.
+    def _trace_registry_rejection(self, error: RegistryRejection) -> None:
+        if error.code == "persistence":
+            if self._registry_persistence_reported:
+                return
+            self._registry_persistence_reported = True
+        print(f"Cody state registry rejected observation: {error.code}: {error}", file=sys.stderr, flush=True)
+
+    # session_id: Exact chat whose native title the existing source returned.
+    # title: Canonical title read with its original evidence time.
+    def _observe_registry_title(self, session_id: str, title: ChatTitleObservation) -> None:
+        if title.state is TitleState.CURRENT and title.observed_at is not None:
+            try:
+                self.state_registry.observe_title(session_id, title.title, title.observed_at)
+            except RegistryRejection as error:
+                self._trace_registry_rejection(error)
+
     # native: Exact event that could not advance the legacy followed-chat view.
     # session: Optional legacy chat metadata. The original turn may survive only in the registry.
     def _observe_historical(self, native: CodexHook, session: Session | None) -> HookObservation | None:
@@ -216,7 +235,10 @@ class ActivityStore:
             return None
         try:
             changed = self.state_registry.observe(native)
-        except RegistryRejection:
+        except RegistryRejection as error:
+            if error.code == "persistence":
+                self._trace_registry_rejection(error)
+                raise
             return None
         if not changed:
             return None
@@ -431,8 +453,9 @@ class ActivityStore:
             except RegistryRejection as error:
                 # The retained vNext generation stays coherent. The existing
                 # followed-chat projection keeps its separately admitted event.
-                print(f"Cody state registry rejected {name}: {error.code}: {error}",
-                      file=sys.stderr, flush=True)
+                self._trace_registry_rejection(error)
+                if error.code == "persistence":
+                    raise
             # The notice decision is tied to the accepted native turn, not a
             # later followed-chat snapshot or inferred response text.
             reply_ready = name == "Stop" and session.reply_notice_turn != session.turn_id
@@ -500,8 +523,7 @@ class ActivityStore:
                 return withdrawn
 
             session.chat_title = source_title
-            if source_title.state is TitleState.CURRENT and source_title.observed_at is not None:
-                self.state_registry.observe_title(session.session_id, source_title.title, source_title.observed_at)
+            self._observe_registry_title(session.session_id, source_title)
             maximum_bytes = TITLE_MAX_BYTES if approval else 63
             if (reply_ready and source_title.state == TitleState.CURRENT
                     and len(source_title.title) > maximum_bytes):
@@ -636,8 +658,7 @@ class ActivityStore:
                 title = ChatTitleObservation(state=TitleState.ERROR)
             if session is not None:
                 session.chat_title = title
-                if title.state is TitleState.CURRENT and title.observed_at is not None:
-                    self.state_registry.observe_title(session.session_id, title.title, title.observed_at)
+                self._observe_registry_title(session.session_id, title)
             title_signature = (session.session_id if session else "", title.title, title.state)
             if title_signature != self._title_signature:
                 # Renaming a thread is a metadata change even without a new

@@ -135,9 +135,9 @@ their exact filenames in 01 while retaining the ownership boundaries below.
 | CODY-NEXT-00 | Baseline, screen catalog and ownership map | None | 🟢 Accepted · document review |
 | CODY-NEXT-01 | Domain schema, invariants and capacity policy | 00 | 🟡 Design reviewed · validation pending |
 | CODY-NEXT-02 | Versioned JSON, wire mapping and synchronization rules | 01 | 🟡 Design reviewed · validation pending |
-| CODY-NEXT-03 | Codex adapter and complete broker registry | 02, 14 | 🟡 Multi-turn sync wired · restart recovery pending |
+| CODY-NEXT-03 | Codex adapter and complete broker registry | 02, 14 | 🟡 Multi-turn sync and restart restore wired · question correlation pending |
 | CODY-NEXT-04 | Durable question and answer lifecycle | 02, 03 | ⚪ Planned |
-| CODY-NEXT-05 | Device domain store, synchronization and recovery | 02, 03, 04, 14 | 🟡 Authenticated commit wired · queries and persistence pending |
+| CODY-NEXT-05 | Device domain store, synchronization and recovery | 02, 03, 04, 14 | 🟡 Canonical queries and historical checkpoint wired · durable questions pending |
 | CODY-NEXT-06 | Deterministic scenario driver and inspection tools | 01, 02; integrate after 05 | ⚪ Planned |
 | CODY-NEXT-07 | Domain-to-Muse direction and pose transitions | 05, 06 | ⚪ Planned |
 | CODY-NEXT-08 | Muse acting, particles and audio policy | 07 | ⚪ Planned |
@@ -333,8 +333,10 @@ to select a facial expression or perform an unspecified privileged action.
 
 **Current scope:** the producer retains chats, turns, tool definitions and
 tool calls under stable identities. It serves full snapshots and exact-base
-deltas over the authenticated CCP owner. Questions, external operations,
-subagents and durable restart reconciliation have separate remaining work.
+deltas over the authenticated CCP owner. The broker restores its private
+checkpoint under a new epoch, retaining original evidence as historical until
+new observations reconcile it. Questions, external operations and subagents
+remain separate work.
 
 - [ ] 🟡 **CODY-NEXT-03.01** Separate provider translation from ActivityStore's generic
   lifecycle/storage responsibilities. Replace followed-chat-only consumers with
@@ -357,10 +359,13 @@ subagents and durable restart reconciliation have separate remaining work.
 - [x] 🟢 **CODY-NEXT-03.06** Publish complete registry snapshots and bounded deltas;
   include source ages and coverage. Add backpressure and meaningful rejection
   results. Keep public plugin operations and schema changes explicit.
-- [ ] ⚪ **CODY-NEXT-03.07** Reconstruct known registry metadata after restart from
+- [x] 🟢 **CODY-NEXT-03.07** Reconstruct known registry metadata after restart from
   its own persisted evidence or supported source APIs. Mark prior active states
   unverified until reconciled. Do not replay hooks, fabricate fresh prompts or
   infer focus/activity from undocumented transcript formats.
+- [x] 🟢 **CODY-NEXT-03.08** Expose bounded state-v1 queries in the plugin and
+  align its manifest, tool catalog and guidance with source-qualified identities
+  and historical evidence. Keep the existing voice and signed ticket owners distinct.
 
 **Completion:** simultaneous chats/tools have independent identities and revisions;
 the old followed-chat rule is a projection rather than the broker's data boundary.
@@ -414,31 +419,39 @@ No deadline, stale snapshot, Back action or new foreground chat silently clears 
 **Current scope:** the paired device streams and validates the initial
 five record kinds into a PSRAM staging bank. A digest-verified transaction
 publishes one coherent generation; rejection retains the previous bank.
-The network owner exposes a bounded status copy. Canonical UI queries and
-durable recovery remain pending, as do compilation and hardware acceptance.
+DeviceSnapshotService exposes bounded status, selected-chat and paged
+chat, turn and call queries with evidence, coverage and attention counts.
+The device restores a pairing-bound historical summary after reboot and requests
+a fresh authenticated snapshot. Durable question/answer state, a selection
+bookmark and physical acceptance remain pending.
 
 - [x] 🟢 **CODY-NEXT-05.01** Implement typed entity stores and indexes with one mutation
   owner. Fit budgets from 01 before adding snapshot fields; keep large pools and
   staging buffers off callback/task stacks and use PSRAM only under valid access
   conditions. Specify pointer/handle lifetime across generation changes.
-- [ ] 🟡 **CODY-NEXT-05.02** Integrate the authenticated acquisition owner and canonical
+- [x] 🟢 **CODY-NEXT-05.02** Integrate the authenticated acquisition owner and canonical
   DeviceSnapshotService publication. Publish narrow synchronized domain views or
   generation handles, not full registry copies in every sensor snapshot. UI and
   mascot readers never acquire hardware or maintain competing network caches.
 - [ ] 🟡 **CODY-NEXT-05.03** Implement snapshot/delta admission, referential integrity,
   ordering, transfer cleanup, explicit freshness and partial-coverage reporting.
   Updates to invisible chats follow exactly the same rules as foreground updates.
-- [ ] ⚪ **CODY-NEXT-05.04** Expose bounded queries for selected chat, all chats,
+- [ ] 🟡 **CODY-NEXT-05.04** Expose bounded queries for selected chat, all chats,
   active calls, pending questions and aggregate attention. Query results are
-  disposable projections, not UI-owned domain state.
-- [ ] ⚪ **CODY-NEXT-05.05** Persist minimal unresolved question/answer records and
+  disposable projections, not UI-owned domain state. The initial profile
+  exposes chat, turn, call and attention views. Pending questions report unsupported.
+- [ ] 🟡 **CODY-NEXT-05.05** Persist minimal unresolved question/answer records and
   useful selection references through the existing storage owner. Define schema,
   integrity, atomic replacement, retention and write coalescing. Do not write
   animation ticks, heartbeats, every tool update or whole transcripts to flash.
-- [ ] ⚪ **CODY-NEXT-05.06** Restore persisted facts as historical/unverified until
+  The existing settings owner writes a coalesced, versioned and authenticated
+  summary. The question/answer ledger and selected-chat bookmark remain open.
+- [ ] 🟡 **CODY-NEXT-05.06** Restore persisted facts as historical/unverified until
   reconciled. Preserve unknown outcomes, storage errors and data from a missing
   source. A changed pairing/source cannot inherit another peer's questions or
-  response authority; partition or retire association explicitly.
+  response authority; partition or retire association explicitly. The restored
+  summary is historical and cannot supply a page or a delta baseline. Pairing
+  replacement or Forget retires it. Restoring unresolved records depends on 04.
 - [ ] 🟡 **CODY-NEXT-05.07** Handle standby, reboot and clock discontinuity separately.
   Semantic deadlines/freshness continue according to their clock contract;
   paused animation time cannot extend a response deadline or make old work fresh.

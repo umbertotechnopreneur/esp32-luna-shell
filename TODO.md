@@ -11,8 +11,8 @@ specification is in [planned-todo.md](planned-todo.md#cody-next---domain-model-a
 | CODY-NEXT-01 | Implemented / validation pending | Schema and design review (G01/G02) in [domain contract](docs/cody/domain-model.md); header compilation, actual memory layout and runtime evidence remain pending |
 | CODY-NEXT-02 | Implemented / validation pending | G01/G02 design/source review complete for [protocol, schema and examples](cody-desktop/plugins/cody-codex-plugin/protocol/CODY_STATE_V1.md); schema execution, helper compilation and live protocol acceptance remain pending |
 | CODY-NEXT-14 | In progress | Portable store, shared firmware/host composition, Muse frame boundary and Waveshare descriptor are connected. Review current-target capacity, OS boundaries and scenario integration before G01. |
-| CODY-NEXT-03 | In progress (snapshot/delta wired) | Broker retains exact multi-turn records, freezes complete snapshots and bounded deltas, and sends them over CCP2. Durable restart reconciliation and question correlation remain open. |
-| CODY-NEXT-05 | In progress (authenticated commit wired) | Paired firmware verifies binding, HMAC and digest, stages bounded JSON and commits the previous-or-new generation atomically. Bounded status exists; canonical queries, persistence and executed acceptance remain open. |
+| CODY-NEXT-03 | In progress (broker restart restore wired) | The private checkpoint restores stable records and historical evidence under a new epoch. The plugin exposes bounded state-v1 pages. Question correlation and executed acceptance remain open. |
+| CODY-NEXT-05 | In progress (canonical query and recovery wired) | DeviceSnapshotService exposes generation-bound views and the paired device restores historical diagnostic counts. Durable unresolved records, a selection bookmark, new screen consumers and executed acceptance remain open. |
 
 Keep this table, the phase table, the individual markers and the progress
 summary in [planned-todo.md](planned-todo.md) aligned at each checkpoint.
@@ -20,10 +20,10 @@ Static readiness never counts as executed tests. Muse direction and route
 changes follow their named phases.
 The broker and paired firmware share the authenticated state-v1 socket path.
 The initial profile admits source, chat, turn, tool definition and tool call
-records. It exposes unsupported categories explicitly. The device network owner
-publishes a bounded status, and the existing display is still a separate
-projection. Durable restart reconciliation and the semantic question lifecycle
-remain open.
+records. It exposes unsupported categories explicitly. The broker keeps an
+authenticated private checkpoint. The device restores a historical summary
+and starts from a fresh snapshot. The canonical query API exposes bounded pages.
+New screen consumers and the semantic question lifecycle remain open.
 
 Phase 11 must compile the headers and exercise the JSON schema/examples,
 chunk/revision helpers and specified scenarios against the phase-05 reducer.

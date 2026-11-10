@@ -42,6 +42,14 @@ void disconnect(bool clear_generation);
 
 // status: Bounded copy only; caller holds the CCP serialization mutex.
 // now_us: Current receiver clock used to avoid stale liveness.
-esp_err_t copy_status(CodexDomainStatus &status, uint64_t now_us);
+// link_eligible: Active retained association may still claim live status.
+esp_err_t copy_status(CodexDomainStatus &status, uint64_t now_us, bool link_eligible);
+
+// query: Exact bounded projection request or paging cursor.
+// result: Caller-owned output, never a borrowed generation reference.
+// now_us: Current receiver clock.
+// link_eligible: Current persisted association is still eligible for live data.
+esp_err_t copy_query(const CODY::Domain::StateQuery &query, CODY::Domain::StateQueryResult &result,
+                     uint64_t now_us, bool link_eligible);
 
 } // namespace LUNASHELL::codex_state

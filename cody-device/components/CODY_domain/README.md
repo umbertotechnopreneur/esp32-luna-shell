@@ -7,7 +7,7 @@ defines the wire format and security boundary.
 
 | Layer | Current owner and boundary |
 | --- | --- |
-| Domain values and limits | `CODY_domain_types.hpp` and `CODY_domain_capacity.hpp` use standard C++ and allocate no store. `StateStore` admits staged generations under the existing CCP socket owner. `readCodexDomainStatus` copies revision, counts and link status. Canonical UI publication remains pending. |
+| Domain values and limits | `CODY_domain_types.hpp` and `CODY_domain_capacity.hpp` use standard C++. `StateStore` admits staged generations under the existing CCP socket owner. `DeviceSnapshotService::readCodexDomainObservation` exposes the bounded query projections to presentation readers. |
 | Wire and ingress | `CODY_state_receive.hpp` checks binary geometry, ACK fields, replay and chunk ordering. The authenticated link owner supplies endpoint/role/session checks, cryptography and receiver monotonic time. The staging sink consumes bytes and reports its original error. |
 | Provider and desktop | The CCP broker translates native evidence into the bounded multi-turn registry and retains a journal for exact-base deltas. OS owners select user paths, protect credentials, discover processes and own IPC. |
 | Muse | The shared indexed frame composer accepts semantic pose, active time and optional artistic audio energy. Firmware and Windows preview use the same Muse C core. The artistic seed only affects animation. |
@@ -31,6 +31,29 @@ are explicitly unsupported. The live bank survives an incomplete or rejected
 transfer. A same-source restart cannot discard rows that the device still knows
 as active. Durable broker reconciliation is needed to recover that case.
 
+## Presentation queries
+
+`CODY_state_query.hpp` defines the portable request and owned result.
+A `Chat` query resolves the caller's selected `ChatId`. `Chats`, `Turns`,
+`Calls` and `ActiveCalls` copy up to three typed rows. The next-page cursor
+belongs to its exact committed generation, kind and identity scope. If a
+commit intervenes, restart at the first page. The copy contains no pointers
+into PSRAM and can outlive the owner lock.
+
+Known values carry their own observation, source time, freshness and error.
+Query time can age evidence but never renews it. `ActiveCalls` includes rows
+last observed as queued or running, including rows whose evidence is now
+stale. `Summary` separately counts only current running or waiting turns and
+current active calls. Incomplete coverage or evidence makes those counts
+lower bounds. `PendingQuestions` explicitly reports unsupported in this
+profile.
+
+After device reboot the owner can expose the association-bound historical
+summary, with no entity page or live attention. It has no local generation
+stamp, cannot form a synchronization cursor and cannot serve as an
+authenticated delta base. A committed snapshot makes live pages available
+again. Callers must distinguish summary retention from fact freshness.
+
 ## Conformance cases
 
 These are inputs and expected outcomes for the phase-06 scenario driver.
@@ -44,6 +67,9 @@ These are inputs and expected outcomes for the phase-06 scenario driver.
 | Transfer clock | Fill a gap just under the idle timeout, then retry without progress or move the clock backwards | The first contiguous progress updates only the idle timer. The absolute deadline is unchanged. Duplicate traffic cannot extend either timer and clock regression cancels staging. |
 | Bounded viewport | Synthetic rectangular 240 x 320 panel, safe rectangle 192 x 224, 64-cell grid and preferred scale 3 | Admit a centered 192 x 192 viewport and use its same half-open bounds for touch. The Waveshare fixture retains 192 x 192 at (137,137). |
 | Smaller device | Synthetic target without external RAM or a microphone | Voice remains unavailable. Capacity admission still requires measured memory and must report failure if the generation banks do not fit. |
+| Scoped cursor | Request the next call page after committing a same-revision snapshot, or reuse its cursor for a different turn | A replaced generation returns NeedSnapshot; a different scope returns Malformed. Neither query changes the committed bank. |
+| Lease expiry | Read one running call, let its original field lease expire, then read it again without a newer observation | The page retains the last observed state with stale evidence. The live attention count excludes it and reports incomplete evidence. |
+| Historical summary | Load a checkpoint with nonzero retained counts before the first authenticated snapshot | Summary returns Historical; entity pages are unavailable and the old revision cannot supply a delta base. |
 
 ## Adding a target
 

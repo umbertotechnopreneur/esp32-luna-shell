@@ -3,7 +3,8 @@
 `CODY-NEXT-01` defines a presentation-independent model. Its C++17 value types
 are in [CODY_domain_types.hpp](../../cody-device/components/CODY_domain/include/CODY_domain_types.hpp);
 its capacity calculation is in [CODY_domain_capacity.hpp](../../cody-device/components/CODY_domain/include/CODY_domain_capacity.hpp).
-These headers are an implementation foundation, not an integrated runtime store.
+The initial source, chat, turn and tool records are integrated in the
+authenticated broker and device store.
 The [phase-02 protocol](../../cody-desktop/plugins/cody-codex-plugin/protocol/CODY_STATE_V1.md)
 defines serialization and synchronization; 14 owns platform/build boundaries; 03-05 own live
 adapters, durable answers and the device store. No compiler, simulator or board
@@ -108,7 +109,7 @@ ingestion. The device's single mutation owner admits authenticated transactions
 from the existing acquisition boundary and publishes through DeviceSnapshotService.
 The portable types have no hardware, OS, network, mutex, rendering or file I/O.
 
-For every transaction, the future store must perform these steps atomically:
+The store admits each transaction atomically:
 
 1. Check source/epoch authorization, expected revision and negotiated capacities.
 2. Stage entities, facts, evidence and text without modifying the committed view.
@@ -117,9 +118,11 @@ For every transaction, the future store must perform these steps atomically:
 4. Publish one generation only after all checks succeed. Preserve the original
    error and previous coherent generation on any failure.
 
-DeviceSnapshotService exposes bounded queries/copies for selected chat, chat
-pages, call pages, question pages, coverage and health. Do not put the complete
-registry into `DeviceSnapshot`, `DeviceModel` or a display-worker stack frame.
+`DeviceSnapshotService::readCodexDomainObservation` exposes bounded queries
+for the selected chat, chat pages, turns, calls, coverage, current attention
+and health. The initial profile reports pending questions as unsupported.
+Do not put the complete registry into `DeviceSnapshot`, `DeviceModel` or a
+display-worker stack frame.
 Network buffers and callbacks never escape their owner. Queries copy a bounded
 page under owner synchronization, then release the lock before raster, audio,
 storage or network work. Text resolves into that page's bounded buffer, so a
@@ -127,7 +130,10 @@ retired generation cannot leave a dangling `TextRef` in a display frame.
 
 Summaries (running-call counts, waiting chats, attention priority) are queries
 over this registry. Cached presentation is generation-qualified and never a
-second mutable source of chat truth.
+second mutable source of chat truth. A page cursor names its source, epoch,
+revision, local generation and exact query scope. A generation change requires
+the UI to restart pagination. When a page contains historical evidence, the
+interface can show the last known value without counting it as current work.
 
 ## Lifecycle rules
 

@@ -1,10 +1,11 @@
 # CCP - Cody's Codex Plugin
 
 **CCP** connects Cody to Codex over the local LAN. The Windows/Linux Python service
-uses local MCP for Codex and CCP1 for the device. Local Wi-Fi/IP is sufficient
-for pairing; public Internet availability is a separate condition.
+uses local MCP for Codex, CCP1 for pairing and companion services, and CCP2
+for authenticated vNext state synchronization. Pairing requires local Wi-Fi
+and IP connectivity.
 
-CCP **0.6.20** provides one local owner for Codex and the Windows/Linux companion
+CCP **0.7.0** provides one local owner for Codex and the Windows/Linux companion
 control panel. Codex activity and semantic questions retain their own identities.
 The panel reads genuine native MCP presence and original activity freshness.
 Its signed READY handshake retains the 0.6.4 endpoint-binding contract. Signed READY binds a fresh
@@ -361,6 +362,27 @@ Status distinguishes `pairing_pending` and `retained_pairing`. Forget on Cody
 does not revoke the independent PC record. The [wire contract](protocol/CCP1.md)
 defines the two-store transaction and its recovery limits.
 
+## Inspect the vNext registry
+
+Use `ccp_read_state` for source coverage and pages of chats, turns or tool calls.
+The tool returns a `cody.state.query/1` projection of
+[`cody.state/1`](protocol/CODY_STATE_V1.md). It includes source ID, epoch,
+revision and evidence for the returned records. For another page, send the
+returned cursor with the same view and filters. If the generation changes,
+restart from the first page. The query describes the local broker registry.
+Use connection status separately for device presence.
+
+After a broker restart, persisted identities and their last observations
+are available as **historical**. For example, a call saved as running keeps
+that last observed value. A new observation about the call is needed to
+describe it as current. An authenticated reconnect establishes the session
+and requests a fresh snapshot. The device's optional restored status contains
+only historical counts. It does not serve as a delta baseline.
+
+The initial state-v1 profile covers chats, turns and tool calls. Questions
+still use the separate signed ticket flow. The existing screen projection
+and dictation destination still follow the latest genuine prompt.
+
 ## Follow authentic activity
 
 Cody follows the latest chat receiving a real user prompt. Tool, completion and
@@ -372,8 +394,9 @@ Before a prompt, screen 15 shows **Connected / Ready to team up** and
 Activity contains the work phase, chat identity and short project name. Chats
 in one project retain different IDs. `Stop` supplies the advisory response-ready
 cue, and subsequent native work can resume the same turn. Active work without
-updates becomes **UNAVAILABLE** after 120 s. Broker restart waits for a new
-prompt, and LAN reconnect returns the current snapshot.
+updates becomes **UNAVAILABLE** after 120 s. After a broker restart, this
+followed-chat projection waits for a new prompt. The vNext registry can
+separately return historical records.
 
 The [Codex hook contract](https://learn.chatgpt.com/docs/hooks) describes which
 events are observable. The adapter retains the documented `SessionStart` source
@@ -418,7 +441,8 @@ native transport's Open/Closed/Unavailable evidence.
 | `ccp_discover_devices` | Current offers; `include_simulator` defaults to false |
 | `ccp_pair_device` | Pair the uniquely matching visible code; replacement needs explicit consent |
 | `ccp_connection_status` | Identity, authenticated presence and latest broker snapshot |
-| `ccp_list_sessions` | Observed metadata and the followed chat |
+| `ccp_read_state` | Paged vNext source, chat, turn and tool-call metadata with evidence and coverage |
+| `ccp_list_sessions` | Native hook metadata and the followed chat for progress and voice |
 | `ccp_report_progress` | Describe actual work for an exact active chat and turn |
 | `ccp_ask_question` | Self-contained question with two/three choices and private ticket/capability |
 | `ccp_publish_notification` | Known fact or read-only PR snapshot with exact-head metadata |

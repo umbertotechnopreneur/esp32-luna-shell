@@ -38,6 +38,7 @@ from ccp_repository import read_branch
 from ccp_security import RejectionReporter, configure_runtime_logging
 from ccp_presence import AppState
 from ccp_source import current_source
+from ccp_state_storage import RegistryStorage
 from ccp_windows import (CONTROL_PORT, configure_exclusive_socket, control_key_path,
                          control_port_available, launch_runtime, runtime_directory)
 
@@ -387,7 +388,8 @@ def run_broker() -> int:
         pricing = PriceCache(runtime_directory() / "artifacts" / "pricing" / "codex-standard.json")
         server.pricing = pricing
         subscriptions = SubscriptionCatalog()
-        server.service = ccp.CcpService(pricing, subscriptions=subscriptions)
+        registry_storage = RegistryStorage(runtime_directory() / "codex-registry.v1", bytes.fromhex(server.secret))
+        server.service = ccp.CcpService(pricing, subscriptions=subscriptions, registry_storage=registry_storage)
         server.lease_lock = threading.Lock()
         server.tool_lock = threading.Lock()
         server.last_hook = time.monotonic()

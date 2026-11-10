@@ -4,6 +4,7 @@
 
 #include "CODY_domain_capacity.hpp"
 #include "CODY_state_receive.hpp"
+#include "CODY_state_query.hpp"
 
 namespace CODY::Domain {
 
@@ -17,16 +18,6 @@ struct StateRequest {
     std::array<char, 65> provider{};
     std::array<char, 129> native_namespace{};
     std::array<Capability, 8> capabilities{};
-};
-
-struct StateSummary {
-    SourceId source{};
-    EpochId epoch{};
-    uint64_t revision = 0;
-    uint32_t chats = 0;
-    uint32_t turns = 0;
-    uint32_t active_calls = 0;
-    uint32_t terminal_calls = 0;
 };
 
 using StateAllocate = void *(*)(std::size_t);
@@ -72,9 +63,18 @@ public:
     // No parameters: copies a bounded summary of the last committed generation.
     StateSummary summary() const;
 
+    // request: Bounded page or single entity in one committed generation.
+    // now_us: Current receiver clock, used to age original evidence conservatively.
+    // link_ready: True only for a confirmed lease and the queried source/epoch.
+    // result: Caller-owned copied projection. No pointers into either bank escape.
+    Protocol::RejectCode query(const StateQuery &request, uint64_t now_us, bool link_ready,
+                               StateQueryResult &result) const;
+
 private:
     struct Storage;
     Storage *storage_ = nullptr;
+    // Never reset on association replacement within this owner lifetime.
+    uint64_t generation_ = 0;
 };
 
 } // namespace CODY::Domain

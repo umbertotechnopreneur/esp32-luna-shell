@@ -6,12 +6,14 @@ from collections import deque
 from dataclasses import dataclass
 import hashlib
 import json
+import re
 import secrets
 import threading
 import time
 from typing import Any
 
-from ccp_codex_hooks import CodexHook, HookEvent, ToolKind
+from ccp_codex_hooks import CodexHook, HookEvent, ToolKind, require_id
+from ccp_state_storage import RegistryStorage, RegistryStorageError
 from ccp_tool_labels import tool_display_label
 
 
@@ -44,10 +46,13 @@ POOL_KIND = {
 MAX_JOURNAL_TRANSACTIONS = 256
 MAX_JOURNAL_BYTES = 512 * 1024
 MAX_AGE_MS = 0xffffffff
+MAX_COUNTER = (1 << 64) - 1
+CHECKPOINT_VERSION = 1
+HEX_ID = re.compile(r"[0-9a-f]{16}")
 LEASE_MS = 120000
 TOOL_CATEGORIES = {ToolKind.COMMAND: "command", ToolKind.EDIT: "file_edit"}
 HISTORICAL_EVENTS = frozenset({
-    HookEvent.TOOL_START, HookEvent.TOOL_END, HookEvent.STOP, HookEvent.INTERRUPT,
+    HookEvent.TOOL_START, HookEvent.TOOL_END, HookEvent.STOP, HookEvent.INTERRUPT, HookEvent.SESSION_END,
 })
 
 Key = tuple[str, str]
@@ -68,6 +73,7 @@ class RegistryRejection(ValueError):
 @dataclass(frozen=True)
 class Observation:
     identity: str
+    origin_epoch: str
     revision: int
     observed_ns: int
     provenance: str = "native_event"
@@ -84,6 +90,7 @@ class Record:
     native_id: tuple[str, ...]
     body: dict[str, str | Fact]
     created_ns: int = 0
+    created_epoch: str = ""
 
 
 @dataclass(frozen=True)
@@ -123,9 +130,11 @@ def fact_at(record: Record, name: str) -> Fact:
 
 
 # fact: Last accepted field observation, if available.
-# observed_ns: New observation from the same broker monotonic clock.
-def newer(fact: Fact, observed_ns: int) -> bool:
-    return fact.observation is None or observed_ns > fact.observation.observed_ns
+# observed: New observation with its exact broker clock domain.
+def newer(fact: Fact, observed: Observation) -> bool:
+    prior = fact.observation
+    return (prior is None or observed.origin_epoch != prior.origin_epoch
+            or observed.observed_ns > prior.observed_ns)
 
 
 # row: Exact retained row and associated internal observation handles.
@@ -147,24 +156,285 @@ def record_wire(key: Key, row: Record) -> dict[str, Any]:
 class StateRegistry:
     """Provider facts have one revision order independent of foreground selection."""
 
-    # No parameters: creates one process epoch with an empty observed registry.
-    def __init__(self) -> None:
+    # storage: Optional exclusive broker checkpoint owner. In-memory clients omit it.
+    # owner_id: Retained PC ID that must match any durable registry contents.
+    # Raises RegistryStorageError for invalid or inaccessible retained state.
+    def __init__(self, storage: RegistryStorage | None = None, owner_id: str | None = None) -> None:
         self._lock = threading.Lock()
         self._epoch = hex64(secrets.randbits(64) or 1)
+        self._started_ns = time.monotonic_ns()
         self._revision = 1
+        self._storage = storage
+        self._owner_id = owner_id
+        self._storage_failure: RegistryRejection | None = None
+        self._retired: dict[Key, None] = {}
         self._records: dict[Key, Record] = {}
         self._journal: deque[JournalEntry] = deque()
         self._journal_bytes = 0
         self._tombstones: dict[Key, int] = {}
         self._unobserved_capacity: dict[str, RegistryRejection] = {}
+        if storage is not None:
+            if owner_id is None:
+                raise RegistryStorageError("Durable registry requires its retained PC identity")
+            document = storage.load()
+            if document is None:
+                storage.save(self._checkpoint_document(self._records, self._revision,
+                                                       self._retired, self._unobserved_capacity))
+            else:
+                self._restore(document)
 
     # pc_id: Retained broker identity, never a user credential or UI label.
+    # Raises ValueError if the caller uses a different owner for a durable registry.
     def binding(self, pc_id: str) -> dict[str, Any]:
+        if self._owner_id is not None and pc_id != self._owner_id:
+            raise ValueError("Registry binding does not match the durable owner")
         return {
             "source_id": token("source", (pc_id, NAMESPACE)),
             "epoch": self._epoch, "provider": PROVIDER, "native_namespace": NAMESPACE,
             "capabilities": dict(CAPABILITIES),
         }
+
+    # records: Complete candidate generation, already admitted as one graph.
+    # revision: Exact target revision this generation will publish.
+    # retired: Bounded oldest-first native identity tombstones.
+    # coverage: Latest omission diagnosis per affected entity kind.
+    def _checkpoint_document(self, records: dict[Key, Record], revision: int, retired: dict[Key, None],
+                             coverage: dict[str, RegistryRejection]) -> dict[str, Any]:
+        rows = list(records.items())
+        return {
+            "version": CHECKPOINT_VERSION, "owner": self._owner_id,
+            "last_epoch": self._epoch, "revision": revision,
+            "records": [
+                {"native": list(row.native_id), "record": record_wire(key, row),
+                 "created": [row.created_epoch, row.created_ns] if key[0] == "turn" else None}
+                for key, row in rows
+            ],
+            "evidence": [
+                [item.identity, item.origin_epoch, item.revision, item.observed_ns, item.provenance]
+                for item in self._referenced(rows).values()
+            ],
+            "retired": [list(key) for key in retired],
+            "coverage": [error.pool for error in coverage.values()],
+        }
+
+    # records: Complete candidate graph; publication is still pending.
+    # revision: Revision reserved for this exact candidate.
+    # retired: Retained terminal identity history for the candidate.
+    # coverage: Coverage diagnostics persisted with the same generation.
+    # Raises RegistryRejection and latches the storage fault on an ambiguous commit.
+    def _save(self, records: dict[Key, Record], revision: int, retired: dict[Key, None],
+              coverage: dict[str, RegistryRejection]) -> None:
+        if self._storage is None:
+            return
+        try:
+            self._storage.save(self._checkpoint_document(records, revision, retired, coverage))
+        except RegistryStorageError as error:
+            self._storage_failure = RegistryRejection("persistence", str(error))
+            raise self._storage_failure from error
+
+    # value: Checkpoint value expected to be a nonzero canonical 64-bit token.
+    # Raises ValueError for zero, uppercase, or noncanonical values.
+    def _stored_id(self, value: Any) -> str:
+        if not isinstance(value, str) or HEX_ID.fullmatch(value) is None or value == ZERO:
+            raise ValueError("Invalid checkpoint identity")
+        return value
+
+    # value: Exact positive integer persisted without conversion or truncation.
+    # maximum: Inclusive bound for this counter or original monotonic sample.
+    # Raises ValueError for bool, fraction, negative, zero or overflow.
+    def _stored_counter(self, value: Any, maximum: int) -> int:
+        if type(value) is not int or not 0 < value <= maximum:
+            raise ValueError("Invalid checkpoint counter")
+        return value
+
+    # value: Authenticated evidence table from the checkpoint.
+    # revision: Last committed source revision across all retained epochs.
+    # Raises ValueError for malformed, duplicate or altered origin evidence.
+    def _stored_evidence(self, value: Any, revision: int) -> dict[str, Observation]:
+        if not isinstance(value, list) or len(value) > SOURCE_LIMITS["evidence"]:
+            raise ValueError("Invalid checkpoint evidence table")
+        result: dict[str, Observation] = {}
+        for item in value:
+            if not isinstance(item, list) or len(item) != 5:
+                raise ValueError("Invalid checkpoint evidence fields")
+            identity = self._stored_id(item[0])
+            epoch = self._stored_id(item[1])
+            original_revision = self._stored_counter(item[2], revision)
+            observed_ns = self._stored_counter(item[3], MAX_COUNTER)
+            provenance = item[4]
+            if (identity in result or identity != token("observation", (epoch, hex64(original_revision)))
+                    or provenance not in ("native_event", "native_read")):
+                raise ValueError("Invalid checkpoint evidence origin")
+            result[identity] = Observation(identity, epoch, original_revision, observed_ns, provenance)
+        return result
+
+    # field: Exact stored wire fact (checkpoint and wire share fact identity).
+    # name: Fact member name within the supported registry records.
+    # evidence: Validated retained observation table.
+    # Raises ValueError for unsupported values, shape, or an absent evidence origin.
+    def _stored_fact(self, field: Any, name: str, evidence: dict[str, Observation]) -> Fact:
+        if not isinstance(field, dict) or set(field) != {"state", "value", "evidence"}:
+            raise ValueError("Invalid checkpoint fact shape")
+        if field["state"] == "unknown" and field["value"] is None and field["evidence"] is None:
+            if name in {"lifecycle", "execution", "state"}:
+                raise ValueError("Checkpoint is missing required lifecycle evidence")
+            return Fact()
+        if field["state"] != "known" or not isinstance(field["value"], str):
+            raise ValueError("Invalid checkpoint fact availability")
+        origin = evidence.get(self._stored_id(field["evidence"]))
+        if origin is None:
+            raise ValueError("Checkpoint fact does not resolve to its evidence")
+        value = field["value"]
+        if name in {"title", "display_label"}:
+            limit = 255 if name == "title" else 96
+            if len(value) > limit or any(not 32 <= ord(character) <= 126 for character in value):
+                raise ValueError("Invalid checkpoint display text")
+        elif name == "current_turn":
+            self._stored_id(value)
+        else:
+            allowed = {
+                "lifecycle": ("open", "closed"), "execution": ("running", "stopped", "interrupted"),
+                "category": ("command", "file_edit"), "state": ("running", "returned"),
+            }
+            if value not in allowed.get(name, ()):
+                raise ValueError("Unsupported checkpoint fact value")
+        return Fact(value, origin)
+
+    # value: One retained record and its exact native correlation metadata.
+    # evidence: Validated proof table; wire references must resolve within it.
+    # Raises ValueError for ambiguous identity, record shape, or field contents.
+    def _stored_row(self, value: Any, evidence: dict[str, Observation]) -> tuple[Key, Record]:
+        if not isinstance(value, dict) or set(value) != {"native", "record", "created"}:
+            raise ValueError("Invalid checkpoint row shape")
+        native = value["native"]
+        row = value["record"]
+        if not isinstance(row, dict) or not isinstance(native, list):
+            raise ValueError("Invalid checkpoint row identity")
+        kind = row.get("type")
+        if kind not in ("chat", "turn", "tool_definition", "tool_call"):
+            raise ValueError("Unsupported checkpoint record kind")
+        layout = {
+            "chat": (1, (), ("title", "lifecycle", "current_turn")),
+            "turn": (2, ("chat",), ("execution", "outcome", "reply")),
+            "tool_definition": (1, ("original_name",), ("display_label", "category")),
+            "tool_call": (3, ("turn", "definition"), ("executing_agent", "state", "outcome")),
+        }
+        native_count, attributes, facts = layout[kind]
+        if len(native) != native_count or set(row) != {"type", "id", *attributes, *facts}:
+            raise ValueError("Invalid checkpoint record fields")
+        if kind == "tool_definition":
+            name = native[0]
+            if (not isinstance(name, str) or not 1 <= len(name) <= 128 or name != row["original_name"]
+                    or any(not 32 <= ord(character) <= 126 for character in name)):
+                raise ValueError("Invalid checkpoint tool identity")
+        else:
+            for identity in native:
+                require_id(identity, "Checkpoint native identity")
+        native_id = tuple(native)
+        key = key_for(kind, native_id)
+        if key[1] != row["id"]:
+            raise ValueError("Checkpoint native correlation does not match its wire token")
+        body: dict[str, str | Fact] = {
+            name: row[name] if name == "original_name" else self._stored_id(row[name])
+            for name in attributes
+        }
+        body.update((name, self._stored_fact(row[name], name, evidence)) for name in facts)
+        created = value["created"]
+        if kind == "turn":
+            if not isinstance(created, list) or len(created) != 2:
+                raise ValueError("Invalid checkpoint turn origin")
+            epoch = self._stored_id(created[0])
+            observed_ns = self._stored_counter(created[1], MAX_COUNTER)
+            return key, Record(native_id, body, observed_ns, epoch)
+        if created is not None:
+            raise ValueError("Unexpected checkpoint creation origin")
+        return key, Record(native_id, body)
+
+    # records: Complete decoded candidate, before it can replace the live graph.
+    # Raises ValueError when retained references disagree with native correlations.
+    def _validate_checkpoint_graph(self, records: dict[Key, Record]) -> None:
+        for (kind, _), row in records.items():
+            if kind == "chat":
+                current = fact_at(row, "current_turn").value
+                if current is not None:
+                    turn = records.get(("turn", current))
+                    if turn is None or turn.native_id[:1] != row.native_id:
+                        raise ValueError("Checkpoint current turn does not belong to its chat")
+            elif kind == "turn":
+                chat = key_for("chat", row.native_id[:1])
+                if row.body["chat"] != chat[1] or chat not in records:
+                    raise ValueError("Checkpoint turn parent is missing")
+            elif kind == "tool_call":
+                turn = key_for("turn", row.native_id[:2])
+                if row.body["turn"] != turn[1] or turn not in records:
+                    raise ValueError("Checkpoint tool turn is missing")
+                if ("tool_definition", row.body["definition"]) not in records:
+                    raise ValueError("Checkpoint tool definition is missing")
+
+    # document: Authenticated checkpoint, bound to the original broker PC identity.
+    # Raises RegistryStorageError for unsupported, partial or inconsistent recovered state.
+    def _restore(self, document: dict[str, Any]) -> None:
+        try:
+            if (set(document) != {"version", "owner", "last_epoch", "revision", "records",
+                                  "evidence", "retired", "coverage"}
+                    or type(document["version"]) is not int or document["version"] != CHECKPOINT_VERSION
+                    or document["owner"] != self._owner_id):
+                raise ValueError("Checkpoint version, owner or fields are invalid")
+            prior_epoch = self._stored_id(document["last_epoch"])
+            revision = self._stored_counter(document["revision"], MAX_COUNTER)
+            evidence = self._stored_evidence(document["evidence"], revision)
+            rows = document["records"]
+            max_rows = sum(SOURCE_LIMITS[pool] for pool in POOL_KIND)
+            if not isinstance(rows, list) or len(rows) > max_rows:
+                raise ValueError("Invalid checkpoint registry size")
+            records: dict[Key, Record] = {}
+            for value in rows:
+                key, row = self._stored_row(value, evidence)
+                if key in records:
+                    raise ValueError("Duplicate checkpoint record")
+                records[key] = row
+            self._validate_checkpoint_graph(records)
+            self._check_limits(list(records.items()), SOURCE_LIMITS)
+            if self._referenced(list(records.items())) != evidence:
+                raise ValueError("Checkpoint includes unused observation evidence")
+
+            retired_rows = document["retired"]
+            if not isinstance(retired_rows, list) or len(retired_rows) > SOURCE_LIMITS["tombstones"]:
+                raise ValueError("Invalid checkpoint tombstone table")
+            retired: dict[Key, None] = {}
+            for row in retired_rows:
+                if (not isinstance(row, list) or len(row) != 2
+                        or row[0] not in ("chat", "turn", "tool_definition", "tool_call")):
+                    raise ValueError("Invalid checkpoint tombstone")
+                key = (row[0], self._stored_id(row[1]))
+                if key in records or key in retired:
+                    raise ValueError("Checkpoint tombstone conflicts with a retained identity")
+                retired[key] = None
+
+            pools = document["coverage"]
+            if not isinstance(pools, list) or len(pools) > len(POOL_KIND):
+                raise ValueError("Invalid checkpoint coverage table")
+            coverage: dict[str, RegistryRejection] = {}
+            for pool in pools:
+                if not isinstance(pool, str) or pool not in POOL_KIND or POOL_KIND[pool] in coverage:
+                    raise ValueError("Invalid checkpoint coverage pool")
+                coverage[POOL_KIND[pool]] = RegistryRejection(
+                    "capacity_exceeded", "A previously observed source pool was exhausted", pool)
+        except ValueError as error:
+            raise RegistryStorageError(f"Registry checkpoint validation failed: {error}") from error
+
+        # The retained graph is the baseline for the new epoch. Replay starts
+        # after the next live observation, while all old observations keep
+        # their identity, origin and provenance.
+        prior_clocks = {item.origin_epoch for item in evidence.values()}
+        prior_clocks.update(row.created_epoch for row in records.values() if row.created_epoch)
+        prior_clocks.add(prior_epoch)
+        while self._epoch in prior_clocks:
+            self._epoch = hex64(secrets.randbits(64) or 1)
+        self._revision = revision
+        self._records = records
+        self._retired = retired
+        self._unobserved_capacity = coverage
 
     # staged: Isolated transaction candidate.
     # key: Typed wire identity derived from the exact provider key.
@@ -174,7 +444,7 @@ class StateRegistry:
         row = staged.get(key)
         if row is not None and row.native_id != native_id:
             raise RegistryRejection("invalid_transition", "Conflicting native identity token")
-        if row is None and key in self._tombstones:
+        if row is None and key in self._retired:
             raise RegistryRejection("invalid_transition", "Native identity belongs to retired history")
         return row
 
@@ -183,7 +453,7 @@ class StateRegistry:
     # row: Existing row whose identity and unchanged fields remain intact.
     # fields: Whole replacement values for just the affected internal fields.
     def _replace(self, staged: dict[Key, Record], key: Key, row: Record, **fields: str | Fact) -> None:
-        staged[key] = Record(row.native_id, {**row.body, **fields}, row.created_ns)
+        staged[key] = Record(row.native_id, {**row.body, **fields}, row.created_ns, row.created_epoch)
 
     # staged: Candidate generation.
     # turn_token: The turn selected for retention inspection.
@@ -252,7 +522,7 @@ class StateRegistry:
         turn = self._lookup(staged, turn_key, turn_id)
         if turn is None:
             raise RegistryRejection("missing_reference", "Tool observation has no admitted native turn")
-        if native.emitted_ns <= turn.created_ns:
+        if observed.origin_epoch == turn.created_epoch and native.emitted_ns <= turn.created_ns:
             raise RegistryRejection("invalid_transition", "Tool observation precedes its admitted turn")
         call_id = (*turn_id, native.tool_use_id)
         call_key = key_for("tool_call", call_id)
@@ -265,13 +535,13 @@ class StateRegistry:
                 raise RegistryRejection("invalid_transition", "Tool observation conflicts with its original name")
             if not ended or fact_at(call, "state").value == "returned":
                 raise RegistryRejection("invalid_transition", "Tool invocation already has that boundary")
-            if not newer(fact_at(call, "state"), native.emitted_ns):
+            if not newer(fact_at(call, "state"), observed):
                 raise RegistryRejection("invalid_transition", "Tool completion precedes its admitted start")
         else:
             if not tool_name:
                 raise RegistryRejection("missing_reference", "Tool completion without its start requires the original tool name")
             if not ended and fact_at(turn, "execution").value == "interrupted":
-                if newer(fact_at(turn, "execution"), native.emitted_ns):
+                if newer(fact_at(turn, "execution"), observed):
                     raise RegistryRejection("invalid_transition", "Interrupted turn cannot start another tool")
             if not ended and sum(key[0] == "tool_call" and fact_at(row, "state").value == "running"
                                  for key, row in staged.items()) >= SOURCE_LIMITS["active_calls"]:
@@ -304,7 +574,7 @@ class StateRegistry:
                 del staged[min(terminal)[1]]
         else:
             execution = fact_at(turn, "execution")
-            if newer(execution, native.emitted_ns):
+            if newer(execution, observed):
                 self._replace(staged, turn_key, turn, execution=Fact("running", observed))
 
     # staged: Candidate generation.
@@ -327,13 +597,14 @@ class StateRegistry:
         if event in {HookEvent.SESSION_START, HookEvent.SESSION_END, HookEvent.PROMPT}:
             lifecycle = fact_at(chat, "lifecycle")
             value = "closed" if event is HookEvent.SESSION_END else "open"
-            if value != lifecycle.value and newer(lifecycle, native.emitted_ns):
+            historical = lifecycle.observation is not None and lifecycle.observation.origin_epoch != self._epoch
+            if (value != lifecycle.value or historical) and newer(lifecycle, observed):
                 self._replace(staged, chat_key, chat, lifecycle=Fact(value, observed))
                 chat = staged[chat_key]
 
         if event in {HookEvent.TOOL_START, HookEvent.TOOL_END}:
             lifecycle = fact_at(chat, "lifecycle")
-            if event is HookEvent.TOOL_START and lifecycle.value == "closed" and newer(lifecycle, native.emitted_ns):
+            if event is HookEvent.TOOL_START and lifecycle.value == "closed" and newer(lifecycle, observed):
                 raise RegistryRejection("invalid_transition", "Closed chat cannot start another tool")
             self._apply_tool(staged, native, observed)
             return
@@ -346,12 +617,12 @@ class StateRegistry:
         current = fact_at(chat, "current_turn")
         if event is HookEvent.PROMPT:
             if turn is None:
-                becomes_current = newer(current, native.emitted_ns)
+                becomes_current = newer(current, observed)
                 self._reserve_turn(staged, chat_key[1] if becomes_current else "")
                 staged[turn_key] = Record(turn_id, {
                     "chat": chat_key[1], "execution": Fact("running", observed),
                     "outcome": Fact(), "reply": Fact(),
-                }, native.emitted_ns)
+                }, native.emitted_ns, observed.origin_epoch)
                 if becomes_current:
                     self._replace(staged, chat_key, chat, current_turn=Fact(turn_key[1], observed))
                 return
@@ -364,34 +635,46 @@ class StateRegistry:
         execution = fact_at(turn, "execution")
         if execution.value == "interrupted" and value != "interrupted":
             raise RegistryRejection("invalid_transition", "Interrupted turn cannot reopen or become stopped")
-        if newer(execution, native.emitted_ns) and (value != execution.value or event is HookEvent.PROMPT):
+        if newer(execution, observed) and (value != execution.value or event is HookEvent.PROMPT):
             self._replace(staged, turn_key, turn, execution=Fact(value, observed))
 
     # observed_ns: Original observation time, on the broker's monotonic clock.
     # provenance: Exact acquisition boundary producing the new facts.
     def _new_observation(self, observed_ns: int, provenance: str) -> Observation:
+        if self._revision == MAX_COUNTER:
+            raise RegistryRejection("capacity_exceeded", "Source revision range is exhausted")
         revision = self._revision + 1
-        # Revisions restart at a new epoch, while observation identity must
-        # remain distinct from old evidence retained by the same receiver.
+        # Epoch qualifies the origin even when a new source starts at revision one.
         identity = token("observation", (self._epoch, hex64(revision)))
-        return Observation(identity, revision, observed_ns, provenance)
+        return Observation(identity, self._epoch, revision, observed_ns, provenance)
 
     # native: Allowlisted, validated metadata from one documented command hook.
     # Raises RegistryRejection when a source transition fails atomically.
     def observe(self, native: CodexHook) -> bool:
         with self._lock:
+            if self._storage_failure is not None:
+                raise self._storage_failure
+            if (self._storage is not None and native.emitted_ns < self._started_ns
+                    and native.event not in {HookEvent.SESSION_START, HookEvent.PROMPT}):
+                raise RegistryRejection("invalid_transition", "Hook predates this durable broker epoch")
             staged = self._records.copy()
             try:
                 self._apply(staged, native, self._new_observation(native.emitted_ns, "native_event"))
             except RegistryRejection as error:
                 if error.code == "capacity_exceeded" and error.pool in POOL_KIND:
-                    self._unobserved_capacity[POOL_KIND[error.pool]] = error
+                    kind = POOL_KIND[error.pool]
+                    previous = self._unobserved_capacity.get(kind)
+                    if previous is None or previous.pool != error.pool:
+                        coverage = {**self._unobserved_capacity, kind: error}
+                        self._save(self._records, self._revision, self._retired, coverage)
+                        self._unobserved_capacity = coverage
                 raise
             return self._commit(staged)
 
     # session_id: Exact native chat returned by the existing title source.
     # title: Complete reported title in the protocol's printable ASCII range.
     # observed_at: Original native read time on the local monotonic clock.
+    # Raises RegistryRejection if durable storage can no longer accept facts.
     def observe_title(self, session_id: str, title: str, observed_at: float) -> None:
         if not 0 <= len(title) <= 255 or any(not 32 <= ord(character) <= 126 for character in title):
             return
@@ -399,40 +682,52 @@ class StateRegistry:
         if not 0 < observed_ns <= time.monotonic_ns():
             return
         with self._lock:
+            if self._storage_failure is not None:
+                raise self._storage_failure
             native_id = (session_id,)
             key = key_for("chat", native_id)
             row = self._records.get(key)
             if row is None or row.native_id != native_id:
                 return
             prior = fact_at(row, "title")
-            if not newer(prior, observed_ns):
+            observed = self._new_observation(observed_ns, "native_read")
+            if not newer(prior, observed):
                 return
             staged = self._records.copy()
-            observed = self._new_observation(observed_ns, "native_read")
             self._replace(staged, key, row, title=Fact(title, observed))
             self._commit(staged)
 
-    # rows: Records to upsert in one transaction.
-    def _referenced(self, rows: list[tuple[Key, Record]]) -> dict[int, Observation]:
-        return {field.observation.revision: field.observation
-                for _, row in rows for field in row.body.values()
-                if isinstance(field, Fact) and field.observation is not None}
+    # rows: Records whose evidence must be retained or supplied.
+    # Raises RegistryRejection if different observations collide in the token space.
+    def _referenced(self, rows: list[tuple[Key, Record]]) -> dict[str, Observation]:
+        evidence: dict[str, Observation] = {}
+        for _, row in rows:
+            for field in row.body.values():
+                if isinstance(field, Fact) and field.observation is not None:
+                    original = field.observation
+                    if evidence.setdefault(original.identity, original) != original:
+                        raise RegistryRejection("invalid_transition", "Conflicting source evidence token")
+        return evidence
 
     # observed: Immutable original native or broker fact evidence.
     # now_ns: Same-clock freeze time for the source age, not a renewal.
     def _evidence_wire(self, observed: Observation, now_ns: int) -> dict[str, Any]:
         elapsed_ns = now_ns - observed.observed_ns
         age_ms = (elapsed_ns + 999_999) // 1_000_000
-        age_ms = age_ms if elapsed_ns >= 0 and age_ms <= MAX_AGE_MS else None
+        historical = observed.origin_epoch != self._epoch
+        age_ms = age_ms if not historical and elapsed_ns >= 0 and age_ms <= MAX_AGE_MS else None
+        freshness = "historical" if historical else (
+            "unknown" if age_ms is None else ("current" if age_ms < LEASE_MS else "stale")
+        )
         return {
-            "id": observed.identity, "origin_epoch": self._epoch,
+            "id": observed.identity, "origin_epoch": observed.origin_epoch,
             "origin_revision": hex64(observed.revision),
             "observed_at": {
-                "basis": "monotonic_microseconds", "clock_id": self._epoch,
+                "basis": "monotonic_microseconds", "clock_id": observed.origin_epoch,
                 "microseconds": hex64(observed.observed_ns // 1000),
             },
             "source_age_ms": age_ms, "lease_ms": LEASE_MS,
-            "freshness": "unknown" if age_ms is None else ("current" if age_ms < LEASE_MS else "stale"),
+            "freshness": freshness,
             "provenance": observed.provenance, "error": None,
         }
 
@@ -458,6 +753,13 @@ class StateRegistry:
             "remove": [{"type": key[0], "id": key[1], "revision": hex64(revision)} for key in removed],
         }, ensure_ascii=True, separators=(",", ":")))
         entry = JournalEntry(revision, before, removed, charge)
+        retired = {**self._retired, **dict.fromkeys(removed)}
+        while len(retired) > SOURCE_LIMITS["tombstones"]:
+            del retired[next(iter(retired))]
+        if self._storage is None:
+            self._referenced(list(staged.items()))
+        self._save(staged, revision, retired, self._unobserved_capacity)
+        self._retired = retired
         self._records = staged
         self._revision = revision
         self._journal.append(entry)
@@ -498,9 +800,10 @@ class StateRegistry:
     # request_id: Validated ID of the original authenticated request.
     # error: Exact producer-side cause; caller holds _lock.
     def _error(self, request_id: str, error: RegistryRejection) -> dict[str, Any]:
+        detail = "Durable registry storage is unavailable" if error.code == "persistence" else str(error)
         return {
             "schema": SCHEMA, "request_id": request_id, "kind": "error",
-            "code": error.code, "pool": error.pool, "detail": str(error),
+            "code": error.code, "pool": error.pool, "detail": detail,
             "revision": hex64(self._revision),
         }
 
@@ -512,6 +815,8 @@ class StateRegistry:
         binding = self.binding(pc_id)
         source_id = binding["source_id"]
         with self._lock:
+            if self._storage_failure is not None:
+                return self._error(request_id, self._storage_failure)
             if request.get("source_id") != source_id or request.get("epoch") != self._epoch:
                 return self._error(request_id, RegistryRejection("wrong_binding", "Request names a different source or epoch"))
             snapshot = request["kind"] == "resync"

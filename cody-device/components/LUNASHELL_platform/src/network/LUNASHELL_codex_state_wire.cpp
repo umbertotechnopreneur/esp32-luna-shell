@@ -3,6 +3,7 @@
 
 #include "CODY_state_store.hpp"
 #include "LUNASHELL_codex_state_control.hpp"
+#include "LUNASHELL_codex_state_saved.hpp"
 
 #include <algorithm>
 #include <array>
@@ -861,6 +862,7 @@ esp_err_t receive_data(int socket, Wire &wire, const Protocol::DataChunk &chunk,
                     error = RejectCode::RevisionConflict;
                 } else {
                     wire.baseline = true;
+                    codex_state_saved::remember(wire.store.summary(), now_us);
                     finish_request(wire, now_us, RejectCode::None);
                 }
             }
@@ -1155,21 +1157,100 @@ void disconnect(bool clear_generation)
     if (clear_generation) wire.store.clear();
 }
 
+namespace {
+
+// wire: Current serialized state session.
+// summary: Coherent generation from this exact store.
+// now_us: Receiver clock used to check the peer lease.
+bool link_ready(const Wire &wire, const Domain::StateSummary &summary, uint64_t now_us)
+{
+    return wire.phase == Phase::Live && wire.baseline && wire.probe_confirmed &&
+        wire.resync == nullptr && now_us >= wire.clock_us && now_us < wire.expires_at_us &&
+        summary.source == wire.source && summary.epoch == wire.epoch;
+}
+
+// error: Portable query rejection to expose at the platform API.
+esp_err_t query_error(RejectCode error)
+{
+    switch (error) {
+    case RejectCode::None: return ESP_OK;
+    case RejectCode::Malformed: return ESP_ERR_INVALID_ARG;
+    case RejectCode::UnsupportedVersion: return ESP_ERR_INVALID_VERSION;
+    case RejectCode::UnsupportedCapability: return ESP_ERR_NOT_SUPPORTED;
+    case RejectCode::MissingReference: return ESP_ERR_NOT_FOUND;
+    case RejectCode::CapacityExceeded: return ESP_ERR_NO_MEM;
+    case RejectCode::TransferTimeout:
+    case RejectCode::Busy: return ESP_ERR_TIMEOUT;
+    case RejectCode::Integrity: return ESP_ERR_INVALID_CRC;
+    default: return ESP_ERR_INVALID_STATE;
+    }
+}
+
+} // namespace
+
 // status: Bounded copied summary of the last committed generation and link.
 // now_us: Current monotonic clock read by the caller.
-esp_err_t copy_status(CodexDomainStatus &status, uint64_t now_us)
+// link_eligible: Current persisted association may still claim live status.
+esp_err_t copy_status(CodexDomainStatus &status, uint64_t now_us, bool link_eligible)
 {
+    Domain::StateSummary saved{};
+    esp_err_t storage_error = ESP_OK;
+    if (!codex_state_saved::try_read(saved, storage_error)) return ESP_ERR_TIMEOUT;
     status = {};
+    status.storage_error = storage_error;
+    auto summary = s_wire ? s_wire->store.summary() : Domain::StateSummary{};
+    if (summary.revision == 0 && saved.revision != 0) {
+        summary = saved;
+        status.historical = true;
+    }
+    status.source = summary.source.value;
+    status.epoch = summary.epoch.value;
+    status.revision = summary.revision;
+    status.chats = summary.chats;
+    status.turns = summary.turns;
+    status.active_calls = summary.active_calls;
+    status.terminal_calls = summary.terminal_calls;
     if (!s_wire) return s_allocation_error;
-    const auto &wire = *s_wire;
-    const auto summary = wire.store.summary();
-    status = {summary.source.value, summary.epoch.value, summary.revision, summary.chats,
-        summary.turns, summary.active_calls, summary.terminal_calls,
-        static_cast<uint8_t>(wire.protocol_error),
-        wire.phase == Phase::Live && wire.baseline && wire.probe_confirmed &&
-        wire.resync == nullptr && now_us >= wire.clock_us && now_us < wire.expires_at_us &&
-        summary.source == wire.source && summary.epoch == wire.epoch};
-    return wire.transport_error;
+    status.protocol_error = static_cast<uint8_t>(s_wire->protocol_error);
+    status.ready = link_eligible && !status.historical && link_ready(*s_wire, summary, now_us);
+    return s_wire->transport_error;
+}
+
+// query: Exact bounded projection request or paging cursor.
+// result: Caller-owned output, never a borrowed generation reference.
+// now_us: Receiver clock used to evaluate evidence and link freshness.
+// link_eligible: The current retained association still permits live use.
+esp_err_t copy_query(const Domain::StateQuery &query, Domain::StateQueryResult &result,
+                     uint64_t now_us, bool link_eligible)
+{
+    if (s_wire) {
+        const auto summary = s_wire->store.summary();
+        if (summary.revision != 0 || query.kind != Domain::StateQueryKind::Summary) {
+            const bool ready = link_eligible && link_ready(*s_wire, summary, now_us);
+            return query_error(s_wire->store.query(query, now_us, ready, result));
+        }
+    } else if (query.kind != Domain::StateQueryKind::Summary) {
+        result.reset();
+        return query.kind == Domain::StateQueryKind::PendingQuestions
+            ? ESP_ERR_NOT_SUPPORTED : ESP_ERR_INVALID_STATE;
+    }
+    // The checkpoint is diagnostic data only. It cannot supply a live bank,
+    // answer a page query, or provide a base revision for a fresh session.
+    const auto &cursor = query.cursor;
+    if (query.chat != Domain::ChatId{} || query.turn != Domain::TurnId{} ||
+        cursor.source.valid() || cursor.epoch.valid() || cursor.revision != 0 ||
+        cursor.generation != 0 || cursor.after != 0 || cursor.chat != Domain::ChatId{} ||
+        cursor.turn != Domain::TurnId{} || cursor.kind != Domain::StateQueryKind::Summary) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    Domain::StateSummary saved{};
+    esp_err_t storage_error = ESP_OK;
+    if (!codex_state_saved::try_read(saved, storage_error)) return ESP_ERR_TIMEOUT;
+    result.reset();
+    result.summary = saved;
+    if (saved.revision != 0) result.health = Domain::StateViewHealth::Historical;
+    if (storage_error != ESP_OK) return storage_error;
+    return result.summary.revision != 0 ? ESP_OK : ESP_ERR_INVALID_STATE;
 }
 
 } // namespace LUNASHELL::codex_state

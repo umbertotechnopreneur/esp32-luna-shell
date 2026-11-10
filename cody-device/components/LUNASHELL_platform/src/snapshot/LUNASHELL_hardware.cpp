@@ -2812,6 +2812,24 @@ esp_err_t DeviceSnapshotService::readCodexInboxObservation(CodexInboxSnapshot &o
     return give_snapshot_mutex("Codex inbox read");
 }
 
+// request: Exact domain query, optionally pinned to an existing generation.
+// result: Caller-owned bounded copy. No full domain bank enters DeviceSnapshot.
+// Exception: Returns the original network-owner availability or synchronization error.
+esp_err_t DeviceSnapshotService::readCodexDomainObservation(const CODY::Domain::StateQuery &request,
+                                                           CODY::Domain::StateQueryResult &result) const
+{
+    // Domain generations are serialized by the CCP owner. Do not acquire the
+    // sensor snapshot lock here, since the CCP owner also reads connectivity.
+    return LUNASHELL::readCodexDomain(request, result);
+}
+
+// status: Copies one generation's link and recovery status.
+// Exception: Returns the underlying owner error.
+esp_err_t DeviceSnapshotService::readCodexDomainStatus(CodexDomainStatus &status) const
+{
+    return LUNASHELL::readCodexDomainStatus(status);
+}
+
 // observation: Bounded canonical telemetry; no network, filesystem or sensor reads.
 // Exception: Returns the original mutex or immutable image-identity error; output is unusable on failure.
 esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObservation &observation) const

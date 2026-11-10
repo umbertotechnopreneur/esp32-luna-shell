@@ -27,6 +27,7 @@
     CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
 
 #include "LUNASHELL_codex_state_wire.hpp"
+#include "LUNASHELL_codex_state_saved.hpp"
 #include "LUNASHELL_settings.hpp"
 #include "LUNASHELL_codex_saved.hpp"
 #include "LUNASHELL_snapshot_aging.hpp"
@@ -809,6 +810,10 @@ esp_err_t commitCandidateLocked()
         // Retire the old pairing's saved telemetry before a replacement can be published.
         error = eraseLinkRecord(LUNASHELL::codex_saved::kCheckpointKey);
         if (error == ESP_OK) LUNASHELL::codex_saved::reset_after_erase();
+    }
+    if (error == ESP_OK) {
+        error = LUNASHELL::codex_state_saved::erase();
+        if (error != ESP_OK) s_storage_error = error;
     }
     if (error == ESP_OK) error = persistLink(kPairingSetting, s_candidate_link);
     if (error == ESP_OK) {
@@ -4602,6 +4607,9 @@ void processCommand()
         esp_err_t error = eraseLinkRecord(LUNASHELL::codex_saved::kCheckpointKey);
         if (error == ESP_OK) {
             LUNASHELL::codex_saved::reset_after_erase();
+            error = LUNASHELL::codex_state_saved::erase();
+        }
+        if (error == ESP_OK) {
             error = eraseLinkRecord(kPendingPairingSetting);
         }
         if (error == ESP_OK) {
@@ -4642,6 +4650,21 @@ void processCommand()
     }
 }
 
+// No parameters: checkpoint scheduling and persisted key writes share the sole CCP worker.
+void checkpointDomainState()
+{
+    {
+        std::lock_guard<std::mutex> guard(s_mutex);
+        if (!s_link_present || s_candidate_present || s_storage_error != ESP_OK ||
+            s_pending != Command::None) return;
+    }
+    // Pairing mutations also run on this worker, so the retained key cannot
+    // change during the synchronous settings call. Do not hold the CCP mutex.
+    const auto now = esp_timer_get_time();
+    if (now > 0) LUNASHELL::codex_state_saved::checkpoint(s_persisted_link.pc_id,
+        s_persisted_link.link_key, static_cast<uint64_t>(now));
+}
+
 // context: Unused singleton-task context; static state is protected by s_mutex.
 void codexLinkWorker(void *context)
 {
@@ -4672,10 +4695,14 @@ void codexLinkWorker(void *context)
         maintainDebugScreen();
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-        if (!voice_busy) LUNASHELL::codex_saved::checkpoint(esp_timer_get_time());
+        if (!voice_busy) {
+            LUNASHELL::codex_saved::checkpoint(esp_timer_get_time());
+            checkpointDomainState();
+        }
         ulTaskNotifyTake(pdTRUE, voice_busy ? std::max<TickType_t>(1, pdMS_TO_TICKS(LUNASHELL::voice_poll::kActiveMs)) : pdMS_TO_TICKS(kWorkerPollMs));
 #else
         LUNASHELL::codex_saved::checkpoint(esp_timer_get_time());
+        checkpointDomainState();
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(kWorkerPollMs));
 #endif
     }
@@ -4702,11 +4729,23 @@ esp_err_t reject(
 // Exception: The result preserves the transport failure while returning the last coherent summary.
 esp_err_t LUNASHELL::readCodexDomainStatus(CodexDomainStatus &status)
 {
-    std::lock_guard<std::mutex> guard(s_mutex);
+    std::unique_lock<std::mutex> guard(s_mutex, std::try_to_lock);
+    if (!guard.owns_lock()) return ESP_ERR_TIMEOUT;
     const auto now = esp_timer_get_time();
-    const auto error = codex_state::copy_status(status, now > 0 ? static_cast<uint64_t>(now) : 0);
-    if (!stateLinkEligibleLocked()) status.ready = false;
-    return error;
+    return codex_state::copy_status(status, now > 0 ? static_cast<uint64_t>(now) : 0,
+        now > 0 && stateLinkEligibleLocked());
+}
+
+// query: Exact bounded projection request or paging cursor.
+// result: Caller-owned copy. Owner contention leaves the previous copy untouched.
+esp_err_t LUNASHELL::readCodexDomain(const CODY::Domain::StateQuery &query,
+                                    CODY::Domain::StateQueryResult &result)
+{
+    std::unique_lock<std::mutex> guard(s_mutex, std::try_to_lock);
+    if (!guard.owns_lock()) return ESP_ERR_TIMEOUT;
+    const auto now = esp_timer_get_time();
+    return codex_state::copy_query(query, result, now > 0 ? static_cast<uint64_t>(now) : 0,
+        now > 0 && stateLinkEligibleLocked());
 }
 
 // executor: Sole settings owner; repeat registration of that owner is idempotent.
@@ -4813,6 +4852,8 @@ extern "C" esp_err_t LUNASHELL_codex_link_service_init(void)
     }
     esp_err_t error = loadPersistedLink();
     LUNASHELL::codex_saved::load();
+    LUNASHELL::codex_state_saved::load(s_link_present ? s_persisted_link.pc_id : nullptr,
+        s_link_present ? s_persisted_link.link_key : nullptr);
     // An optional CCP storage fault keeps a repair-only command owner alive.
     // Initialization still returns the original error and the snapshot remains failed.
     s_storage_error = error;
@@ -5132,6 +5173,16 @@ extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_
 esp_err_t LUNASHELL::readCodexDomainStatus(CodexDomainStatus &status)
 {
     status = {};
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+// query: Unused request in a profile without Cody state support.
+// result: Left untouched when the profile does not own a domain.
+esp_err_t LUNASHELL::readCodexDomain(const CODY::Domain::StateQuery &query,
+                                    CODY::Domain::StateQueryResult &result)
+{
+    (void)query;
+    (void)result;
     return ESP_ERR_NOT_SUPPORTED;
 }
 

@@ -1,7 +1,7 @@
 {
   "name": "cody-codex-plugin",
-  "version": "0.6.20",
-  "description": "Your Codex sidekick on your desk. Connect Cody, follow your work and reply from the device. Cody Studio is always SIMULATED.",
+  "version": "0.7.0",
+  "description": "Connect Cody over the local network and inspect work across Codex chats. Cody Studio is always SIMULATED.",
   "author": {
     "name": "Umberto Giacobbi"
   },
@@ -19,7 +19,7 @@
   "interface": {
     "displayName": "CCP - Cody's Codex Plugin",
     "shortDescription": "Keep your Codex work in sight.",
-    "longDescription": "Bring Cody into your workflow over your local network. Follow the chat selected by your latest prompt through reviewed hooks, receive updates and answer questions with two or three choices. Reply sent confirms receipt by Codex. PR updates are read-only and native approvals stay on your PC. Cody Studio is always SIMULATED and connects only when explicitly requested.",
+    "longDescription": "Connect Cody over your local network. Inspect observed Codex chats, turns and tool calls, with current and historical evidence distinguished. Receive updates and answer questions with two or three choices. Reply sent confirms receipt by Codex. Native approvals stay on your PC. Cody Studio is always SIMULATED and connects only when explicitly requested.",
     "developerName": "Umberto Giacobbi",
     "category": "Developer Tools",
     "capabilities": [
@@ -30,7 +30,7 @@
     "defaultPrompt": [
       "Find Cody on my local network.",
       "Connect Cody using the six-character code on its display.",
-      "Show Cody's connection and followed chat."
+      "Show Cody's connection and observed Codex work."
     ],
     "brandColor": "#28A9F7"
   }

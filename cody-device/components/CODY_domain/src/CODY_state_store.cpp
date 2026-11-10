@@ -64,6 +64,7 @@ struct Removal {
 
 struct Bank {
     StateSummary summary{};
+    uint64_t committed_at_us = 0;
     std::array<Coverage, kKinds> coverage{};
     Entity *rows = nullptr;
     StoredEvidence *evidence = nullptr;
@@ -1005,6 +1006,7 @@ RejectCode StateStore::Storage::validate(uint64_t request_us, uint64_t now_us)
     bank.evidence_used = static_cast<uint32_t>(end - bank.evidence);
     bank.summary = {reader.request.source, reader.request.epoch, reader.revision,
                     counts[1], counts[2], active, completed};
+    bank.committed_at_us = now_us;
     return RejectCode::None;
 }
 
@@ -1106,8 +1108,12 @@ RejectCode StateStore::commit(const Protocol::TransferIdentity &identity, uint64
         reader.coverage != (uint16_t{1} << kKinds) - 1 || identity.document_bytes != reader.bytes) {
         return RejectCode::Malformed;
     }
+    if (generation_ == std::numeric_limits<uint64_t>::max()) return RejectCode::CapacityExceeded;
     const auto error = store.validate(request_us, now_us);
-    if (error == RejectCode::None) store.current = 1U - store.current;
+    if (error == RejectCode::None) {
+        store.current = 1U - store.current;
+        ++generation_;
+    }
     return error;
 }
 
@@ -1142,6 +1148,324 @@ uint64_t StateStore::revision(SourceId source, EpochId epoch) const
 StateSummary StateStore::summary() const
 {
     return storage_ ? storage_->live().summary : StateSummary{};
+}
+
+
+namespace {
+
+struct QueryClock {
+    uint64_t now_us = 0;
+    bool ready = false;
+};
+
+// evidence: Exact admitted observation of the field.
+// clock: Current receiver clock and link readiness for this bank.
+Freshness query_freshness(const Evidence &evidence, QueryClock clock)
+{
+    if (evidence.freshness != Freshness::Current) return evidence.freshness;
+    if (!clock.ready || clock.now_us < evidence.received_at_us) return Freshness::Stale;
+    if (evidence.age_state != Availability::Known || evidence.lease_state != Availability::Known) {
+        return Freshness::Unknown;
+    }
+    const auto lease_us = uint64_t{evidence.lease_ms} * 1000U;
+    if (evidence.age_at_receive_us >= lease_us) return Freshness::Stale;
+    const auto elapsed_us = clock.now_us - evidence.received_at_us;
+    return elapsed_us < lease_us - evidence.age_at_receive_us ? Freshness::Current : Freshness::Stale;
+}
+
+// bank: One committed generation.
+// stored: Field whose availability and original evidence are copied.
+// clock: Receiver clock and live binding status.
+StateFactView fact_view(const Bank &bank, const StoredFact &stored, QueryClock clock)
+{
+    StateFactView view{};
+    view.availability = stored.state;
+    const auto *found = stored.observation ? find_evidence(bank, stored.observation) : nullptr;
+    if (!found) return view;
+    const auto &evidence = found->value;
+    view.freshness = query_freshness(evidence, clock);
+    view.provenance = evidence.provenance;
+    view.observation = evidence.observation;
+    view.observed_at = evidence.observed_at;
+    if (evidence.age_state == Availability::Known && clock.now_us >= evidence.received_at_us) {
+        const auto elapsed_us = clock.now_us - evidence.received_at_us;
+        const auto remaining = std::numeric_limits<uint64_t>::max() - evidence.age_at_receive_us;
+        view.age_us = evidence.age_at_receive_us + std::min(elapsed_us, remaining);
+        view.age_state = Availability::Known;
+    }
+    view.error = evidence.error.kind;
+    view.original_code = evidence.error.original_code;
+    return view;
+}
+
+// bank: Committed generation.
+// stored: Previously validated scalar field.
+// clock: Receiver clock and binding status.
+// value: Typed source value. A non-known field exposes its default payload.
+template<class T>
+StateValueView<T> scalar_view(const Bank &bank, const StoredFact &stored, QueryClock clock, T value)
+{
+    return {stored.state == Availability::Known ? value : T{}, fact_view(bank, stored, clock)};
+}
+
+// bank: Committed text pool.
+// ref: Admitted field span whose protocol length is below this buffer size.
+// out: Zero-terminated bounded output, initially zeroed by the page owner.
+template<std::size_t Size>
+void copy_view_text(const Bank &bank, TextRef ref, std::array<char, Size> &out)
+{
+    const auto text = bank.view(ref);
+    std::copy(text.begin(), text.end(), out.begin());
+    out[text.size()] = '\0';
+}
+
+// bank: Committed entity graph.
+// row: Exact chat record.
+// clock: Query clock and link readiness.
+// out: Destination row in the caller-owned page.
+void project_chat(const Bank &bank, const Entity &row, QueryClock clock, StateChatRow &out)
+{
+    const auto source = bank.summary.source;
+    out.id = {source, row.key.id};
+    out.title.fact = fact_view(bank, row.facts[0], clock);
+    if (out.title.fact.availability == Availability::Known) {
+        copy_view_text(bank, row.facts[0].text, out.title.value);
+    }
+    out.lifecycle = scalar_view(bank, row.facts[1], clock, static_cast<ChatLifecycle>(row.facts[1].value));
+    out.current_turn = scalar_view(bank, row.facts[2], clock, TurnId{source, row.facts[2].value});
+}
+
+// bank: Committed entity graph.
+// row: Exact turn record.
+// clock: Query clock and link readiness.
+// out: Destination row in the caller-owned page.
+void project_turn(const Bank &bank, const Entity &row, QueryClock clock, StateTurnRow &out)
+{
+    const auto source = bank.summary.source;
+    out.id = {source, row.key.id};
+    out.chat = {source, row.parent};
+    out.execution = scalar_view(bank, row.facts[0], clock, static_cast<ExecutionState>(row.facts[0].value));
+    out.outcome = scalar_view(bank, row.facts[1], clock, static_cast<Outcome>(row.facts[1].value));
+    out.reply = scalar_view(bank, row.facts[2], clock, static_cast<ReplyState>(row.facts[2].value));
+}
+
+// bank: Committed entity graph.
+// row: Exact tool call record.
+// clock: Query clock and link readiness.
+// out: Destination row in the caller-owned page.
+void project_call(const Bank &bank, const Entity &row, QueryClock clock, StateCallRow &out)
+{
+    const auto source = bank.summary.source;
+    out.id = {source, row.key.id};
+    out.turn = {source, row.parent};
+    out.definition = {source, row.definition};
+    const auto *definition = find_row(bank, {EntityKind::ToolDefinition, row.definition});
+    if (definition) {
+        copy_view_text(bank, definition->text[0], out.original_name);
+        out.label.fact = fact_view(bank, definition->facts[0], clock);
+        if (out.label.fact.availability == Availability::Known) {
+            copy_view_text(bank, definition->facts[0].text, out.label.value);
+        }
+        out.category = scalar_view(bank, definition->facts[1], clock,
+                                   static_cast<ToolCategory>(definition->facts[1].value));
+    }
+    out.state = scalar_view(bank, row.facts[1], clock, static_cast<CallState>(row.facts[1].value));
+    out.outcome = scalar_view(bank, row.facts[2], clock, static_cast<Outcome>(row.facts[2].value));
+}
+
+// bank: Committed generation. Coverage counts alone do not establish freshness.
+// clock: Query clock and link readiness.
+StateAttention attention_view(const Bank &bank, QueryClock clock)
+{
+    StateAttention result{};
+    if (!clock.ready) return result;
+    const auto complete = [&](EntityKind kind) {
+        return bank.coverage[static_cast<uint8_t>(kind)].state == CoverageState::Complete;
+    };
+    result.turns_complete = complete(EntityKind::Turn);
+    result.calls_complete = complete(EntityKind::ToolCall);
+    for (uint32_t index = 0; index < bank.used; ++index) {
+        const auto &row = bank.rows[index];
+        if (row.key.kind == EntityKind::Turn) {
+            const auto fact = fact_view(bank, row.facts[0], clock);
+            const auto state = static_cast<ExecutionState>(row.facts[0].value);
+            if (fact.availability != Availability::Known || fact.freshness != Freshness::Current ||
+                state == ExecutionState::Unknown) {
+                result.turns_complete = false;
+            } else if (state == ExecutionState::Running) {
+                ++result.running_turns;
+            } else if (state == ExecutionState::Waiting) {
+                ++result.waiting_turns;
+            }
+        } else if (row.key.kind == EntityKind::ToolCall) {
+            // A terminal call ID cannot return to an active state. Its age
+            // does not make the live active-call aggregate incomplete.
+            if (terminal(row)) continue;
+            const auto fact = fact_view(bank, row.facts[1], clock);
+            const auto state = static_cast<CallState>(row.facts[1].value);
+            if (fact.availability != Availability::Known || fact.freshness != Freshness::Current ||
+                state == CallState::Unknown) {
+                result.calls_complete = false;
+            } else if (state == CallState::Running || state == CallState::Queued) {
+                ++result.active_calls;
+            }
+        }
+    }
+    return result;
+}
+
+// cursor: All zero identity fields denote a first page.
+bool first_page(const StateCursor &cursor)
+{
+    return !cursor.source.valid() && !cursor.epoch.valid() && cursor.revision == 0 &&
+        cursor.generation == 0 && cursor.after == 0 && cursor.kind == StateQueryKind::Summary &&
+        cursor.chat == ChatId{} && cursor.turn == TurnId{};
+}
+
+// row: Candidate from the requested entity kind.
+// request: Identity scope and optional live-state filter for the page.
+bool in_scope(const Entity &row, const StateQuery &request)
+{
+    switch (request.kind) {
+    case StateQueryKind::Chats:
+        return true;
+    case StateQueryKind::Turns:
+        return row.parent == request.chat.value;
+    case StateQueryKind::Calls:
+        return row.parent == request.turn.value;
+    case StateQueryKind::ActiveCalls: {
+        const auto state = static_cast<CallState>(row.facts[1].value);
+        return row.facts[1].state == Availability::Known &&
+            (state == CallState::Queued || state == CallState::Running);
+    }
+    default:
+        return false;
+    }
+}
+
+// bank: Immutable committed generation.
+// request: Exact kind and identity scope for the page.
+// kind: Internal row type chosen for this query.
+// clock: Query time and link status.
+// out: Destination page already emplaced into the result.
+// next: Receives the next cursor only when another matching row exists.
+// generation: Local commit stamp, distinct from the broker's revision.
+// project: Typed row copier.
+template<class T, class Project>
+void copy_page(const Bank &bank, const StateQuery &request, EntityKind kind, QueryClock clock,
+               StatePage<T> &out, StateCursor &next, uint64_t generation, Project project)
+{
+    const auto *end = bank.rows + bank.used;
+    const auto *row = std::upper_bound(static_cast<const Entity *>(bank.rows), end,
+        Key{kind, request.cursor.after}, [](Key key, const Entity &candidate) {
+            return key < candidate.key;
+        });
+    for (; row != end && row->key.kind == kind; ++row) {
+        if (!in_scope(*row, request)) continue;
+        if (out.count == kStateQueryPageSize) {
+            next = {bank.summary.source, bank.summary.epoch, bank.summary.revision, generation,
+                    out.rows[out.count - 1].id.value, request.kind, request.chat, request.turn};
+            return;
+        }
+        project(bank, *row, clock, out.rows[out.count]);
+        ++out.count;
+    }
+}
+
+} // namespace
+
+// request: Exact single entity or bounded page for a stable identity scope.
+// now_us: Current receiver clock reading. A regressed clock cannot refresh facts.
+// link_ready: Verified lease for the source and epoch of the committed generation.
+// result: Owned projection. Callers copy it under the same lock as the CCP owner.
+RejectCode StateStore::query(const StateQuery &request, uint64_t now_us, bool link_ready,
+                             StateQueryResult &result) const
+{
+    result.reset();
+    if (request.kind == StateQueryKind::PendingQuestions) return RejectCode::UnsupportedCapability;
+    if (!storage_) return RejectCode::NeedSnapshot;
+    const auto &bank = storage_->live();
+    if (bank.summary.revision == 0) return RejectCode::NeedSnapshot;
+    const QueryClock clock{now_us, link_ready && now_us >= bank.committed_at_us};
+    result.summary = bank.summary;
+    result.health = clock.ready ? StateViewHealth::Live : StateViewHealth::Stale;
+    result.generation = generation_;
+    result.coverage = bank.coverage;
+
+    const auto source = bank.summary.source;
+    const auto &cursor = request.cursor;
+    if (request.kind != StateQueryKind::Summary && request.kind != StateQueryKind::Chat &&
+        !first_page(cursor) && (cursor.source != source || cursor.epoch != bank.summary.epoch ||
+        cursor.revision != bank.summary.revision || cursor.generation != generation_)) {
+        return RejectCode::NeedSnapshot;
+    }
+    EntityKind kind{};
+    switch (request.kind) {
+    case StateQueryKind::Summary:
+        if (!first_page(request.cursor) || request.chat != ChatId{} || request.turn != TurnId{}) {
+            return RejectCode::Malformed;
+        }
+        result.attention = attention_view(bank, clock);
+        return RejectCode::None;
+    case StateQueryKind::Chat: {
+        if (!first_page(request.cursor) || request.turn != TurnId{} || !request.chat.valid()) {
+            return RejectCode::Malformed;
+        }
+        if (request.chat.source != source) return RejectCode::WrongBinding;
+        const auto *row = find_row(bank, {EntityKind::Chat, request.chat.value});
+        if (!row) return RejectCode::MissingReference;
+        auto &page = result.page.emplace<StateChatPage>();
+        project_chat(bank, *row, clock, page.rows[0]);
+        page.count = 1;
+        return RejectCode::None;
+    }
+    case StateQueryKind::Chats:
+        if (request.chat != ChatId{} || request.turn != TurnId{}) return RejectCode::Malformed;
+        kind = EntityKind::Chat;
+        break;
+    case StateQueryKind::Turns:
+        if (!request.chat.valid() || request.turn != TurnId{}) return RejectCode::Malformed;
+        if (request.chat.source != source) return RejectCode::WrongBinding;
+        if (!find_row(bank, {EntityKind::Chat, request.chat.value})) return RejectCode::MissingReference;
+        kind = EntityKind::Turn;
+        break;
+    case StateQueryKind::Calls:
+        if (!request.turn.valid() || request.chat != ChatId{}) return RejectCode::Malformed;
+        if (request.turn.source != source) return RejectCode::WrongBinding;
+        if (!find_row(bank, {EntityKind::Turn, request.turn.value})) return RejectCode::MissingReference;
+        kind = EntityKind::ToolCall;
+        break;
+    case StateQueryKind::ActiveCalls:
+        if (request.chat != ChatId{} || request.turn != TurnId{}) return RejectCode::Malformed;
+        kind = EntityKind::ToolCall;
+        break;
+    default:
+        return RejectCode::UnsupportedCapability;
+    }
+
+    if (!first_page(cursor)) {
+        if (cursor.kind != request.kind || cursor.chat != request.chat || cursor.turn != request.turn ||
+            cursor.after == 0) return RejectCode::Malformed;
+        const auto *anchor = find_row(bank, {kind, cursor.after});
+        if (!anchor || !in_scope(*anchor, request)) return RejectCode::MissingReference;
+    }
+
+    switch (kind) {
+    case EntityKind::Chat:
+        copy_page(bank, request, kind, clock, result.page.emplace<StateChatPage>(), result.next,
+                  generation_, project_chat);
+        return RejectCode::None;
+    case EntityKind::Turn:
+        copy_page(bank, request, kind, clock, result.page.emplace<StateTurnPage>(), result.next,
+                  generation_, project_turn);
+        return RejectCode::None;
+    case EntityKind::ToolCall:
+        copy_page(bank, request, kind, clock, result.page.emplace<StateCallPage>(), result.next,
+                  generation_, project_call);
+        return RejectCode::None;
+    default:
+        return RejectCode::UnsupportedCapability;
+    }
 }
 
 } // namespace CODY::Domain

@@ -36,12 +36,15 @@ from typing import Any
 
 from ccp_account_limits import AccountDetails, AccountObservation, AccountUsageReader, FRESH_SECONDS
 from ccp_activity import ActivityStore, HookObservation, Phase
+from ccp_state_registry import StateRegistry
+from ccp_state_storage import RegistryStorage
 import ccp_interactions as interactions
 import ccp_reset as reset
 import ccp_clock as clock
 import ccp_name as preferred_name
 import ccp_technical as technical_metadata
 import ccp_voice_input as voice_input
+import ccp_state_tools as state_tools
 import ccp_state_wire as state_wire
 from ccp_presence import AppPresence, AppState
 from ccp_pricing import PriceCache
@@ -65,7 +68,7 @@ ACCOUNT_DETAILS_FIELDS = ("short_reset", "short_remaining", "short_minutes", "an
 SUBSCRIPTION_FIELDS = ("plan_label", "plan_icon", "plan_price")
 VOUCHER_FIELDS = ("series", "available", "expiries", "age")
 PBKDF2_ITERATIONS = 50_000
-SERVER_VERSION = "0.6.20"
+SERVER_VERSION = "0.7.0"
 LIVENESS_TIMEOUT_SECONDS = 10.0
 MAX_PREVIOUS_AUDIO_NONCES = 8
 CHALLENGE_TIMEOUT_SECONDS = 2.0
@@ -1432,15 +1435,18 @@ class CcpService:
     # self: Loads protected state and starts the local authenticated responder.
     # pricing: Optional portable catalog owned and started by the exclusive runtime broker.
     # subscriptions: Optional public subscription catalog owned by the same broker.
+    # registry_storage: Optional durable registry supplied by the exclusive production broker.
     # Raises RuntimeError or OSError when state or the fixed UDP listener is unavailable.
     def __init__(self, pricing: PriceCache | None = None,
-                 subscriptions: SubscriptionCatalog | None = None) -> None:
+                 subscriptions: SubscriptionCatalog | None = None,
+                 registry_storage: RegistryStorage | None = None) -> None:
         # Acquire ownership first: a second process must fail without creating,
         # reading or overwriting the first process's PC identity and records.
         listener = open_companion_listener()
         try:
             self.state = StateStore()
-            self.activity = ActivityStore(pricing)
+            registry = StateRegistry(registry_storage, self.state.pc_id) if registry_storage is not None else None
+            self.activity = ActivityStore(pricing, state_registry=registry)
             self.interactions = interactions.InteractionStore()
             self.notifications_error: str | None = None
             self._hook_lock = threading.Lock()
@@ -1984,6 +1990,10 @@ def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict
              "technical": {item["device_id"]: technical for item in devices}},
             f"CCP retains {len(devices)} Cody pairing record(s).",
         )
+    if name == "ccp_read_state":
+        view = state_tools.read_state(service.activity.state_registry, service.state.pc_id, arguments)
+        return tool_result(view, "Local vNext broker state and evidence coverage.",
+                           is_error=view["status"] != "available")
     if name == "ccp_list_sessions":
         if arguments:
             raise ValueError("Session listing does not accept arguments")
@@ -1993,7 +2003,7 @@ def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict
         if set(arguments) != {"session_id", "turn_id", "description"}:
             raise ValueError("Progress requires exact session_id, turn_id and description fields")
         result = service.activity.report_progress(arguments["session_id"], arguments["turn_id"], arguments["description"])
-        return tool_result(result, "Actual work description recorded for the followed chat; device display is not verified.")
+        return tool_result(result, "Actual work description recorded for the observed chat and turn.")
     if name in {"ccp_read_clock", "ccp_configure_clock"}:
         result = service.responder.clock.request(arguments, name == "ccp_configure_clock")
         return tool_result(result, f"{result['source']} clock preferences {result['status']}.",
@@ -2067,8 +2077,10 @@ def handle_request(request: dict[str, Any], service: CcpService) -> dict[str, An
                     "was explicitly requested and discovery used include_simulator=true. "
                     "Always identify SIMULATED results. replace_pending requires explicit permission "
                     "to discard an unresolved PC candidate and a new visible code. Never reveal cryptographic protocol fields. "
-                    "Trusted hooks automatically follow the latest user-prompt chat. "
-                    "Do not ask the user to select a chat on Cody or fabricate activity events. "
+                    "Use ccp_read_state to inspect the vNext broker's source, chat, turn and tool-call records. "
+                    "Treat restored evidence as historical until a new observation supports current state. "
+                    "The separate followed-chat projection uses the latest genuine prompt. "
+                    "Do not fabricate activity events or infer what Cody has displayed. "
                     "When trusted prompt context enables physical Cody question routing, use ccp_ask_question "
                     "for semantic choices unless the user prefers the PC. Preserve the original complete English "
                     "choices; use the PC when the content exceeds the tool bounds or needs free text. "
@@ -2179,7 +2191,7 @@ def tool_catalog() -> list[dict[str, Any]]:
                 "openWorldHint": False,
             },
         },
-    ] + activity_tool_catalog() + interactions.tool_catalog() + clock.tool_catalog() + preferred_name.tool_catalog() + [voice_input.tool_definition(), debug_tool_definition()] + [reset.tool_definition(operation) for operation in reset.ResetOperation]
+    ] + activity_tool_catalog() + [state_tools.tool_definition()] + interactions.tool_catalog() + clock.tool_catalog() + preferred_name.tool_catalog() + [voice_input.tool_definition(), debug_tool_definition()] + [reset.tool_definition(operation) for operation in reset.ResetOperation]
 
 
 # No parameters: exposes the same device diagnostic screen in both build modes.

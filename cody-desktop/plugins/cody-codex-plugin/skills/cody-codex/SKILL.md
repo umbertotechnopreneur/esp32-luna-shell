@@ -26,7 +26,16 @@ Use CCP tools for the target requested by the user.
   update or absent PC is not authorization.
 - Keep verifiers, proofs, keys, salts and protected-store contents private.
 
-After pairing, follow authentic metadata:
+After pairing, read authentic metadata:
+
+- Use `ccp_read_state` for vNext source coverage and for a chat, turn or tool-call
+  page. Use exact state-v1 identities and reuse a cursor only with the same query.
+  An epoch or revision change means the next page must start from a fresh query.
+- Treat restored evidence as historical. A current LAN connection verifies
+  the session. A fresh fact about the specific work is needed to report it as
+  currently running. The broker view does not establish what Cody rendered.
+
+For the existing followed-chat projection and progress:
 
 - The latest real `UserPromptSubmit` automatically selects the PC chat. Do not
   ask the user to select a chat on Cody or through a manual tool. Background-chat
@@ -57,8 +66,9 @@ After pairing, follow authentic metadata:
   after a rejected or stale report. The report keeps the current chat selection.
   Reports expire and are cleared on the next prompt or terminal hook. A report
   does not prove that the device rendered its text.
-- After broker restart, await a new prompt; LAN reconnection alone preserves the
-  context. Never automatically repeat a pairing with an ambiguous outcome.
+- After broker restart, the followed-chat projection waits for a new prompt.
+  Use `ccp_read_state` to inspect restored vNext records. Never automatically
+  repeat a pairing with an ambiguous outcome.
 
 Use the [plugin README](../../README.md) for installation, recovery and limits.
 Use [cody-settings](../cody-settings/SKILL.md) for timezone and quiet hours.

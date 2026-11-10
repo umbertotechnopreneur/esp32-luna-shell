@@ -138,7 +138,10 @@ endif()
 if(CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION AND
    CONFIG_LUNASHELL_BUILD_ENABLE_WIFI AND CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX)
     list(APPEND LUNASHELL_platform_requires mbedtls)
-    list(APPEND LUNASHELL_platform_srcs "src/network/LUNASHELL_codex_state_wire.cpp")
+    list(APPEND LUNASHELL_platform_srcs
+        "src/network/LUNASHELL_codex_state_wire.cpp"
+        "src/network/LUNASHELL_codex_state_saved.cpp"
+    )
 endif()
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_PROVISIONING)

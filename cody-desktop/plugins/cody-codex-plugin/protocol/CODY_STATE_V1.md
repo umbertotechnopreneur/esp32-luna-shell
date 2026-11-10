@@ -381,6 +381,28 @@ Reject codes are stable: 1 Malformed, 2 UnsupportedVersion, 3 UnsupportedCapabil
 contains no credentials. Untrusted failures get no reflected diagnostic.
 Errors never manufacture successful empty results or advance admitted revision.
 
+## Reboot recovery and read projections
+
+The broker checkpoint is private, bounded and authenticated with a
+domain-separated key derived from the local control credential. It binds
+to the retained PC identity and preserves stable record IDs and original
+observation metadata. The next process has a new epoch and serves a snapshot
+before new deltas. Restored evidence is historical, with no computed age
+across the clock boundary. Genuine provider observations can replace it
+under a new observation ID.
+
+The device checkpoint stores bounded diagnostic counts for its retained
+association. On boot it supplies only a historical summary. It never
+supplies a resumable revision or an authorization capability. A new
+authenticated session starts with a fresh snapshot. The saved summary is
+retired on Forget or pairing replacement. Checkpoint errors remain visible.
+
+The canonical device API copies a small page from one committed bank.
+Source, epoch, revision, local generation and scope bind its cursor. The
+plugin's read-only `ccp_read_state` presents a bounded `cody.state.query/1`
+projection of broker facts. That projection is separate from the state-v1
+datagrams and the device view.
+
 ## Source-review and execution gates
 
 Phase 02 supplies the schema, fixtures, wire constants and revision/chunk guards.
@@ -389,8 +411,9 @@ source, covering chats, turns, tool definitions and tool calls. Negotiated
 limits leave optional pools at zero. The broker offers up to 1 MiB per state
 document and retains bounded revision history. The firmware binds the manifest,
 verifies HMAC and the full document digest, and stages records before commit.
-Its network owner exposes a bounded summary. Questions, agent and operation
-records, cues, durable restart recovery and UI migration remain separate work.
+The device exposes bounded pages through DeviceSnapshotService. Questions,
+agent and operation records, cues, a durable selection bookmark and new
+screen consumers remain separate work.
 Phase 11 must exercise malformed lengths/JSON, foreign bindings, replay, reversed
 clocks, hash failure, missing chunks, lost commit ACK, epoch changes, partial
 snapshots, pool exhaustion, journal overflow and unresolved retention. The

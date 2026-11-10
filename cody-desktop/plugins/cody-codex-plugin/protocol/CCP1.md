@@ -4,10 +4,10 @@
 
 [Cody state protocol 1](CODY_STATE_V1.md) defines the `CODY-NEXT-02` replacement
 for multi-chat domain synchronization, with its JSON schema, examples and bounded
-authenticated transport. It requires matching vNext peers; no ACTIVITY/TECH
-compatibility projection or downgrade is planned. That contract is not yet
-connected to the live broker/firmware. The sections below describe the existing
-runtime and retained commissioning/service owners until their integration phases.
+authenticated transport. The broker and paired vNext firmware use CCP2 for
+that state stream. CCP1 continues to own commissioning and companion services,
+including the separate followed-chat projection. The state stream has its own
+session, generation, coverage and evidence freshness.
 
 ## Supported activity contract
 
@@ -521,7 +521,7 @@ Rejected turn correlations log the event and expected/observed turn hashes,
 without weakening old-turn protection or persisting raw hook contents.
 
 `ccp_report_progress(session_id, turn_id, description)` adds a short actual
-purpose only to the currently followed active turn. Identities come from
+purpose only to the exact observed active chat and turn. Identities come from
 `ccp_list_sessions`. It cannot select a chat, change a hook phase or claim task
 completion. Reports reject inactive/stale turns and unsupported text. Purpose
 expires independently after 120 seconds and clears on a new prompt, Stop,
