@@ -91,6 +91,7 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
             'public-branding' = @{ Category = 'Build, console and repository'; Emoji = '🏷️'; Description = 'Public-release text and branding contracts.' }
         }
         generators = @{
+            'cody-theme' = @{ Category = 'Cody assets'; Emoji = '🎨'; Description = 'Generate immutable RGB565 firmware constants from the semantic JSON palette.' }
             'cody-audio-queue-fixture' = @{ Category = 'Cody and simulators'; Emoji = '🎵'; Description = 'Windows SAPI synthetic speech WAV for the explicit public audio queue pilot; no speaker playback.' }
             'cody-rig' = @{ Category = 'Cody assets'; Emoji = '🤖'; Description = 'Compile a selected skin into immutable named firmware rig tables.' }
             'cody-runtime-assets' = @{ Category = 'Cody assets'; Emoji = '🔊'; Description = 'Generate runtime settings and the two original synthesized boot cues.' }

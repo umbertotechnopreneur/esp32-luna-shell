@@ -842,6 +842,9 @@ class CompanionResponder:
         if kind == "CLOCKACK":
             self.clock.accept_ack(fields, source)
             return
+        if kind == "TIMEREQ":
+            self.clock.accept_time_request(fields, source)
+            return
         if kind == "NAMECAP":
             self.names.accept_capability(fields, source)
             return

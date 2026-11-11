@@ -42,6 +42,7 @@ struct DeviceEffectsModel {
     DeviceFeedback feedback = DeviceFeedback::None;
     esp_err_t boot_audio_error = ESP_ERR_INVALID_STATE;
     esp_err_t tap_audio_error = ESP_OK;
+    esp_err_t preference_audio_error = ESP_OK;
     esp_err_t symbol_audio_error = ESP_OK;
     esp_err_t wake_audio_error = ESP_OK;
     esp_err_t jump_audio_error = ESP_OK;
@@ -84,6 +85,11 @@ esp_err_t play_device_boot_cue(DeviceEffectsModel &model);
 // voice: Latest canonical voice observation, or null when voice is excluded.
 // No replay is queued when the contact occurs during capture or playback.
 void play_device_tap_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice);
+
+// model: Retains the completed preference cue's real admission error.
+// voice: Latest canonical voice observation, or null when voice is excluded.
+// No replay is queued when capture or playback already owns audio.
+void play_device_preference_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice);
 
 // model: Retains the optional keyboard cue's admission error.
 // voice: Current voice observation, or null when voice is excluded.

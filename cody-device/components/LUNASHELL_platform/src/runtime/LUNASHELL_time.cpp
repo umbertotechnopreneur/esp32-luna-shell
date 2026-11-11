@@ -28,6 +28,7 @@
 #include <atomic>
 #include <cerrno>
 #include <cstdlib>
+#include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <mutex>
@@ -48,6 +49,11 @@ const char *TAG = "LUNASHELL_time";
 std::atomic<bool> s_initialized{false};
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
 std::mutex s_sntp_request_mutex;
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+bool s_cody_auto_time_enabled = false;
+bool s_sntp_configured = false;
+LUNASHELL::ConnectivityObservation s_sntp_connectivity{};
+#endif
 #if !CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
 bool s_sntp_started;
 #endif
@@ -55,6 +61,9 @@ bool s_sntp_started;
 esp_err_t s_initialization_result = ESP_ERR_INVALID_STATE;
 char s_timezone[40] = "UTC0";
 std::mutex s_sync_mutex;
+// Serializes preference read/modify/write transactions including PC-sync rollback.
+// Lock before s_sync_mutex; recursive only for the common configure helper.
+std::recursive_mutex s_clock_configuration_mutex;
 bool s_trusted_gps_fix_observed;
 bool s_reported_system_time_valid;
 bool s_reported_system_time_synchronized;
@@ -69,6 +78,7 @@ bool s_clock_preferences_ready;
 esp_err_t s_clock_preferences_error = ESP_ERR_INVALID_STATE;
 constexpr char kClockPreferencesKey[] = "clock_routine";
 constexpr char kClockCompanionInitializedKey[] = "clock_adopted";
+constexpr char kClockPcOffsetKey[] = "clock_offset";
 struct DriftBaseline {
     bool valid = false;
     int32_t offset_seconds = 0;
@@ -97,6 +107,7 @@ bool epoch_valid(time_t epoch)
 esp_err_t validate_clock_preferences(const LUNASHELL::ClockPreferences &preferences)
 {
     if (LUNASHELL::clock_timezone_spec(preferences.timezone) == nullptr ||
+        (preferences.pc_offset_active && (preferences.pc_offset_minutes < -840 || preferences.pc_offset_minutes > 840)) ||
         preferences.quiet_start_minute >= 1440 || preferences.quiet_end_minute >= 1440 ||
         (preferences.quiet_hours_enabled &&
          preferences.quiet_start_minute == preferences.quiet_end_minute)) {
@@ -117,6 +128,12 @@ uint32_t encode_clock_preferences(const LUNASHELL::ClockPreferences &preferences
         (static_cast<uint32_t>(preferences.timezone) << 2U) |
         (static_cast<uint32_t>(preferences.quiet_start_minute) << 10U) |
         (static_cast<uint32_t>(preferences.quiet_end_minute) << 21U);
+}
+
+// preferences: Previously validated PC-offset override; zero means the legacy zone remains active.
+uint32_t encode_pc_offset(const LUNASHELL::ClockPreferences &preferences)
+{
+    return preferences.pc_offset_active ? static_cast<uint32_t>(preferences.pc_offset_minutes + 841) : 0U;
 }
 
 // default_timezone: Reviewed initial zone used only when the whole NVS key is absent.
@@ -162,6 +179,21 @@ esp_err_t load_clock_preferences(const char *default_timezone)
             kClockPreferencesKey, esp_err_to_name(error));
         return error;
     }
+    uint32_t offset = 0;
+    error = settings.getUInt32(kClockPcOffsetKey, &offset);
+    if (error == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGI(TAG, "Clock offset: key '%s' absent; persist inactive default", kClockPcOffsetKey);
+        error = settings.setUInt32(kClockPcOffsetKey, 0U);
+        if (error == ESP_OK) error = settings.getUInt32(kClockPcOffsetKey, &offset);
+        if (error == ESP_OK && offset != 0U) error = ESP_ERR_INVALID_RESPONSE;
+    }
+    if (error == ESP_OK && offset > 1681U) error = ESP_ERR_INVALID_ARG;
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Clock offset read/default '%s' failed; no repair (%s)", kClockPcOffsetKey, esp_err_to_name(error));
+        return error;
+    }
+    loaded.pc_offset_active = offset != 0U;
+    loaded.pc_offset_minutes = offset == 0U ? 0 : static_cast<int16_t>(static_cast<int>(offset) - 841);
     s_clock_preferences = loaded;
     s_clock_preferences_ready = true;
     s_clock_preferences_error = ESP_OK;
@@ -192,7 +224,8 @@ esp_err_t publish_clock_observation()
     const int64_t attempted_at_us = esp_timer_get_time();
     clock.preferences_valid = s_clock_preferences_ready;
     if (s_clock_preferences_ready) {
-        clock.timezone = s_clock_preferences.timezone;
+        clock.timezone = ClockTimezone::FixedOffset;
+        clock.utc_offset_valid = configured_clock_offset(s_clock_preferences, clock.utc_offset_minutes);
         clock.routines_enabled = s_clock_preferences.routines_enabled;
         clock.quiet_hours_enabled = s_clock_preferences.quiet_hours_enabled;
         clock.quiet_start_minute = s_clock_preferences.quiet_start_minute;
@@ -399,6 +432,23 @@ esp_err_t apply_timezone(const char *timezone)
 
     strlcpy(s_timezone, timezone, sizeof(s_timezone));
     return ESP_OK;
+}
+
+// preferences: Validated current policy; a PC offset uses a fixed POSIX zone without DST rules.
+// Exception: Returns the original formatting or timezone application error.
+esp_err_t apply_preference_timezone(const LUNASHELL::ClockPreferences &preferences)
+{
+    if (!preferences.pc_offset_active) return apply_timezone(LUNASHELL::clock_timezone_spec(preferences.timezone));
+    const int offset = preferences.pc_offset_minutes;
+    if (offset < -840 || offset > 840) return ESP_ERR_INVALID_ARG;
+    if (offset == 0) return apply_timezone("UTC0");
+    const int magnitude = offset < 0 ? -offset : offset;
+    char zone[24]{};
+    // POSIX expresses how much local time must be added to reach UTC.
+    const int size = std::snprintf(zone, sizeof(zone), "UTC%c%d:%02d", offset > 0 ? '-' : '+',
+        magnitude / 60, magnitude % 60);
+    if (size <= 0 || static_cast<size_t>(size) >= sizeof(zone)) return ESP_ERR_INVALID_SIZE;
+    return apply_timezone(zone);
 }
 
 // valid: Whether the system clock holds trusted UTC.
@@ -750,6 +800,24 @@ esp_err_t apply_system_utc(time_t epoch, const char *source)
 
 }  // namespace
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
+// No parameters: configure the existing SDK SNTP owner without starting it before IP acquisition.
+// Exception: Returns the original ESP-NETIF initialization failure.
+static esp_err_t initialize_network_time_service()
+{
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    static_assert(CONFIG_LWIP_SNTP_MAX_SERVERS >= 3, "Cody requires three lwIP SNTP server slots");
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(3,
+        ESP_SNTP_SERVER_LIST("pool.ntp.org", "time.cloudflare.com", "time.windows.com"));
+#else
+    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+#endif
+    config.start = false;
+    config.sync_cb = sntp_sync_callback;
+    return esp_netif_sntp_init(&config);
+}
+#endif
+
 // timezone: Reviewed first-boot default only; an existing setting always takes precedence.
 // Exception: Returns preference, enabled RTC, network setup or publication failures.
 extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
@@ -766,7 +834,7 @@ extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
     }
     esp_err_t timezone_result = load_clock_preferences(timezone);
     if (timezone_result == ESP_OK) {
-        timezone_result = apply_timezone(LUNASHELL::clock_timezone_spec(s_clock_preferences.timezone));
+        timezone_result = apply_preference_timezone(s_clock_preferences);
     }
     if (timezone_result != ESP_OK) {
         s_clock_preferences_ready = false;
@@ -828,15 +896,25 @@ extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
     }
 
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-    static_assert(CONFIG_LWIP_SNTP_MAX_SERVERS >= 3, "Cody requires three lwIP SNTP server slots");
-    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG_MULTIPLE(3,
-        ESP_SNTP_SERVER_LIST("pool.ntp.org", "time.cloudflare.com", "time.windows.com"));
+    auto &settings = LUNASHELL::UserSettingsService::instance();
+    uint32_t auto_time = 0;
+    esp_err_t preference_error = settings.getUInt32(LUNASHELL::kAutoTimePreferenceKey, &auto_time);
+    if (preference_error == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGI(TAG, "First boot: key '%s' absent; persist default=1", LUNASHELL::kAutoTimePreferenceKey);
+        preference_error = settings.setUInt32(LUNASHELL::kAutoTimePreferenceKey, 1U);
+        if (preference_error == ESP_OK) preference_error = settings.getUInt32(LUNASHELL::kAutoTimePreferenceKey, &auto_time);
+        if (preference_error == ESP_OK && auto_time != 1U) preference_error = ESP_ERR_INVALID_RESPONSE;
+    }
+    if (preference_error == ESP_OK && auto_time > 1U) preference_error = ESP_ERR_INVALID_ARG;
+    if (preference_error != ESP_OK) {
+        ESP_LOGE(TAG, "Auto time preference unavailable (%s)", esp_err_to_name(preference_error));
+    }
+    s_cody_auto_time_enabled = preference_error == ESP_OK && auto_time == 1U;
+    const esp_err_t sntp_result = s_cody_auto_time_enabled ? initialize_network_time_service() : ESP_OK;
+    s_sntp_configured = s_cody_auto_time_enabled && sntp_result == ESP_OK;
 #else
-    esp_sntp_config_t config = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+    const esp_err_t sntp_result = initialize_network_time_service();
 #endif
-    config.start = false;
-    config.sync_cb = sntp_sync_callback;
-    const esp_err_t sntp_result = esp_netif_sntp_init(&config);
     if (sntp_result != ESP_OK) {
         ESP_LOGE(TAG, "SNTP initialization failed: %s", esp_err_to_name(sntp_result));
         report_time(
@@ -861,6 +939,12 @@ extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
     if (s_initialization_result == ESP_OK) {
         s_initialization_result = time_error != ESP_OK ? time_error : clock_error;
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    if (s_initialization_result == ESP_OK && preference_error != ESP_OK) {
+        // Keep the restored clock usable while exposing the original optional preference failure.
+        s_initialization_result = preference_error;
+    }
+#endif
     if (s_initialization_result != ESP_OK) {
         ESP_LOGE(TAG, "Initial clock observation failed (%s)", esp_err_to_name(s_initialization_result));
         return s_initialization_result;
@@ -904,6 +988,17 @@ extern "C" esp_err_t LUNASHELL_time_notify_wifi_online(void)
         return ESP_OK;
     }
 #endif
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    if (!s_cody_auto_time_enabled) return ESP_OK;
+    if (!s_sntp_configured) {
+        const auto init_error = initialize_network_time_service();
+        if (init_error != ESP_OK) {
+            ESP_LOGE(TAG, "SNTP reinitialization failed (%s)", esp_err_to_name(init_error));
+            return init_error;
+        }
+        s_sntp_configured = true;
+    }
+#endif
     // The SDK waits for the TCP/IP executor. A pending sync callback on that
     // executor must be able to take s_sync_mutex before the restart can run.
     const esp_err_t result = esp_netif_sntp_start();
@@ -918,6 +1013,58 @@ extern "C" esp_err_t LUNASHELL_time_notify_wifi_online(void)
         report_time_failure_preserving_valid_clock(result);
     }
     return result;
+#endif
+}
+
+// enabled: Previously persisted explicit user preference; never alters RTC or timezone.
+// Exception: Returns the original SDK, canonical snapshot or network-start failure.
+extern "C" esp_err_t LUNASHELL_time_apply_auto_sync(bool enabled)
+{
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_WIFI || !CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    (void)enabled;
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    std::lock_guard<std::mutex> request_lock(s_sntp_request_mutex);
+    {
+        std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
+        if (!s_initialized) return ESP_OK; // Startup subsequently loads the persisted value.
+    }
+    s_cody_auto_time_enabled = enabled;
+    if (!enabled) {
+        if (s_sntp_configured) {
+            // ESP-NETIF serializes stop with its TCP/IP executor. Its public deinit API has no result.
+            esp_netif_sntp_deinit();
+            s_sntp_configured = false;
+        }
+        return ESP_OK;
+    }
+    if (!s_sntp_configured) {
+        const auto error = initialize_network_time_service();
+        if (error != ESP_OK) {
+            ESP_LOGE(TAG, "SNTP enable failed (%s)", esp_err_to_name(error));
+            return error;
+        }
+        s_sntp_configured = true;
+    }
+    const auto snapshot_error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(s_sntp_connectivity);
+    if (snapshot_error != ESP_OK) {
+        ESP_LOGE(TAG, "SNTP enable Wi-Fi observation failed (%s)", esp_err_to_name(snapshot_error));
+        return snapshot_error;
+    }
+    const auto &wifi = s_sntp_connectivity.radios.wifi;
+    if (!wifi.data_valid && wifi.last_attempt_at_us == 0) {
+        ESP_LOGI(TAG, "SNTP enabled; waiting for the first Wi-Fi observation");
+        return ESP_OK;
+    }
+    if (!wifi.data_valid || wifi.data_stale || wifi.last_error != ESP_OK || !wifi.connection_state_valid) {
+        ESP_LOGE(TAG, "SNTP enable Wi-Fi state unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (!wifi.connected || !wifi.ip_acquired || !wifi.ip_address[0])
+        return ESP_OK; // The Wi-Fi owner will start SNTP on a later valid IP event.
+    const auto start_error = esp_netif_sntp_start();
+    if (start_error != ESP_OK) ESP_LOGE(TAG, "SNTP enable start failed (%s)", esp_err_to_name(start_error));
+    return start_error;
 #endif
 }
 
@@ -957,13 +1104,13 @@ esp_err_t project_clock_local_calendar(int64_t utc_epoch_seconds, ClockLocalCale
 
     ClockLocalCalendar projected{};
     projected.utc_epoch_seconds = utc_epoch_seconds;
-    projected.timezone = s_clock_preferences.timezone;
+    projected.timezone = ClockTimezone::FixedOffset;
     projected.year = static_cast<uint16_t>(local.tm_year + 1900);
     projected.month = static_cast<uint8_t>(local.tm_mon + 1);
     projected.day = static_cast<uint8_t>(local.tm_mday);
     projected.hour = static_cast<uint8_t>(local.tm_hour);
     projected.minute = static_cast<uint8_t>(local.tm_min);
-    // Read the offset at the supplied instant, including any daylight-saving transition.
+    // Read the configured fixed offset at the supplied instant; no DST transition is calculated.
     const auto local_as_utc = utc_epoch(projected.year, projected.month, projected.day,
         projected.hour, projected.minute, static_cast<uint8_t>(local.tm_sec));
     const int64_t offset_seconds = static_cast<int64_t>(local_as_utc) - utc_epoch_seconds;
@@ -991,6 +1138,7 @@ esp_err_t read_clock_preferences(ClockPreferences &preferences)
 // Exception: Returns original validation, durable readback, timezone or publication failures.
 esp_err_t configure_clock_preferences(const ClockPreferences &preferences)
 {
+    std::lock_guard<std::recursive_mutex> configuration_lock(s_clock_configuration_mutex);
     const esp_err_t validation_error = validate_clock_preferences(preferences);
     if (validation_error != ESP_OK) {
         return validation_error;
@@ -1001,24 +1149,36 @@ esp_err_t configure_clock_preferences(const ClockPreferences &preferences)
         return ESP_ERR_INVALID_STATE;
     }
     const ClockPreferences previous = s_clock_preferences;
-    esp_err_t error = apply_timezone(clock_timezone_spec(preferences.timezone));
-    if (error == ESP_OK) {
-        error = UserSettingsService::instance().setUInt32(kClockPreferencesKey, encode_clock_preferences(preferences));
-    }
-    if (error == ESP_OK) {
-        uint32_t confirmed = 0;
-        error = UserSettingsService::instance().getUInt32(kClockPreferencesKey, &confirmed);
-        if (error == ESP_OK && confirmed != encode_clock_preferences(preferences)) {
-            error = ESP_ERR_INVALID_RESPONSE;
-        }
-    }
+    auto &store = UserSettingsService::instance();
+    uint32_t durable_offset = 0;
+    esp_err_t error = store.getUInt32(kClockPcOffsetKey, &durable_offset);
+    if (error == ESP_OK && (durable_offset > 1681U || durable_offset != encode_pc_offset(previous)))
+        error = ESP_ERR_INVALID_RESPONSE;
+    uint32_t durable_legacy = 0;
+    if (error == ESP_OK) error = store.getUInt32(kClockPreferencesKey, &durable_legacy);
+    if (error == ESP_OK && durable_legacy != encode_clock_preferences(previous)) error = ESP_ERR_INVALID_RESPONSE;
+    const bool storage_uncertain = error != ESP_OK;
+    if (error == ESP_OK) error = apply_preference_timezone(preferences);
+    bool write_attempted = false;
+    const auto save_and_verify = [&](const char *key, uint32_t value) {
+        write_attempted = true;
+        auto write_error = store.setUInt32(key, value);
+        uint32_t confirmed = ~value;
+        if (write_error == ESP_OK) write_error = store.getUInt32(key, &confirmed);
+        return write_error == ESP_OK && confirmed != value ? ESP_ERR_INVALID_RESPONSE : write_error;
+    };
+    if (error == ESP_OK && encode_clock_preferences(preferences) != encode_clock_preferences(previous))
+        error = save_and_verify(kClockPreferencesKey, encode_clock_preferences(preferences));
+    if (error == ESP_OK && encode_pc_offset(preferences) != encode_pc_offset(previous))
+        error = save_and_verify(kClockPcOffsetKey, encode_pc_offset(preferences));
     if (error != ESP_OK) {
         ESP_LOGE(TAG, "Clock preferences update failed (%s); retaining original configuration", esp_err_to_name(error));
-        const esp_err_t rollback_error = apply_timezone(clock_timezone_spec(previous.timezone));
-        if (rollback_error != ESP_OK) {
+        const esp_err_t rollback_error = apply_preference_timezone(previous);
+        if (rollback_error != ESP_OK || write_attempted || storage_uncertain) {
             s_clock_preferences_ready = false;
-            s_clock_preferences_error = rollback_error;
-            ESP_LOGE(TAG, "Clock timezone rollback failed (%s); routine unavailable", esp_err_to_name(rollback_error));
+            s_clock_preferences_error = rollback_error != ESP_OK ? rollback_error : error;
+            ESP_LOGE(TAG, "Clock durable state unconfirmed or timezone rollback failed (%s); routine unavailable",
+                esp_err_to_name(s_clock_preferences_error));
         }
         ClockSnapshot failed;
         snapshot_detail::mark_sample_failure(failed, error, esp_timer_get_time());
@@ -1053,6 +1213,10 @@ esp_err_t read_remote_clock_preferences(ClockPreferences &preferences, bool &ini
     if (error == ESP_OK && durable_preferences != encode_clock_preferences(current)) {
         error = ESP_ERR_INVALID_STATE;
     }
+    uint32_t durable_offset = 0;
+    if (error == ESP_OK) error = UserSettingsService::instance().getUInt32(kClockPcOffsetKey, &durable_offset);
+    if (error == ESP_OK && (durable_offset > 1681U || durable_offset != encode_pc_offset(current)))
+        error = ESP_ERR_INVALID_STATE;
     if (error != ESP_OK) {
         // A failed commit/readback may leave durable and runtime state different.
         // An acknowledgement cannot present either candidate as confirmed configuration.
@@ -1098,49 +1262,47 @@ static esp_err_t persist_clock_companion_marker()
     return error;
 }
 
-// operation: Authenticated read, initial timezone adoption or explicit configuration.
-// timezone: Typed timezone 0..2 or -1 to preserve it.
+// operation: Authenticated read or explicit configuration.
+// offset_minutes: Fixed UTC offset in minutes or kClockOffsetUnchanged.
 // enabled: Quiet-hours flag 0/1 or -1 to preserve it.
 // start_minute: Half-open quiet-window start 0..1439 or -1 to preserve it.
 // end_minute: Half-open quiet-window end 0..1439 or -1 to preserve it.
 // preferences: Receives actual validated settings, including partial-operation outcomes.
 // initialized: Receives the actual durable adoption seal.
 // Exception: Preserves the first validation/persistence/publication error and logs readback failures.
-esp_err_t apply_remote_clock_preferences(ClockRemoteOperation operation, int timezone,
+esp_err_t apply_remote_clock_preferences(ClockRemoteOperation operation, int offset_minutes,
     int enabled, int start_minute, int end_minute, ClockPreferences &preferences, bool &initialized)
 {
+    std::lock_guard<std::recursive_mutex> configuration_lock(s_clock_configuration_mutex);
     esp_err_t error = read_remote_clock_preferences(preferences, initialized);
     if (error != ESP_OK) {
         return error;
     }
-    const bool unchanged = timezone == -1 && enabled == -1 && start_minute == -1 && end_minute == -1;
-    const bool valid_values = timezone >= -1 && timezone <= 2 && enabled >= -1 && enabled <= 1 &&
+    const bool unchanged = offset_minutes == kClockOffsetUnchanged && enabled == -1 && start_minute == -1 && end_minute == -1;
+    const bool valid_values = (offset_minutes == kClockOffsetUnchanged || (offset_minutes >= -840 && offset_minutes <= 840)) && enabled >= -1 && enabled <= 1 &&
         start_minute >= -1 && start_minute < 1440 && end_minute >= -1 && end_minute < 1440;
     bool valid_operation = false;
     switch (operation) {
     case ClockRemoteOperation::Read:
         valid_operation = unchanged;
         break;
-    case ClockRemoteOperation::Initialize:
-        valid_operation = timezone >= 0 && enabled == -1 && start_minute == -1 && end_minute == -1;
-        break;
     case ClockRemoteOperation::Configure:
         valid_operation = !unchanged;
         break;
     }
     if (!valid_values || !valid_operation) {
-        ESP_LOGE(TAG, "Remote clock values rejected: operation=%u zone=%d enabled=%d start=%d end=%d (%s)",
-            static_cast<unsigned>(operation), timezone, enabled, start_minute, end_minute,
+        ESP_LOGE(TAG, "Remote clock values rejected: operation=%u offset=%d enabled=%d start=%d end=%d (%s)",
+            static_cast<unsigned>(operation), offset_minutes, enabled, start_minute, end_minute,
             esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
-    if (operation == ClockRemoteOperation::Read ||
-        (operation == ClockRemoteOperation::Initialize && initialized)) {
+    if (operation == ClockRemoteOperation::Read) {
         return ESP_OK;
     }
     ClockPreferences requested = preferences;
-    if (timezone != -1) {
-        requested.timezone = static_cast<ClockTimezone>(timezone);
+    if (offset_minutes != kClockOffsetUnchanged) {
+        requested.pc_offset_active = true;
+        requested.pc_offset_minutes = static_cast<int16_t>(offset_minutes);
     }
     if (enabled != -1) {
         requested.quiet_hours_enabled = enabled == 1;
@@ -1156,15 +1318,12 @@ esp_err_t apply_remote_clock_preferences(ClockRemoteOperation operation, int tim
         return error;
     }
     if (operation == ClockRemoteOperation::Configure && !initialized) {
-        // Persist explicit user intent before changing preferences: a partial failure
-        // must never let a later automatic reconnect replace that user's choice.
+        // Preserve the durable explicit-settings marker before changing preferences.
+        // A later authenticated PC time sync can still refresh the fixed offset.
         error = persist_clock_companion_marker();
     }
     if (error == ESP_OK) {
         error = configure_clock_preferences(requested);
-    }
-    if (error == ESP_OK && operation == ClockRemoteOperation::Initialize) {
-        error = persist_clock_companion_marker();
     }
     const esp_err_t readback_error = read_remote_clock_preferences(preferences, initialized);
     if (readback_error != ESP_OK) {
@@ -1177,6 +1336,64 @@ esp_err_t apply_remote_clock_preferences(ClockRemoteOperation operation, int tim
 }
 
 } // namespace LUNASHELL
+
+// epoch: UTC seconds authenticated by the connected PC transaction owner.
+// offset_minutes: Actual current PC UTC offset; it is a fixed offset until the next sync.
+// Exception: Returns original validation, preference, clock, RTC, or publication failure.
+extern "C" esp_err_t LUNASHELL_time_sync_from_pc(int64_t epoch, int offset_minutes)
+{
+    if (epoch < 1704067200LL || epoch > 4102444799LL || offset_minutes < -840 || offset_minutes > 840 ||
+        static_cast<int64_t>(static_cast<time_t>(epoch)) != epoch) {
+        ESP_LOGE(TAG, "PC clock rejected unsupported epoch or offset (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    std::lock_guard<std::recursive_mutex> configuration_lock(s_clock_configuration_mutex);
+    {
+        std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
+        if (!s_initialized) return ESP_ERR_INVALID_STATE;
+    }
+    LUNASHELL::ClockPreferences previous{};
+    const auto read_error = LUNASHELL::read_clock_preferences(previous);
+    if (read_error != ESP_OK) return read_error;
+    auto next = previous;
+    next.pc_offset_active = true;
+    next.pc_offset_minutes = static_cast<int16_t>(offset_minutes);
+    const auto zone_error = LUNASHELL::configure_clock_preferences(next);
+    if (zone_error != ESP_OK) return zone_error;
+    std::unique_lock<std::mutex> sync_lock(s_sync_mutex);
+    if (!s_initialized) {
+        sync_lock.unlock();
+        const auto rollback_error = LUNASHELL::configure_clock_preferences(previous);
+        if (rollback_error != ESP_OK) ESP_LOGE(TAG, "PC offset rollback failed (%s)", esp_err_to_name(rollback_error));
+        return ESP_ERR_INVALID_STATE;
+    }
+    const struct timeval system_time{.tv_sec = static_cast<time_t>(epoch), .tv_usec = 0};
+    if (settimeofday(&system_time, nullptr) != 0) {
+        report_time_failure_preserving_valid_clock(ESP_FAIL);
+        sync_lock.unlock();
+        const auto rollback_error = LUNASHELL::configure_clock_preferences(previous);
+        if (rollback_error != ESP_OK) ESP_LOGE(TAG, "PC offset rollback failed (%s)", esp_err_to_name(rollback_error));
+        return ESP_FAIL;
+    }
+    s_drift_baseline.valid = false;
+    const auto report_error = report_time(true, true, "pc", ESP_OK);
+    const auto publication_error = publish_clock_observation();
+    if (report_error != ESP_OK || publication_error != ESP_OK) {
+        const auto error = report_error != ESP_OK ? report_error : publication_error;
+        ESP_LOGE(TAG, "PC UTC applied but publication failed (%s)", esp_err_to_name(error));
+        return error;
+    }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_RTC
+    const auto rtc_error = persist_epoch_to_rtc(static_cast<time_t>(epoch));
+    if (rtc_error != ESP_OK) {
+        record_rtc_persistence_failure(rtc_error, esp_timer_get_time());
+        ESP_LOGE(TAG, "PC UTC applied but RTC persistence failed (%s)", esp_err_to_name(rtc_error));
+        return rtc_error;
+    }
+    record_rtc_persistence_success(static_cast<time_t>(epoch));
+#endif
+    return ESP_OK;
+}
 
 // year: Trusted GPS UTC year in the supported RTC calendar.
 // month: UTC month, 1..12.

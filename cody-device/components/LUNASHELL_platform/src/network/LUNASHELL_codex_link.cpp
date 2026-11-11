@@ -193,6 +193,19 @@ int64_t s_event_clock_us = 0;
 char s_reply_nonce[33]{};
 char s_clock_consumed_nonce[33]{};
 char s_clock_consumed_id[33]{};
+struct PcTimeExchange {
+    bool queued = false;
+    bool waiting = false;
+    bool applying = false;
+    bool manual = false;
+    char nonce[33]{};
+    char id[33]{};
+    char address[16]{};
+    uint32_t attempt = 0;
+    int64_t issued_at_us = 0;
+    int64_t deadline_us = 0;
+};
+PcTimeExchange s_pc_time{};
 char s_name_consumed_nonce[33]{};
 char s_name_consumed_id[33]{};
 LUNASHELL::CodexNameExecutor s_name_executor = nullptr;
@@ -1921,7 +1934,7 @@ esp_err_t sendClockCapability(const ReadyResponse &response, const sockaddr_in &
     // Only the CCP worker uses these component-owned buffers, sequentially with
     // EVENT/ACK processing; capability replies cannot nest another packet owner.
     auto &input = s_event_proof_input;
-    const int length = std::snprintf(input, sizeof(input), "clock-cap|%s|%s|%s|1|%u",
+    const int length = std::snprintf(input, sizeof(input), "clock-cap|%s|%s|%s|2|%u",
         response.device_id, response.pc_id, response.nonce, static_cast<unsigned>(initialized));
     uint8_t proof[32]{};
     error = length > 0 && static_cast<size_t>(length) < sizeof(input)
@@ -1933,7 +1946,7 @@ esp_err_t sendClockCapability(const ReadyResponse &response, const sockaddr_in &
     }
     auto &packet = s_event_ack_packet;
     const int packet_length = std::snprintf(packet, sizeof(packet),
-        "CCP1|CLOCKCAP|device=%s|pc=%s|nonce=%s|clock=1|initialized=%u|proof=%s",
+        "CCP1|CLOCKCAP|device=%s|pc=%s|nonce=%s|clock=2|initialized=%u|proof=%s",
         response.device_id, response.pc_id, response.nonce, static_cast<unsigned>(initialized), proof_hex);
     if (error == ESP_OK) {
         error = packet_length > 0 && static_cast<size_t>(packet_length) < sizeof(packet)
@@ -1944,6 +1957,88 @@ esp_err_t sendClockCapability(const ReadyResponse &response, const sockaddr_in &
     wipe(input, sizeof(input));
     wipe(packet, sizeof(packet));
     return error;
+}
+
+// manual: Distinguishes an explicit action from connection-triggered synchronization.
+// Exception: Returns the real link, busy, or publication failure. Caller holds s_mutex.
+esp_err_t queuePcTimeLocked(bool manual)
+{
+    const auto now = esp_timer_get_time();
+    if (s_pc_time.queued || s_pc_time.waiting || s_pc_time.applying || !s_link_present || s_candidate_present ||
+        s_pending != Command::None || s_storage_error != ESP_OK ||
+        !LUNASHELL::codex_presence::ready_current(s_link_snapshot, now)) return ESP_ERR_INVALID_STATE;
+    s_pc_time.queued = true;
+    s_pc_time.manual = manual;
+    s_link_snapshot.pc_time_state = LUNASHELL::PcTimeSyncState::Pending;
+    s_link_snapshot.pc_time_error = ESP_OK;
+    const auto error = publishLinkObservationLocked();
+    if (error != ESP_OK) {
+        s_pc_time.queued = false;
+        s_link_snapshot.pc_time_state = LUNASHELL::PcTimeSyncState::Failed;
+        s_link_snapshot.pc_time_error = error;
+    }
+    return error;
+}
+
+// No parameters: send a queued request once, or expire its monotonic response deadline.
+void maintainPcTime()
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    const auto now = esp_timer_get_time();
+    if (s_pc_time.waiting && (now < s_pc_time.issued_at_us || now >= s_pc_time.deadline_us ||
+        s_link_snapshot.attempt_id != s_pc_time.attempt || !s_link_present ||
+        s_link_snapshot.state != State::Connected || std::strcmp(s_pc_time.address, s_link_snapshot.peer_ip_address) != 0)) {
+        s_pc_time.waiting = false;
+        s_link_snapshot.pc_time_state = LUNASHELL::PcTimeSyncState::Failed;
+        s_link_snapshot.pc_time_error = ESP_ERR_TIMEOUT;
+        (void)publishLinkObservationLocked();
+    }
+    if (!s_pc_time.queued) return;
+    s_pc_time.queued = false;
+    esp_err_t error = ESP_OK;
+    if (!s_link_present || s_candidate_present || s_pending != Command::None ||
+        !LUNASHELL::codex_presence::ready_current(s_link_snapshot, now)) error = ESP_ERR_INVALID_STATE;
+    uint8_t random_id[16]{};
+    if (error == ESP_OK) {
+        esp_fill_random(random_id, sizeof(random_id));
+        error = encodeHex(random_id, sizeof(random_id), s_pc_time.id, sizeof(s_pc_time.id));
+    }
+    wipe(random_id, sizeof(random_id));
+    const char *mode = s_pc_time.manual ? "manual" : "auto";
+    std::memcpy(s_pc_time.nonce, s_ready_nonce, sizeof(s_pc_time.nonce));
+    std::memcpy(s_pc_time.address, s_link_snapshot.peer_ip_address, sizeof(s_pc_time.address));
+    s_pc_time.attempt = s_link_snapshot.attempt_id;
+    auto &input = s_event_proof_input;
+    const int input_length = std::snprintf(input, sizeof(input), "time-req|%s|%s|%s|%s|%s",
+        s_link_snapshot.device_id, s_link_snapshot.paired_pc_id, s_pc_time.nonce, s_pc_time.id, mode);
+    uint8_t proof[32]{};
+    if (error == ESP_OK) error = input_length > 0 && static_cast<size_t>(input_length) < sizeof(input)
+        ? hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), input, proof) : ESP_ERR_INVALID_SIZE;
+    char proof_hex[65]{};
+    if (error == ESP_OK) error = encodeHex(proof, sizeof(proof), proof_hex, sizeof(proof_hex));
+    auto &packet = s_event_ack_packet;
+    const int packet_length = std::snprintf(packet, sizeof(packet),
+        "CCP1|TIMEREQ|device=%s|pc=%s|nonce=%s|id=%s|mode=%s|proof=%s",
+        s_link_snapshot.device_id, s_link_snapshot.paired_pc_id, s_pc_time.nonce, s_pc_time.id, mode, proof_hex);
+    in_addr address{};
+    if (error == ESP_OK && (packet_length <= 0 || static_cast<size_t>(packet_length) >= sizeof(packet)))
+        error = ESP_ERR_INVALID_SIZE;
+    if (error == ESP_OK && inet_pton(AF_INET, s_pc_time.address, &address) != 1) error = ESP_ERR_INVALID_STATE;
+    if (error == ESP_OK) error = sendDatagram(packet, address, kPluginPort, "CCP TIMEREQ");
+    wipe(proof, sizeof(proof));
+    wipe(proof_hex, sizeof(proof_hex));
+    wipe(input, sizeof(input));
+    wipe(packet, sizeof(packet));
+    if (error == ESP_OK) {
+        s_pc_time.waiting = true;
+        s_pc_time.issued_at_us = now;
+        s_pc_time.deadline_us = now + 4000000;
+    } else {
+        s_link_snapshot.pc_time_state = LUNASHELL::PcTimeSyncState::Failed;
+        s_link_snapshot.pc_time_error = error;
+        (void)publishLinkObservationLocked();
+        ESP_LOGE(kTag, "CCP PC time request failed (%s)", esp_err_to_name(error));
+    }
 }
 
 // response: Authenticated READY challenge; name preferences require a registered settings owner.
@@ -2247,6 +2342,10 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                     if (newly_connected) {
                         ESP_LOGI(kTag, "CCP peer authenticated: find_sent=%lu",
                                  static_cast<unsigned long>(find_count));
+                        if (error == ESP_OK) {
+                            const auto time_error = queuePcTimeLocked(false);
+                            if (time_error != ESP_OK) ESP_LOGW(kTag, "Automatic PC time admission failed (%s)", esp_err_to_name(time_error));
+                        }
                     }
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
                     const esp_err_t animation_error = sendAnimationCapabilityLocked(response, source);
@@ -3395,6 +3494,22 @@ bool parseClockSetting(const char *value, int &output)
     return true;
 }
 
+// Signed canonical minutes; +0 is distinct from the CLOCK keep sentinel.
+bool parseClockOffset(const char *value, int &output)
+{
+    const size_t length = std::strlen(value);
+    if (length < 2 || length > 4 || (value[0] != '+' && value[0] != '-') ||
+        (length > 2 && value[1] == '0')) return false;
+    int magnitude = 0;
+    for (size_t index = 1; index < length; ++index) {
+        if (value[index] < '0' || value[index] > '9') return false;
+        magnitude = magnitude * 10 + value[index] - '0';
+    }
+    if (magnitude > 840 || (value[0] == '-' && magnitude == 0)) return false;
+    output = value[0] == '-' ? -magnitude : magnitude;
+    return true;
+}
+
 // payload: Exact signed NAME read/set command; printable names use hex to avoid delimiter ambiguity.
 // source: Current authenticated PC address and fixed plugin port.
 // Exception: Rejects identity/proof/replay before invoking the settings owner; returns genuine owner/ACK errors.
@@ -3515,12 +3630,72 @@ esp_err_t acceptName(const char *payload, const sockaddr_in &source)
     return error != ESP_OK ? error : ack_error;
 }
 
+// payload: Authenticated PC time response bound to a single device-originated request.
+// source: Socket-observed endpoint of the connected PC.
+// Exception: Rejects malformed, stale, replayed, or unauthenticated responses before clock I/O.
+esp_err_t acceptPcTime(const char *payload, const sockaddr_in &source)
+{
+    const char *names[] = {"device", "pc", "nonce", "id", "mode", "status", "epoch", "offset", "proof"};
+    char *values[9]{};
+    if (!parseEventFields(payload, "CCP1|TIME|", names, 9, values)) return ESP_ERR_INVALID_ARG;
+    const bool manual = std::strcmp(values[4], "manual") == 0;
+    if (!manual && std::strcmp(values[4], "auto") != 0) return ESP_ERR_INVALID_ARG;
+    const bool ok = std::strcmp(values[5], "ok") == 0;
+    const bool unavailable = std::strcmp(values[5], "unavailable") == 0;
+    if (!ok && !unavailable) return ESP_ERR_INVALID_ARG;
+    int64_t epoch = 0;
+    int offset = 0;
+    if (ok) {
+        if (std::strlen(values[6]) != 10 || std::strspn(values[6], "0123456789") != 10)
+            return ESP_ERR_INVALID_ARG;
+        for (size_t i = 0; i < 10; ++i) epoch = epoch * 10 + (values[6][i] - '0');
+        if (epoch < 1704067200LL || epoch > 4102444799LL) return ESP_ERR_INVALID_ARG;
+        const auto size = std::strlen(values[7]);
+        if (size < 2 || size > 4 || (values[7][0] != '+' && values[7][0] != '-') ||
+            std::strspn(values[7] + 1, "0123456789") != size - 1 ||
+            (size > 2 && values[7][1] == '0')) return ESP_ERR_INVALID_ARG;
+        for (size_t i = 1; i < size; ++i) offset = offset * 10 + (values[7][i] - '0');
+        if (offset > 840 || (offset == 0 && values[7][0] != '+')) return ESP_ERR_INVALID_ARG;
+        if (values[7][0] == '-') offset = -offset;
+    } else if (std::strcmp(values[6], "0") != 0 || std::strcmp(values[7], "na") != 0) return ESP_ERR_INVALID_ARG;
+    std::unique_lock<std::mutex> guard(s_mutex);
+    const auto now = esp_timer_get_time();
+    char address[16]{};
+    if (!s_pc_time.waiting || s_pc_time.applying || now < s_pc_time.issued_at_us || now >= s_pc_time.deadline_us ||
+        s_pc_time.attempt != s_link_snapshot.attempt_id || !s_link_present || s_candidate_present ||
+        s_pending != Command::None || !LUNASHELL::codex_presence::ready_current(s_link_snapshot, now) ||
+        std::strcmp(s_pc_time.address, s_link_snapshot.peer_ip_address) != 0 ||
+        ntohs(source.sin_port) != kPluginPort || inet_ntop(AF_INET, &source.sin_addr, address, sizeof(address)) == nullptr ||
+        std::strcmp(address, s_pc_time.address) != 0 || std::strcmp(values[0], s_link_snapshot.device_id) != 0 ||
+        std::strcmp(values[1], s_link_snapshot.paired_pc_id) != 0 || std::strcmp(values[2], s_pc_time.nonce) != 0 ||
+        std::strcmp(values[3], s_pc_time.id) != 0 || manual != s_pc_time.manual) return ESP_ERR_INVALID_STATE;
+    const int input_length = std::snprintf(s_event_proof_input, sizeof(s_event_proof_input),
+        "time|%s|%s|%s|%s|%s|%s|%s|%s", values[0], values[1], values[2], values[3],
+        values[4], values[5], values[6], values[7]);
+    if (input_length <= 0 || static_cast<size_t>(input_length) >= sizeof(s_event_proof_input)) return ESP_ERR_INVALID_SIZE;
+    const auto proof_error = verifyEventProofLocked(values[8]);
+    wipe(s_event_proof_input, sizeof(s_event_proof_input));
+    if (proof_error != ESP_OK) return proof_error;
+    // Consume before leaving the owner lock; a duplicate can never apply a second correction.
+    s_pc_time.waiting = false;
+    s_pc_time.applying = true;
+    guard.unlock();
+    const esp_err_t outcome = unavailable ? ESP_ERR_NOT_FOUND : LUNASHELL_time_sync_from_pc(epoch, offset);
+    guard.lock();
+    s_pc_time.applying = false;
+    s_link_snapshot.pc_time_state = outcome == ESP_OK ? LUNASHELL::PcTimeSyncState::Applied : LUNASHELL::PcTimeSyncState::Failed;
+    s_link_snapshot.pc_time_error = outcome;
+    const auto publication_error = publishLinkObservationLocked();
+    if (outcome != ESP_OK) ESP_LOGW(kTag, "CCP PC time synchronization failed (%s)", esp_err_to_name(outcome));
+    return outcome != ESP_OK ? outcome : publication_error;
+}
+
 // payload: Bounded signed CLOCK request received by the sole CCP socket owner.
 // source: Exact active READY address and fixed plugin port.
 // Exception: Rejects identity/proof/replay errors before I/O; returns original settings or ACK errors.
 esp_err_t acceptClock(const char *payload, const sockaddr_in &source)
 {
-    const char *names[] = {"device", "pc", "nonce", "id", "op", "timezone", "enabled", "start", "end", "proof"};
+    const char *names[] = {"device", "pc", "nonce", "id", "op", "offset", "enabled", "start", "end", "proof"};
     char *values[10]{};
     if (!parseEventFields(payload, "CCP1|CLOCK|", names, 10, values)) {
         return ESP_ERR_INVALID_ARG;
@@ -3528,15 +3703,18 @@ esp_err_t acceptClock(const char *payload, const sockaddr_in &source)
     LUNASHELL::ClockRemoteOperation operation;
     if (std::strcmp(values[4], "read") == 0) {
         operation = LUNASHELL::ClockRemoteOperation::Read;
-    } else if (std::strcmp(values[4], "init") == 0) {
-        operation = LUNASHELL::ClockRemoteOperation::Initialize;
     } else if (std::strcmp(values[4], "set") == 0) {
         operation = LUNASHELL::ClockRemoteOperation::Configure;
     } else {
         return ESP_ERR_INVALID_ARG;
     }
     int requested[4]{};
-    for (size_t index = 0; index < 4; ++index) {
+    if (std::strcmp(values[5], "keep") == 0) {
+        requested[0] = LUNASHELL::kClockOffsetUnchanged;
+    } else if (!parseClockOffset(values[5], requested[0])) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    for (size_t index = 1; index < 4; ++index) {
         if (!parseClockSetting(values[index + 5], requested[index])) {
             return ESP_ERR_INVALID_ARG;
         }
@@ -3588,7 +3766,11 @@ esp_err_t acceptClock(const char *payload, const sockaddr_in &source)
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "CCP CLOCK operation=%s rejected (%s)", values[4], esp_err_to_name(error));
     }
-    const esp_err_t readback_error = LUNASHELL::read_remote_clock_preferences(preferences, initialized);
+    esp_err_t readback_error = LUNASHELL::read_remote_clock_preferences(preferences, initialized);
+    int16_t observed_offset = 0;
+    if (readback_error == ESP_OK && !LUNASHELL::configured_clock_offset(preferences, observed_offset)) {
+        readback_error = ESP_ERR_INVALID_STATE;
+    }
     if (readback_error != ESP_OK) {
         ESP_LOGE(kTag, "CCP CLOCK result unavailable (%s)", esp_err_to_name(readback_error));
         if (error == ESP_OK) {
@@ -3596,7 +3778,8 @@ esp_err_t acceptClock(const char *payload, const sockaddr_in &source)
         }
     }
     const int actual_initialized = readback_error == ESP_OK ? static_cast<int>(initialized) : -1;
-    const int actual_timezone = readback_error == ESP_OK ? static_cast<int>(preferences.timezone) : -1;
+    char actual_offset[8] = "na";
+    if (readback_error == ESP_OK) std::snprintf(actual_offset, sizeof(actual_offset), "%+d", observed_offset);
     const int actual_enabled = readback_error == ESP_OK ? static_cast<int>(preferences.quiet_hours_enabled) : -1;
     const int actual_start = readback_error == ESP_OK ? preferences.quiet_start_minute : -1;
     const int actual_end = readback_error == ESP_OK ? preferences.quiet_end_minute : -1;
@@ -3611,9 +3794,9 @@ esp_err_t acceptClock(const char *payload, const sockaddr_in &source)
     // Reuse worker-owned scratch instead of adding a 900-byte packet/proof
     // frame above nested clock publication, settings and crypto calls.
     auto &input = s_event_proof_input;
-    const int length = std::snprintf(input, sizeof(input), "clock-ack|%s|%s|%s|%s|%s|%s|%ld|%d|%d|%d|%d|%d",
+    const int length = std::snprintf(input, sizeof(input), "clock-ack|%s|%s|%s|%s|%s|%s|%ld|%d|%s|%d|%d|%d",
         values[0], values[1], values[2], values[3], values[4], status, static_cast<long>(error),
-        actual_initialized, actual_timezone, actual_enabled, actual_start, actual_end);
+        actual_initialized, actual_offset, actual_enabled, actual_start, actual_end);
     uint8_t proof[32]{};
     esp_err_t ack_error = length > 0 && static_cast<size_t>(length) < sizeof(input)
         ? hmacSha256(admitted_key, sizeof(admitted_key), input, proof) : ESP_ERR_INVALID_SIZE;
@@ -3623,9 +3806,9 @@ esp_err_t acceptClock(const char *payload, const sockaddr_in &source)
     }
     auto &packet = s_event_ack_packet;
     const int packet_length = std::snprintf(packet, sizeof(packet),
-        "CCP1|CLOCKACK|device=%s|pc=%s|nonce=%s|id=%s|op=%s|status=%s|error=%ld|initialized=%d|timezone=%d|enabled=%d|start=%d|end=%d|proof=%s",
+        "CCP1|CLOCKACK|device=%s|pc=%s|nonce=%s|id=%s|op=%s|status=%s|error=%ld|initialized=%d|offset=%s|enabled=%d|start=%d|end=%d|proof=%s",
         values[0], values[1], values[2], values[3], values[4], status, static_cast<long>(error),
-        actual_initialized, actual_timezone, actual_enabled, actual_start, actual_end, proof_hex);
+        actual_initialized, actual_offset, actual_enabled, actual_start, actual_end, proof_hex);
     if (ack_error == ESP_OK) {
         ack_error = packet_length > 0 && static_cast<size_t>(packet_length) < sizeof(packet)
             ? sendDatagram(packet, source.sin_addr, ntohs(source.sin_port), "CCP CLOCKACK")
@@ -4376,6 +4559,11 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
             }
             return;
         }
+        if (std::strncmp(payload, "CCP1|TIME|", 10) == 0) {
+            const esp_err_t error = acceptPcTime(payload, source);
+            if (error != ESP_OK) reportDatagramRejection("TIME", error);
+            return;
+        }
         if (std::strncmp(payload, "CCP1|NAME|", 10) == 0) {
             const esp_err_t error = acceptName(payload, source);
             if (error != ESP_OK) {
@@ -4864,6 +5052,7 @@ void codexLinkWorker(void *context)
         receiveDatagrams();
         maintainState();
         maintainEvent();
+        maintainPcTime();
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
         bool voice_busy = false;
         {
@@ -5296,6 +5485,18 @@ extern "C" esp_err_t LUNASHELL_codex_link_copy_pairing_code(
     return ESP_OK;
 }
 
+// No parameters: one explicit action admits an authenticated PC time request.
+// Exception: Returns an actual link, busy, or snapshot publication failure.
+extern "C" esp_err_t LUNASHELL_codex_request_pc_time(void)
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (s_worker == nullptr) return ESP_ERR_INVALID_STATE;
+    const auto error = queuePcTimeLocked(true);
+    if (error == ESP_OK) xTaskNotifyGive(s_worker);
+    else ESP_LOGW(kTag, "PC time request not admitted (%s)", esp_err_to_name(error));
+    return error;
+}
+
 // expected_request_id: Immutable identity displayed before explicit Send confirmation.
 // choice_id: Semantic option identity, never a storage index or caption.
 // Exception: Returns state, freshness, expiry, schema or publication admission failures.
@@ -5464,6 +5665,12 @@ extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_
 }
 
 #else
+
+// No parameters: no authenticated PC transport is present in this profile.
+extern "C" esp_err_t LUNASHELL_codex_request_pc_time(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
 
 // status: Unchanged when this profile excludes the Cody state link.
 // Exception: Returns the unsupported-profile error.

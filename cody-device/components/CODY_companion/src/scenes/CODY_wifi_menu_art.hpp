@@ -2,6 +2,7 @@
 
 #include "CODY2D_controls.hpp"
 #include "CODY_pixel_glyphs.hpp"
+#include "CODY_theme_generated.hpp"
 
 #include <algorithm>
 #include <array>
@@ -10,9 +11,12 @@
 namespace CODY::wifi_menu_art {
 
 using Face = std::array<uint16_t, pixel_glyphs::kGlyphRows>;
-inline constexpr Face kHeadingFace{0xE63F, 0xBD5F, 0xA4FF, 0x9C7F, 0x945F, 0x83BF, 0x737C};
-inline constexpr Face kIdentityFace{0xFFDF, 0xEF7F, 0xE75F, 0xE71F, 0xDEDF, 0xDEBF, 0xCE5F};
-inline constexpr Face kChoiceFace{0xEFFF, 0xBFFF, 0x9F5F, 0xAEDF, 0xC65F, 0xD5DF, 0xC51F};
+inline constexpr Face kIdentityFace{Theme::text_identity_gradient_0, Theme::text_identity_gradient_1,
+    Theme::text_identity_gradient_2, Theme::text_identity_gradient_3, Theme::text_identity_gradient_4,
+    Theme::text_identity_gradient_5, Theme::text_identity_gradient_6};
+inline constexpr Face kChoiceFace{Theme::text_choice_gradient_0, Theme::text_choice_gradient_1,
+    Theme::text_choice_gradient_2, Theme::text_choice_gradient_3, Theme::text_choice_gradient_4,
+    Theme::text_choice_gradient_5, Theme::text_choice_gradient_6};
 inline constexpr char kHeadingText[] = "SET UP WI-FI";
 inline constexpr char kPairText[] = "PAIR WITH BLUETOOTH";
 inline constexpr char kWifiText[] = "SETUP WI-FI";
@@ -55,7 +59,8 @@ constexpr auto bake(const char (&text)[N], const Face &face)
                     const size_t x_offset = layer == 0 ? 3U : layer == 1 ? 0U : 1U;
                     const size_t y_offset = layer == 0 ? 3U : layer == 1 ? 0U : 1U;
                     const size_t thickness = layer == 1 ? 2U : 0U;
-                    const uint16_t ink = layer == 0 ? 0x49B7 : layer == 1 ? 0x190B : face[row];
+                    const uint16_t ink = layer == 0 ? Theme::text_heading_shadow :
+                        layer == 1 ? Theme::text_heading_outline : face[row];
                     for (size_t dy = 0; dy < ScaleY + thickness; ++dy) {
                         for (size_t dx = 0; dx < ScaleX + 1U + thickness; ++dx) {
                             bitmap.pixels[(y + y_offset + dy) * width + x + x_offset + dx] = ink;
@@ -68,7 +73,6 @@ constexpr auto bake(const char (&text)[N], const Face &face)
     return bitmap;
 }
 
-inline constexpr auto kHeading = bake<3, 3>(kHeadingText, kHeadingFace);
 inline constexpr auto kPair = bake<2, 3>(kPairText, kChoiceFace);
 inline constexpr auto kWifi = bake<2, 3>(kWifiText, kChoiceFace);
 inline constexpr auto kIdentityPrefix = bake<kIdentityScale, kIdentityScale>(kNamePrefix, kIdentityFace);
@@ -145,7 +149,7 @@ esp_err_t draw_choice(const Bitmap<Width, Height> &bitmap, CODY2D::ActionIcon ic
     blit(bitmap, x + kChoiceIconSize + kChoiceGap, y, strip, first_row, first_column);
     const CODY2D::Rect icon_bounds{x, static_cast<uint16_t>(bounds.y + (bounds.height - kChoiceIconSize) / 2U),
         kChoiceIconSize, kChoiceIconSize};
-    return CODY2D::draw_action_icon_rows(icon, icon_bounds, 0xBFFF, strip, first_row, first_column);
+    return CODY2D::draw_action_icon_rows(icon, icon_bounds, Theme::text_choice_gradient_1, strip, first_row, first_column);
 }
 
 } // namespace CODY::wifi_menu_art

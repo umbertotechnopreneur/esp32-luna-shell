@@ -29,6 +29,7 @@
 
 #include "CODY2D_controls.hpp"
 #include "CODY_flat_menu_row.hpp"
+#include "CODY_theme_generated.hpp"
 #include "CODY_jelly.hpp"
 #include "scene_data.hpp"
 #include "esp_log.h"
@@ -36,10 +37,10 @@
 namespace CODY {
 namespace {
 constexpr char kTag[] = "CODY_look";
-constexpr uint16_t kSelectedTop = 0x1147;
-constexpr uint16_t kSelectedBottom = 0x08C4;
-constexpr uint16_t kLookNeutralTop = 0x18E5;
-constexpr uint16_t kLookNeutralBottom = 0x10A3;
+constexpr uint16_t kSelectedTop = Theme::controls_primary_top;
+constexpr uint16_t kSelectedBottom = Theme::controls_primary_bottom;
+constexpr uint16_t kLookNeutralTop = Theme::controls_secondary_top;
+constexpr uint16_t kLookNeutralBottom = Theme::controls_secondary_bottom;
 constexpr uint16_t kCaptionWidth = 182;
 constexpr CODY2D::Rect kLookItemBase{117, 226, 220, 38};
 constexpr uint16_t kLookItemStep = 44;
@@ -192,7 +193,7 @@ esp_err_t prepare_caption(const char *text, uint16_t top, CODY2D::TextLine &line
         return ESP_ERR_INVALID_SIZE;
     }
     return CODY2D::prepare_text_line(font, {text, static_cast<uint16_t>(length)},
-        {static_cast<int16_t>(kLookItemBase.x + 38U), static_cast<int16_t>(top)}, 0xFFFF, line);
+        {static_cast<int16_t>(kLookItemBase.x + 38U), static_cast<int16_t>(top)}, Theme::text_bright, line);
 }
 
 // label: Bounded retained text for the footer's current OK, Saving or error state.
@@ -213,14 +214,14 @@ esp_err_t prepare_done_control(const char *label, bool enabled)
         return ESP_ERR_INVALID_SIZE;
     }
     CODY2D::CapsuleControl prepared{kDoneBounds, {}, kSelectedTop, kSelectedBottom, enabled};
-    prepared.border_color = 0x2B4F;
+    prepared.border_color = Theme::controls_primary_border;
     prepared.icon = CODY2D::ActionIcon::None;
     const uint16_t text_left = kDoneBounds.x + (kDoneBounds.width - width) / 2U;
     const esp_err_t error = CODY2D::prepare_text_line(font,
         {label, static_cast<uint16_t>(length)},
         {static_cast<int16_t>(text_left),
          static_cast<int16_t>(kDoneBounds.y + (kDoneBounds.height - font.height) / 2U)},
-        0xFFFF, prepared.caption);
+        Theme::text_bright, prepared.caption);
     if (error == ESP_OK) {
         s_view.done = prepared;
     }
@@ -362,8 +363,8 @@ esp_err_t draw_look_list(const LookView &view, CODY2D::Surface strip,
         row.icon = selected ? CODY2D::ActionIcon::Check : CODY2D::ActionIcon::PlanPro;
         row.icon_center = {static_cast<int16_t>(row.bounds.x + 17U),
             static_cast<int16_t>(row.bounds.y + row.bounds.height / 2U)};
-        row.icon_color = selected ? 0x5FF1 : 0xBD9F;
-        row.caption.color = 0xFFFF;
+        row.icon_color = selected ? Theme::secondary_bright : Theme::primary_muted;
+        row.caption.color = Theme::text_bright;
         // Complete control captions share the title's reveal gate without typewriter timing.
         const CODY2D::TextLine caption = row.caption;
         row.caption = {};
@@ -391,7 +392,7 @@ esp_err_t draw_look_list(const LookView &view, CODY2D::Surface strip,
         static_cast<uint16_t>(view.look_scroll * thumb_range / limit);
     if (error == ESP_OK) {
         error = fill_canvas_rect(list_strip, clipped_top, clipped_left,
-            {kLookScrollBarLeft, thumb_top, kLookScrollBarWidth, thumb_height}, 0x6C33);
+            {kLookScrollBarLeft, thumb_top, kLookScrollBarWidth, thumb_height}, Theme::look_scrollbar);
     }
     return error;
 }

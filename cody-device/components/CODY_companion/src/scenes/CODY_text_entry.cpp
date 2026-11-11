@@ -1,4 +1,6 @@
 #include "CODY_text_entry.hpp"
+#include "CODY_title_style.hpp"
+#include "CODY_theme_generated.hpp"
 
 #include <cstring>
 
@@ -6,7 +8,7 @@ namespace CODY {
 namespace {
 
 constexpr int64_t kMultiTapUs = 1000000;
-constexpr uint16_t kInk = 0xF7BE;
+constexpr uint16_t kInk = Theme::text_default;
 constexpr const char *kLetters[] = {".-_@", "abc", "def", "ghi", "jkl", "mno", "pqrs", "tuv", "wxyz"};
 constexpr const char *kNumbers[] = {"01", "2", "3", "4", "5", "6", "7", "8", "9"};
 constexpr const char *kSymbols[] = {"!\"#$", "%&'(", ")*+,", "-./:", ";<=>", "?@[\\", "]^_`", "{|}~", "@_`"};
@@ -82,9 +84,9 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
 {
     const auto *view = static_cast<const TextEntryView *>(state);
     if (view == nullptr || !view->valid) return ESP_ERR_INVALID_STATE;
-    esp_err_t error = CODY2D::draw_text_rows(view->title, view->title.text.length, strip, first_row, first_column);
-    if (error == ESP_OK && view->subtitle.valid)
-        error = CODY2D::draw_text_rows(view->subtitle, view->subtitle.text.length, strip, first_row, first_column);
+    esp_err_t error = ESP_OK;
+    if (view->subtitle.valid)
+        error = draw_styled_subtitle_line(view->subtitle, strip, first_row, first_column, view->subtitle.text.length);
     if (error == ESP_OK) error = CODY2D::draw_capsule_rows(view->field, strip, first_row, first_column);
     for (const auto &key : view->keys) {
         if (error != ESP_OK) break;
@@ -284,13 +286,17 @@ esp_err_t prepare_text_entry_view(const TextEntry &entry, const char *title, con
     // A revealed secret may be measured/drawn only after every possible byte has
     // been checked independently, including the font's per-glyph metrics.
     esp_err_t error = entry.secret && entry.reveal && entry.length != 0 ? validate_secret_font(font) : ESP_OK;
-    if (error == ESP_OK) error = centered_line(font, title, {104, 73, 258, 25}, view.title);
+    StyledTitle heading{};
+    const size_t title_length = std::strlen(title);
+    if (error == ESP_OK && (title_length == 0 || title_length > kTextEntryCapacity)) error = ESP_ERR_INVALID_SIZE;
+    if (error == ESP_OK) error = prepare_styled_title({title, static_cast<uint16_t>(title_length)},
+        {104, 73, 258, 25}, heading, 3, true);
     if (error == ESP_OK && subtitle != nullptr && subtitle[0] != '\0')
         error = centered_line(font, subtitle, {83, 98, 300, 25}, view.subtitle);
     view.field.bounds = {95, 125, 276, 31};
-    view.field.top_color = 0x18C6;
-    view.field.bottom_color = 0x0842;
-    view.field.border_color = 0x4B9B;
+    view.field.top_color = Theme::text_entry_field_top;
+    view.field.bottom_color = Theme::surface_pairing;
+    view.field.border_color = Theme::controls_content_primary_border;
     view.field.corner_radius = 14;
     for (uint8_t i = 0; i < entry.length; ++i)
         view.visible_text[i] = entry.secret && !entry.reveal ? '*' : entry.text[i];
@@ -322,13 +328,13 @@ esp_err_t prepare_text_entry_view(const TextEntry &entry, const char *title, con
         auto &control = view.keys[i];
         control.bounds = key_bounds(i);
         control.corner_radius = 12;
-        control.top_color = i == 14 ? 0x226B : 0x2947;
-        control.bottom_color = i == 14 ? 0x10C6 : 0x10A4;
-        control.border_color = i == 14 ? 0x4B9B : 0x73AF;
+        control.top_color = i == 14 ? Theme::controls_content_primary_top : Theme::controls_content_secondary_top;
+        control.bottom_color = i == 14 ? Theme::controls_content_primary_bottom : Theme::controls_content_secondary_bottom;
+        control.border_color = i == 14 ? Theme::controls_content_primary_border : Theme::controls_content_secondary_border;
         if (i == 9 && entry.mode == TextEntryMode::Letters && entry.uppercase) {
-            control.top_color = 0x226B;
-            control.bottom_color = 0x10C6;
-            control.border_color = 0x4B9B;
+            control.top_color = Theme::controls_content_primary_top;
+            control.bottom_color = Theme::controls_content_primary_bottom;
+            control.border_color = Theme::controls_content_primary_border;
         }
         control.enabled = i != 13 || entry.secret;
         error = centered_line(font, label_storage.data(), control.bounds, control.caption);
@@ -341,6 +347,7 @@ esp_err_t prepare_text_entry_view(const TextEntry &entry, const char *title, con
     content.state = &view;
     content.revision = revision;
     content.draw_rows = draw_rows;
+    content.heading = heading;
     return ESP_OK;
 }
 

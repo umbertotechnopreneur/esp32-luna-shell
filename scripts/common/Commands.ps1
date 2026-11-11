@@ -148,6 +148,14 @@ function Invoke-HostTool([string]$Path, [string[]]$Arguments, [string]$PythonExe
 # Options carries explicit parameters plus resolved output paths.
 # Throws the underlying command error; a failed operation never becomes success.
 function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
+    # Native firmware and host previews share this source-generated palette.
+    # Synchronize before either compiler or the host cache fingerprints headers.
+    if ($RequestedAction -in @('build','combo','recover','simulator','package-simulator','check') -or
+        ($RequestedAction -eq 'generate' -and $Options.Generator -eq 'cody-simulator-graphics')) {
+        $themeGenerator = Find-DeviceTool 'generators' 'cody-theme'
+        $themePython = if ($Options.PythonExecutable) { $Options.PythonExecutable } else { $Options.PythonExe }
+        Invoke-HostTool $themeGenerator.Path @() $themePython
+    }
     if ($RequestedAction -in (Get-FirmwareActions)) {
         $firmwareOptions = @{ Action = $RequestedAction }
         foreach ($key in (Get-DeviceActionParameters)[$RequestedAction]) {

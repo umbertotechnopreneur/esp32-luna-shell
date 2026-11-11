@@ -15,6 +15,8 @@
  * VBWR E */
 
 #pragma once
+#include "CODY_theme_generated.hpp"
+#include "CODY_title_style.hpp"
 
 #include "CODY2D_text.hpp"
 #include "VIBEWARE_boot_animation.h"
@@ -27,11 +29,11 @@ inline constexpr uint16_t kCanvas = 466;
 inline constexpr CODY2D::Rect kArtwork{137, 164, 192, 219};
 inline constexpr char kTitle[] = "Cody AI Companion";
 inline constexpr char kSubtitle[] = "A distraction-free sidekick";
-inline constexpr uint16_t kTitleY = 60;
+inline constexpr CODY2D::Rect kTitleBounds{77, 60, 312, 40};
 inline constexpr uint16_t kSubtitleY = 110;
 
 struct Presentation {
-    CODY2D::TextLine title{};
+    StyledTitle title{};
     CODY2D::TextLine subtitle{};
     bool valid = false;
 };
@@ -100,7 +102,7 @@ inline esp_err_t prepare_line(const CODY2D::MonoFont &font, CODY2D::TextSpan tex
     return ESP_OK;
 }
 
-// title_font: Canonical large title font shared with the firmware's scenes.
+// title_font: Authored font metrics defining the vertical title slot.
 // body_font: Canonical normal-size body font shared with the firmware's scenes.
 // presentation: Component-owned prepared layout, published only after both lines are accepted.
 // Exception: Returns the actual failed font/layout operation; startup must not hide partial branding.
@@ -108,12 +110,14 @@ inline esp_err_t prepare(const CODY2D::MonoFont &title_font, const CODY2D::MonoF
     Presentation &presentation)
 {
     Presentation candidate;
-    esp_err_t error = prepare_line(title_font, {kTitle, sizeof(kTitle) - 1}, kTitleY, 0xffff,
-        candidate.title);
+    auto title_bounds = kTitleBounds;
+    title_bounds.height = title_font.height;
+    if (!fits_circle(title_bounds)) return reject("Title circular chord", ESP_ERR_INVALID_SIZE);
+    esp_err_t error = prepare_styled_title({kTitle, sizeof(kTitle) - 1}, title_bounds, candidate.title, 3, true);
     if (error != ESP_OK) {
         return error;
     }
-    error = prepare_line(body_font, {kSubtitle, sizeof(kSubtitle) - 1}, kSubtitleY, 0xbdf7,
+    error = prepare_line(body_font, {kSubtitle, sizeof(kSubtitle) - 1}, kSubtitleY, Theme::text_subtitle,
         candidate.subtitle);
     if (error != ESP_OK) {
         return error;
@@ -167,11 +171,18 @@ inline esp_err_t draw_rows(const Presentation &presentation, Scratch &scratch,
             destination[column] = CODY2D::rgb565_native_to_stored(scratch.source_row[source_x], strip.byte_order);
         }
     }
-    error = CODY2D::draw_text_rows(presentation.title, presentation.title.text.length, strip, first_row, 0);
+    const auto &title = presentation.title;
+    const auto width = TitleStyleDetail::width(title.text.length, title.scale);
+    uint64_t elapsed_ms = 0;
+    if (width > title.bounds.width) {
+        for (uint16_t index = 0; index < frame_index; ++index) elapsed_ms += VIBEWARE_boot_frames[index].duration_ms;
+    }
+    error = draw_styled_title_rows(title, strip, first_row, 0, title.text.length, false,
+        styled_title_scroll_offset(width, title.bounds.width, elapsed_ms * 1000U));
     if (error != ESP_OK) {
         return reject("Title raster", error);
     }
-    error = CODY2D::draw_text_rows(presentation.subtitle, presentation.subtitle.text.length, strip, first_row, 0);
+    error = draw_styled_subtitle_line(presentation.subtitle, strip, first_row, 0, presentation.subtitle.text.length);
     return error == ESP_OK ? ESP_OK : reject("Subtitle raster", error);
 }
 

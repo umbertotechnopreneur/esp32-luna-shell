@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstring>
 #include "CODY2D_text.hpp"
+#include "CODY_theme_generated.hpp"
 #include "esp_log.h"
 
 namespace CODY {
@@ -36,7 +37,7 @@ inline esp_err_t prepare_activity_description_window(ActivityDescriptionState &s
     const int16_t left = overflow ? static_cast<int16_t>(kActivityDescriptionBounds.x - fraction) :
         static_cast<int16_t>((466U - state.width) / 2U);
     return CODY2D::prepare_text_line(font, {state.text + first, count},
-        {left, static_cast<int16_t>(kActivityDescriptionBounds.y)}, 0xFFFF, state.window);
+        {left, static_cast<int16_t>(kActivityDescriptionBounds.y)}, Theme::text_bright, state.window);
 }
 
 // state: Serialized persistent scene owner, never an additional canonical activity cache.

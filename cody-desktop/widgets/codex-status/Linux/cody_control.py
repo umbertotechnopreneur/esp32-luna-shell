@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 import time
+import re
 from gi.repository import GLib, Gtk
 
 
@@ -24,6 +25,7 @@ class CodyControlWindow(Gtk.Window):
         self.closed = False
         self.busy = False
         self.clock_loaded = False
+        self.clock_offset = None
         self.settings = {}
         self.physical_devices = []
         self.observed_status = None
@@ -63,11 +65,7 @@ class CodyControlWindow(Gtk.Window):
         self.content.append(self.command("Pair this code", self.pair))
         self.preferred_name = self.entry(self.content, "Preferred name", 24)
         self.content.append(self.command("Save name", lambda: self.device_control("device/set-name", {"preferred_name": self.preferred_name.get_text()})))
-        self.content.append(label("Device time zone"))
-        self.zones = ["UTC", "Europe/Rome", "Asia/Ho_Chi_Minh"]
-        self.timezone = Gtk.DropDown.new_from_strings(self.zones)
-        self.timezone.set_selected(Gtk.INVALID_LIST_POSITION)
-        self.content.append(self.timezone)
+        self.utc_offset = self.entry(self.content, "UTC offset in minutes (for example +330)", 4)
         self.quiet = Gtk.CheckButton(label="Quiet hours")
         self.content.append(self.quiet)
         self.quiet_start = self.entry(self.content, "Start (HH:MM)", 5)
@@ -230,7 +228,8 @@ class CodyControlWindow(Gtk.Window):
         self.clock_loaded = False
         if hasattr(self, "preferred_name"):
             self.preferred_name.set_text("")
-            self.timezone.set_selected(Gtk.INVALID_LIST_POSITION)
+            self.utc_offset.set_text("")
+            self.clock_offset = None
         self.render_source()
 
     # No parameters: save launcher fields only, preserving current account preferences.
@@ -292,7 +291,8 @@ class CodyControlWindow(Gtk.Window):
                 return
             name, clock = values
             self.preferred_name.set_text(name["preferred_name"])
-            self.timezone.set_selected(self.zones.index(clock["timezone"]))
+            self.clock_offset = clock["utc_offset_minutes"]
+            self.utc_offset.set_text(f"{self.clock_offset:+d}")
             self.quiet.set_active(clock["quiet_hours_enabled"])
             self.quiet_start.set_text(clock["quiet_hours_start"])
             self.quiet_end.set_text(clock["quiet_hours_end"])
@@ -302,12 +302,20 @@ class CodyControlWindow(Gtk.Window):
 
     # No parameters: apply the explicit form only after readback of this device's preferences.
     def save_clock(self):
-        zone = self.timezone.get_selected()
-        if not self.clock_loaded or zone >= len(self.zones):
+        if not self.clock_loaded or self.clock_offset is None:
             raise ValueError("Read this Cody's preferences before editing its clock.")
-        self.device_control("device/configure-clock", {"timezone": self.zones[zone], "quiet_hours_enabled": self.quiet.get_active(),
-                                                     "quiet_hours_start": self.quiet_start.get_text().strip(),
-                                                     "quiet_hours_end": self.quiet_end.get_text().strip()})
+        text = self.utc_offset.get_text().strip()
+        if re.fullmatch(r"[+-]?[0-9]{1,3}", text) is None:
+            raise ValueError("Enter a UTC offset in whole minutes from -840 to 840.")
+        offset = int(text)
+        if not -840 <= offset <= 840:
+            raise ValueError("Enter a UTC offset in whole minutes from -840 to 840.")
+        settings = {"quiet_hours_enabled": self.quiet.get_active(),
+                    "quiet_hours_start": self.quiet_start.get_text().strip(),
+                    "quiet_hours_end": self.quiet_end.get_text().strip()}
+        if offset != self.clock_offset:
+            settings["utc_offset_minutes"] = offset
+        self.device_control("device/configure-clock", settings)
 
     # response: Public outcome metadata; never renders a request body or access token.
     @staticmethod

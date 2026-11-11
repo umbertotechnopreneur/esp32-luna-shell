@@ -116,6 +116,7 @@ def source_provenance():
         paths.update(path for path in (ROOT / directory).rglob("*")
                      if path.is_file() and path.suffix in (".h", ".hpp"))
     paths.update(ROOT / name for name in (
+        "cody-device/assets/cody/palette/theme.json",
         "cody-device/assets/cody/cody.yaml", "cody-device/assets/cody/scenes/scenes.json",
         "cody-device/assets/cody/navigation.json", "cody-device/assets/cody/personality.yaml",
         "cody-device/assets/cody/appearance/jelly-scanline/skins.json",

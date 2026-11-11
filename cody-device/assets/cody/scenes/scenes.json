@@ -10,7 +10,7 @@
     {
       "id": "greeting",
       "identity": 1,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 0,
       "entrance": {
         "from": {
@@ -69,7 +69,7 @@
       "title": {
         "text": "Hi, I'm Cody!",
         "top": 348,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 70,
         "visible": true
       },
@@ -79,7 +79,7 @@
     {
       "id": "pair-invitation",
       "identity": 2,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -138,7 +138,7 @@
       "title": {
         "text": "Let's connect",
         "top": 185,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -148,7 +148,7 @@
     {
       "id": "install-app",
       "identity": 3,
-      "background_rgb565": 65535,
+      "background_rgb565": "surface.light",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -207,7 +207,7 @@
       "title": {
         "text": "Scan to install",
         "top": 96,
-        "color_rgb565": 0,
+        "color_rgb565": "surface.canvas",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -217,7 +217,7 @@
     {
       "id": "scan-to-pair",
       "identity": 4,
-      "background_rgb565": 65535,
+      "background_rgb565": "surface.light",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -276,7 +276,7 @@
       "title": {
         "text": "Link your phone",
         "top": 74,
-        "color_rgb565": 0,
+        "color_rgb565": "surface.canvas",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -286,7 +286,7 @@
     {
       "id": "pairing",
       "identity": 5,
-      "background_rgb565": 65535,
+      "background_rgb565": "surface.light",
       "standby_override_seconds": 90,
       "entrance": {
         "from": {
@@ -345,7 +345,7 @@
       "title": {
         "text": "Connecting...",
         "top": 115,
-        "color_rgb565": 0,
+        "color_rgb565": "surface.canvas",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -355,7 +355,7 @@
     {
       "id": "pairing-failed",
       "identity": 6,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 0,
       "entrance": {
         "from": {
@@ -414,7 +414,7 @@
       "title": {
         "text": "Pairing failed",
         "top": 210,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -424,7 +424,7 @@
     {
       "id": "online",
       "identity": 7,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -483,7 +483,7 @@
       "title": {
         "text": "You're online",
         "top": 210,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -493,7 +493,7 @@
     {
       "id": "cody-look",
       "identity": 8,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 0,
       "entrance": {
         "from": {
@@ -552,7 +552,7 @@
       "title": {
         "text": "Make it yours",
         "top": 78,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -562,7 +562,7 @@
     {
       "id": "debug-text",
       "identity": 9,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -621,7 +621,7 @@
       "title": {
         "text": "Debug details",
         "top": 104,
-        "color_rgb565": 63422,
+        "color_rgb565": "text.default",
         "character_interval_ms": 0,
         "visible": false
       },
@@ -631,7 +631,7 @@
     {
       "id": "make-it-yours",
       "identity": 10,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -690,7 +690,7 @@
       "title": {
         "text": "Options",
         "top": 146,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -700,7 +700,7 @@
     {
       "id": "settings",
       "identity": 11,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -759,7 +759,7 @@
       "title": {
         "text": "Settings",
         "top": 146,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -769,7 +769,7 @@
     {
       "id": "connect-codex",
       "identity": 12,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 180,
       "entrance": {
         "from": {
@@ -828,7 +828,7 @@
       "title": {
         "text": "Connect Codex",
         "top": 210,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -838,7 +838,7 @@
     {
       "id": "setup-complete",
       "identity": 13,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -897,7 +897,7 @@
       "title": {
         "text": "You're all set.",
         "top": 210,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -907,7 +907,7 @@
     {
       "id": "looking-for-pc",
       "identity": 14,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 600,
       "entrance": {
         "from": {
@@ -966,7 +966,7 @@
       "title": {
         "text": "Finding your PC",
         "top": 210,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -976,7 +976,7 @@
     {
       "id": "connected",
       "identity": 15,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -1035,7 +1035,7 @@
       "title": {
         "text": "Connected",
         "top": 210,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -1045,7 +1045,7 @@
     {
       "id": "codex-choice",
       "identity": 16,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -1104,7 +1104,7 @@
       "title": {
         "text": "Connect Codex?",
         "top": 210,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -1114,7 +1114,7 @@
     {
       "id": "setup-menu",
       "identity": 17,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -1173,7 +1173,7 @@
       "title": {
         "text": "Setup",
         "top": 210,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": false
       },
@@ -1183,7 +1183,7 @@
     {
       "id": "network-wait",
       "identity": 18,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -1242,7 +1242,7 @@
       "title": {
         "text": "Wi-Fi needed",
         "top": 210,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -1252,7 +1252,7 @@
     {
       "id": "project-active",
       "identity": 19,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -1311,7 +1311,7 @@
       "title": {
         "text": "Let's get to work",
         "top": 210,
-        "color_rgb565": 2047,
+        "color_rgb565": "accent.active",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -1321,7 +1321,7 @@
     {
       "id": "working",
       "identity": 20,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 180,
       "entrance": {
         "from": {
@@ -1380,7 +1380,7 @@
       "title": {
         "text": "Working",
         "top": 210,
-        "color_rgb565": 2047,
+        "color_rgb565": "accent.active",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -1390,7 +1390,7 @@
     {
       "id": "response-ready",
       "identity": 21,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -1449,7 +1449,7 @@
       "title": {
         "text": "Chat waiting",
         "top": 210,
-        "color_rgb565": 2047,
+        "color_rgb565": "accent.active",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -1459,7 +1459,7 @@
     {
       "id": "session-paused",
       "identity": 22,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -1518,7 +1518,7 @@
       "title": {
         "text": "Taking a pause",
         "top": 210,
-        "color_rgb565": 64704,
+        "color_rgb565": "accent.question",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -1528,7 +1528,7 @@
     {
       "id": "session-ended",
       "identity": 23,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -1587,7 +1587,7 @@
       "title": {
         "text": "Chat closed",
         "top": 210,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -1597,7 +1597,7 @@
     {
       "id": "connection-lost",
       "identity": 24,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -1656,7 +1656,7 @@
       "title": {
         "text": "Link unavailable",
         "top": 210,
-        "color_rgb565": 64704,
+        "color_rgb565": "accent.question",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -1666,7 +1666,7 @@
     {
       "id": "companion-idle",
       "identity": 25,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 0,
       "entrance": {
         "from": {
@@ -1725,7 +1725,7 @@
       "title": {
         "text": "Ready for more",
         "top": 210,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -1735,7 +1735,7 @@
     {
       "id": "activity-unavailable",
       "identity": 26,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 60,
       "entrance": {
         "from": {
@@ -1794,7 +1794,7 @@
       "title": {
         "text": "UNAVAILABLE",
         "top": 210,
-        "color_rgb565": 64704,
+        "color_rgb565": "accent.question",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -1804,7 +1804,7 @@
     {
       "id": "pr-pending",
       "identity": 27,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 180,
       "entrance": {
         "from": {
@@ -1863,7 +1863,7 @@
       "title": {
         "text": "Review pending",
         "top": 150,
-        "color_rgb565": 2047,
+        "color_rgb565": "accent.active",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -1873,7 +1873,7 @@
     {
       "id": "checks-running",
       "identity": 28,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 180,
       "entrance": {
         "from": {
@@ -1932,7 +1932,7 @@
       "title": {
         "text": "Checking the work",
         "top": 150,
-        "color_rgb565": 2047,
+        "color_rgb565": "accent.active",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -1942,7 +1942,7 @@
     {
       "id": "checks-failed",
       "identity": 29,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 180,
       "entrance": {
         "from": {
@@ -2001,7 +2001,7 @@
       "title": {
         "text": "Checks failed",
         "top": 150,
-        "color_rgb565": 64704,
+        "color_rgb565": "accent.question",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -2011,7 +2011,7 @@
     {
       "id": "check-failures",
       "identity": 30,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 180,
       "entrance": {
         "from": {
@@ -2070,7 +2070,7 @@
       "title": {
         "text": "Check details",
         "top": 150,
-        "color_rgb565": 64704,
+        "color_rgb565": "accent.question",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -2080,7 +2080,7 @@
     {
       "id": "decision-notice",
       "identity": 31,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 180,
       "entrance": {
         "from": {
@@ -2139,7 +2139,7 @@
       "title": {
         "text": "Your call",
         "top": 150,
-        "color_rgb565": 64704,
+        "color_rgb565": "accent.question",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -2149,7 +2149,7 @@
     {
       "id": "decision-choices",
       "identity": 32,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 180,
       "entrance": {
         "from": {
@@ -2208,7 +2208,7 @@
       "title": {
         "text": "Pick your reply",
         "top": 150,
-        "color_rgb565": 2047,
+        "color_rgb565": "accent.active",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -2218,7 +2218,7 @@
     {
       "id": "decision-confirm",
       "identity": 33,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 180,
       "entrance": {
         "from": {
@@ -2277,7 +2277,7 @@
       "title": {
         "text": "Ready to send?",
         "top": 150,
-        "color_rgb565": 2047,
+        "color_rgb565": "accent.active",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -2287,7 +2287,7 @@
     {
       "id": "decision-waiting",
       "identity": 34,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 180,
       "entrance": {
         "from": {
@@ -2346,7 +2346,7 @@
       "title": {
         "text": "Reply on its way",
         "top": 150,
-        "color_rgb565": 2047,
+        "color_rgb565": "accent.active",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -2356,7 +2356,7 @@
     {
       "id": "reply-sent",
       "identity": 35,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 180,
       "entrance": {
         "from": {
@@ -2415,7 +2415,7 @@
       "title": {
         "text": "Reply sent",
         "top": 150,
-        "color_rgb565": 2047,
+        "color_rgb565": "accent.active",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -2425,7 +2425,7 @@
     {
       "id": "codex-notice",
       "identity": 36,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 180,
       "entrance": {
         "from": {
@@ -2484,7 +2484,7 @@
       "title": {
         "text": "From Codex",
         "top": 150,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -2494,7 +2494,7 @@
     {
       "id": "approval-on-pc",
       "identity": 37,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 180,
       "entrance": {
         "from": {
@@ -2553,7 +2553,7 @@
       "title": {
         "text": "Approval needed",
         "top": 150,
-        "color_rgb565": 65535,
+        "color_rgb565": "text.bright",
         "character_interval_ms": 45,
         "visible": true
       },
@@ -2563,7 +2563,7 @@
     {
       "id": "event-unavailable",
       "identity": 38,
-      "background_rgb565": 0,
+      "background_rgb565": "surface.canvas",
       "standby_override_seconds": 180,
       "entrance": {
         "from": {
@@ -2622,7 +2622,7 @@
       "title": {
         "text": "UNAVAILABLE",
         "top": 150,
-        "color_rgb565": 64704,
+        "color_rgb565": "accent.question",
         "character_interval_ms": 45,
         "visible": true
       },

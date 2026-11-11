@@ -1,5 +1,9 @@
 #include "CODY_widget_visibility_view.hpp"
+#include "CODY_title_style.hpp"
+#include "CODY_typography.hpp"
+#include "CODY_ui_components.hpp"
 #include "CODY_flat_menu_row.hpp"
+#include "CODY_theme_generated.hpp"
 #include "CODY_page_marks.hpp"
 
 #include <cstdio>
@@ -28,10 +32,12 @@ constexpr CODY2D::Rect kToggleBounds{113, 226, 240, 52};
 constexpr CODY2D::Rect kSubscreensBounds{113, 289, 240, 48};
 constexpr CODY2D::Rect kStatusBounds{73, 344, 320, 30};
 #endif
-constexpr uint16_t kWhite = 0xF7BE;
-constexpr uint16_t kMuted = 0x9CF3;
-constexpr uint16_t kCyan = 0x6F9E;
-constexpr uint16_t kAmber = 0xFE27;
+constexpr uint16_t kWhite = UI::Palette::text;
+constexpr uint16_t kMuted = UI::Palette::muted;
+#if !defined(CODY_DEVICE_UI_ONLY)
+constexpr uint16_t kCyan = UI::Palette::cyan;
+#endif
+constexpr uint16_t kAmber = UI::Palette::warning;
 
 #if defined(CODY_DEVICE_UI_ONLY)
 // screen: Stable screen identity rather than the row's current list position.
@@ -88,22 +94,8 @@ std::size_t catalog_index(const std::array<WidgetDescriptor<Id>, Size> &catalog,
 esp_err_t prepare_line(const CODY2D::MonoFont &font, const char *text, CODY2D::Rect bounds,
     uint16_t color, CODY2D::TextLine &line, bool left_aligned = false)
 {
-    const auto length = std::strlen(text);
-    if (length == 0 || length > 32 || font.height > bounds.height) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-    const CODY2D::TextSpan span{text, static_cast<uint16_t>(length)};
-    uint32_t width = 0;
-    const esp_err_t error = CODY2D::measure_text_width(font, span, width);
-    if (error != ESP_OK) {
-        return error;
-    }
-    if (width > bounds.width) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-    return CODY2D::prepare_text_line(font, span,
-        {static_cast<int16_t>(bounds.x + (left_aligned ? 0U : (bounds.width - width) / 2U)),
-         static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2U)}, color, line);
+    return UI::prepare_text(font, text, bounds, color, line, 32,
+        left_aligned ? UI::TextAlignment::Left : UI::TextAlignment::Center);
 }
 
 // state: Immutable editor view kept alive by the display owner.
@@ -124,11 +116,13 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
     if (error != ESP_OK) {
         return result("draw tile", error);
     }
-    for (const auto &line : view.captions) {
+    for (size_t index = 0; index < view.captions.size(); ++index) {
+        const auto &line = view.captions[index];
         if (!line.valid) {
             continue;
         }
-        error = CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
+        error = index == 0 ? ESP_OK :
+            CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
         if (error != ESP_OK) {
             return result("draw caption", error);
         }
@@ -155,13 +149,14 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
 
 // view: Editor view retained until all native callbacks retire.
 // content: Receives the central editor slot without the lateral controls.
-void attach_content(const WidgetVisibilityView &view, SceneContent &content)
+esp_err_t attach_content(const WidgetVisibilityView &view, SceneContent &content)
 {
     content = {};
     content.bounds = kContentBounds;
     content.state = &view;
     content.revision = view.revision;
     content.draw_rows = draw_rows;
+    return prepare_styled_title(view.captions[0].text, kHeadingBounds, content.heading, 3, true);
 }
 
 } // namespace
@@ -187,8 +182,7 @@ esp_err_t prepare_widget_visibility_view(uint8_t page, const WidgetVisibility &v
     if (view.valid && view.page == page && view.visibility.screen_mask == visibility.screen_mask &&
         view.saving == saving && view.save_failed == save_failed && view.load_failed == load_failed &&
         view.title_font == &title_font && view.body_font == &body_font) {
-        attach_content(view, content);
-        return ESP_OK;
+        return attach_content(view, content);
     }
     if (view.revision == std::numeric_limits<uint32_t>::max()) {
         return result("view revision", ESP_ERR_INVALID_STATE);
@@ -198,7 +192,8 @@ esp_err_t prepare_widget_visibility_view(uint8_t page, const WidgetVisibility &v
     view.captions = {};
     const char *status = load_failed ? "Settings unavailable" :
         saving ? "Saving..." : save_failed ? "Could not save" : "";
-    auto error = prepare_line(title_font, "Visible screens", kHeadingBounds, kWhite, view.captions[0]);
+    view.captions[0].text = {"Visible screens", 15};
+    auto error = ESP_OK;
     if (error == ESP_OK && status[0] != '\0') {
         error = prepare_line(body_font, status, kStatusBounds,
             load_failed || save_failed ? kAmber : kMuted, view.captions[1]);
@@ -214,17 +209,20 @@ esp_err_t prepare_widget_visibility_view(uint8_t page, const WidgetVisibility &v
         row.control.bounds = {93, top, 280, kRowHeight};
         row.control.enabled = !saving && !load_failed;
         row.control.corner_radius = 12;
-        row.control.top_color = visible ? 0x1147 : 0x18E5;
-        row.control.bottom_color = visible ? 0x08C4 : 0x10A3;
-        row.control.border_color = visible ? 0x2B4F : 0x4A8C;
+        row.control.top_color = visible ? Theme::controls_primary_top : Theme::controls_secondary_top;
+        row.control.bottom_color = visible ? Theme::controls_primary_bottom : Theme::controls_secondary_bottom;
+        row.control.border_color = visible ? Theme::controls_primary_border : Theme::controls_secondary_border;
         row.control.icon = screen_icon(descriptor.id);
         row.control.icon_center = {126, static_cast<int16_t>(top + 36U)};
-        row.control.icon_color = visible ? 0x7759 : 0xBD9F;
-        error = prepare_line(body_font, descriptor.label, {156, static_cast<uint16_t>(top + 5U), 207, 30},
+        row.control.icon_color = visible ? Theme::secondary_default : Theme::primary_muted;
+        const CODY2D::Rect label_bounds{156, static_cast<uint16_t>(top + 5U), 207, 30};
+        const CODY2D::MonoFont *label_face = nullptr;
+        error = Typography::label_font(descriptor.label, label_bounds, body_font, label_face);
+        if (error == ESP_OK) error = prepare_line(*label_face, descriptor.label, label_bounds,
             kWhite, row.control.caption, true);
         if (error == ESP_OK) {
             error = prepare_line(body_font, load_failed ? "N/A" : visible ? "Visible" : "Hidden",
-                {156, static_cast<uint16_t>(top + 36U), 207, 28}, visible ? 0x5FF1 : kMuted, row.status, true);
+                {156, static_cast<uint16_t>(top + 36U), 207, 28}, visible ? Theme::secondary_bright : kMuted, row.status, true);
         }
     }
     if (error != ESP_OK) return result("prepare screen list", error);
@@ -238,8 +236,7 @@ esp_err_t prepare_widget_visibility_view(uint8_t page, const WidgetVisibility &v
     view.body_font = &body_font;
     ++view.revision;
     view.valid = true;
-    attach_content(view, content);
-    return ESP_OK;
+    return attach_content(view, content);
 }
 
 // view: Editor state associated with the fully retired frame.
@@ -287,8 +284,7 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen, CompanionPanel pan
     if (view.valid && same_selection && view.visibility.screen_mask == visibility.screen_mask &&
         view.saving == saving && view.save_failed == save_failed && view.load_failed == load_failed &&
         view.title_font == &title_font && view.body_font == &body_font) {
-        attach_content(view, content);
-        return ESP_OK;
+        return attach_content(view, content);
     }
     if (view.revision == std::numeric_limits<uint32_t>::max()) {
         return result("view revision", ESP_ERR_INVALID_STATE);
@@ -301,7 +297,8 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen, CompanionPanel pan
     if (written <= 0 || static_cast<std::size_t>(written) >= sizeof(view.page_index)) {
         return result("format page index", ESP_ERR_INVALID_SIZE);
     }
-    esp_err_t error = prepare_line(body_font, heading, kHeadingBounds, kMuted, view.captions[0]);
+    view.captions[0].text = {heading, static_cast<uint16_t>(std::strlen(heading))};
+    esp_err_t error = ESP_OK;
     if (error == ESP_OK) {
         error = prepare_line(body_font, view.page_index, kPageBounds, kMuted, view.captions[1]);
     }
@@ -319,11 +316,9 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen, CompanionPanel pan
     view.toggle.bounds = kToggleBounds;
     view.toggle.enabled = !saving && !load_failed && can_toggle;
     const bool show_visible = !load_failed && enabled;
-    view.toggle.top_color = show_visible ? 0x246E : 0x2947;
-    view.toggle.bottom_color = show_visible ? 0x10C6 : 0x10A4;
-    view.toggle.border_color = show_visible ? 0x5FF1 : 0x73AF;
     const char *const toggle_text = load_failed ? "Unavailable" : (enabled ? "Visible" : "Hidden");
-    error = prepare_line(body_font, toggle_text, kToggleBounds, load_failed ? kMuted : kWhite, view.toggle.caption);
+    error = UI::prepare_button(view.toggle, body_font, toggle_text, load_failed ? kMuted : kWhite, 32,
+        show_visible ? UI::kContentSelected : UI::kContentSecondary);
     if (error != ESP_OK) {
         return result("prepare visibility toggle", error);
     }
@@ -333,10 +328,8 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen, CompanionPanel pan
         view.subscreens = {};
         view.subscreens.bounds = kSubscreensBounds;
         view.subscreens.enabled = !saving || load_failed;
-        view.subscreens.top_color = 0x226B;
-        view.subscreens.bottom_color = 0x10C6;
-        view.subscreens.border_color = 0x4B9B;
-        error = prepare_line(body_font, "Subscreens", kSubscreensBounds, kWhite, view.subscreens.caption);
+        error = UI::prepare_button(view.subscreens, body_font, "Subscreens", kWhite, 32,
+            UI::kContentPrimary);
         if (error != ESP_OK) {
             return result("prepare subscreens control", error);
         }
@@ -371,8 +364,7 @@ esp_err_t prepare_widget_visibility_view(WidgetScreen screen, CompanionPanel pan
     view.body_font = &body_font;
     ++view.revision;
     view.valid = true;
-    attach_content(view, content);
-    return ESP_OK;
+    return attach_content(view, content);
 }
 
 // view: Editor state associated with the fully retired frame.

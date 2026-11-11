@@ -4,6 +4,7 @@
 #include <cstring>
 
 #include "CODY2D_text.hpp"
+#include "CODY_theme_generated.hpp"
 
 namespace CODY {
 
@@ -38,7 +39,7 @@ inline esp_err_t prepare_selected_label_window(SelectedLabel &label, const CODY2
     }
     return CODY2D::prepare_text_line(font, span,
         {x, static_cast<int16_t>(label.bounds.y + (label.bounds.height - font.height) / 2U)},
-        0xF7BE, label.line);
+        Theme::text_default, label.line);
 }
 
 // label: Persistent display-owned caption, unchanged if the text is unchanged.

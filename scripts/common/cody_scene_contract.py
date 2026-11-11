@@ -49,6 +49,35 @@ SCENE_IDENTITIES = {
 }
 
 
+class SceneColor(int):
+    """Resolved native color retaining its semantic source for code generation."""
+
+    # value: Native RGB565 word read from the theme.
+    # token: Dot-separated device theme role.
+    def __new__(cls, value, token):
+        result = super().__new__(cls, value)
+        result.token = token
+        return result
+
+
+# theme: Parsed canonical device theme.
+# token: Dot-separated semantic role, never a fallback numeric literal.
+# label: Authoring location included in an actionable error.
+# Raises ValueError for a missing, malformed or non-RGB565 role.
+def resolve_scene_color(theme, token, label):
+    if not isinstance(token, str) or re.fullmatch(r"[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+", token) is None:
+        raise ValueError(f"{label}: expected a semantic theme role")
+    entry = theme
+    for part in token.split("."):
+        if not isinstance(entry, dict) or part not in entry:
+            raise ValueError(f"{label}: unknown theme role {token}")
+        entry = entry[part]
+    word = entry.get("rgb565") if isinstance(entry, dict) else None
+    if not isinstance(word, str) or re.fullmatch(r"0x[0-9a-fA-F]{4}", word) is None:
+        raise ValueError(f"{label}: invalid RGB565 role {token}")
+    return SceneColor(int(word, 16), token)
+
+
 # root: Checkout containing the current scene source.
 # Raises OSError or UnicodeError for unreadable authoring; LF/CRLF is not source drift.
 def scene_source_hash(root: Path):
@@ -141,6 +170,10 @@ def load_generated_scene_fonts(directory: Path):
 # Raises OSError for missing files and ValueError for invalid or ambiguous authoring.
 def load_scenes(root: Path, rig=None):
     document = read_json(root / "cody-device/assets/cody/scenes/scenes.json")
+    theme = read_json(root / "cody-device/assets/cody/palette/theme.json")
+    if theme.get("schema_version") != 1 or not isinstance(theme.get("device"), dict):
+        raise ValueError("Invalid Cody device theme")
+    device_theme = theme["device"]
     require_keys(document, {"schema", "boot_delay_ms", "font", "scenes"}, "scenes")
     if document["schema"] != "cody.scenes.v1":
         raise ValueError(f"Unsupported scene schema: {document['schema']!r}")
@@ -174,8 +207,8 @@ def load_scenes(root: Path, rig=None):
         standby_seconds = scene["standby_override_seconds"]
         if type(standby_seconds) is not int or not 0 <= standby_seconds <= 0xFFFFFFFF:
             raise ValueError(f"{name}.standby_override_seconds: expected integer seconds in 0..4294967295")
-        if type(scene["background_rgb565"]) is not int or not 0 <= scene["background_rgb565"] <= 65535:
-            raise ValueError(f"{name}.background_rgb565: invalid native color")
+        scene["background_rgb565"] = resolve_scene_color(
+            device_theme, scene["background_rgb565"], f"{name}.background_rgb565")
         intro = scene["intro"]
         require_keys(intro, {"bitmap_fade_out_ms", "cloud_fade_in_ms"}, f"{name}.intro")
         for key, value in intro.items():
@@ -211,7 +244,8 @@ def load_scenes(root: Path, rig=None):
         text = title["text"]
         if not isinstance(text, str) or not 1 <= len(text) <= 64 or any(not 32 <= ord(c) <= 126 for c in text):
             raise ValueError(f"{name}.title requires bounded printable ASCII, without fallback glyphs")
-        for key, maximum in (("top", 465), ("color_rgb565", 65535), ("character_interval_ms", 1000)):
+        title["color_rgb565"] = resolve_scene_color(device_theme, title["color_rgb565"], f"{name}.title.color_rgb565")
+        for key, maximum in (("top", 465), ("character_interval_ms", 1000)):
             if type(title[key]) is not int or not 0 <= title[key] <= maximum:
                 raise ValueError(f"{name}.title.{key}: invalid value {title[key]!r}")
         for key in ("navigation_visible", "readout_visible"):

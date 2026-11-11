@@ -6,25 +6,20 @@
 
 The VibeWare floppy animation plays once after a cold boot or software reset.
 The display then shows Muse waking. The showcase changes its pose every ten
-seconds while Muse is visible. Tap
-the character to trigger its reaction and the optional Cody touch sound.
-The **Setup WiFi** button on Muse Home opens the Wi-Fi setup journey. Choose
-**Pair with Bluetooth** for the introduction, then tap the Apple or Android
-icon to show that platform's app QR. Tap the QR screen to return to the
-introduction; follow its pairing action to start the BLE pairing session and show
-the session QR. Tapping that screen returns after the owned session is closed.
-The public BLE name is `AiGadget-`
-with a boot-scoped random suffix, shared by the radio and the pairing QR.
-After waking, when a current Wi-Fi observation confirms the device is offline,
-Home waits four seconds and fades in a violet setup notice over two seconds;
-the name comes from the canonical BLE observation. Status and navigation chrome
-hide after inactivity and return on touch or measured IMU motion. Battery
-percentage display is prepared as a renderer option; its settings UI is deferred.
+seconds while Muse is visible. Tap the character to trigger its reaction and
+the optional Cody touch sound. Muse stays full-size on Home whether Wi-Fi is
+connected or offline. Status and navigation chrome hide after inactivity and
+return on touch or measured IMU motion. Battery percentage display is prepared
+as a renderer option; its settings UI is deferred.
 
-Hold BOOT for two seconds to open Options and choose Connections or Codex.
-A short BOOT press returns to Muse Home. PWR puts the device in standby or
-wakes it. Pending setup, pairing and other owned operations retain their
-normal cleanup and admission rules when changing screens.
+Hold BOOT for two seconds to open Options, then choose **Connections** to set up
+Wi-Fi or connect Codex. The Wi-Fi action offers a local network list and Bluetooth
+provisioning with app download and pairing QR screens. Back returns from the list
+to the Wi-Fi choices, then to Connections. The public BLE name is `AiGadget-` with a
+boot-scoped random suffix shared by the radio and the pairing QR. A short BOOT
+press returns to Muse Home. PWR puts the device in standby or wakes it. Pending
+setup, pairing and other owned operations retain their normal cleanup and
+admission rules when changing screens.
 
 The native **Codex** hub in Options opens **Chats**, **Active calls**,
 **Events** and **Statistics**. Open a chat to see its turns, then open a turn
@@ -50,10 +45,11 @@ Connection status follows the saved network and pairing state.
 | Storage or service error | Show the original failure and an available recovery action |
 
 **Tap to pair** opens **Wi-Fi setup**. **App download QR** opens the installation
-screen. Tap the QR screen to return to the guide, then choose **Show pairing QR**
+screen. Swipe right on the QR screen to return to the guide, then choose **Show pairing QR**
 to start Bluetooth provisioning. Scan the session QR from inside the Espressif
-app. QR screens show a title and a large code with its complete quiet zone; a
-tap returns to the previous screen through the existing session cleanup path.
+app. QR screens show a title and a large code with its complete quiet zone. A
+tap reveals status and perimeter temporarily; a right swipe returns through the
+existing session cleanup path.
 
 On the **Wi-Fi offline** recovery screen, **Later** opens **Not connected**.
 When Cody loses a working link, it tries the saved network again after about
@@ -112,7 +108,16 @@ The Tools, Preferences and Device pages show three position marks without a Home
 footer. Each destination uses an icon, title and separator. Footer actions use
 the Home gradient text, with a label appropriate to the current action.
 Display holds brightness, rotation and orientation. **Display > More... >
-Display rings** independently controls the assistant quota and battery arcs.
+Display & time** independently controls the assistant quota and battery arcs;
+its **Time** page contains automatic network time synchronization and **Sync time**.
+Auto time defaults to On and uses
+`pool.ntp.org`, `time.cloudflare.com` and `time.windows.com` when Wi-Fi has an
+IP address. Turning it Off stops network synchronization without changing the
+configured time zone or other clock sources. Sync time requests the PC's current
+UTC instant and local UTC offset through the authenticated connection. The
+device stores and calculates time in UTC; the offset is used for local display
+and is refreshed on synchronization rather than independently calculating
+daylight-saving changes.
 Both default to On, survive restart, and return to On after a factory reset.
 The battery status and alerts remain available when its arc is hidden. Behavior holds sound,
 shake-to-wake and, in the voice-enabled profile, Dictation. **More behavior**
@@ -200,7 +205,7 @@ carousel. It contains three Info pages followed by VibeWare and the repository Q
 | Memory | Internal RAM and PSRAM as separate allocatable heaps: used, free and largest free block |
 | Firmware | Firmware version, compilation date/time, build timezone and build host |
 | VibeWare | VibeWare logo and umbertogiacobbi.biz |
-| Scan for more info | QR for the [GitHub repository](https://github.com/umbertotechnopreneur/esp32-luna-shell); a tap returns to VibeWare |
+| Scan for more info | QR for the [GitHub repository](https://github.com/umbertotechnopreneur/esp32-luna-shell); a right swipe returns to VibeWare |
 
 Horizontal swipes move through these pages, with marks indicating the current
 position. Back from System returns to

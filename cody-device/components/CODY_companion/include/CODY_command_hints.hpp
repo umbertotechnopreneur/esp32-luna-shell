@@ -2,6 +2,7 @@
 #include <cstring>
 #include "CODY2D_text.hpp"
 #include "CODY_activity_identity.hpp"
+#include "CODY_theme_generated.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 
 namespace CODY {
@@ -245,7 +246,7 @@ inline esp_err_t update_home_tokens(ActivityIdentityState &state, const CODY2D::
         return ESP_OK;
     }
     error = prepare_activity_identity_caption(font, caption, "", state.tokens,
-        state.tokens_line, 0xBDF7, state.tokens_length, state.tokens_width, sizeof(state.tokens) - 1);
+        state.tokens_line, Theme::text_subdued, state.tokens_length, state.tokens_width, sizeof(state.tokens) - 1);
     if (error != ESP_OK) {
         return error;
     }
@@ -340,7 +341,7 @@ inline esp_err_t update_command_hints(CommandHintsState &state, const CODY2D::Mo
         const esp_err_t error = CODY2D::prepare_text_line(font,
             {state.window, static_cast<uint16_t>(count)},
             {static_cast<int16_t>(window_left),
-             static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2)}, 0xBDF7, state.request);
+             static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2)}, Theme::text_subdued, state.request);
         if (error != ESP_OK) {
             ESP_LOGE("CODY_commands", "Marquee glyph preparation failed (%s)", esp_err_to_name(error));
             return error;

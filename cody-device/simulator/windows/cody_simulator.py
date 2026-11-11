@@ -68,6 +68,7 @@ from cody_preview_layout import (  # noqa: E402
     SIZE, VIEW_PADDING, PreviewLayout, enlarge_framebuffer, logical_touch, physical_point,
 )
 from runtime_paths import resolve_runtime_output  # noqa: E402
+from cody_semantic_palette import studio_hex, studio_rgb  # noqa: E402
 from cody_ui_theme import FONTS, install_theme, scale_pixels  # noqa: E402
 from cody_ui_dpi import prepare_display, configure_tk_scaling, window_work_area  # noqa: E402
 from cody_ui_widgets import InspectorTab  # noqa: E402
@@ -701,7 +702,7 @@ class CodyRenderer:
         circular = Image.new("L", (SIZE, SIZE))
         ImageDraw.Draw(circular).ellipse((0,0,SIZE-1,SIZE-1), fill=255)
         image = image.convert("RGB")
-        image.paste((0,0,0), (0,0,SIZE,SIZE), Image.eval(circular, lambda v:255-v))
+        image.paste(studio_rgb("device_ui", "canvas_black"), (0,0,SIZE,SIZE), Image.eval(circular, lambda v:255-v))
         image = orient(image, rotation)
         if material_study and screen == Screen.RIG:
             image.info['cody_material_study'] = True
@@ -715,20 +716,20 @@ class CodyRenderer:
     # image: Rendered logical view, optionally marked as a host-only cloud study.
     # caption: Context shown for the ordinary simulator capture.
     def capture_sheet(self, image, caption):
-        sheet = Image.new("RGB", (SIZE, SIZE+42), "#101820")
+        sheet = Image.new("RGB", (SIZE, SIZE+42), studio_hex("preview", "sheet_background"))
         sheet.paste(image, (0,0))
         draw = ImageDraw.Draw(sheet)
         if image.info.get('cody_jelly_study', False):
-            draw.text((12, SIZE + 7), 'PEARL JELLY / SCANLINE STUDY / HOST ONLY', fill='#75CBF3', font=self.font)
-            draw.text((12, SIZE + 23), 'SYNTHETIC / ESP32 performance UNMEASURED', fill='#C3D0D5', font=self.font)
+            draw.text((12, SIZE + 7), 'PEARL JELLY / SCANLINE STUDY / HOST ONLY', fill=studio_hex("preview", "sheet_title"), font=self.font)
+            draw.text((12, SIZE + 23), 'SYNTHETIC / ESP32 performance UNMEASURED', fill=studio_hex("preview", "sheet_detail"), font=self.font)
         elif image.info.get('cody_png_mesh_study', False):
-            draw.text((12, SIZE + 7), 'PNG + TRIANGLE MESH / HOST ONLY', fill='#75CBF3', font=self.font)
-            draw.text((12, SIZE + 23), 'SYNTHETIC / ESP32 performance UNMEASURED', fill='#C3D0D5', font=self.font)
+            draw.text((12, SIZE + 7), 'PNG + TRIANGLE MESH / HOST ONLY', fill=studio_hex("preview", "sheet_title"), font=self.font)
+            draw.text((12, SIZE + 23), 'SYNTHETIC / ESP32 performance UNMEASURED', fill=studio_hex("preview", "sheet_detail"), font=self.font)
         elif image.info.get('cody_material_study', False):
-            draw.text((12, SIZE + 7), 'MATERIAL STUDY / HOST ONLY', fill='#75CBF3', font=self.font)
-            draw.text((12, SIZE + 23), 'SYNTHETIC / Not the firmware renderer', fill='#C3D0D5', font=self.font)
+            draw.text((12, SIZE + 7), 'MATERIAL STUDY / HOST ONLY', fill=studio_hex("preview", "sheet_title"), font=self.font)
+            draw.text((12, SIZE + 23), 'SYNTHETIC / Not the firmware renderer', fill=studio_hex("preview", "sheet_detail"), font=self.font)
         else:
-            draw.text((12,SIZE+12), "SYNTHETIC / " + caption, fill="#75CBF3", font=self.font)
+            draw.text((12,SIZE+12), "SYNTHETIC / " + caption, fill=studio_hex("preview", "sheet_title"), font=self.font)
         return sheet
 
     # self: Renderer with a lazily decoded mesh or jelly PNG and shared semantic rig.
@@ -764,12 +765,12 @@ class CodyRenderer:
                         duration=frame_duration_ms, loop=0, disposal=2, optimize=False)
         # Retain full-color phase samples alongside the compressed motion loop.
         # These make texture/edge attachment inspectable without a GIF player.
-        pose_sheet = Image.new('RGB', (SIZE * 2, (SIZE + 42) * 2), '#101820')
+        pose_sheet = Image.new('RGB', (SIZE * 2, (SIZE + 42) * 2), studio_hex("preview", "sheet_background"))
         phases = {'phase-0': (0.0, 0, 0), 'phase-90': (.25, 1, 0),
                   'phase-180': (.50, 0, 1), 'phase-270': (.75, 1, 1)}
         for name, (fraction, column, row) in phases.items():
             frame = frames[round(fraction * frame_count)].copy()
-            ImageDraw.Draw(frame).text((12, 12), name + ' / SYNTHETIC', fill='#75CBF3', font=self.font)
+            ImageDraw.Draw(frame).text((12, 12), name + ' / SYNTHETIC', fill=studio_hex("preview", "sheet_title"), font=self.font)
             pose_sheet.paste(frame, (column * SIZE, row * (SIZE + 42)))
         pose_path = destination.with_name(destination.stem + '-poses.png')
         pose_sheet.save(pose_path)

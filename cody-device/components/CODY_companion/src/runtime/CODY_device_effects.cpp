@@ -20,6 +20,7 @@ constexpr uint32_t kTapCue = 0x4343FF01U; // Local feedback within the shared ap
 constexpr uint32_t kKeyCue = 0x4343FF02U;
 constexpr uint32_t kWakeCue = 0x4343FF03U;
 constexpr uint32_t kJumpCue = 0x4343FF04U;
+constexpr uint32_t kPreferenceCue = 0x4343FF05U;
 constexpr uint32_t kTapRateHz = 16000;
 constexpr size_t kTapSamples = 480;
 constexpr int64_t kDisconnectDwellUs = 3000000;
@@ -56,6 +57,23 @@ constexpr std::array<int16_t, kTapSamples> make_tap_cue()
 }
 
 constexpr auto kTapPcm = make_tap_cue();
+// No parameters: a soft two-note confirmation at the shared 16 kHz clock.
+constexpr std::array<int16_t, 1920> make_preference_cue()
+{
+    std::array<int16_t, 1920> samples{};
+    int phase = 0;
+    for (int index = 0; index < 1920; ++index) {
+        const int local = index < 800 ? index : index - 960;
+        if (local < 0 || local >= 800) continue;
+        phase += index < 800 ? 600 : 900;
+        if (phase >= 16000) phase -= 16000;
+        const int triangle = phase < 8000 ? phase - 4000 : 12000 - phase;
+        const int attack = local < 32 ? local : 32;
+        samples[index] = static_cast<int16_t>(triangle * attack * (799 - local) / (32 * 799));
+    }
+    return samples;
+}
+constexpr auto kPreferencePcm = make_preference_cue();
 // No parameters: a short decaying 1 kHz triangle chime, authored at 16 kHz.
 constexpr std::array<int16_t, 1920> make_wake_cue()
 {
@@ -590,6 +608,22 @@ void play_device_tap_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapsh
         ESP_LOGW(kTag, "Tap cue admission failed (%s)", esp_err_to_name(error));
     }
     model.tap_audio_error = error;
+}
+
+// model: Retains the optional confirmation's actual admission result.
+// voice: Current voice observation, or null when voice is excluded.
+void play_device_preference_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice)
+{
+    if (!model.prepared || model.preparation_error != ESP_OK) return;
+    if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
+            !voice_sound_state_known(*voice, esp_timer_get_time()))) return;
+    lunashell_audio_cue_status_t status{};
+    const auto error = LUNASHELL_audio_notify_codex(kPreferencePcm.data(), kPreferencePcm.size(), kTapRateHz,
+        kPreferenceCue, LUNASHELL_CODEX_CUE_NOTICE, &status);
+    if (error != ESP_OK && error != model.preference_audio_error) {
+        ESP_LOGW(kTag, "Preference cue admission failed (%s)", esp_err_to_name(error));
+    }
+    model.preference_audio_error = error;
 }
 
 // model: Retains optional admission failures without waiting for the speaker.

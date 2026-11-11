@@ -1,4 +1,7 @@
 #include "CODY_reset_countdown.hpp"
+#include "CODY_title_style.hpp"
+#include "CODY_theme_generated.hpp"
+#include "CODY_ui_components.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -15,15 +18,15 @@ constexpr uint16_t kMinYear = 2020;
 constexpr uint16_t kMaxYear = 2099;
 constexpr uint64_t kDaySeconds = 86400;
 constexpr uint64_t kMaxSeconds = (kMaxYear - kMinYear + 1U) * 366U * kDaySeconds;
-constexpr uint16_t kWhite = 0xF7BE;
-constexpr uint16_t kMuted = 0x9CF3;
-constexpr uint16_t kAccent = 0x6F9E;
-constexpr uint16_t kError = 0xFD20;
-constexpr uint16_t kTileTop = 0x2125;
-constexpr uint16_t kTileBottom = 0x0862;
-constexpr uint16_t kFoldTop = 0x1904;
-constexpr uint16_t kFoldBottom = 0x10A3;
-constexpr uint16_t kHinge = 0x4208;
+constexpr uint16_t kWhite = UI::Palette::text;
+constexpr uint16_t kMuted = UI::Palette::muted;
+constexpr uint16_t kAccent = UI::Palette::cyan;
+constexpr uint16_t kError = Theme::dashboard_attention;
+constexpr uint16_t kTileTop = Theme::firmware_reset_countdown_tiletop;
+constexpr uint16_t kTileBottom = Theme::firmware_reset_countdown_tilebottom;
+constexpr uint16_t kFoldTop = Theme::firmware_reset_countdown_foldtop;
+constexpr uint16_t kFoldBottom = Theme::firmware_reset_countdown_foldbottom;
+constexpr uint16_t kHinge = Theme::firmware_reset_countdown_hinge;
 constexpr uint16_t kHalfFlip = kResetCountdownFlipComplete / 2U;
 constexpr CODY2D::Rect kMain{73, 73, 320, 320};
 constexpr CODY2D::Rect kClockIcon{204, 181, 58, 58};
@@ -39,9 +42,9 @@ constexpr float kInnerEdge = 223.5f;
 constexpr float kOuterEdge = 229.5f;
 constexpr float kBatteryOuterEdge = kInnerEdge - 1.f;
 constexpr float kBatteryInnerEdge = kBatteryOuterEdge - (kOuterEdge - kInnerEdge);
-constexpr uint16_t kBatteryTrack = 0x18C3;
-constexpr uint16_t kBatteryGreen = 0x366A;
-constexpr uint16_t kBatteryYellow = 0xCF25;
+constexpr uint16_t kBatteryTrack = Theme::perimeter_battery_track;
+constexpr uint16_t kBatteryGreen = Theme::perimeter_battery_green;
+constexpr uint16_t kBatteryYellow = Theme::perimeter_battery_yellow;
 static_assert(kInnerEdge - kBatteryOuterEdge == 1.f, "Perimeter rings require a one-pixel radial gap");
 constexpr float kTau = 6.28318530718f;
 
@@ -103,6 +106,14 @@ esp_err_t add_caption(ResetCountdownPresentation &presentation, const CODY2D::Mo
 {
     if (presentation.caption_count >= presentation.captions.size()) { return ESP_ERR_INVALID_SIZE; }
     auto &caption = presentation.captions[presentation.caption_count];
+    if (presentation.caption_count == 0) {
+        const size_t length = std::strlen(text);
+        if (length == 0 || length >= sizeof(caption.text)) return ESP_ERR_INVALID_SIZE;
+        std::memcpy(caption.text, text, length + 1U);
+        caption.line.text = {caption.text, static_cast<uint16_t>(length)};
+        ++presentation.caption_count;
+        return ESP_OK;
+    }
     const esp_err_t error = prepare_caption(caption, font, text, bounds, color);
     if (error == ESP_OK) { ++presentation.caption_count; }
     return error;
@@ -272,20 +283,22 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
     }
     for (uint8_t index = 0; error == ESP_OK && index < presentation.caption_count; ++index) {
         const auto &line = presentation.captions[index].line;
-        error = CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
+        error = index == 0 ? ESP_OK :
+            CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
     }
     return countdown_result("draw rows", error);
 }
 
 // presentation: Prepared owner of the central read-only countdown.
 // content: Receives an immutable borrowed native callback and bounded damage.
-void attach_content(const ResetCountdownPresentation &presentation, SceneContent &content)
+esp_err_t attach_content(const ResetCountdownPresentation &presentation, SceneContent &content)
 {
     content = {};
     content.bounds = damage_rect(kMain);
     content.state = &presentation;
     content.revision = presentation.revision;
     content.draw_rows = draw_rows;
+    return prepare_styled_title(presentation.captions[0].line.text, CODY2D::Rect{73, 83, 320, 48}, content.heading, 3, true);
 }
 
 // presentation: Fixed display buffers between frames.
@@ -429,7 +442,9 @@ bool same_view(const ResetCountdownView &left, const ResetCountdownView &right)
 // angle: Clockwise radians from twelve o'clock, excluding one full revolution.
 uint16_t perimeter_color(float angle)
 {
-    constexpr uint16_t stops[]{0x4F9B, 0x651F, 0xB37F, 0xE39B, 0x4F9B};
+    constexpr uint16_t stops[]{Theme::perimeter_assistant_quota_stops_0, Theme::perimeter_assistant_quota_stops_1,
+        Theme::perimeter_assistant_quota_stops_2, Theme::perimeter_assistant_quota_stops_3,
+        Theme::perimeter_assistant_quota_stops_4};
     const float sample = angle * 4.f / kTau;
     const unsigned index = std::min(static_cast<unsigned>(sample), 3U);
     const auto level = static_cast<uint8_t>((sample - index) * 255.f);
@@ -465,8 +480,7 @@ esp_err_t prepare_reset_countdown(const ResetCountdownView &view,
     }
     if (presentation.valid && same_view(presentation.view, view) &&
         presentation.title_font == &title_font && presentation.body_font == &body_font) {
-        attach_content(presentation, content);
-        return ESP_OK;
+        return attach_content(presentation, content);
     }
     esp_err_t error = begin_preparation(presentation, title_font, body_font);
     if (error == ESP_OK) { error = add_caption(presentation, title_font, "Codex reset", {73, 83, 320, 48}, kWhite); }
@@ -477,8 +491,7 @@ esp_err_t prepare_reset_countdown(const ResetCountdownView &view,
     presentation.view = view;
     ++presentation.revision;
     presentation.valid = true;
-    attach_content(presentation, content);
-    return ESP_OK;
+    return attach_content(presentation, content);
 }
 
 // presentation: Prepared screen, retained until the central and perimeter draws retire.
@@ -494,9 +507,10 @@ bool reset_countdown_ring_visible(const ResetCountdownPresentation &presentation
 // strip: Borrowed RGB565 tile carrying original stride and storage byte order.
 // first_row: Logical y of the tile.
 // first_column: Logical x of the tile.
+// opacity: Whole-ring visibility for temporary QR chrome.
 // Exception: Returns the original surface or argument error.
 esp_err_t draw_device_perimeter_rows(uint16_t remaining, int8_t battery_percent,
-    CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
+    CODY2D::Surface strip, uint16_t first_row, uint16_t first_column, uint8_t opacity)
 {
     if (remaining > 10000 || battery_percent < -1 || battery_percent > 100) {
         return countdown_result("draw perimeter values", ESP_ERR_INVALID_ARG);
@@ -540,7 +554,7 @@ esp_err_t draw_device_perimeter_rows(uint16_t remaining, int8_t battery_percent,
             if (coverage <= 0.f) { continue; }
             float angle = std::atan2(dx, -dy);
             if (angle < 0.f) { angle += kTau; }
-            float alpha = std::min(coverage, 1.f);
+            float alpha = std::min(coverage, 1.f) * opacity / 255.f;
             uint16_t foreground = kBatteryTrack;
             if (battery_pixel && battery_percent > 0) {
                 // Like the quota ring, the empty arc grows clockwise from twelve.

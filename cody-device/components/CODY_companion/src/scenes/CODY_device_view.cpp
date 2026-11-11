@@ -1,4 +1,8 @@
 #include "CODY_device_view.hpp"
+#include "CODY_title_style.hpp"
+#include "CODY_typography.hpp"
+#include "CODY_theme_generated.hpp"
+#include "CODY_ui_components.hpp"
 #include "CODY_home_dashboard.hpp"
 #include "CODY_voice_waveform.hpp"
 
@@ -37,12 +41,12 @@ constexpr CODY2D::Rect kSecondAction{103, 322, 260, 50};
 constexpr CODY2D::Rect kDashboardSingleAction{113, 288, 240, 72};
 constexpr CODY2D::Rect kDashboardFirstAction{73, 260, 154, 104};
 constexpr CODY2D::Rect kDashboardSecondAction{239, 260, 154, 104};
-constexpr uint16_t kWhite = 0xF7BE;
-constexpr uint16_t kAccent = 0x6F9E;
-constexpr uint16_t kMuted = 0x9CF3;
-constexpr uint16_t kOnline = 0x4EE8;
-constexpr uint16_t kAttention = 0xFE27;
-constexpr uint16_t kDivider = 0x2127;
+constexpr uint16_t kWhite = UI::Palette::text;
+constexpr uint16_t kAccent = UI::Palette::cyan;
+constexpr uint16_t kMuted = UI::Palette::muted;
+constexpr uint16_t kOnline = Theme::dashboard_positive;
+constexpr uint16_t kAttention = Theme::status_warning_content;
+constexpr uint16_t kDivider = Theme::dashboard_track;
 constexpr DamageRect kOverviewBounds{73, 79, 393, 380};
 constexpr CODY2D::Rect kOverviewHeading{73, 79, 320, 58};
 constexpr CODY2D::Rect kOverviewChat{73, 291, 320, 28};
@@ -114,9 +118,9 @@ esp_err_t prepare_action(const char *text, CODY2D::Rect bounds, bool primary, CO
         return ESP_OK;
     }
     action.bounds = bounds;
-    action.top_color = primary ? 0x226B : 0x2947;
-    action.bottom_color = primary ? 0x10C6 : 0x10A4;
-    action.border_color = primary ? 0x4B9B : 0x73AF;
+    action.top_color = primary ? Theme::controls_content_primary_top : Theme::controls_content_secondary_top;
+    action.bottom_color = primary ? Theme::controls_content_primary_bottom : Theme::controls_content_secondary_bottom;
+    action.border_color = primary ? Theme::controls_content_primary_border : Theme::controls_content_secondary_border;
     action.corner_radius = bounds.height < 34 ? bounds.height / 2U : 17;
     return prepare_line(text, SceneData::body_font, bounds, kWhite, action.caption);
 }
@@ -139,7 +143,7 @@ esp_err_t draw_message_rows(const void *state, CODY2D::Surface strip, uint16_t f
     }
     for (const auto &line : plain.captions) {
         if (line.valid) {
-            const esp_err_t error = CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
+            const auto error = CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
             if (error != ESP_OK) {
                 return error;
             }
@@ -164,6 +168,7 @@ void attach_message(const PlainView &plain, DeviceFrameContent &frame)
     frame.content.revision = plain.revision;
     frame.content.state = &plain;
     frame.content.draw_rows = draw_message_rows;
+    frame.content.heading = plain.title;
 }
 
 // data: Canonical observation whose authenticated app presence is aged by its owner.
@@ -265,7 +270,7 @@ esp_err_t draw_overview_rows(const void *state, CODY2D::Surface strip, uint16_t 
     const auto fill = [&](CODY2D::Rect bounds, uint16_t color) {
         return fill_overview_rows(strip, first_row, first_column, bounds, color);
     };
-    auto error = draw_line(overview->heading);
+    auto error = ESP_OK;
     if (error == ESP_OK) error = fill({95, 190, 277, 1}, kDivider);
     if (error == ESP_OK) error = fill({95, 242, 277, 1}, kDivider);
     for (size_t index = 0; error == ESP_OK && index < overview->rows.size(); ++index) {
@@ -299,12 +304,14 @@ esp_err_t draw_overview_rows(const void *state, CODY2D::Surface strip, uint16_t 
 
 // overview: Fully prepared display-owned glyphs, held until frame retirement.
 // frame: Receives the flat dashboard renderer and its stable damage envelope.
-void attach_overview(const DeviceOverviewView &overview, DeviceFrameContent &frame)
+esp_err_t attach_overview(const DeviceOverviewView &overview, DeviceFrameContent &frame)
 {
     frame.content.bounds = kOverviewBounds;
     frame.content.revision = overview.revision;
     frame.content.state = &overview;
     frame.content.draw_rows = draw_overview_rows;
+    static constexpr char heading[] = "Device";
+    return prepare_styled_title({heading, sizeof(heading) - 1U}, kOverviewHeading, frame.content.heading);
 }
 
 // view: Display-owned native text and button layouts.
@@ -347,8 +354,7 @@ esp_err_t prepare_device_home(DeviceView &view, DeviceFrameContent &frame, const
             std::strcmp(row.value.data(), statuses[index].text) == 0;
     }
     if (same) {
-        attach_overview(overview, frame);
-        return ESP_OK;
+        return attach_overview(overview, frame);
     }
     if (overview.revision == std::numeric_limits<uint32_t>::max()) return ESP_ERR_INVALID_STATE;
     overview.valid = false;
@@ -356,7 +362,7 @@ esp_err_t prepare_device_home(DeviceView &view, DeviceFrameContent &frame, const
     overview.chat = chat;
     overview.chat_line = {};
     overview.record = {};
-    auto error = prepare_line("Device", SceneData::title_font, kOverviewHeading, kWhite, overview.heading);
+    esp_err_t error = ESP_OK;
     for (size_t index = 0; error == ESP_OK && index < overview.rows.size(); ++index) {
         auto &row = overview.rows[index];
         const auto &status = statuses[index];
@@ -369,10 +375,13 @@ esp_err_t prepare_device_home(DeviceView &view, DeviceFrameContent &frame, const
         row.icon = status.icon;
         row.color = status.color;
         const auto top = static_cast<uint16_t>(layout.center_y - 20U);
-        error = prepare_line(layout.label, SceneData::body_font, {140, top, 80, 40},
+        const CODY2D::Rect label_bounds{140, top, 80, 40};
+        const CODY2D::MonoFont *label_face = nullptr;
+        error = Typography::label_font(layout.label, label_bounds, Typography::monospace(), label_face);
+        if (error == ESP_OK) error = prepare_line(layout.label, *label_face, label_bounds,
             kWhite, row.label, TextAlignment::Left);
         if (error == ESP_OK) {
-            error = prepare_line(row.value.data(), SceneData::body_font, {221, top, 151, 40},
+            error = prepare_line(row.value.data(), Typography::monospace(), {221, top, 151, 40},
                 row.color, row.status, TextAlignment::Right);
         }
     }
@@ -386,8 +395,7 @@ esp_err_t prepare_device_home(DeviceView &view, DeviceFrameContent &frame, const
     }
     ++overview.revision;
     overview.valid = true;
-    attach_overview(overview, frame);
-    return ESP_OK;
+    return attach_overview(overview, frame);
 }
 
 } // namespace
@@ -417,7 +425,7 @@ esp_err_t prepare_device_chrome(DeviceChrome &chrome, const DeviceDashboardData 
         }
         if (caption != nullptr) {
             const auto error = prepare_status_caption(caption,
-                saved_epoch > 0 ? 0xFE27 : kMuted, chrome.connection);
+                saved_epoch > 0 ? Theme::status_warning_content : kMuted, chrome.connection);
             if (error != ESP_OK) return error;
         }
         chrome.connection_text = connection;
@@ -437,9 +445,9 @@ esp_err_t prepare_device_chrome(DeviceChrome &chrome, const DeviceDashboardData 
         }
         const auto error = prepare_action(chrome.battery_text.data(), {105, 397, 256, 30}, false, chrome.battery);
         if (error != ESP_OK) return error;
-        chrome.battery.border_color = charge ? 0xFD25 : kAccent;
-        chrome.battery.top_color = charge ? 0x3204 : 0x0926;
-        chrome.battery.bottom_color = 0x0841;
+        chrome.battery.border_color = charge ? Theme::device_view_battery_charge_border : kAccent;
+        chrome.battery.top_color = charge ? Theme::device_view_battery_charge_top : Theme::device_view_battery_normal_top;
+        chrome.battery.bottom_color = Theme::device_view_battery_bottom;
     }
     chrome.battery_sequence = battery.sequence;
     return ESP_OK;
@@ -502,29 +510,34 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
     plain.valid = false;
     plain.text = text;
     plain.layout = layout;
+    plain.title = {};
     plain.captions = {};
     plain.actions = {};
 
     const bool voice_layout = layout == DeviceMessageLayout::Voice || layout == DeviceMessageLayout::VoiceCountdown;
     const bool voice_failure = layout == DeviceMessageLayout::VoiceFailure;
-    esp_err_t error = prepare_line(plain.text[0].data(), SceneData::title_font,
-        voice_layout || voice_failure ? kVoiceHeading : kHeading, kWhite, plain.captions[0]);
+    esp_err_t error = ESP_OK;
+    const auto *heading_text = plain.text[0].data();
+    if (heading_text[0] != '\0') {
+        error = prepare_styled_title({heading_text, static_cast<uint16_t>(std::strlen(heading_text))},
+            voice_layout || voice_failure ? kVoiceHeading : kHeading, plain.title, 3, true);
+    }
     if (error == ESP_OK) {
         error = prepare_line(plain.text[1].data(), SceneData::body_font,
             voice_failure ? kVoiceFailureStatus : voice_layout ? kVoiceStatus : kStatus,
-            voice_failure ? kAttention : kAccent, plain.captions[1]);
+            voice_failure ? kAttention : kAccent, plain.captions[0]);
     }
     if (error == ESP_OK) {
         error = prepare_line(plain.text[2].data(), SceneData::body_font,
             voice_failure ? kVoiceFailureDetail : voice_layout ? kVoiceDetail : kDetail,
-            kMuted, plain.captions[2]);
+            kMuted, plain.captions[1]);
     }
     if (error == ESP_OK && layout == DeviceMessageLayout::VoiceCountdown) {
-        error = prepare_line(plain.text[5].data(), HomeFonts::value_font, kVoiceCountdownDigit, kWhite, plain.captions[3]);
+        error = prepare_line(plain.text[5].data(), HomeFonts::value_font, kVoiceCountdownDigit, kWhite, plain.captions[2]);
     } else if (error == ESP_OK) {
         const uint16_t top = voice_failure ? 312 : layout == DeviceMessageLayout::Dashboard ? 230 : 234;
         error = prepare_line(plain.text[5].data(), SceneData::body_font, {73, top, 320, 27},
-            voice_failure ? kMuted : kWhite, plain.captions[3]);
+            voice_failure ? kMuted : kWhite, plain.captions[2]);
     }
     const bool two_actions = plain.text[3][0] != '\0' && plain.text[4][0] != '\0';
     const bool dashboard_actions = layout == DeviceMessageLayout::Dashboard;
@@ -539,9 +552,9 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
     }
     if (voice_layout && plain.actions[1].enabled) {
         auto &cancel = plain.actions[1];
-        cancel.top_color = 0x70C8;
-        cancel.bottom_color = 0x38A5;
-        cancel.border_color = 0xBA0B;
+        cancel.top_color = Theme::device_view_cancel_top;
+        cancel.bottom_color = Theme::device_view_cancel_bottom;
+        cancel.border_color = Theme::device_view_cancel_border;
     }
     if (dashboard_actions && !two_actions) {
         for (auto &action : plain.actions) {

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import os
+from datetime import datetime, timezone
 import re
 import secrets
 import sys
@@ -13,40 +13,19 @@ import time
 from typing import Any
 
 
-TIMEZONES = {"UTC": 0, "Europe/Rome": 1, "Asia/Ho_Chi_Minh": 2}
-ZONE_NAMES = {value: name for name, value in TIMEZONES.items()}
-COMMAND_NAMES = ("device", "pc", "nonce", "id", "op", "timezone", "enabled", "start", "end")
-ACK_NAMES = ("device", "pc", "nonce", "id", "op", "status", "error", "initialized", "timezone", "enabled", "start", "end")
+COMMAND_NAMES = ("device", "pc", "nonce", "id", "op", "offset", "enabled", "start", "end")
+ACK_NAMES = ("device", "pc", "nonce", "id", "op", "status", "error", "initialized", "offset", "enabled", "start", "end")
 REQUEST_SECONDS = 4.0
 MAX_REQUESTS = 16
+TIME_REQUEST_NAMES = ("device", "pc", "nonce", "id", "mode")
+TIME_RESPONSE_NAMES = (*TIME_REQUEST_NAMES, "status", "epoch", "offset")
+TIME_MIN_EPOCH = 1704067200  # 2024-01-01 UTC, the first trusted RTC calendar.
+TIME_MAX_EPOCH = 4102444799  # 2099-12-31 23:59:59 UTC, the final supported calendar.
+MAX_TIME_IDS_PER_NONCE = 16
+MAX_TIME_PEERS = 128
 
 
-# No parameters: reads the operating system's configured zone, never its transient UTC offset.
-# Raises OSError or ValueError if the Windows zone is unreadable or unsupported by Cody.
-def host_timezone() -> str:
-    if os.name != "nt":
-        raise ValueError("Automatic Cody timezone setup currently requires Windows; select a supported timezone explicitly")
-    import winreg
-    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\TimeZoneInformation") as key:
-        zone, zone_type = winreg.QueryValueEx(key, "TimeZoneKeyName")
-        if zone_type != winreg.REG_SZ or not isinstance(zone, str):
-            raise ValueError("Windows TimeZoneKeyName has an invalid type")
-        try:
-            disabled, disabled_type = winreg.QueryValueEx(key, "DynamicDaylightTimeDisabled")
-        except FileNotFoundError:
-            disabled, disabled_type = 0, winreg.REG_DWORD
-        if disabled_type != winreg.REG_DWORD or disabled not in (0, 1):
-            raise ValueError("Windows daylight-saving preference has an invalid type or value")
-    mapping = {"UTC": "UTC", "W. Europe Standard Time": "Europe/Rome", "SE Asia Standard Time": "Asia/Ho_Chi_Minh"}
-    selected = mapping.get(zone.rstrip("\0"))
-    if selected is None:
-        raise ValueError(f"Windows timezone {zone!r} is not supported by Cody; select UTC, Europe/Rome or Asia/Ho_Chi_Minh explicitly")
-    if selected == "Europe/Rome" and disabled:
-        raise ValueError("Windows disables daylight-saving time for Europe/Rome; Cody requires that zone's normal daylight-saving rules")
-    return selected
-
-
-# value: Explicit local wall-clock text for the selected device timezone.
+# value: Explicit local wall-clock text under the selected UTC offset.
 # label: Non-secret field name used in rejection diagnostics.
 # Raises ValueError for a value outside strict HH:MM with a valid hour and minute.
 def minute_of_day(value: Any, label: str) -> int:
@@ -56,22 +35,30 @@ def minute_of_day(value: Any, label: str) -> int:
     return int(hour) * 60 + int(minute)
 
 
+# value: Canonical signed UTC offset from an authenticated peer.
+# Raises ValueError for a missing sign, negative zero, leading zeros or an out-of-range offset.
+def parse_offset(value: str) -> int:
+    if re.fullmatch(r"(?:\+0|[+-][1-9][0-9]{0,2})", value) is None or not -840 <= int(value) <= 840:
+        raise ValueError("UTC offset is not a canonical signed minute value")
+    return int(value)
+
+
 # arguments: Strict caller fields; omitted settings preserve the device's actual values.
 # configure: Whether this is a deliberate user preference change rather than a read.
 # Raises ValueError for unknown, empty, unsupported or inconsistent settings.
 def command_settings(arguments: dict[str, Any], configure: bool) -> tuple[str, str, str, str]:
     allowed = {"device_id", "include_simulator"}
     if configure:
-        allowed |= {"timezone", "quiet_hours_enabled", "quiet_hours_start", "quiet_hours_end"}
+        allowed |= {"utc_offset_minutes", "quiet_hours_enabled", "quiet_hours_start", "quiet_hours_end"}
     if set(arguments) - allowed:
         raise ValueError("Clock arguments contain unexpected fields")
     if not configure:
-        return ("-1",) * 4
+        return ("keep", "-1", "-1", "-1")
     if not any(name in arguments for name in allowed - {"device_id", "include_simulator"}):
         raise ValueError("Clock configuration requires at least one explicit preference")
-    zone = arguments.get("timezone")
-    if zone is not None and (not isinstance(zone, str) or zone not in TIMEZONES):
-        raise ValueError("timezone must be UTC, Europe/Rome or Asia/Ho_Chi_Minh")
+    offset = arguments.get("utc_offset_minutes")
+    if "utc_offset_minutes" in arguments and (type(offset) is not int or not -840 <= offset <= 840):
+        raise ValueError("utc_offset_minutes must be an integer from -840 to 840")
     enabled = arguments.get("quiet_hours_enabled")
     if "quiet_hours_enabled" in arguments and type(enabled) is not bool:
         raise ValueError("quiet_hours_enabled must be a boolean")
@@ -82,9 +69,7 @@ def command_settings(arguments: dict[str, Any], configure: bool) -> tuple[str, s
     end = minute_of_day(arguments["quiet_hours_end"], "quiet_hours_end") if has_end else -1
     if has_start and start == end:
         raise ValueError("Quiet-hours start and end must differ")
-    if "timezone" in arguments and zone is None:
-        raise ValueError("timezone must not be null")
-    return (str(TIMEZONES[zone]) if zone is not None else "-1",
+    return (f"{offset:+d}" if offset is not None else "keep",
             str(int(enabled)) if enabled is not None else "-1", str(start), str(end))
 
 
@@ -99,13 +84,73 @@ class ClockRequests:
         self._used_nonce: dict[str, str] = {}
         self._requests: dict[str, dict[str, Any]] = {}
         self._setup: dict[str, dict[str, Any]] = {}
+        self._time_ids: dict[str, tuple[str, set[str]]] = {}
+
+    # fields: Exact authenticated device-initiated time request.
+    # source: Socket-observed endpoint of the active, fresh committed peer.
+    # Raises ValueError for malformed, stale, forged, simulated or replayed requests;
+    # OSError preserves a response transmission failure and is never retried.
+    def accept_time_request(self, fields: dict[str, str], source: tuple[str, int]) -> None:
+        if (set(fields) != {*TIME_REQUEST_NAMES, "proof"} or fields["mode"] not in {"auto", "manual"}
+                or re.fullmatch(r"[0-9a-f]{32}", fields["id"]) is None):
+            raise ValueError("TIMEREQ fields are malformed")
+        for name in ("device", "pc", "nonce", "proof"):
+            if self._protocol.HEX_PATTERNS[name].fullmatch(fields[name]) is None:
+                raise ValueError("TIMEREQ identity/proof is malformed")
+        if self._protocol.observation_source(source[0]) != "LAN":
+            raise ValueError("PC time synchronization requires a physical Cody")
+        with self._owner._event_lock:
+            peer = self._owner._event_peers.get(fields["device"])
+            active_identities = set(self._owner._event_peers)
+        active = self._owner._state.retained_keys(fields["device"]).active
+        now = time.monotonic()
+        request_values = [fields[name] for name in TIME_REQUEST_NAMES]
+        if (peer is None or active is None or source != peer.source or fields["nonce"] != peer.nonce
+                or fields["pc"] != self._owner._state.pc_id or not hmac.compare_digest(active, peer.key)
+                or not 0 <= now - peer.observed_at <= self._protocol.LIVENESS_TIMEOUT_SECONDS
+                or not hmac.compare_digest(self._protocol.make_proof(peer.key, "time-req", *request_values), fields["proof"])):
+            raise ValueError("TIMEREQ authentication failed")
+        with self._lock:
+            self._time_ids = {identity: entry for identity, entry in self._time_ids.items() if identity in active_identities}
+            previous = self._time_ids.get(fields["device"])
+            if previous is None or previous[0] != peer.nonce:
+                if previous is None and len(self._time_ids) >= MAX_TIME_PEERS:
+                    raise ValueError("Time request registry is full")
+                previous = (peer.nonce, set())
+                self._time_ids[fields["device"]] = previous
+            used = previous[1]
+            if fields["id"] in used or len(used) >= MAX_TIME_IDS_PER_NONCE:
+                raise ValueError("TIMEREQ identity was replayed or nonce budget exhausted")
+            # Consume before reading the clock or sending; ambiguous sends are not replayed.
+            used.add(fields["id"])
+        status, epoch, offset = "ok", "0", "na"
+        try:
+            observed_epoch = int(time.time())
+            if not TIME_MIN_EPOCH <= observed_epoch <= TIME_MAX_EPOCH:
+                raise ValueError("Host clock is outside Cody's trusted RTC calendar")
+            # Resolve the system's actual UTC offset at this same UTC instant;
+            # the wire carries minutes, not a timezone name or guessed DST rule.
+            local_offset = datetime.fromtimestamp(observed_epoch, timezone.utc).astimezone().utcoffset()
+            if local_offset is None or local_offset.microseconds != 0:
+                raise ValueError("Host UTC offset is unavailable or not minute-aligned")
+            total_seconds = local_offset.days * 86400 + local_offset.seconds
+            if total_seconds % 60 != 0 or not -840 * 60 <= total_seconds <= 840 * 60:
+                raise ValueError("Host UTC offset is outside Cody's supported whole-minute range")
+            epoch = str(observed_epoch)
+            offset = f"{total_seconds // 60:+d}"
+        except (OSError, OverflowError, ValueError):
+            status, epoch, offset = "unavailable", "0", "na"
+        values = [*request_values, status, epoch, offset]
+        packet = self._protocol.encode_datagram("TIME", list(zip(TIME_RESPONSE_NAMES, values))
+            + [("proof", self._protocol.make_proof(peer.key, "time", *values))])
+        self._owner._socket.sendto(packet, source)
 
     # fields: Exact signed CLOCKCAP fields emitted after authenticated READY.
     # source: Socket-observed endpoint matching the current active event peer.
     # Raises ValueError for stale, forged, unsupported or malformed capabilities.
     def accept_capability(self, fields: dict[str, str], source: tuple[str, int]) -> None:
         names = ("device", "pc", "nonce", "clock", "initialized")
-        if set(fields) != {*names, "proof"} or fields["clock"] != "1" or fields["initialized"] not in {"0", "1"}:
+        if set(fields) != {*names, "proof"} or fields["clock"] != "2" or fields["initialized"] not in {"0", "1"}:
             raise ValueError("CLOCKCAP fields are malformed")
         for name in ("device", "pc", "nonce", "proof"):
             if self._protocol.HEX_PATTERNS[name].fullmatch(fields[name]) is None:
@@ -123,24 +168,9 @@ class ClockRequests:
             self._prune_locked()
             if self._used_nonce.get(fields["device"]) != fields["nonce"]:
                 self._peers[fields["device"]] = peer
-            setup = self._setup.get(fields["device"])
-            if setup is not None and setup["association"] == association:
-                return
             if len(self._setup) >= 128 and fields["device"] not in self._setup:
                 raise ValueError("Clock setup registry is full")
-            self._setup[fields["device"]] = {"association": association, "status": "initialized" if fields["initialized"] == "1" else "pending"}
-        if fields["initialized"] == "1":
-            return
-        if self._protocol.observation_source(source[0]) == "SIMULATED":
-            self._record_setup(fields["device"], {"status": "not_sent", "error": "Automatic host timezone setup is restricted to physical Cody"})
-            return
-        try:
-            zone = host_timezone()
-            request = self._transmit(fields["device"], "init", (str(TIMEZONES[zone]), "-1", "-1", "-1"), False)
-            self._record_setup(fields["device"], {"request_id": request["id"], "timezone": zone,
-                **(request["result"] if request["result"] is not None else {"status": "sent"})})
-        except (OSError, RuntimeError, ValueError) as error:
-            self._record_setup(fields["device"], {"status": "not_sent", "error": str(error)})
+            self._setup[fields["device"]] = {"association": association, "status": "offset_supported"}
 
     # No parameters: called while holding the private registry lock to expire bounded leases.
     def _prune_locked(self) -> None:
@@ -152,22 +182,11 @@ class ClockRequests:
                 if request["result"] is None:
                     request["result"] = {"status": "ambiguous", "error": "No authenticated CLOCKACK before the deadline"}
                     request["event"].set()
-                    if request["automatic"] and self._setup.get(identity, {}).get("association") == request["association"]:
-                        self._setup[identity].update(request["result"])
-                        print(f"CCP automatic clock setup ambiguous for {identity}: no CLOCKACK; not retried", file=sys.stderr, flush=True)
                 del self._requests[identity]
 
-    # device_id: Non-secret target identity whose first-connection result is published.
-    # result: Actual outcome; a timeout or send failure never becomes applied.
-    def _record_setup(self, device_id: str, result: dict[str, Any]) -> None:
-        with self._lock:
-            self._setup[device_id].update(result)
-        if result["status"] in {"not_sent", "ambiguous", "rejected"}:
-            print(f"CCP automatic clock setup {result['status']} for {device_id}: {result.get('error')}", file=sys.stderr, flush=True)
-
     # device_id: Explicit active association target.
-    # operation: read, init or set; init cannot overwrite the device's durable adoption marker.
-    # settings: Four already validated zone/quiet numeric fields, -1 preserves each field.
+    # operation: Explicit read or set for the admitted clock preferences.
+    # settings: Validated signed offset or keep, followed by quiet-hour fields where -1 preserves.
     # include_simulator: Whether the user explicitly chose a SIMULATED target.
     # Raises ValueError for missing capability, retired pairing or an occupied bounded registry.
     def _transmit(self, device_id: str, operation: str, settings: tuple[str, str, str, str], include_simulator: bool) -> dict[str, Any]:
@@ -189,8 +208,7 @@ class ClockRequests:
                 raise ValueError("Clock request already pending or registry full")
             request = {"id": secrets.token_hex(16), "op": operation, "peer": peer,
                        "source": source_kind, "deadline": time.monotonic() + REQUEST_SECONDS,
-                       "association": hashlib.sha256(active).hexdigest(),
-                       "automatic": operation == "init", "event": threading.Event(), "result": None}
+                       "event": threading.Event(), "result": None}
             self._requests[device_id] = request
             self._used_nonce[device_id] = peer.nonce
             self._used_nonce = {identity: nonce for identity, nonce in self._used_nonce.items() if identity in active_identities}
@@ -209,7 +227,7 @@ class ClockRequests:
             print(f"CCP CLOCK {operation} send failed for {device_id}: {error}; not retried", file=sys.stderr, flush=True)
         return request
 
-    # arguments: Explicit device and optional quiet-hours/timezone preferences from MCP.
+    # arguments: Explicit device and optional quiet-hours/UTC-offset preferences from MCP.
     # configure: True for a user-requested mutation; false reads durable settings.
     # Raises ValueError for invalid fields, absent capability or an inactive association.
     def request(self, arguments: dict[str, Any], configure: bool) -> dict[str, Any]:
@@ -239,11 +257,15 @@ class ClockRequests:
         for name in ("device", "pc", "nonce", "proof"):
             if self._protocol.HEX_PATTERNS[name].fullmatch(fields[name]) is None:
                 raise ValueError("CLOCKACK identity/proof is malformed")
-        unavailable = all(fields[name] == "-1" for name in ("initialized", "timezone", "enabled", "start", "end"))
-        valid_preferences = (fields["initialized"] in {"0", "1"} and fields["timezone"] in {"0", "1", "2"}
+        unavailable = fields["offset"] == "na" and all(fields[name] == "-1" for name in ("initialized", "enabled", "start", "end"))
+        try:
+            offset = parse_offset(fields["offset"])
+        except ValueError:
+            offset = None
+        valid_preferences = (fields["initialized"] in {"0", "1"} and offset is not None
                 and fields["enabled"] in {"0", "1"}
                 and all(re.fullmatch(r"[0-9]{1,4}", fields[name]) is not None and 0 <= int(fields[name]) < 1440 for name in ("start", "end")))
-        if (re.fullmatch(r"[0-9a-f]{32}", fields["id"]) is None or fields["op"] not in {"read", "init", "set"}
+        if (re.fullmatch(r"[0-9a-f]{32}", fields["id"]) is None or fields["op"] not in {"read", "set"}
                 or fields["status"] not in {"applied", "rejected"}
                 or re.fullmatch(r"-?[0-9]{1,10}", fields["error"]) is None
                 or not -(2 ** 31) <= int(fields["error"]) < 2 ** 31
@@ -264,18 +286,13 @@ class ClockRequests:
                 raise ValueError("CLOCKACK authentication failed")
             result = {"status": fields["status"], "error": int(fields["error"]), "preferences_available": not unavailable}
             if not unavailable:
-                result.update(initialized=fields["initialized"] == "1", timezone=ZONE_NAMES[int(fields["timezone"])],
+                result.update(initialized=fields["initialized"] == "1", utc_offset_minutes=offset,
                               quiet_hours_enabled=fields["enabled"] == "1")
                 for wire, public in (("start", "quiet_hours_start"), ("end", "quiet_hours_end")):
                     minutes = int(fields[wire])
                     result[public] = f"{minutes // 60:02d}:{minutes % 60:02d}"
             request["result"] = result
             request["event"].set()
-            if request["automatic"]:
-                self._setup[fields["device"]].update(result)
-                if result["status"] == "rejected":
-                    print(f"CCP automatic clock setup rejected for {fields['device']}: {result['error']}", file=sys.stderr, flush=True)
-                del self._requests[fields["device"]]
 
     # No parameters: exposes non-secret first-connection outcomes without making a network request.
     def setup_status(self) -> dict[str, dict[str, Any]]:
@@ -289,15 +306,15 @@ class ClockRequests:
 def tool_catalog() -> list[dict[str, Any]]:
     target = {"device_id": {"type": "string", "pattern": "^[0-9a-f]{12}$"},
               "include_simulator": {"type": "boolean", "default": False}}
-    preferences = {"timezone": {"type": "string", "enum": list(TIMEZONES)},
+    preferences = {"utc_offset_minutes": {"type": "integer", "minimum": -840, "maximum": 840},
                    "quiet_hours_enabled": {"type": "boolean"},
                    "quiet_hours_start": {"type": "string", "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"},
                    "quiet_hours_end": {"type": "string", "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"}}
     return [{"name": "ccp_read_clock", "title": "Read Cody clock and quiet hours",
-             "description": "Read authenticated durable timezone and quiet hours from the selected paired Cody.",
+             "description": "Read the authenticated UTC offset and quiet hours from the selected paired Cody.",
              "inputSchema": {"type": "object", "properties": target, "required": ["device_id"], "additionalProperties": False},
              "annotations": {"readOnlyHint": True, "openWorldHint": False}},
-            {"name": "ccp_configure_clock", "title": "Set Cody timezone and quiet hours",
-             "description": "Apply explicit timezone or quiet-hours preferences through authenticated CCP. Omitted fields, sounds and volume are preserved. No automatic mutation retries.",
+            {"name": "ccp_configure_clock", "title": "Set Cody UTC offset and quiet hours",
+             "description": "Apply an explicit UTC offset in minutes or quiet-hours preferences through authenticated CCP. Omitted fields, sounds and volume are preserved. No automatic mutation retries.",
              "inputSchema": {"type": "object", "properties": {**target, **preferences}, "required": ["device_id"], "additionalProperties": False},
              "annotations": {"readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": False}}]

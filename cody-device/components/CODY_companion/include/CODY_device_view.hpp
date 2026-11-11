@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 
 #include "CODY_account_dashboard.hpp"
 #include "CODY_reset_countdown_screen.hpp"
@@ -8,6 +9,7 @@
 #include "CODY_widget_state.hpp"
 #include "CODY_device_model.hpp"
 #include "CODY_status_overlay.hpp"
+#include "CODY_title_style.hpp"
 
 namespace CODY {
 
@@ -16,7 +18,8 @@ enum class DeviceMessageLayout : uint8_t { Compact, Dashboard, Voice, VoiceCount
 // The display owner retains prepared text and controls until its frame retires.
 struct PlainView {
     std::array<std::array<char, 32>, 6> text{};
-    std::array<CODY2D::TextLine, 4> captions{};
+    StyledTitle title{};
+    std::array<CODY2D::TextLine, 3> captions{};
     std::array<CODY2D::CapsuleControl, 2> actions{};
     uint32_t revision = 0;
     DeviceMessageLayout layout = DeviceMessageLayout::Compact;
@@ -34,7 +37,6 @@ struct DeviceOverviewView {
     };
     std::array<Row, 3> rows{};
     std::array<char, 30> chat{};
-    CODY2D::TextLine heading{};
     CODY2D::TextLine chat_line{};
     CODY2D::CapsuleControl record{};
     uint32_t revision = 0;

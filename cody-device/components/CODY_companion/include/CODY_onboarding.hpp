@@ -138,6 +138,9 @@ esp_err_t request_widget_visibility_save(const WidgetVisibility &visibility);
 // Unrelated mailbox results remain available to the onboarding route owner.
 bool take_widget_visibility_save_result(esp_err_t &error);
 
+// No parameters: consume one successfully changed local preference.
+bool take_preference_confirmation();
+
 enum class LateralNavigation : uint8_t { None, Previous, Next };
 
 // point: Acquired logical position on the existing circular lateral targets.

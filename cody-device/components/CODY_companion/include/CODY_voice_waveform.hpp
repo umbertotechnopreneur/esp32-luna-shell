@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include "CODY2D.hpp"
+#include "CODY_theme_generated.hpp"
 
 namespace CODY {
 
@@ -87,7 +88,8 @@ inline esp_err_t draw_voice_ribbon_rows(CODY2D::Surface strip, uint16_t first_ro
     const int left = std::max<int>(first_column, kVoiceRibbonLeft);
     const int right = std::min<int>(first_column + strip.width, kVoiceRibbonLeft + kVoiceRibbonWidth);
     if (top >= bottom || left >= right) return ESP_OK;
-    constexpr uint16_t colors[] = {0x16FF, 0x4A9F, 0xF2B8, 0xAB1F};
+    constexpr uint16_t colors[] = {Theme::waveform_stops_0, Theme::waveform_stops_1,
+        Theme::waveform_stops_2, Theme::waveform_stops_3};
     constexpr uint8_t opacities[] = {170, 155, 180, 145};
     for (int x = left; x < right; ++x) {
         const int ribbon_x = x - kVoiceRibbonLeft;
@@ -107,7 +109,7 @@ inline esp_err_t draw_voice_ribbon_rows(CODY2D::Surface strip, uint16_t first_ro
                 // A soft outer edge and a brighter center create volume with alpha alone.
                 const uint8_t alpha = static_cast<uint8_t>(coverage * opacities[layer] / 512);
                 const uint8_t light = static_cast<uint8_t>(std::clamp((radius - distance) * 70 / std::max(1, radius), 0, 70));
-                const uint16_t color = CODY2D::blend_rgb565(0xFFFF, colors[layer], light);
+                const uint16_t color = CODY2D::blend_rgb565(Theme::text_bright, colors[layer], light);
                 auto &pixel = strip.pixels[(y - first_row) * strip.stride + x - first_column];
                 const uint16_t background = CODY2D::rgb565_stored_to_native(pixel, strip.byte_order);
                 pixel = CODY2D::rgb565_native_to_stored(CODY2D::blend_rgb565(color, background, alpha), strip.byte_order);

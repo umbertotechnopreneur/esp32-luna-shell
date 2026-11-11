@@ -14,8 +14,8 @@
  *
  * VBWR E */
 
-#include "../../components/LUNASHELL_platform/include/LUNASHELL_scene_standby_policy.hpp"
-#include "../../components/LUNASHELL_platform/include/LUNASHELL_standby_policy.hpp"
+#include "LUNASHELL_scene_standby_policy.hpp"
+#include "LUNASHELL_standby_policy.hpp"
 
 using LUNASHELL::power_policy::SceneStandbyOverride;
 using LUNASHELL::power_policy::scene_standby_expired;

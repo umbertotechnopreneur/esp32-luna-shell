@@ -403,6 +403,11 @@ CODY_HOST_EXPORT int cody_host_draw(void *handle, uint16_t *pixels, uint32_t cap
             if (panel_error == ESP_OK) {
                 panel_error = CODY::draw_companion_panel_rows(frame.companion_panel, strip, first, 0);
             }
+            if (panel_error == ESP_OK) {
+                const auto &title = frame.companion_panel.heading;
+                panel_error = CODY::draw_styled_title_rows(title, strip, first, 0, title.text.length,
+                    false, frame.companion_panel.heading_offset);
+            }
             if (panel_error != ESP_OK) { return host_result("draw_companion_panel", panel_error); }
             continue;
         }
@@ -501,9 +506,16 @@ CODY_HOST_EXPORT int cody_host_panel_prepare(void *handle, uint8_t panel,
         return ESP_OK;
     }
     CODY::SceneContent content{};
-    return host_result("panel_prepare", CODY::prepare_companion_panel(
+    const auto error = CODY::prepare_companion_panel(
         static_cast<CODY::CompanionPanel>(panel), *inputs, CODY::SceneData::body_font,
-        active_time_us, owner.companion_panel, content));
+        active_time_us, owner.companion_panel, content);
+    if (error == ESP_OK) {
+        const auto &title = owner.companion_panel.heading;
+        owner.companion_panel.heading_offset = CODY::styled_title_scroll_offset(
+            CODY::TitleStyleDetail::width(title.text.length, title.scale), title.bounds.width,
+            static_cast<uint64_t>(active_time_us));
+    }
+    return host_result("panel_prepare", error);
 }
 
 // source: Original PC-observed metadata and source-relative ages, without synthetic counters.
@@ -635,6 +647,12 @@ CODY_HOST_EXPORT int cody_host_panel_observation(void *handle, uint8_t panel,
     if (error == ESP_OK) {
         bool changed = false;
         error = CODY::advance_companion_panel(owner.companion_panel, active_time_us, changed);
+    }
+    if (error == ESP_OK) {
+        const auto &title = owner.companion_panel.heading;
+        owner.companion_panel.heading_offset = CODY::styled_title_scroll_offset(
+            CODY::TitleStyleDetail::width(title.text.length, title.scale), title.bounds.width,
+            static_cast<uint64_t>(active_time_us));
     }
     return host_result("panel_observation", error);
 }

@@ -29,7 +29,6 @@ struct TextEntryView {
     std::array<CODY2D::CapsuleControl, 15> keys{};
     std::array<std::array<char, 12>, 15> labels{};
     CODY2D::CapsuleControl field{};
-    CODY2D::TextLine title{};
     CODY2D::TextLine subtitle{};
     char visible_text[kTextEntryCapacity + 1]{};
     uint32_t revision = 0;

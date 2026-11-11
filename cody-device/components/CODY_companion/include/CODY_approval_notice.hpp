@@ -15,6 +15,7 @@
  * VBWR E */
 
 #pragma once
+#include "CODY_theme_generated.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -52,7 +53,7 @@ inline esp_err_t prepare_approval_chat_window(ApprovalNoticeState &state, const 
     const int16_t left = overflow ? static_cast<int16_t>(bounds.x - fraction) :
         static_cast<int16_t>((466U - state.width) / 2U);
     return CODY2D::prepare_text_line(font, {state.chat + first, count},
-        {left, static_cast<int16_t>(bounds.y)}, 0x3DFF, state.chat_window);
+        {left, static_cast<int16_t>(bounds.y)}, Theme::approval_chat_title, state.chat_window);
 }
 
 // state: Serialized presentation owner; a same-title refresh retains its scroll position.
@@ -81,11 +82,11 @@ inline esp_err_t prepare_approval_notice(ApprovalNoticeState &state, const CODY2
         struct Mark { CODY2D::Vec2 from; CODY2D::Vec2 to; float width; uint16_t color; };
         // These marks are read-only art inside the monitor. No approval hit bounds exist.
         static constexpr Mark marks[] = {
-            {{185, 303}, {194, 311}, 4, 0x7F55}, {{194, 311}, {211, 291}, 4, 0x7F55},
-            {{254, 293}, {277, 315}, 4, 0xFAD3}, {{277, 293}, {254, 315}, 4, 0xFAD3},
-            {{307, 255}, {307, 264}, 2.5f, 0xFE87}, {{307, 264}, {313, 267}, 2.5f, 0xFE87},
-            {{176, 374}, {290, 374}, 2, 0x3C98}, {{180, 379}, {286, 379}, 2, 0x2B94},
-            {{219, 382}, {247, 382}, 2, 0x5DBB},
+            {{185, 303}, {194, 311}, 4, Theme::approval_approved_mark}, {{194, 311}, {211, 291}, 4, Theme::approval_approved_mark},
+            {{254, 293}, {277, 315}, 4, Theme::approval_rejected_mark}, {{277, 293}, {254, 315}, 4, Theme::approval_rejected_mark},
+            {{307, 255}, {307, 264}, 2.5f, Theme::approval_clock_hand}, {{307, 264}, {313, 267}, 2.5f, Theme::approval_clock_hand},
+            {{176, 374}, {290, 374}, 2, Theme::approval_keyboard_primary}, {{180, 379}, {286, 379}, 2, Theme::approval_keyboard_shadow},
+            {{219, 382}, {247, 382}, 2, Theme::approval_keyboard_highlight},
         };
         for (uint8_t index = 0; index < 9; ++index) {
             const auto &mark = marks[index];
@@ -154,14 +155,14 @@ inline esp_err_t draw_approval_notice_rows(const ApprovalNoticeState &state, COD
     // Every full rectangle is inside the circle's narrowest occupied chord, including the keyboard.
     static constexpr Panel panels[] = {
         // Capsule width must cover its height; keep the square stem centered at x=233.
-        {{223, 340, 20, 20}, 4, 0x1B32, 0x09AB, 0x2C15},
-        {{205, 356, 56, 7}, 3, 0x3D39, 0x1A90, 0x3C97},
-        {{151, 254, 164, 94}, 12, 0x65FF, 0x1B94, 0x867F},
-        {{157, 260, 152, 78}, 8, 0x096A, 0x0045, 0x2BF6},
-        {{174, 283, 49, 42}, 8, 0x11C9, 0x08C5, 0x2BCE},
-        {{242, 283, 49, 42}, 8, 0x38C7, 0x2085, 0xA1CD},
-        {{293, 249, 28, 28}, 0, 0x5144, 0x28C2, 0xFE07},
-        {{164, 368, 138, 17}, 5, 0x1B52, 0x096A, 0x2C36},
+        {{223, 340, 20, 20}, 4, Theme::approval_panels_0_top, Theme::approval_panels_0_bottom, Theme::approval_panels_0_border},
+        {{205, 356, 56, 7}, 3, Theme::approval_panels_1_top, Theme::approval_panels_1_bottom, Theme::approval_panels_1_border},
+        {{151, 254, 164, 94}, 12, Theme::approval_panels_2_top, Theme::approval_panels_2_bottom, Theme::approval_panels_2_border},
+        {{157, 260, 152, 78}, 8, Theme::approval_panels_3_top, Theme::approval_panels_3_bottom, Theme::approval_panels_3_border},
+        {{174, 283, 49, 42}, 8, Theme::approval_panels_4_top, Theme::approval_panels_4_bottom, Theme::approval_panels_4_border},
+        {{242, 283, 49, 42}, 8, Theme::approval_panels_5_top, Theme::approval_panels_5_bottom, Theme::approval_panels_5_border},
+        {{293, 249, 28, 28}, 0, Theme::approval_panels_6_top, Theme::approval_panels_6_bottom, Theme::approval_panels_6_border},
+        {{164, 368, 138, 17}, 5, Theme::approval_panels_7_top, Theme::approval_panels_7_bottom, Theme::approval_panels_7_border},
     };
     for (const auto &panel : panels) {
         CODY2D::CapsuleControl control;

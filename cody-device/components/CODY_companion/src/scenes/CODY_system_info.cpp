@@ -1,4 +1,8 @@
 #include "CODY_system_info.hpp"
+#include "CODY_title_style.hpp"
+#include "CODY_typography.hpp"
+#include "CODY_theme_generated.hpp"
+#include "CODY_ui_components.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -20,13 +24,13 @@ using View = SystemInfoPresentation;
 using State = View::ValueState;
 constexpr char kTag[] = "CODY_system_info";
 constexpr DamageRect kBounds{73, 73, 393, 400};
-constexpr uint16_t kWhite = 0xF7BE;
-constexpr uint16_t kMuted = 0x9CF3;
-constexpr uint16_t kCyan = 0x6F9E;
-constexpr uint16_t kIndigo = 0x549E;
-constexpr uint16_t kGreen = 0x4EE8;
-constexpr uint16_t kTrack = 0x2127;
-constexpr uint16_t kDivider = 0x39F1;
+constexpr uint16_t kWhite = UI::Palette::text;
+constexpr uint16_t kMuted = UI::Palette::muted;
+constexpr uint16_t kCyan = UI::Palette::cyan;
+constexpr uint16_t kIndigo = Theme::dashboard_secondary;
+constexpr uint16_t kGreen = Theme::dashboard_positive;
+constexpr uint16_t kTrack = Theme::dashboard_track;
+constexpr uint16_t kDivider = Theme::dashboard_separator;
 
 // operation: Failed native preparation or raster operation.
 // error: Original error, logged without changing its identity.
@@ -175,6 +179,18 @@ esp_err_t add_detail(View &view, const char *text, uint16_t top, uint16_t color 
     return add_caption(view, *view.body_font, text, {73, top, 320, 25}, color);
 }
 
+// view: Retained presentation receiving an ordinary label.
+// text: Complete label rather than a measurement or status.
+// bounds: Existing admitted label slot.
+// color: Original semantic ink color.
+// Exception: Returns the original font or caption preparation failure.
+esp_err_t add_system_label(View &view, const char *text, CODY2D::Rect bounds, uint16_t color)
+{
+    const CODY2D::MonoFont *font = nullptr;
+    const auto error = Typography::label_font(text, bounds, *view.body_font, font);
+    return error == ESP_OK ? add_caption(view, *font, text, bounds, color) : error;
+}
+
 // view: Fixed bar owner.
 // bounds: Nonempty admitted rectangle.
 // top: Native gradient color at its first row.
@@ -225,11 +241,11 @@ esp_err_t prepare_system(View &view)
         const auto &cpu = view.values.cpus[index];
         const uint16_t offset = static_cast<uint16_t>(index * 50);
         std::snprintf(text, sizeof(text), "CPU %u", static_cast<unsigned>(index + 1));
-        auto error = add_caption(view, *view.body_font, text, {93, static_cast<uint16_t>(137 + offset), 100, 25}, kMuted);
+        auto error = add_system_label(view, text, {93, static_cast<uint16_t>(137 + offset), 100, 25}, kMuted);
         if (error != ESP_OK) { return error; }
         if (cpu.status.state == State::Current) {
             std::snprintf(text, sizeof(text), "%u%%", static_cast<unsigned>(cpu.percent));
-            error = add_caption(view, *view.title_font, text, {260, static_cast<uint16_t>(129 + offset), 113, 40}, kWhite);
+            error = add_caption(view, Typography::monospace_large(), text, {260, static_cast<uint16_t>(129 + offset), 113, 40}, kWhite);
             if (error == ESP_OK) { error = add_bar(view, {93, static_cast<uint16_t>(169 + offset), 280, 8}, kTrack, kTrack); }
             const auto width = static_cast<uint16_t>(280U * cpu.percent / 100U);
             if (error == ESP_OK && width != 0) {
@@ -258,7 +274,7 @@ esp_err_t prepare_system(View &view)
             heap.status.state == State::Current ? kCyan : kMuted);
         if (error != ESP_OK) return error;
     }
-    error = add_detail(view, "UPTIME", 284);
+    error = add_system_label(view, "UPTIME", {73, 284, 320, 25}, kMuted);
     format_uptime(view.values.uptime_seconds, text);
     if (error == ESP_OK) { error = add_detail(view, text, 309, kWhite); }
     if (error == ESP_OK) { error = add_detail(view, "PREVIOUS: LAST OBSERVED", 337); }
@@ -283,7 +299,8 @@ esp_err_t prepare_memory(View &view)
     for (size_t index = 0; index < view.values.heaps.size(); ++index) {
         const auto &heap = view.values.heaps[index];
         const uint16_t top = static_cast<uint16_t>(134 + index * 134);
-        auto error = add_detail(view, index == 0 ? "INTERNAL RAM" : "PSRAM", top, kWhite);
+        auto error = add_system_label(view, index == 0 ? "INTERNAL RAM" : "PSRAM",
+            {73, top, 320, 25}, kWhite);
         if (error != ESP_OK) { return error; }
         if (heap.status.state != State::Current) {
             format_status(heap.status, text);
@@ -381,7 +398,7 @@ esp_err_t prepare_firmware(View &view)
     char text[32]{};
     for (size_t index = 0; index < 4; ++index) {
         const auto top = static_cast<uint16_t>(135 + index * 62);
-        auto error = add_detail(view, labels[index], top);
+        auto error = add_system_label(view, labels[index], {73, top, 320, 25}, kMuted);
         if (error == ESP_OK) { error = format_metadata(sources[index], capacities[index], *view.body_font, text); }
         if (error == ESP_OK) { error = add_detail(view, text, static_cast<uint16_t>(top + 25), kWhite); }
         if (error != ESP_OK) { return error; }
@@ -505,7 +522,8 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
         : draw_icon(view, strip, first_row, first_column);
     for (size_t index = 0; error == ESP_OK && index < view.caption_count; ++index) {
         const auto &line = view.captions[index].line;
-        error = CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
+        error = index == 0 && view.values.page != InfoPage::VibeWare ? ESP_OK :
+            CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
     }
     if (error == ESP_OK) {
         error = draw_page_marks(static_cast<uint8_t>(view.values.page), 5, strip, first_row, first_column, 396);
@@ -515,13 +533,17 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
 
 // view: Prepared persistent page owner.
 // content: Receives only immutable callback data and its presentation revision.
-void attach_content(const View &view, SceneContent &content)
+esp_err_t attach_content(const View &view, SceneContent &content)
 {
     content = {};
     content.bounds = kBounds;
     content.state = &view;
     content.revision = view.revision;
     content.draw_rows = draw_rows;
+    if (view.values.page == InfoPage::VibeWare) return ESP_OK;
+    const auto &line = view.captions[0].line;
+    return prepare_styled_title(line.text,
+        {static_cast<uint16_t>(view.icon_bounds.x + 38), 79, line.bounds.width, 46}, content.heading, 3, true);
 }
 
 } // namespace
@@ -565,8 +587,7 @@ esp_err_t prepare_system_info(const SystemInfoInput &input,
     project_values(input, values);
     if (presentation.valid && same_values(presentation.values, values) &&
         presentation.title_font == &title_font && presentation.body_font == &body_font) {
-        attach_content(presentation, content);
-        return ESP_OK;
+        return attach_content(presentation, content);
     }
     if (presentation.revision == std::numeric_limits<uint32_t>::max()) {
         return result("revision", ESP_ERR_INVALID_STATE);
@@ -581,18 +602,21 @@ esp_err_t prepare_system_info(const SystemInfoInput &input,
         if (error != ESP_OK) return result("prepare brand", error);
         ++presentation.revision;
         presentation.valid = true;
-        attach_content(presentation, content);
-        return ESP_OK;
+        return attach_content(presentation, content);
     }
     const char *title = input.page == InfoPage::System ? "SYSTEM" : input.page == InfoPage::Memory ? "MEMORY" : "FIRMWARE";
-    uint32_t width = 0;
-    auto error = CODY2D::measure_text_width(title_font, {title, static_cast<uint16_t>(std::strlen(title))}, width);
-    if (error != ESP_OK) { return result("heading width", error); }
-    if (width + 38 > 260) { return result("heading geometry", ESP_ERR_INVALID_SIZE); }
-    const auto group_left = static_cast<uint16_t>(233 - (width + 38) / 2);
+    const auto length = std::strlen(title);
+    auto &heading = presentation.captions[0];
+    if (length == 0 || length >= sizeof(heading.text)) return result("heading storage", ESP_ERR_INVALID_SIZE);
+    const auto width = static_cast<uint16_t>(std::min<uint32_t>(
+        TitleStyleDetail::width(static_cast<uint16_t>(length), 3), 222));
+    const auto group_left = static_cast<uint16_t>(233 - (width + 38U) / 2U);
     presentation.icon_bounds = {group_left, 88, 28, 28};
-    error = add_caption(presentation, title_font, title,
-        {static_cast<uint16_t>(group_left + 38), 79, static_cast<uint16_t>(width), 46}, kCyan);
+    std::memcpy(heading.text, title, length + 1U);
+    heading.line.text = {heading.text, static_cast<uint16_t>(length)};
+    heading.line.bounds = {static_cast<uint16_t>(group_left + 38U), 79, width, 46};
+    presentation.caption_count = 1;
+    auto error = ESP_OK;
     if (error == ESP_OK) { error = add_bar(presentation, {94, 125, 278, 2}, kDivider, kDivider); }
     if (error == ESP_OK) {
         switch (input.page) {
@@ -606,8 +630,7 @@ esp_err_t prepare_system_info(const SystemInfoInput &input,
     if (error != ESP_OK) { return result("prepare page", error); }
     ++presentation.revision;
     presentation.valid = true;
-    attach_content(presentation, content);
-    return ESP_OK;
+    return attach_content(presentation, content);
 }
 
 } // namespace CODY

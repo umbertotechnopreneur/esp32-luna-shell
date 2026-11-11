@@ -1,5 +1,8 @@
 # Cody layout on the Waveshare round display
 
+Use the [Cody design system](design-system.md) for the shared palette,
+typography, menu and navigation conventions.
+
 Native `CODY2D` layout consumes the board's
 [geometry](../bsp/boards/waveshare-esp32s3-touch-amoled-1.75/display-geometry.md).
 The repository contract is in [AGENTS.md](../../AGENTS.md). These coordinates
@@ -35,10 +38,10 @@ no typewriter timing or character audio.
 | Saved PC management | Three standalone 36-pixel icons, with 90 x 90 touch areas at x=83/188/293, y=302 |
 | Connections actions | 54-pixel glyphs at (148,219) and (318,219), with 140 × 168 touch areas |
 | Check relay, when configured | Text-only footer at (123,366,220,52). The latest check replaces the Connections hint at y=136. |
-| Options and category rows | Up to three rows at x=93, width 280, height 72, y=130/210/290. Destinations and settings use flat rows with semantic icons and separators. |
-| Visible screens | Three Options-sized rows, name on the left and visibility on the right, with page and save status below |
+| Options and category rows | Up to four rows at x=93, width 280, height 56, y=130/188/246/304. Destinations and settings use flat rows with semantic icons and separators. |
+| Visible screens | Three rows at x=93, width 280, height 72, y=130/210/290, with the name and visibility stacked and page/save status below |
 | Options menu | Swipe between pages; lateral Back on the first page returns to the opening route |
-| Restart / factory reset confirmation | Cancel at (93,270,280,64), confirmation at (123,382,220,52) |
+| Restart / factory reset confirmation | Cancel at (93,250,280,56), confirmation at (93,310,280,56); both use icon-and-separator rows |
 | Visibility toggle | (113,226,240,52) |
 | Ordinary single action | (113,352,240,72) |
 | Compact Skin footer | (123,390,220,44) |
@@ -52,9 +55,16 @@ Device-first Options uses named Tools, Preferences and Device pages with three
 page marks below the rows. Section headings use a distinctive pixel font;
 long destination labels can occupy two lines. Destinations and settings share
 flat icon-and-divider rows. Behavior and Display show the canonical setting
-value on the second line. Contextual footer actions use large gradient text.
+value on the second line. Actions such as About, More, Replay intro, Synth Voice
+and Retry use the same rows. Restart and factory reset retain separate confirmation
+screens; their choices are admitted only after a complete released touch.
 Other known multipage views use the same page marks; the dashboard uses compact
 marks below its content. Cursor-based views do not invent an unknown page count.
+
+**Preferences > Display > More... > Replay intro** schedules the Muse birth
+introduction for the next restart. A confirmed write changes the row to
+**Next restart**. This action preserves settings and pairing, and does not
+restart the device. A failed write is shown with an explicit retry action.
 
 Saved PC uses a link glyph above the title, an explicit PC-name-unavailable
 caption, and the canonical configured Wi-Fi name. The current link projection has no
@@ -129,29 +139,22 @@ elapsed time. A hosted web search without a native hook remains unavailable.
 
 ## Setup, QR and Skin
 
-The Home-launched Wi-Fi menu shows the arcade heading **SET UP WI-FI**, the
-reported `AiGadget-XXXXXX` Bluetooth identity, and Cody at (169,150,128,128).
-The pre-rendered RGB565 lettering is stored in flash. The two text choices use
-the full touch rectangles (73,282,320,48) and (83,337,300,48).
-**PAIR WITH BLUETOOTH** opens a three-step introduction with platform choices;
-the selected app QR precedes the Bluetooth pairing session.
-**SETUP WI-FI** opens the network list and starts a scan. Confirming a protected SSID opens the
-password keyboard. QR screens show only a title and the largest fitting QR tile,
-with four quiet modules and integer module scaling. A tap returns to the actual
-previous screen; an owned pairing session is cancelled through its existing
+The mascot Home does not automatically show Wi-Fi or pairing prompts. A tap
+interacts with Cody and reveals the status layer; hold BOOT to open Options and
+choose **Connections** to reach the Wi-Fi and Bluetooth setup journey.
+
+From **Connections > Set up Wi-Fi**, choose **Pair with Bluetooth** for the app
+download and pairing QR, or **Setup Wi-Fi** for the local network list. The
+list starts a scan; confirming a protected SSID opens the password keyboard.
+Back from the list returns to this choice, and Back from the choice returns to
+Connections. QR screens show only a title and the largest fitting QR tile,
+with four quiet modules and integer module scaling. A tap reveals status and
+perimeter temporarily. A right swipe returns to the actual previous screen; an owned pairing session is cancelled through its existing
 cleanup path before leaving. The setup journey has no Home icon. Status and
 lateral navigation on other pages reappear on touch or measured motion.
 The compact status uses actual clock, Wi-Fi RSSI, Bluetooth and battery observations;
 its numeric battery percentage can be suppressed by the renderer, with a settings
-control deferred. The Home notice occupies y=70..123 and uses the reported BLE
-name, not an independently inferred identity.
-
-On the mascot Home, Cody starts at full size. A tap after the waking animation
-shrinks and moves the character upward, revealing the text-only Pair with app
-and Setup WiFi actions below. Their code-drawn Bluetooth and Wi-Fi icons scale
-with the captions. Pair with app opens the Bluetooth introduction; Setup WiFi
-opens the setup choices. Inactivity hides these actions and
-restores the full-size character. The offline notice remains informational.
+control deferred. Cody remains full-size on Home during normal interaction.
 
 The existing recovery entry retains the prior device-first pairing screens below.
 They use the same title and body fonts, left chevron, and capsule geometry as the
@@ -164,10 +167,10 @@ Both QR screens keep their white area within the square code tile.
 | --- | --- |
 | 04 | Amber offline glyph above Not connected at y=180, Previous Wi-Fi and up to two rows for the saved name, and Tap to pair at (113,352,240,72) |
 | 05 | Phone download glyph, Wi-Fi setup title, and two instructions with App download QR at (93,274,280,62) and Show pairing QR at (93,348,280,64) |
-| 06 | Title and installation QR in a 288 x 288 tile at (89,128); tap returns to the guide |
-| 07 | Title and session QR in the same 288 x 288 tile while ReadyToScan; tap closes the owned session and returns |
+| 06 | Title and installation QR in a 288 x 288 tile at (89,128); swipe right to return to the guide |
+| 07 | Title and session QR in the same 288 x 288 tile while ReadyToScan; swipe right closes the owned session and returns |
 | 09 / Wi-Fi result | Mint Wi-Fi glyph for a usable connection, amber offline glyph otherwise. Title at y=200, status detail at y=248, and up to two SSID rows from y=280. Continue at (113,352,240,72). |
-| 10 / Options | Title at y=82, up to three enlarged rows, swipe paging, and Back to the opening route |
+| 10 / Options | Title at y=82, up to four compact rows, swipe paging, and Back to the opening route |
 | 12 / Pair Codex | Title at y=88, link glyph at (205,148,56,56), and the six-character code at y=236 when ready |
 | 14 / Waiting for PC | Same heading and glyph slot as Pair Codex, with two status lines and Later |
 | 11 / Skin | Preview (233,172,44), title y=78, viewport (117,226,232,126), OK (123,386,220,48) |
@@ -189,7 +192,7 @@ Session QR storage supports version 10: at most 57 x 57 modules, 407 bytes.
 Use integer modules and four white quiet modules. Payload/modules belong to the
 current attempt; stale data cannot authorize presentation.
 The guide starts pairing through its visible action; QR pages use a stationary
-tap for Back and do not show subtitles or footer actions.
+tap to reveal chrome and do not show subtitles or footer actions.
 The Codex link glyph pulses during code preparation and while searching on a
 usable LAN. The pulse repaints only its small display region. A ready code
 stays visible above its instructions. A pairing error replaces the link with
@@ -291,8 +294,8 @@ compaction pause the retained position and pass count. Final removal damages the
 entire footer viewport so old glyphs are erased. Current compaction turns the
 title orange and the token arc
 into an indeterminate accent, preserving the character cue and sound admission.
-The independent fonts derive from the vendored OFL Telex face; other scenes keep
-their existing typography. No bitmap/video playback or polling task is added.
+The body faces derive from the vendored OFL Telex face. Screen headings use the
+shared arcade glyph treatment. No bitmap/video playback or polling task is added.
 
 The common status layer is drawn on awake content screens, including the
 screensaver, with date at (122,32), local HH:MM at (122,47),
@@ -417,14 +420,14 @@ timestamp at y=197/222, timezone at y=259/284 and build host at y=321/346.
 All CPU and memory fields come from the existing canonical diagnostics
 observation. Presentation does not sample hardware or create another collector.
 
-The following VibeWare page shows the logo and umbertogiacobbi.biz. Its Next
-page contains a title and a QR linking to the GitHub repository. A tap returns
+The following VibeWare page shows the logo and umbertogiacobbi.biz. The next
+page contains a title and a QR linking to the GitHub repository. A right swipe returns
 to VibeWare.
 
 ## Optional screensaver
 
 Options > Behavior > More behavior contains the Screensaver setting, initially
-Off, and a footer opening Synth Voice. Its three unavailable rows use the same
+Off, and a row opening Synth Voice. Its three unavailable rows use the same
 Options geometry until a speech engine is integrated. After
 fifteen idle seconds on an unobstructed dashboard or after the Home waking
 animation, a softly colored globe fills the otherwise black display. The shared

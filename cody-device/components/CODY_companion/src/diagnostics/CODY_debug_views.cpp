@@ -15,6 +15,9 @@
  * VBWR E */
 
 #include "CODY_debug_views.hpp"
+#include "CODY_theme_generated.hpp"
+#include "CODY_ui_navigation.hpp"
+#include "CODY_ui_components.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -27,10 +30,10 @@
 namespace CODY {
 namespace {
 constexpr char kTag[] = "CODY_debug_views";
-constexpr uint16_t kTextColor = 0xF7BE;
-constexpr uint16_t kUsedColor = 0x347F;
-constexpr uint16_t kLargestColor = 0x4F39;
-constexpr uint16_t kOtherFreeColor = 0xFDA5;
+constexpr uint16_t kTextColor = UI::Palette::text;
+constexpr uint16_t kUsedColor = Theme::firmware_debug_views_usedcolor;
+constexpr uint16_t kLargestColor = Theme::firmware_debug_views_largestcolor;
+constexpr uint16_t kOtherFreeColor = Theme::firmware_debug_views_otherfreecolor;
 constexpr CODY2D::Rect kMemoryButtonBounds{133, 336, 200, 44};
 
 // text: Bounded printable ASCII line.
@@ -89,7 +92,7 @@ void draw_heap_bar(const HeapDiagnosticReadout &heap, uint16_t top, CODY2D::Surf
     for (int y = std::max<int>(top, first_row); y < std::min<int>(top + height, first_row + strip.height); ++y) {
         for (int x = std::max<int>(left, first_column); x < std::min<int>(left + width, first_column + strip.width); ++x) {
             const unsigned position = static_cast<unsigned>(x - left);
-            uint16_t color = 0x3186;
+            uint16_t color = Theme::debug_neutral;
             if (heap.available) {
                 if (position < used_width) {
                     color = kUsedColor;
@@ -173,8 +176,8 @@ esp_err_t draw_debug_memory_button_rows(const CODY2D::MonoFont &font, CODY2D::Su
 {
     CODY2D::CapsuleControl button;
     button.bounds = kMemoryButtonBounds;
-    button.top_color = 0x22CA;
-    button.bottom_color = 0x11C6;
+    button.top_color = Theme::debug_button_top;
+    button.bottom_color = Theme::debug_button_bottom;
     button.corner_radius = 22;
     constexpr char caption[] = "Memory";
     const int width = (sizeof(caption) - 2) * font.advance + font.width;
@@ -236,17 +239,17 @@ esp_err_t draw_memory_diagnostics_rows(const MemoryDiagnosticReadout &readout,
 esp_err_t draw_debug_view_back_rows(CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
 {
     CODY2D::CapsuleControl back;
-    back.bounds = {10, 203, 60, 60};
-    back.top_color = 0x2104;
-    back.bottom_color = 0x1082;
+    back.bounds = UI::kBackBounds;
+    back.top_color = Theme::controls_secondary_top;
+    back.bottom_color = Theme::controls_secondary_bottom;
     back.corner_radius = 30;
     esp_err_t error = CODY2D::draw_capsule_rows(back, strip, first_row, first_column);
     CODY2D::PreparedStroke strokes[2];
     if (error == ESP_OK) {
-        error = CODY2D::prepare_stroke({45, 223}, {35, 233}, 3, kTextColor, strokes[0]);
+        error = CODY2D::prepare_stroke({45, 223}, {35, 233}, 3, Theme::controls_secondary_icon, strokes[0]);
     }
     if (error == ESP_OK) {
-        error = CODY2D::prepare_stroke({35, 233}, {45, 243}, 3, kTextColor, strokes[1]);
+        error = CODY2D::prepare_stroke({35, 233}, {45, 243}, 3, Theme::controls_secondary_icon, strokes[1]);
     }
     if (error == ESP_OK) {
         error = CODY2D::stroke_prepared_batch_rows(strip, first_row, strokes, 2, first_column);
@@ -257,8 +260,6 @@ esp_err_t draw_debug_view_back_rows(CODY2D::Surface strip, uint16_t first_row, u
 // point: Same logical contact coordinate used by native rendering after rotation mapping.
 bool debug_view_back_contains(CODY2D::Point point)
 {
-    const int x = point.x - 40;
-    const int y = point.y - 233;
-    return x * x + y * y <= 30 * 30;
+    return UI::diagnostic_back_contains(point);
 }
 }  // namespace CODY

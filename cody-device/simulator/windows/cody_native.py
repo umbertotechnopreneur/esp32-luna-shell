@@ -28,6 +28,7 @@ import weakref
 
 from PIL import Image
 from runtime_paths import simulator_library_path
+from cody_semantic_palette import device_rgb565
 from cody_personality import PersonalityCue, PersonalityFrame, PersonalityPresentation, PersonalityPresentationStatus
 from scripts.common.cody_response import ResponseState, ResponseFrame, SampleStamp, SampleHealth, InputOrigin, EyeId, IdleSceneId
 
@@ -290,6 +291,7 @@ class NativeRig:
             "text": (C.c_int, (U16, C.c_uint32, C.c_char_p, C.c_uint16, C.c_uint16, C.c_uint16,
                 C.c_bool, C.c_uint16, C.c_uint16, C.c_uint16)),
             "scene_timing": (C.c_int, (C.c_uint16, C.c_int64, C.c_uint16, C.c_uint16, F)),
+            "scene_paint_title": (C.c_int, (U16, C.c_uint32, C.c_uint16, C.c_int64)),
             "capsule": (C.c_int, (U16, C.c_uint32, U16, U16, C.c_uint8, C.c_int16, C.c_int16, C.c_uint16, C.c_bool)),
             "select_target": (C.c_int, (C.c_uint8, C.c_bool, C.c_bool, C.c_uint8, C.POINTER(C.c_uint8), C.POINTER(C.c_bool))),
             "fade": (C.c_int, (U16, C.c_uint32, C.c_uint8)),
@@ -859,6 +861,26 @@ class NativeRig:
             length, preceding, output))
         return tuple(output)
 
+    # self: Shared native scene renderer; the original authored clock drives reveal and scroll.
+    # image: Existing logical RGB framebuffer, updated only after successful drawing.
+    # scene: Stable scene identity, and elapsed_ms: active scene time.
+    def paint_scene_title(self, image, scene, elapsed_ms):
+        if image.mode != 'RGB' or image.size != (466, 466):
+            raise ValueError('Native scene title requires a 466x466 RGB framebuffer')
+        if not math.isfinite(elapsed_ms) or not 0 <= elapsed_ms <= 0x7fffffffffffffff / 1000:
+            raise ValueError('Native scene timing must fit nonnegative int64 microseconds')
+        pixels = (C.c_uint16 * (466 * 466))()
+        for index, (red, green, blue) in enumerate(image.getdata()):
+            pixels[index] = (red >> 3) << 11 | (green >> 2) << 5 | blue >> 3
+        checked('scene_paint_title', self.api.cody_host_scene_paint_title(
+            pixels, len(pixels), self.scene_id(scene), round(elapsed_ms * 1000)))
+        output = bytearray(len(pixels) * 3)
+        for index, value in enumerate(pixels):
+            output[index * 3] = ((value >> 11) & 31) * 255 // 31
+            output[index * 3 + 1] = ((value >> 5) & 63) * 255 // 63
+            output[index * 3 + 2] = (value & 31) * 255 // 31
+        image.paste(Image.frombytes('RGB', (466, 466), bytes(output)))
+
     # self: PC graphics transport owner; text pixels come from shared C++ glyph/raster code.
     # image: Existing logical RGB framebuffer, updated in place after successful native draw.
     # text: Bounded printable ASCII line.
@@ -869,7 +891,7 @@ class NativeRig:
     # center_x: Horizontal center of the authored content slot.
     # max_width: Maximum line width for the circular chord.
     # Raises ValueError for invalid transport data; RuntimeError for native layout/glyph errors.
-    def paint_text(self, image, text, top, color=65535, *, body=False, visible=None, center_x=233, max_width=None):
+    def paint_text(self, image, text, top, color=device_rgb565("text", "bright"), *, body=False, visible=None, center_x=233, max_width=None):
         if image.mode != 'RGB' or image.size != (466, 466) or not isinstance(text, str):
             raise ValueError('Native text requires a 466x466 RGB framebuffer and ASCII string')
         if any(not 32 <= ord(character) <= 126 for character in text) or len(text) > 65535:
@@ -929,8 +951,9 @@ class NativeRig:
             raise ValueError('Native action tone must be Neutral/Positive/Negative/Info')
         # Driver composition supplies theme/layout data; all coverage, gradient, border,
         # and glyph pixel operations execute unchanged CODY2D production functions.
-        palettes = ((0x18E5, 0x10A3, 0x4A8C, 0xBDF7), (0x1147, 0x08C4, 0x2B4F, 0x8F1D),
-            (0x28A4, 0x1883, 0x796B, 0xED53), (0x1106, 0x08A4, 0x3291, 0xA71F))
+        palettes = tuple(tuple(device_rgb565("controls", tone_name, part)
+                               for part in ("top", "bottom", "border", "icon"))
+                         for tone_name in ("secondary", "primary", "destructive", "info"))
         x, y, width, height = bounds
         card = height > 80
         pixels = (C.c_uint16 * (466 * 466))()

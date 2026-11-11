@@ -15,6 +15,7 @@
  * VBWR E */
 
 #include "CODY_debug_hud.hpp"
+#include "CODY_theme_generated.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -39,8 +40,8 @@ constexpr uint16_t kGlyphScale = 1;
 constexpr uint16_t kGlyphColumns = 5;
 constexpr uint16_t kGlyphRows = 7;
 constexpr uint16_t kCharacterAdvance = (kGlyphColumns + 1) * kGlyphScale;
-constexpr uint16_t kTextWhitesmoke = 0xF7BE; // RGB565 encoding of #F5F5F5.
-constexpr uint16_t kTextBlack = 0x0000;
+constexpr uint16_t kTextWhitesmoke = Theme::text_default;
+constexpr uint16_t kTextBlack = Theme::surface_canvas;
 
 enum class ProcessorId : uint8_t {
     Cpu1,
@@ -404,7 +405,7 @@ esp_err_t draw_debug_readout_rows(const DebugReadout &readout,
                  esp_err_to_name(ESP_ERR_INVALID_SIZE));
         return ESP_ERR_INVALID_SIZE;
     }
-    const uint16_t text_color = background_rgb565 == 0xFFFF ? kTextBlack : kTextWhitesmoke;
+    const uint16_t text_color = background_rgb565 == Theme::surface_light ? kTextBlack : kTextWhitesmoke;
     const uint16_t stored_text_color = CODY2D::rgb565_native_to_stored(text_color, strip.byte_order);
     char performance[60];
     std::snprintf(performance, sizeof(performance), "%s %s", readout.frame_rate, readout.processors);

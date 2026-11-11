@@ -1,4 +1,8 @@
 #include "CODY_account_dashboard.hpp"
+#include "CODY_title_style.hpp"
+#include "CODY_typography.hpp"
+#include "CODY_theme_generated.hpp"
+#include "CODY_ui_components.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -25,14 +29,14 @@ constexpr CODY2D::Rect kHeadline{73, 79, 320, 46};
 constexpr CODY2D::Rect kPlanIconBounds{205, 134, 56, 56};
 constexpr int kPlanMaskEdge = 16;
 constexpr int kPlanMaskScale = 3;
-constexpr uint16_t kWhite = 0xF7BE;
-constexpr uint16_t kMuted = 0x9CF3;
-constexpr uint16_t kCyan = 0x6F9E;
-constexpr uint16_t kIndigo = 0x549E;
-constexpr uint16_t kGold = 0xFE27;
-constexpr uint16_t kGreen = 0x4EE8;
-constexpr uint16_t kDivider = 0x39F1;
-constexpr uint16_t kDarkTrack = 0x2127;
+constexpr uint16_t kWhite = UI::Palette::text;
+constexpr uint16_t kMuted = UI::Palette::muted;
+constexpr uint16_t kCyan = UI::Palette::cyan;
+constexpr uint16_t kIndigo = Theme::dashboard_secondary;
+constexpr uint16_t kGold = Theme::status_warning_content;
+constexpr uint16_t kGreen = Theme::dashboard_positive;
+constexpr uint16_t kDivider = Theme::dashboard_separator;
+constexpr uint16_t kDarkTrack = Theme::dashboard_track;
 constexpr uint16_t kChartBaseline = 318;
 constexpr uint16_t kChartHeight = 100;
 constexpr uint16_t kChartLeft = 79;
@@ -99,6 +103,13 @@ esp_err_t add_caption(AccountDashboardPresentation &presentation, const CODY2D::
         length >= sizeof(presentation.captions[0].text) || scale == 0 || font.height * scale > bounds.height) {
         return ESP_ERR_INVALID_SIZE;
     }
+    if (presentation.caption_count == 0) {
+        auto &caption = presentation.captions[0];
+        std::memcpy(caption.text, text, length + 1U);
+        caption.line.text = {caption.text, static_cast<uint16_t>(length)};
+        ++presentation.caption_count;
+        return ESP_OK;
+    }
     uint32_t width = 0;
     esp_err_t error = CODY2D::measure_text_width(font, {text, static_cast<uint16_t>(length)}, width);
     if (error != ESP_OK) { return error; }
@@ -122,6 +133,20 @@ esp_err_t add_detail(AccountDashboardPresentation &presentation, const char *tex
     uint16_t color = kMuted)
 {
     return add_caption(presentation, *presentation.body_font, text, {73, top, 320, 25}, color);
+}
+
+// presentation: Retained page receiving a general label.
+// text: Complete label; never a measured value or status.
+// top: Logical row top in the existing safe content column.
+// color: Original semantic text color.
+// Exception: Returns the original font measurement or caption preparation error.
+esp_err_t add_system_detail(AccountDashboardPresentation &presentation, const char *text, uint16_t top,
+    uint16_t color = kMuted)
+{
+    const CODY2D::Rect bounds{73, top, 320, 25};
+    const CODY2D::MonoFont *font = nullptr;
+    const auto error = Typography::label_font(text, bounds, *presentation.body_font, font);
+    return error == ESP_OK ? add_caption(presentation, *font, text, bounds, color) : error;
 }
 
 // presentation: Prepared page owner retaining the headline or numeric value.
@@ -224,7 +249,7 @@ esp_err_t add_quota(AccountDashboardPresentation &presentation, const QuotaWindo
 {
     char text[32]{};
     format_percent(window.remaining, text);
-    esp_err_t error = add_detail(presentation, window.label, window.top, kGold);
+    esp_err_t error = add_system_detail(presentation, window.label, window.top, kGold);
     if (error != ESP_OK) { return error; }
     const auto value_top = static_cast<uint16_t>(window.top + 25U);
     const uint16_t value_height = window.saved_epoch > 0 ? 58 : 80;
@@ -291,7 +316,7 @@ esp_err_t prepare_quota(AccountDashboardPresentation &presentation,
     }
     if (error != ESP_OK) { return error; }
     const bool saved = (short_available && account_epoch > 0) || (weekly_available && weekly_epoch > 0);
-    return add_detail(presentation, saved ? "REMAINING AT LAST UPDATE" : "REMAINING", both ? 366 : 313, kCyan);
+    return add_system_detail(presentation, saved ? "REMAINING AT LAST UPDATE" : "REMAINING", both ? 366 : 313, kCyan);
 }
 
 // presentation: Fixed current-day page owner.
@@ -367,7 +392,7 @@ esp_err_t prepare_chart(AccountDashboardPresentation &presentation, const LUNASH
             const bool newest = index == kHistoryDayCount - 1;
             error = add_bar(presentation,
                 {static_cast<uint16_t>(x + 8U), static_cast<uint16_t>(kChartBaseline - height), 28, height},
-                newest ? kCyan : kIndigo, newest ? 0x4DF9 : 0x4435);
+                newest ? kCyan : kIndigo, newest ? Theme::account_newest_bar : Theme::account_older_bar);
         } else {
             error = add_caption(presentation, *presentation.body_font, "--", {x, 282, kChartStep, 30}, kMuted);
         }
@@ -581,7 +606,7 @@ esp_err_t prepare_credits(AccountDashboardPresentation &presentation, const LUNA
         char credits[32]{};
         if (finite) { format_credits(account.credit_milliunits, credits); }
         const uint16_t top = vouchers ? 127 : 175;
-        error = add_detail(presentation, "BALANCE", top, kWhite);
+        error = add_system_detail(presentation, "BALANCE", top, kWhite);
         if (error != ESP_OK) { return error; }
         error = add_hero(presentation, unlimited ? "Unlimited" : credits,
             {73, static_cast<uint16_t>(top + 26), 320, 80}, finite ? 2 : 1, kCyan);
@@ -701,7 +726,7 @@ esp_err_t prepare_account(AccountDashboardPresentation &presentation, const LUNA
         if (price != nullptr && price[0] != '\0') {
             error = add_detail(presentation, price, 237, kCyan);
             if (error != ESP_OK) { return error; }
-            error = add_detail(presentation, "US LIST PRICE", 263);
+            error = add_system_detail(presentation, "US LIST PRICE", 263);
             if (error != ESP_OK) { return error; }
             status_top = 291;
         }
@@ -852,7 +877,7 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
     }
     for (uint8_t index = 0; error == ESP_OK && index < presentation.caption_count; ++index) {
         const auto &caption = presentation.captions[index];
-        error = caption.scale > 1 ? draw_scaled_caption(caption, strip, first_row, first_column) :
+        error = index == 0 ? ESP_OK : caption.scale > 1 ? draw_scaled_caption(caption, strip, first_row, first_column) :
             CODY2D::draw_text_rows(caption.line, caption.line.text.length, strip, first_row, first_column);
     }
     if (error == ESP_OK && presentation.context_page) {
@@ -863,13 +888,14 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
 
 // presentation: Prepared central page retained through raster retirement.
 // content: Receives the native draw callback and bounded revision.
-void attach_content(const AccountDashboardPresentation &presentation, SceneContent &content)
+esp_err_t attach_content(const AccountDashboardPresentation &presentation, SceneContent &content)
 {
     content = {};
     content.bounds = kContentBounds;
     content.state = &presentation;
     content.revision = presentation.revision;
     content.draw_rows = draw_rows;
+    return prepare_styled_title(presentation.captions[0].line.text, kHeadline, content.heading, 3, true);
 }
 
 // source: Canonical transport/source state for this allowance.
@@ -980,13 +1006,16 @@ esp_err_t prepare_account_dashboard(AccountDashboardPage page,
         ? (saved != nullptr ? saved_weekly_at : weekly.last_success_at_us) : 0;
     const int8_t voucher_timezone = page == Page::Credits && clock.preferences_valid
         ? static_cast<int8_t>(clock.timezone) : -1;
+    const bool voucher_offset_valid = page == Page::Credits && clock.preferences_valid && clock.utc_offset_valid;
+    const int16_t voucher_offset_minutes = voucher_offset_valid ? clock.utc_offset_minutes : 0;
     if (presentation.valid && !presentation.context_page && presentation.page == page && presentation.account_state == account_state &&
         presentation.weekly_state == weekly_state && presentation.short_state == short_state &&
         presentation.account_at_us == account_at_us && presentation.weekly_at_us == weekly_at_us &&
         presentation.utc_day == utc_day && presentation.title_font == &title_font && presentation.body_font == &body_font &&
-        presentation.voucher_list == vouchers && presentation.voucher_timezone == voucher_timezone) {
-        attach_content(presentation, content);
-        return ESP_OK;
+        presentation.voucher_list == vouchers && presentation.voucher_timezone == voucher_timezone &&
+        presentation.voucher_offset_valid == voucher_offset_valid &&
+        presentation.voucher_offset_minutes == voucher_offset_minutes) {
+        return attach_content(presentation, content);
     }
     if (presentation.revision == std::numeric_limits<uint32_t>::max()) {
         return result("page revision", ESP_ERR_INVALID_STATE);
@@ -999,6 +1028,8 @@ esp_err_t prepare_account_dashboard(AccountDashboardPage page,
     presentation.voucher_bounds = {};
     presentation.voucher_list = vouchers;
     presentation.voucher_timezone = voucher_timezone;
+    presentation.voucher_offset_valid = voucher_offset_valid;
+    presentation.voucher_offset_minutes = voucher_offset_minutes;
     presentation.plan_icon = CODY2D::ActionIcon::None;
     presentation.plan_mask_valid = false;
     presentation.page = page;
@@ -1035,8 +1066,7 @@ esp_err_t prepare_account_dashboard(AccountDashboardPage page,
     if (error != ESP_OK) { return result("prepare page", error); }
     ++presentation.revision;
     presentation.valid = true;
-    attach_content(presentation, content);
-    return ESP_OK;
+    return attach_content(presentation, content);
 }
 
 // observation: Canonical chat/turn-coherent measurements and explicit compaction state.
@@ -1081,8 +1111,7 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
         presentation.weekly_state == capacity_state && presentation.context_remaining == remaining &&
         presentation.context_capacity == capacity && presentation.compaction_label == compaction &&
         presentation.title_font == &title_font && presentation.body_font == &body_font) {
-        attach_content(presentation, content);
-        return ESP_OK;
+        return attach_content(presentation, content);
     }
     if (presentation.revision == std::numeric_limits<uint32_t>::max()) {
         return result("context revision", ESP_ERR_INVALID_STATE);
@@ -1108,7 +1137,7 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
     error = add_caption(presentation, title_font, "CONTEXT", kHeadline, kCyan);
     if (error == ESP_OK) { error = add_rule(presentation, 125); }
     if (remaining_state == SourceState::Current) {
-        if (error == ESP_OK) { error = add_detail(presentation, "TOKENS REMAINING", 154, kWhite); }
+        if (error == ESP_OK) { error = add_system_detail(presentation, "TOKENS REMAINING", 154, kWhite); }
         if (error == ESP_OK) { error = add_hero(presentation, count, {73, 177, 320, 64}, 2, kCyan); }
         if (error == ESP_OK) { error = add_bar(presentation, {93, 244, 280, 7}, kDarkTrack, kDarkTrack); }
         const auto width = static_cast<uint16_t>(static_cast<double>(remaining) / static_cast<double>(capacity) * 280.0);
@@ -1124,7 +1153,7 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
     }
     if (capacity_state == SourceState::Current) {
         if (error == ESP_OK) { error = add_rule(presentation, 259); }
-        if (error == ESP_OK) { error = add_detail(presentation, "CONTEXT WINDOW", 266, kWhite); }
+        if (error == ESP_OK) { error = add_system_detail(presentation, "CONTEXT WINDOW", 266, kWhite); }
         format_grouped_count(capacity, count);
         if (error == ESP_OK) { error = add_value(presentation, count, 291, kWhite); }
     }
@@ -1132,7 +1161,7 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
         const uint16_t top = capacity_state == SourceState::Current ? 335 : 259;
         error = add_rule(presentation, top);
         if (error == ESP_OK) {
-            error = add_detail(presentation, "COMPACTION", static_cast<uint16_t>(top + 3U), kMuted);
+            error = add_system_detail(presentation, "COMPACTION", static_cast<uint16_t>(top + 3U), kMuted);
         }
         if (error == ESP_OK) {
             error = add_detail(presentation, compaction, static_cast<uint16_t>(top + 30U),
@@ -1142,8 +1171,7 @@ esp_err_t prepare_context_dashboard(const LUNASHELL::CodexTechnicalObservation &
     if (error != ESP_OK) { return result("prepare context", error); }
     ++presentation.revision;
     presentation.valid = true;
-    attach_content(presentation, content);
-    return ESP_OK;
+    return attach_content(presentation, content);
 }
 
 } // namespace CODY

@@ -87,6 +87,8 @@ struct AccountDashboardPresentation {
     uint8_t caption_count = 0;
     uint8_t bar_count = 0;
     int8_t voucher_timezone = -1;
+    bool voucher_offset_valid = false;
+    int16_t voucher_offset_minutes = 0;
     bool context_page = false;
     bool plan_mask_valid = false;
     bool valid = false;

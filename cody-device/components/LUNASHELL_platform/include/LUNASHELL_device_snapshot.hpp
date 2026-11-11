@@ -137,6 +137,8 @@ struct ClockSnapshot : ComponentSnapshot {
     uint8_t local_weekday = 0;
     uint8_t local_second = 0;
     ClockTimezone timezone = ClockTimezone::Utc;
+    bool utc_offset_valid = false;
+    int16_t utc_offset_minutes = 0;
     bool preferences_valid = false;
     bool routines_enabled = false;
     bool quiet_hours_enabled = false;
@@ -540,8 +542,12 @@ struct CodexEventSnapshot : ComponentSnapshot, CodexEventPayload {
 };
 static_assert(sizeof(CodexEventSnapshot) <= 2048, "Question projection requires owner storage, bounded to 2 KiB");
 
+enum class PcTimeSyncState : uint8_t { Idle, Pending, Applied, Failed };
+
 struct CodexLinkSnapshot : ComponentSnapshot {
     CodexLinkState state = CodexLinkState::Idle;
+    PcTimeSyncState pc_time_state = PcTimeSyncState::Idle;
+    esp_err_t pc_time_error = ESP_OK;
     uint32_t attempt_id = 0;
     int64_t changed_at_us = 0;
     int64_t deadline_at_us = 0;
@@ -1069,6 +1075,9 @@ struct CodyPreferencesSnapshot : ComponentSnapshot {
     bool battery_ring_enabled = false;
     bool battery_ring_valid = false;
     esp_err_t battery_ring_error = ESP_ERR_INVALID_STATE;
+    bool auto_time_enabled = false;
+    bool auto_time_valid = false;
+    esp_err_t auto_time_error = ESP_ERR_INVALID_STATE;
     CodyUsageMode usage_mode = CodyUsageMode::Desk;
     bool usage_mode_valid = false;
     esp_err_t usage_mode_error = ESP_ERR_INVALID_STATE;
@@ -1203,6 +1212,8 @@ struct CodexPresenceStatus {
     ComponentSnapshot codex_link;
     CodexLinkState codex_link_state = CodexLinkState::Idle;
     bool codex_app_open = false;
+    PcTimeSyncState pc_time_state = PcTimeSyncState::Idle;
+    esp_err_t pc_time_error = ESP_OK;
 };
 
 // Compatibility projection for consumers not yet migrated to separate reads.

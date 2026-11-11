@@ -36,6 +36,7 @@ from cody_native_behavior import CharacterActivity, CharacterWorkKind
 from cody_native_debug import DiagnosticPage, debug_memory_button_contains, render_debug_controls
 from cody_personality import PersonalityCue, PersonalityPresentation
 from runtime_paths import resolve_runtime_output
+from cody_semantic_palette import device_rgb565
 
 
 # point: Logical desktop projection before the acquired integer coordinate boundary.
@@ -971,7 +972,8 @@ class CcpPanel:
         if self._native_personality is not None:
             self._native_personality.disable(elapsed)
         self.window.renderer.personality_painter = None
-        image = self.window.renderer.draw_scene(scene, debug=False, navigation_visible=False, background_rgb565=0)
+        image = self.window.renderer.draw_scene(scene, debug=False, navigation_visible=False,
+                                                background_rgb565=device_rgb565("surface", "canvas"))
         image = render_debug_controls(native, image, self._diagnostic_page)
         # Host facts stay visibly SIMULATED and never enter firmware snapshots.
         painter = self.window.renderer.scene_painter

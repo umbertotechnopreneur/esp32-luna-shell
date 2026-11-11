@@ -1731,7 +1731,7 @@ void check_technical_panel_owner_contract()
         presentation.banner[0] == '\0' && std::strcmp(presentation.captions[0], "No model details yet") == 0,
         "a different chat cannot donate model or historical compaction state");
     require(content.bounds.top == 170 && content.bounds.bottom == 402 &&
-        presentation.title_line.origin.y == 170 && !presentation.hint_line.valid,
+        presentation.heading.bounds.y == 170 && !presentation.hint_line.valid,
         "Model details reserve character artwork and the lower circular context-bar region without a footer");
     std::memcpy(technical.chat_id, link.activity.chat_id, 65);
     technical.context_valid = false;
@@ -1946,7 +1946,7 @@ void check_native_usage_projection()
     require(CODY::prepare_companion_panel(CODY::CompanionPanel::ModelContext, detail_inputs,
         CODY::SceneData::body_font, 8000000, presentation, content) == ESP_OK &&
         presentation.revision != context_revision && presentation.compaction_active &&
-        presentation.context_bar_visible && presentation.title_line.color == 0xFD20 &&
+        presentation.context_bar_visible && presentation.banner_line.color == CODY::Theme::dashboard_attention &&
         std::strcmp(presentation.captions[0], "Input 18446744073709551615") == 0 &&
         std::strcmp(presentation.captions[1], "Output 42") == 0 &&
         std::strcmp(presentation.captions[2], "Total 18446744073709551615") == 0,

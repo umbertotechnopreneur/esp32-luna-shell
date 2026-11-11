@@ -15,6 +15,7 @@
  * VBWR E */
 
 #include "CODY_status_overlay.hpp"
+#include "CODY_theme_generated.hpp"
 #include "CODY_pixel_glyphs.hpp"
 
 #include <algorithm>
@@ -50,17 +51,17 @@ constexpr uint16_t kWifiLeft = 100;
 constexpr uint16_t kWifiTop = 57;
 constexpr uint16_t kBluetoothLeft = 155;
 constexpr uint16_t kBluetoothTop = 30;
-constexpr uint16_t kDateLight = 0xA577; // Quiet slate #a4adb8 on the dark scene.
-constexpr uint16_t kDateDark = 0x63B1;  // Slate #64748b on the white scene.
-constexpr uint16_t kTimeLight = 0xE75E; // Pearl #e4eaf2 on the dark scene.
-constexpr uint16_t kTimeDark = 0x3A2A;  // Ink #384454 on the white scene.
-constexpr uint16_t kReady = 0x3E8A;   // #39d353 green in native RGB565.
-constexpr uint16_t kWarning = 0xF5A9; // #f0b44d in native RGB565.
-constexpr uint16_t kMissing = 0xEA6B; // #eb4d5c in native RGB565.
-constexpr uint16_t kFault = 0xF9CB;   // #ff3859 in native RGB565.
-constexpr uint16_t kMuted = 0x63F2;   // #617f91 in native RGB565.
-constexpr uint16_t kActive = 0x07FF;  // Cyan active/charging state.
-constexpr uint16_t kChargeMark = 0xFFFF;
+constexpr uint16_t kDateLight = Theme::chrome_date_on_dark;
+constexpr uint16_t kDateDark = Theme::chrome_date_on_light;
+constexpr uint16_t kTimeLight = Theme::chrome_time_on_dark;
+constexpr uint16_t kTimeDark = Theme::chrome_time_on_light;
+constexpr uint16_t kReady = Theme::status_ready;
+constexpr uint16_t kWarning = Theme::status_warning;
+constexpr uint16_t kMissing = Theme::status_missing;
+constexpr uint16_t kFault = Theme::status_error;
+constexpr uint16_t kMuted = Theme::status_unavailable;
+constexpr uint16_t kActive = Theme::status_active;
+constexpr uint16_t kChargeMark = Theme::text_bright;
 
 
 // Compact icon rows are compile-time constants, so ESP-IDF keeps the glyphs in flash rodata.
@@ -559,7 +560,7 @@ namespace {
 esp_err_t draw_opaque_status_rows(const StatusOverlay &overlay, uint16_t background_rgb565,
     CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
 {
-    const bool white_background = background_rgb565 == 0xFFFF;
+    const bool white_background = background_rgb565 == Theme::surface_light;
     const uint16_t date_color = CODY2D::rgb565_native_to_stored(
         white_background ? kDateDark : kDateLight, strip.byte_order);
     // Neutral pearl gives a valid clock hierarchy; errors retain their semantic color.

@@ -286,29 +286,38 @@ def main(argv=None):
         "face_bindings": len(rig["face_bindings"]),
         "response_schema": rig["response"]["schema"],
         "response_sources": [rig["response"][group]["source"] for group in ("motion", "power")],
-        "source_sha256": text_source_hash(ROOT / rig["source_path"]),
+        "source_sha256": text_source_hash(ROOT / "cody-device" / rig["source_path"]),
         "palette_sha256": text_source_hash(ROOT / "cody-device" / rig["palette_file"]),
         "navigation_sha256": text_source_hash(ROOT / "cody-device/assets/cody/navigation.json"),
     }
     output.mkdir(parents=True, exist_ok=True)
     (output / "cloud_rig_data.hpp").write_text(content, encoding="utf-8")
     navigation_header = ["// Generated from assets/cody/navigation.json; do not edit.",
-        "#pragma once", '#include "CODY_rig.hpp"', "namespace CODY::NavigationData {",
+        "#pragma once", "#include <array>", '#include "CODY_rig.hpp"', '#include "CODY_theme_generated.hpp"',
+        "namespace CODY::NavigationData {",
         f"inline constexpr uint32_t auto_hide_ms = {navigation['auto_hide_ms']}U;",
         f"inline constexpr uint32_t fade_ms = {navigation['fade_ms']}U;",
     ]
-    colors = navigation["colors_rgb565"]
     for name in ("top", "bottom", "ink", "selected"):
-        navigation_header.append(f"inline constexpr uint16_t {name} = 0x{colors[name]:04X};")
-    shades = []
-    for step in range(32):
-        channels = []
-        for shift, mask in ((11, 31), (5, 63), (0, 31)):
-            start = (colors["top"] >> shift) & mask
-            end = (colors["bottom"] >> shift) & mask
-            channels.append(((start*(31-step) + end*step + 15)//31) << shift)
-        shades.append(f"0x{sum(channels):04X}")
-    navigation_header.append("inline constexpr uint16_t shades[] = {" + ", ".join(shades) + "};")
+        navigation_header.append(f"inline constexpr uint16_t {name} = Theme::navigation_{name};")
+    navigation_header.extend([
+        "// No parameters: derive exactly 32 RGB565 gradient steps from the shared theme.",
+        "constexpr std::array<uint16_t, 32> make_shades() {",
+        "    std::array<uint16_t, 32> shades{};",
+        "    for (unsigned step = 0; step < shades.size(); ++step) {",
+        "        uint16_t value = 0;",
+        "        for (unsigned channel = 0; channel < 3; ++channel) {",
+        "            const unsigned shift = channel == 0 ? 11U : channel == 1 ? 5U : 0U;",
+        "            const unsigned mask = channel == 1 ? 63U : 31U;",
+        "            const unsigned start = (top >> shift) & mask, end = (bottom >> shift) & mask;",
+        "            value |= static_cast<uint16_t>(((start * (31 - step) + end * step + 15) / 31) << shift);",
+        "        }",
+        "        shades[step] = value;",
+        "    }",
+        "    return shades;",
+        "}",
+        "inline constexpr auto shades = make_shades();",
+    ])
     navigation_header.append("inline constexpr RigControlGeometry controls[] = {")
     for control in navigation["controls"]:
         name = CONTROL_IDENTITIES[control["id"]][1]

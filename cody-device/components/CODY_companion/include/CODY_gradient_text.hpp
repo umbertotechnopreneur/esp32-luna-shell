@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include "CODY2D.hpp"
+#include "CODY_theme_generated.hpp"
 
 namespace CODY {
 
@@ -49,9 +50,14 @@ inline const std::array<uint8_t, 7> *gradient_pixel_glyph(char value)
 inline uint16_t gradient_action_color(uint16_t row, uint16_t height, uint8_t opacity)
 {
     const uint32_t level = row * 765U / std::max<uint32_t>(1U, height - 1U);
-    const uint16_t color = level <= 255U ? CODY2D::blend_rgb565(0x2C7F, 0x56BF, static_cast<uint8_t>(level)) :
-        level <= 510U ? CODY2D::blend_rgb565(0xA3FF, 0x2C7F, static_cast<uint8_t>(level - 255U)) :
-        CODY2D::blend_rgb565(0xFC7D, 0xA3FF, static_cast<uint8_t>(level - 510U));
+    const uint16_t color = level <= 255U ? CODY2D::blend_rgb565(
+        Theme::gradients_home_action_text_segments_0_foreground,
+        Theme::gradients_home_action_text_segments_0_background, static_cast<uint8_t>(level)) :
+        level <= 510U ? CODY2D::blend_rgb565(
+            Theme::gradients_home_action_text_segments_1_foreground,
+            Theme::gradients_home_action_text_segments_1_background, static_cast<uint8_t>(level - 255U)) :
+        CODY2D::blend_rgb565(Theme::gradients_home_action_text_segments_2_foreground,
+            Theme::gradients_home_action_text_segments_2_background, static_cast<uint8_t>(level - 510U));
     return CODY2D::fade_rgb565_to_black(color, opacity);
 }
 

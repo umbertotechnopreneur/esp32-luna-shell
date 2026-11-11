@@ -823,33 +823,29 @@ the exact ASCII values in the shown HMAC order. These packets remain bounded
 to 512 bytes.
 
 ```text
-CCP1|CLOCKCAP|device=<12hex>|pc=<32hex>|nonce=<32hex>|clock=1|initialized=<0|1>|proof=<64hex>
-HMAC input: clock-cap|<device>|<pc>|<nonce>|1|<initialized>
+CCP1|CLOCKCAP|device=<12hex>|pc=<32hex>|nonce=<32hex>|clock=2|initialized=<0|1>|proof=<64hex>
+HMAC input: clock-cap|<device>|<pc>|<nonce>|2|<initialized>
 
-CCP1|CLOCK|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|op=<read|init|set>|timezone=<value>|enabled=<value>|start=<value>|end=<value>|proof=<64hex>
-HMAC input: clock|<device>|<pc>|<nonce>|<id>|<op>|<timezone>|<enabled>|<start>|<end>
+CCP1|CLOCK|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|op=<read|set>|offset=<+N|-N|keep>|enabled=<value>|start=<value>|end=<value>|proof=<64hex>
+HMAC input: clock|<device>|<pc>|<nonce>|<id>|<op>|<offset>|<enabled>|<start>|<end>
 
-CCP1|CLOCKACK|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|op=<read|init|set>|status=<applied|rejected>|error=<decimal>|initialized=<value>|timezone=<value>|enabled=<value>|start=<value>|end=<value>|proof=<64hex>
-HMAC input: clock-ack|<device>|<pc>|<nonce>|<id>|<op>|<status>|<error>|<initialized>|<timezone>|<enabled>|<start>|<end>
+CCP1|CLOCKACK|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|op=<read|set>|status=<applied|rejected>|error=<decimal>|initialized=<value>|offset=<+N|-N|na>|enabled=<value>|start=<value>|end=<value>|proof=<64hex>
+HMAC input: clock-ack|<device>|<pc>|<nonce>|<id>|<op>|<status>|<error>|<initialized>|<offset>|<enabled>|<start>|<end>
 ```
 
-Timezone identities are `0` UTC, `1` Rome and `2` Ho Chi Minh City. Other
-identities are rejected with a real error; an unsupported host timezone is
-reported to the user and is never silently substituted. The RTC remains UTC.
+The UTC offset is an integer number of minutes in `-840..840`, written with an
+explicit sign and no leading zeroes; UTC is `+0`. The RTC remains UTC.
 Quiet hours use an explicit `enabled` switch (`0` or `1`) and local minutes
 `start`/`end` in `0..1439`, forming a half-open window that may cross midnight.
-Equal endpoints are rejected when quiet hours are enabled. Numeric fields use
-canonical decimal without leading zeroes; `-1` means preserve the existing
-setting, never infer a value.
+Equal endpoints are rejected when quiet hours are enabled. Quiet-hour fields use
+canonical decimal without leading zeroes; `-1` preserves their existing values.
+For the offset, `keep` preserves the existing setting.
 
-`read` requires all four setting fields to be `-1`. `init` requires a supported
-timezone and `enabled=-1|start=-1|end=-1`: automatic first connection adopts only
-the host timezone and preserves all quiet-hours preferences. `set` requires at
-least one explicit setting. The firmware retains a separate strict durable
-`clock_adopted` marker across reconnects and restarts. An initialized device
-answers `init` with its existing configuration without changing it. Explicit
-`set` seals automatic adoption before changing preferences, so a partial failure
-cannot make a later reconnect replace the user's configuration.
+The broker synchronizes the PC's current UTC offset through TIME; CLOCK can read
+or explicitly set a fixed offset without assigning a named zone.
+
+`read` requires `offset=keep` and all quiet-hour fields to be `-1`. `set` requires
+at least one explicit setting; unspecified fields retain their current values.
 
 Quiet hours default to disabled only when the clock preference key is genuinely
 absent. Existing enabled settings survive firmware updates. Disabling quiet
@@ -864,12 +860,53 @@ retains the request's original nonce and endpoint, even if a newer poll arrives.
 
 `applied` requires `error=0` and confirmed settings. `rejected` carries the original
 validation, storage or publication error. When durable and runtime settings
-cannot be confirmed together, all five ACK result fields (`initialized`,
-`timezone`, `enabled`, `start`, `end`) are `-1`; unavailable values are never
+cannot be confirmed together, ACK uses `offset=na` and all four other result
+fields (`initialized`, `enabled`, `start`, `end`) are `-1`; unavailable values are never
 replaced by defaults. A partial write may leave actual confirmed settings in a
 rejected ACK, so inspect both its status and values. An ACK confirms the settings
 operation, not physical audio output or clock synchronization. NVS operations
 run through the settings executor outside the CCP state mutex.
+
+### Device-initiated time synchronization
+
+After a fresh READY/COMMITTED exchange, physical Cody can request the paired
+PC's current UTC time once on a new connection (`auto`) or after the explicit
+**Sync time** action (`manual`). This is separate from the durable CLOCK
+preference commands and never grants another PC access to the device.
+
+```text
+CCP1|TIMEREQ|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|mode=<auto|manual>|proof=<64hex>
+HMAC input: time-req|<device>|<pc>|<nonce>|<id>|<mode>
+
+CCP1|TIME|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|mode=<auto|manual>|status=<ok|unavailable>|epoch=<seconds>|offset=<+N|-N|na>|proof=<64hex>
+HMAC input: time|<device>|<pc>|<nonce>|<id>|<mode>|<status>|<epoch>|<offset>
+```
+
+The broker accepts a request only from the active physical LAN peer, its exact
+observed endpoint and current authenticated nonce, with the active association
+key and a valid HMAC. The random request ID is consumed before the one response
+is sent; duplicates are rejected and no automatic resend follows an ambiguous
+send. Each nonce has a bounded budget of 16 distinct IDs. Connected firmware
+generates a new random nonce for each two-second FIND poll; only a subsequent
+authenticated READY/COMMITTED exchange replaces the peer and admits the new
+nonce. If the exchange fails, the old peer expires rather than granting another
+budget. Loopback SIMULATED peers are not admitted.
+
+For both `auto` and `manual`, `ok` carries the PC's actual UTC epoch and its
+current UTC offset at that same instant. The offset is a signed, canonical whole
+number of minutes between `-840` and `+840`, with a mandatory sign and no leading
+zeroes; UTC is `+0`. Half-hour and quarter-hour offsets are supported. An
+unreadable or out-of-range clock, or an unavailable, sub-minute or out-of-range
+offset, produces `unavailable|epoch=0|offset=na`; no time or offset is guessed.
+Cody stores an offset, not a timezone rule database. A later PC synchronization
+is needed to adopt any offset change, including a daylight-saving transition.
+Valid epochs range from `1704067200` through `4102444799`, inclusive. The device
+matches the original request identity and nonce, verifies the response proof,
+and expires the request after four seconds; a later READY does not extend it.
+The RTC remains UTC. Cody reports the actual pending, applied or failed outcome;
+a UDP response does not itself prove the device persisted or applied the time.
+An old broker without TIME support leaves the request to time out instead of
+inventing a clock or offset.
 
 ## Resource budgets and security boundary
 

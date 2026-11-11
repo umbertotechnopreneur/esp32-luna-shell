@@ -8,6 +8,7 @@ from ccp_interactions import Choice, EventKind, EventPayload, PendingQuestion, T
 from cody_ccp_event_view import EventView
 from cody_ccp_simulator import SimulatorSnapshot
 from cody_device_ui import SIZE, label, rotate
+from cody_semantic_palette import studio_rgb
 
 
 # rotation: Cardinal display orientation applied to each complete logical frame.
@@ -69,7 +70,7 @@ def question_frames(rotation, elapsed_ms):
 def capture_question_flow(rotation, elapsed_ms):
     gutter, heading = 24, 42
     stride = SIZE + gutter
-    sheet = Image.new("RGB", (stride * 3 + gutter, (SIZE + heading) * 3 + gutter), (23, 28, 36))
+    sheet = Image.new("RGB", (stride * 3 + gutter, (SIZE + heading) * 3 + gutter), studio_rgb("preview", "question_sheet"))
     draw = ImageDraw.Draw(sheet)
     for index, (caption, image) in enumerate(question_frames(rotation, elapsed_ms)):
         x = gutter + (index % 3) * stride

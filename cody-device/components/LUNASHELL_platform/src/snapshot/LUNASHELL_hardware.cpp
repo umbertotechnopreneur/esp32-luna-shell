@@ -3379,6 +3379,8 @@ static void project_codex_presence(const CodexLinkSnapshot &link, CodexPresenceS
 {
     status.codex_link = link;
     status.codex_link_state = link.state;
+    status.pc_time_state = link.pc_time_state;
+    status.pc_time_error = link.pc_time_error;
     const int64_t now_us = esp_timer_get_time();
     status.codex_app_open = codex_presence::ready_current(link, now_us) &&
         codex_presence::is_open(link.app_presence, now_us);

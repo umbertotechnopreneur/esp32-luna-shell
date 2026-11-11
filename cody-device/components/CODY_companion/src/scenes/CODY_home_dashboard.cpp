@@ -1,4 +1,5 @@
 #include "CODY_home_dashboard.hpp"
+#include "CODY_theme_generated.hpp"
 #include "CODY_command_hints.hpp"
 #include "LUNASHELL_codex_presence.hpp"
 #include "esp_log.h"
@@ -9,12 +10,12 @@
 
 namespace CODY {
 namespace {
-constexpr uint16_t kMint = 0x5FF9;
-constexpr uint16_t kAmber = 0xFD20;
-constexpr uint16_t kRed = 0xF986;
-constexpr uint16_t kWhite = 0xFFFF;
-constexpr uint16_t kMuted = 0x9CD3;
-constexpr uint16_t kTrack = 0x2125;
+constexpr uint16_t kMint = Theme::firmware_home_dashboard_mint;
+constexpr uint16_t kAmber = Theme::dashboard_attention;
+constexpr uint16_t kRed = Theme::dashboard_error;
+constexpr uint16_t kWhite = Theme::text_bright;
+constexpr uint16_t kMuted = Theme::firmware_home_dashboard_muted;
+constexpr uint16_t kTrack = Theme::firmware_home_dashboard_track;
 // Authored equal-length samples of a symmetric cubic arc; no runtime trigonometry.
 constexpr CODY2D::Vec2 kArcPoints[] = {
     {44.000f, 294.000f},

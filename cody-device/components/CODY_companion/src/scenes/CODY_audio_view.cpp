@@ -1,4 +1,8 @@
 #include "CODY_audio_view.hpp"
+#include "CODY_theme_generated.hpp"
+#include "CODY_title_style.hpp"
+#include "CODY_typography.hpp"
+#include "CODY_ui_components.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -18,11 +22,11 @@ constexpr CODY2D::Rect kClose{113, 321, 240, 60};
 constexpr std::array<CODY2D::Rect, 2> kBars{{{93, 207, 280, 18}, {93, 277, 280, 18}}};
 constexpr uint16_t kInnerWidth = 278;
 constexpr uint32_t kPcmFullScale = 32768;
-constexpr uint16_t kWhite = 0xF7BE;
-constexpr uint16_t kMuted = 0x9CF3;
-constexpr uint16_t kCyan = 0x6F9E;
-constexpr uint16_t kMint = 0x5FF1;
-constexpr uint16_t kAmber = 0xFE27;
+constexpr uint16_t kWhite = UI::Palette::text;
+constexpr uint16_t kMuted = UI::Palette::muted;
+constexpr uint16_t kCyan = UI::Palette::cyan;
+constexpr uint16_t kMint = UI::Palette::positive;
+constexpr uint16_t kAmber = UI::Palette::warning;
 
 // operation: Native presentation operation that may fail.
 // error: Original failure preserved for the display owner.
@@ -41,16 +45,7 @@ esp_err_t result(const char *operation, esp_err_t error)
 esp_err_t prepare_line(const CODY2D::MonoFont &font, const char *text, CODY2D::Rect bounds,
     uint16_t color, CODY2D::TextLine &line)
 {
-    const auto length = std::strlen(text);
-    if (length == 0 || length > 28 || font.height > bounds.height) return ESP_ERR_INVALID_SIZE;
-    const CODY2D::TextSpan span{text, static_cast<uint16_t>(length)};
-    uint32_t width = 0;
-    const auto error = CODY2D::measure_text_width(font, span, width);
-    if (error != ESP_OK) return error;
-    if (width > bounds.width) return ESP_ERR_INVALID_SIZE;
-    return CODY2D::prepare_text_line(font, span,
-        {static_cast<int16_t>(bounds.x + (bounds.width - width) / 2U),
-         static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2U)}, color, line);
+    return UI::prepare_text(font, text, bounds, color, line, 28);
 }
 
 // audio: Canonical observation; no aggregate-to-channel substitution is permitted.
@@ -135,16 +130,18 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
 {
     const auto *view = static_cast<const AudioView *>(state);
     if (view == nullptr || !view->valid) return result("draw state", ESP_ERR_INVALID_STATE);
-    for (const auto &line : view->captions) {
-        const auto error = CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
+    for (size_t index = 0; index < view->captions.size(); ++index) {
+        const auto &line = view->captions[index];
+        const auto error = index == 0 ? ESP_OK :
+            CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
         if (error != ESP_OK) return result("draw caption", error);
     }
     for (size_t channel = 0; channel < view->levels.size(); ++channel) {
         const auto &level = view->levels[channel];
         const auto &bar = kBars[channel];
-        auto error = fill_rows(strip, first_row, first_column, bar, 0x4A69);
+        auto error = fill_rows(strip, first_row, first_column, bar, Theme::audio_meter_border);
         if (error == ESP_OK) error = fill_rows(strip, first_row, first_column,
-            {static_cast<uint16_t>(bar.x + 1U), static_cast<uint16_t>(bar.y + 1U), kInnerWidth, 16}, 0x18C3);
+            {static_cast<uint16_t>(bar.x + 1U), static_cast<uint16_t>(bar.y + 1U), kInnerWidth, 16}, Theme::audio_meter_track);
         if (error == ESP_OK && level.state == MicrophoneLevelState::Current) {
             error = fill_rows(strip, first_row, first_column,
                 {static_cast<uint16_t>(bar.x + 1U), static_cast<uint16_t>(bar.y + 1U), level.mean_width, 16},
@@ -160,13 +157,14 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
 
 // view: Persistent prepared view with stable caption storage.
 // content: Receives the renderer and its complete damage envelope.
-void attach_content(const AudioView &view, SceneContent &content)
+esp_err_t attach_content(const AudioView &view, SceneContent &content)
 {
     content = {};
     content.bounds = kContentBounds;
     content.state = &view;
     content.revision = view.revision;
     content.draw_rows = draw_rows;
+    return prepare_styled_title(view.captions[0].text, kHeading, content.heading, 3, true);
 }
 
 } // namespace
@@ -187,14 +185,16 @@ esp_err_t prepare_audio_view(const LUNASHELL::AudioSnapshot &audio, esp_err_t re
         project_level(audio, 0, read_error, now_us), project_level(audio, 1, read_error, now_us)};
     if (view.valid && same_level(levels[0], view.levels[0]) && same_level(levels[1], view.levels[1]) &&
         view.title_font == &title_font && view.body_font == &body_font) {
-        attach_content(view, content);
-        return ESP_OK;
+        return attach_content(view, content);
     }
     if (view.revision == std::numeric_limits<uint32_t>::max()) return result("view revision", ESP_ERR_INVALID_STATE);
     view.valid = false;
     view.captions = {};
-    auto error = prepare_line(title_font, "Audio", kHeading, kCyan, view.captions[0]);
-    if (error == ESP_OK) error = prepare_line(body_font, "Mean / peak (PCM)", kLegend, kMuted, view.captions[1]);
+    view.captions[0].text = {"Audio", 5};
+    auto error = ESP_OK;
+    const CODY2D::MonoFont *legend_face = nullptr;
+    if (error == ESP_OK) error = Typography::label_font("Mean / peak (PCM)", kLegend, body_font, legend_face);
+    if (error == ESP_OK) error = prepare_line(*legend_face, "Mean / peak (PCM)", kLegend, kMuted, view.captions[1]);
     for (size_t channel = 0; error == ESP_OK && channel < levels.size(); ++channel) {
         const auto &level = levels[channel];
         auto &readout = view.readouts[channel];
@@ -217,23 +217,27 @@ esp_err_t prepare_audio_view(const LUNASHELL::AudioSnapshot &audio, esp_err_t re
         }
         if (written <= 0 || static_cast<size_t>(written) >= readout.size()) return result("format level", ESP_ERR_INVALID_SIZE);
         const uint16_t top = static_cast<uint16_t>(174U + channel * 70U);
-        error = prepare_line(body_font, channel == 0 ? "Mic 1" : "Mic 2", {93, top, 100, 25},
+        const char *label = channel == 0 ? "Mic 1" : "Mic 2";
+        const CODY2D::Rect label_bounds{93, top, 100, 25};
+        const CODY2D::MonoFont *label_face = nullptr;
+        error = Typography::label_font(label, label_bounds, body_font, label_face);
+        if (error == ESP_OK) error = prepare_line(*label_face, label, label_bounds,
             channel == 0 ? kCyan : kMint, view.captions[2U + channel * 2U]);
-        if (error == ESP_OK) error = prepare_line(body_font, readout.data(), {193, top, 180, 25},
+        if (error == ESP_OK) error = prepare_line(Typography::monospace(), readout.data(), {193, top, 180, 25},
             level.state == MicrophoneLevelState::Current ? kWhite : kMuted, view.captions[3U + channel * 2U]);
     }
-    view.close = {kClose, {}, 0x2947, 0x10A4, true};
+    view.close = {kClose, {}, 0, 0, true};
     view.close.corner_radius = 28;
-    view.close.border_color = 0x73AF;
-    if (error == ESP_OK) error = prepare_line(body_font, "Close", kClose, kWhite, view.close.caption);
+    UI::apply_control_colors(view.close, UI::kContentSecondary);
+    if (error == ESP_OK) error = UI::prepare_button(view.close, body_font, "Close", kWhite, 28,
+        UI::kContentSecondary);
     if (error != ESP_OK) return result("prepare Audio", error);
     view.levels = levels;
     view.title_font = &title_font;
     view.body_font = &body_font;
     ++view.revision;
     view.valid = true;
-    attach_content(view, content);
-    return ESP_OK;
+    return attach_content(view, content);
 }
 
 // view: Last fully presented Audio page.

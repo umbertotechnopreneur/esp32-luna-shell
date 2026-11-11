@@ -1,191 +1,151 @@
 # Repository working agreements
 
-Applies throughout ESP32 Luna Shell. This is the only instruction file;
-do not add nested agent files or parallel Copilot contracts.
+These agreements apply throughout ESP32 Luna Shell. Use this file as the sole
+agent contract, including for Copilot.
 
 ## Scope and delivery
 
-- Implement in the existing checkout and branch. Creating a branch, worktree or
-  PR needs an explicit request for that operation. Preserve unrelated work.
-- Implementation permits static source review, not tests, validation scans,
-  simulator execution, configure/build/size, installation or physical-device
-  operations (serial, flash, erase, recover, capture or monitor).
-- Before each test or suite, announce the exact command and obtain fresh explicit
-  authorization. Earlier test approval or permission to implement/build/flash/
-  capture does not authorize another run.
-- Finish implementation, integration and static review before requested final
-  validation. No intermediate configure/build/size passes. Use at most eight
-  compiler jobs and allow at least 240 seconds per build. After cancellation,
-  confirm Ninja/Xtensa processes stopped before another run. Fix compiler/linker
-  causes; never globally suppress warnings to hide them.
-- A requested complete final package covers clean/incremental builds, size,
-  simulator checks, `git diff --check`, dependency/legacy scans and a changed-source
-  secret scan at GitHub publication. Narrower requests cover only named operations.
-  Build, host and flash results do not prove physical behavior; report deferred work.
-- Secret scans belong to authorized publication, never local compilation, flash
-  or capture. Inspect changed source before push; never scan firmware images.
-- For code, make focused local checkpoint commits at coherent boundaries. Push
-  needs separate authorization. For documentation-only work, editing authorizes
-  neither commit nor push: when delivery is requested, use the current branch and
-  `[skip ci]`, without builds, tests or CI/CD. No PR unless explicitly requested;
-  report protection blocks instead of changing the delivery route or rules.
+- Use the current checkout and branch. Preserve unrelated work. A new branch,
+  worktree or PR requires an explicit request.
+- Implementation includes static source review. Get separate authorization
+  for scans, simulator runs, configure/build/size, installation or device
+  operations (serial, flash, erase, recover, capture or monitor). Announce the
+  exact command and obtain fresh approval for each test or suite.
+- Finish integration and static review before final validation. Skip interim
+  configure/build/size passes. Allow at least 240 seconds and up to eight jobs
+  per build. After cancellation, confirm Ninja and Xtensa stopped. Fix compiler
+  and linker causes without suppressing warnings globally.
+- A complete final package includes clean and incremental builds, size, simulator
+  checks, `git diff --check` and dependency/legacy scans. Narrower requests cover
+  named operations only. Scan changed source for secrets before an authorized
+  GitHub push, excluding firmware images. Distinguish build, host, flash and
+  physical evidence and report pending checks.
+- Make focused local code checkpoints. Push with authorization. For requested
+  docs-only delivery, commit only authorized docs with `[skip ci]` and push the
+  current branch without builds, tests or CI/CD. Editing alone authorizes neither
+  commit nor push. Report protection blocks and preserve the delivery rules.
 
 ## Platform and tools
 
-- Use documented public integration points. Hacks, private protocols, undocumented
-  APIs and fragile startup/runtime overrides need explicit exception approval
-  after explaining the limitation, supported alternatives and maintenance risk.
-  General implementation/build/install permission is not that approval.
-- Target ESP-IDF **6.0.2** and official ESP-Brookesia **0.8** only. No IDF 5.x,
-  Brookesia 0.6/0.7 or removed Phone framework shims, wrappers, migrations or fallbacks.
-- Luna uses LVGL below Brookesia System Super/Core and declarative GUI packages.
-  Cody and standalone display/touch use native 2D without LVGL or adapter dependencies.
-  Keep physical-board, interface, optional-service and build-mode choices separate.
-- `scripts/device.ps1` is the sole public CLI/menu for firmware, simulator,
-  generators and checks. Never call the IDF Python entrypoint directly.
-  Under `scripts/`, use `commands/`, `common/`, `generators/` and `checks/` for
-  implementations, helpers, generators and checks respectively.
-- Build Debug applications/packages from current source, never installed or
-  prebuilt application copies. Missing dependencies come from official sources.
-  Keep first-time external imports aside for one targeted on-demand Defender
-  scan of the archive and extracted/imported dependencies. Verify the official
-  source, version and clean scan completion in the current staging session.
-  Reuse the result for the same unchanged import within that session. Keep
-  any scan gate in memory only and discard it at session end.
-  Failed/unavailable scans block import; no whole-system scans or detection bypass.
-  Keep a short requirement in maintained READMEs; do not certify old imports.
+- Target ESP-IDF **6.0.2** and official ESP-Brookesia **0.8**, without legacy
+  SDKs or Phone framework compatibility code. Luna uses LVGL below Brookesia
+  System Super/Core and declarative GUI. Cody and standalone display/touch
+  use native 2D without LVGL or adapters. Keep board, interface, optional
+  services and build mode independent.
+- Use documented public interfaces. Explain limitations, supported options
+  and maintenance risk before seeking an explicit exception for hacks, private
+  interfaces or fragile overrides.
+- Use `scripts/device.ps1` as the sole public CLI for firmware, simulator,
+  generators and checks. Do not call the IDF Python entry point directly.
+  Use `scripts/commands/`, `scripts/common/`, `scripts/generators/` and
+  `scripts/checks/` for implementations, helpers, generators and checks.
+- Build Debug apps and packages from current source. Obtain dependencies from
+  official sources. Stage first imports, verify source and version, and run
+  one on-demand Defender scan of the archive and extracted imports. Require a
+  clean result and reuse it for unchanged imports in that staging session.
+  Keep gates in memory and a short rule in maintained READMEs. Stop on failed
+  or unavailable scans. No broad scans, bypass or old certifications.
 
 ## UI contracts
 
-Read [display geometry](docs/bsp/boards/waveshare-esp32s3-touch-amoled-1.75/display-geometry.md)
-before layout changes and [Cody layout](docs/cody/layout.md) for control details.
+Before layout changes, read the [display geometry](docs/bsp/boards/waveshare-esp32s3-touch-amoled-1.75/display-geometry.md)
+and [Cody layout](docs/cody/layout.md) for chord limits, rotation, hit targets,
+Back geometry and QR clearance.
 
-- Canvas: 466 x 466, center (233,233), radius 233. Baseline safe square:
-  320 x 320 at (73,73), half-open [73,393). Admit artwork and complete hit bounds
-  against every occupied row's circular chord; rounded margins are not strips.
-  Preserve QR quiet zones and navigation clearance.
-- QR screens show only a title and the largest readable QR that fits the display,
-  including its complete quiet zone and any required navigation clearance. Do not
-  show a subtitle. A tap returns to the actual previous screen; do not submit an
-  action or end a pairing session without applying its existing exit semantics.
-- Back: left lateral circle at (10,203), 60 x 60, radius 30; one centered left
-  chevron, no text, full touch target, only with a previous route. Keep it separate
-  from content and primary/footer actions, never beside or below a footer.
-- The Wi-Fi and Bluetooth setup journey and the Tools, Preferences and Device
-  options menu pages do not show a Home button. Back navigation returns to the
-  previous page or the route that opened them, respecting pairing cleanup.
-- Product pages use a title and subtitle, except QR screens. Home is an icon-only filled house on
-  dark orange; Back and Next are lateral chevrons where those routes exist.
-  Status and navigation chrome fade after inactivity and reappear for touch or
-  valid measured IMU movement; hidden controls cannot activate. Status uses
-  actual date/time, Wi-Fi strength, Bluetooth and battery with semantic colors.
-- Rendering, clipping and touch share logical 0/90/180/270-degree coordinates.
-  Back stays visually left; never mirror text or rotate touch independently.
-- Cody Home keeps character/status above rotating Tokens, Model, Connection and
-  Chat panels. Tap advances; deliberate shake returns to Tokens. Long titles and
-  activity finish scrolling before Chat advances; Connection also allows full
-  build-date, PC-timezone and hostname reading. Home has no Back; Setup,
-  remote questions and Luna retain routes.
-- The @CCP footer makes three full passes per display-owner lifetime, then hides.
-  Source gaps, standby and chat/panel changes pause it without replay.
-- Diagnostics use one entry in Debug and Release, with measured CPU,
-  free RAM/PSRAM, FPS and IP. Show SD only on supported hardware. Memory shows
-  heap capacity/fragmentation: used, largest free block and other free space,
-  not addresses. Back returns to overview,
-  then retained route; authenticated Normal restores that route. No build-mode
-  choice or facial-channel UI/storage; retain internal animation channels.
-- Cody actions use text-only captions, except icon-only Home navigation. Use two rounded gradient cards side
-  by side, three as that pair plus one centered below, one as a wide centered
-  capsule. Question choices are numbered single-line full-width rows, at most
-  two visible, with scrolling and full detail review before Send. Use semantic
-  colors and restrained gradients. Approved references are
-  `docs/cody/ui-proposals/20261009/selected-multi-action.png` and
-  `selected-single-action.png` in the same directory.
-- Reveal complete controls after title/main body finish; admit touch only while
-  visible. Captions have no typewriter timing or character-audio counts.
-- Each manga-style icon shown as an overlay has its own matching sound cue, played
-  once when the icon appears, subject to the user's sound and quiet-hours settings.
-  Do not replay it for each redraw or invent a system event from artwork.
+- Product pages show a title and subtitle. QR pages show a title and the
+  largest readable code that fits with its quiet zone. Tap returns to the
+  previous route without submitting an action. Respect pairing cleanup.
+- Home is an icon-only filled house on dark orange. Omit it in Wi-Fi/Bluetooth
+  setup and Tools, Preferences and Device options. Back and Next use lateral
+  chevrons where routes exist. Keep Back visually left and separate from content
+  and footer actions. Fade chrome on inactivity and reveal on touch or valid IMU
+  motion. Disable hidden hit targets. Use actual date/time, Wi-Fi strength,
+  Bluetooth and battery with semantic colors.
+- On Cody Home, character and status stay above Tokens, Model, Connection and
+  Chat. Tap advances and deliberate shake returns to Tokens. Let long titles,
+  activity, build date, PC timezone and hostname finish scrolling. Keep Setup,
+  remote question and Luna routes. Home has no Back. The @CCP footer runs three
+  full passes per display-owner lifetime, then hides. Pause it on source gaps,
+  standby and chat or panel changes without replay.
+- Use one diagnostics entry for Debug and Release with measured CPU, free
+  RAM/PSRAM, FPS and IP. Show SD where supported. Memory shows used space,
+  largest free block and remaining free space, without addresses. Back goes
+  via overview to the retained route. Authenticated Normal restores it. Keep build-mode selection and
+  facial channels out of UI/storage. Retain internal animation channels.
+- Use text-only actions, with a capsule for one, two rounded gradient cards
+  side by side for two and a centered card below for three. Use semantic colors
+  and restrained gradients. Follow the approved single- and multi-action images
+  in `docs/cody/ui-proposals/20261009/`. Questions show at most two numbered
+  single-line full-width rows, with scrolling and full review before Send.
+- Reveal complete controls after the title and body. Enable touch only while
+  visible. Captions have no typewriter timing or audio count. Give each manga
+  overlay one matching cue on appearance, subject to Sounds and quiet hours.
+  Redraws never replay cues, and artwork never creates events.
 
 ## Code and data
 
-- Write repository docs, code comments, UI text, logs and commits in English.
-  Revised PDFs include English titles, diagrams, captions, footers and retained
-  corrections. Keep original screen IDs and evidence. Chat may remain Italian.
-  Cody text is bounded printable ASCII; no Unicode/localization layer.
-- Prefer readable steps, descriptive names and helpers with one responsibility.
-  Avoid dense branches, unrelated one-liners and speculative abstractions.
-  Above each new/modified function, give each parameter and applicable exception
-  its own comment line. Explain non-obvious ownership/invariants inside functions.
-- Use typed enums and unique names/IDs for domain identities; reject duplicates
-  and ambiguity, preserve identity through reordering. Indices are storage/API details.
-- Budget large objects, arrays, snapshots and copies against the owning stack and
-  deepest nested call chain, including callbacks/logging. Prefer bounded projections
-  or synchronized owner buffers; PSRAM requires valid access/cache conditions.
-  Never blindly enlarge a task stack. After schema growth, revisit callers;
-  inspect compiled frames and measure device headroom before runtime claims.
-- Return original or more specific errors; never turn partial failure into
-  `ESP_OK`, discard init/read/write/persistence/service failures or guess recovery.
-  Log rejected values and failed operations with component, operation and cause.
-  Startup-critical failure stops its stage. Only documented optional failures may
-  let orchestration continue; the component returns/publishes failure in the snapshot.
-- `DeviceSnapshotService` is the only runtime/sensor source for consumers.
-  Only acquisition owners read hardware/BSP/I2C. Extend those owners for new
-  fields/cadences; no consumer diagnostics, parallel caches or freshness fallbacks.
-- Publish measurements only after successful reads, with original timestamps,
-  validity, health and actual errors. Failed/unavailable samples remain explicit;
-  no fabrication, interpolation, zero filling or stale-as-current values. Check
-  validity before numeric UI and show UNAVAILABLE, NO FIX, STALE or the error.
-  Unmeasured metrics stay unavailable. Label synthetic Windows data and never
-  publish it into firmware snapshots.
-- Default only absent settings: log key/default/first-boot decision and persist.
-  Read/type/CRC/storage errors are not absence. Never silently clamp, repair,
-  migrate or overwrite invalid settings; reset/repair needs explicit action and
-  a visible result. Internal LittleFS/NVS and removable SD have separate purposes.
-- Never implicitly format SD. Require a present card, verified format-required
-  state and explicit single-use authorization, expiring if the card disappears
-  or formatting cannot be attempted immediately.
+- Use English for docs, comments, UI, logs and commits, including PDF titles,
+  diagrams, captions, footers and corrections. Preserve screen IDs and evidence.
+  Chat may be Italian. Bound Cody text to printable ASCII.
+- Use descriptive names, readable steps and focused helpers. Above each new
+  or changed function, give each parameter and exception its own comment line.
+  Explain non-obvious ownership and invariants. Use typed enums and unique IDs
+  stable across reordering. Reject duplicates and ambiguity. Keep indices as
+  storage or API details.
+- Budget large objects and copies for the deepest stack path, including logging
+  and callbacks. Prefer bounded projections or synchronized owner buffers.
+  Respect PSRAM cache and access limits. Revisit callers after schema growth.
+  Budget stack changes. Inspect compiled frames and measure headroom before
+  making runtime claims.
+- Return original or more specific errors, including partial failures. Log
+  rejected values and failures with component, operation and cause. Stop on
+  startup-critical failure. Continue only for documented optional failures
+  and return or publish the error through the owning component.
+- `DeviceSnapshotService` is the sole consumer source for runtime and sensor
+  data. Extend acquisition owners for new fields or cadences. They alone
+  read hardware/BSP/I2C. No consumer diagnostics, parallel caches or freshness
+  fallbacks. Publish successful reads with original timestamps, validity and
+  health. Surface actual errors and unavailable, no fix or stale states.
+  Never fabricate, interpolate, zero-fill or show stale data as current.
+  Label synthetic Windows data and keep it out of firmware snapshots.
+- Default only absent settings. Log key, default and first-boot decision and
+  persist. Preserve read/type/CRC/storage errors. Clamping, repairing, migrating
+  or overwriting invalid data requires explicit action and a visible result.
+  Keep LittleFS/NVS separate from SD.
+  Format only a present card with verified format-required status and explicit
+  single-use approval that expires on removal or if formatting cannot start now.
 
 ## Files and records
 
-| File | Keep here |
+| File | Purpose |
 | --- | --- |
-| `AGENTS.md` | Current working agreements |
-| `TODO.md` | Active work and its remaining acceptance gates |
-| `planned-todo.md` | Deferred work, stable IDs and activation conditions |
-| `done.md` | One concise summary of the latest validation round only |
-| `lessons.md` | Reusable lessons from observed failures |
+| `AGENTS.md` | Working agreements |
+| `TODO.md` | Active work and open acceptance gates |
+| `planned-todo.md` | Deferred work, stable IDs and activation conditions. Retain the existing development history for now. |
+| `done.md` | Replace with one summary of the latest validation round |
+| `lessons.md` | Reusable lessons. Read before boot, startup or Brookesia changes. |
 
-- Keep documentation focused on current behavior, configuration, limitations and
-  remaining work. Do not accumulate chronological reports, old attempts, CI runs,
-  PR references or superseded validation results. Replace the latest validation
-  summary instead of appending rounds; do not create history/story/archive or
-  validation Markdown files. Do not move deleted history into another document.
-- Keep active build inputs, logs and captures only while needed for the
-  authorized operation. Remove temporary output after handoff and retain only
-  requested deliverables. Never retain scan logs, reports, verification manifests
-  or build history. Report validation outcomes in the conversation.
-- Do not duplicate queues or add alias TASKS/TODO/lessons files. Never mark pending
-  validation done. Read `lessons.md` before boot/startup/Brookesia changes.
-- Keep generated builds, state, logs, captures, reports, temporary files and local
-  simulator environments in `artifacts/`. Before each authorized firmware build/
-  flash (including combo/recover), use shared transient cleanup. Preserve active
-  firmware, locks, generated configuration and Python caches. `fullclean` affects
-  only the selected build; never delete versioned assets as runtime cleanup.
-- The README ends with `This is VibeWare`: canonical manifesto, approved logo,
-  project/VibeWare GitHub links, personal site, Terms and Privacy. Explain the
-  initiative without claiming finished software or using a generic AI disclosure.
-  Website links retain `utm_source=github`, `utm_medium=referral`,
-  `utm_campaign=esp32-luna-shell` and placement-specific `utm_content`.
-  Preserve root and third-party license boundaries.
-- Copy every created/revised documentation PDF byte for byte, same filename, to
-  `C:\Users\umber\OneDrive\Obsidian\30_Engineering\Products\Cody Companion\atlas`.
-- Keep maintained PDFs focused on the current development state. Code history
-  belongs in Git. If a document needs errata, an addendum or a security
-  correction, keep a final register with date and type left and description,
-  original page/screen IDs and optional images right. Preserve the evidence
-  and dates of retained corrections. Security has its own labeled section.
-  Apply the same rule to in-scope PDFs outside the repository.
-- Exception: `docs/cody/cody-ccp-pairing-quickstart-a5-v1.pdf` keeps four A5
-  instructional pages for nontechnical users, updated in place; never append
-  a revision register, errata, addenda or technical security appendix.
+- Document current behavior, settings, limits and open work. Keep one queue
+  per purpose and leave unverified work pending. Do not accumulate archive or
+  validation journals, old attempts, superseded results or CI/PR history.
+  Do not move deleted history elsewhere.
+- Use `artifacts/` for generated files, state, logs and local simulator environments.
+  Run shared transient cleanup before authorized firmware builds or flashes,
+  including combo/recover. Keep active firmware, locks, config, Python caches and versioned
+  assets. Scope `fullclean` to the selected build. After handoff keep only
+  requested deliverables. Report results in chat and retain no scan records,
+  verification manifests or build history.
+- End the README with `This is VibeWare`, the canonical manifesto and logo,
+  project and VibeWare GitHub links, personal site, Terms and Privacy. Explain
+  the initiative without claiming finished software or using a generic AI
+  disclosure. Preserve root and third-party licenses and website parameters
+  `utm_source=github`, `utm_medium=referral`, `utm_campaign=esp32-luna-shell`
+  and placement-specific `utm_content`.
+- Copy created or revised documentation PDFs byte for byte under the same name
+  to `C:\Users\umber\OneDrive\Obsidian\30_Engineering\Products\Cody Companion\atlas`.
+  Keep in-scope PDFs current, including outside the repo. When a correction is
+  needed, use a final register with date and type on the left, description,
+  original page/screen IDs and optional images on the right. Preserve dates
+  and evidence and label security separately. Keep the
+  [pairing quickstart](docs/cody/cody-ccp-pairing-quickstart-a5-v1.pdf)
+  at four A5 instructional pages, revised in place without appendices.

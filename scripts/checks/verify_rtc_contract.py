@@ -870,20 +870,36 @@ def main() -> int:
             0 <= lock_at < shared_state_at,
             f"{source} must serialize time-service state before its first read",
         )
-    sntp_deferred_at = time_init.find("config.start = false;")
-    sntp_init_at = time_init.find("esp_netif_sntp_init(&config)")
+    sntp_initialize = function_text(
+        time_source,
+        "static esp_err_t initialize_network_time_service(",
+        "deferred SNTP initialization helper",
+    )
+    sntp_deferred_at = sntp_initialize.find("config.start = false;")
+    sntp_init_at = sntp_initialize.find("esp_netif_sntp_init(&config)")
     require(
         0 <= sntp_deferred_at < sntp_init_at,
-        "time initialization must keep SNTP callbacks deferred while holding "
-        "the service-state transaction",
+        "SNTP initialization must defer callbacks until an explicit start",
+    )
+    init_lock_at = time_init.find("std::lock_guard<std::mutex> sync_lock(s_sync_mutex)")
+    init_helper_at = time_init.find("initialize_network_time_service()")
+    require(
+        0 <= init_lock_at < init_helper_at,
+        "time initialization must invoke the deferred SNTP helper inside "
+        "the serialized time-service transaction",
     )
     notify_lock_at = time_notify.find(
+        "std::lock_guard<std::mutex> request_lock(s_sntp_request_mutex)"
+    )
+    notify_state_lock_at = time_notify.find(
         "std::lock_guard<std::mutex> sync_lock(s_sync_mutex)"
     )
+    notify_state_scope_end = time_notify.find("\n    }\n#if", notify_state_lock_at)
     sntp_start_at = time_notify.find("esp_netif_sntp_start()")
     require(
-        0 <= notify_lock_at < sntp_start_at,
-        "SNTP start must run inside the serialized time-service transaction",
+        0 <= notify_lock_at < notify_state_lock_at < notify_state_scope_end < sntp_start_at,
+        "SNTP start must hold the request lock but release the time-state lock "
+        "before waiting for the TCP/IP executor",
     )
     gps_sync = function_text(
         time_source,

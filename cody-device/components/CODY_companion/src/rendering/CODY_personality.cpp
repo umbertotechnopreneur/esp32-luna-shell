@@ -15,6 +15,7 @@
  * VBWR E */
 
 #include "CODY_personality.hpp"
+#include "CODY_theme_generated.hpp"
 #include "CODY_personality_config.hpp"
 
 #include <algorithm>
@@ -1091,10 +1092,10 @@ esp_err_t draw_personality_rows(const PersonalityFrame &frame, CODY2D::Surface s
             if (coverage == 0) {
                 continue;
             }
-            const uint16_t foreground = frame.cue == PersonalityCue::BatteryLow ? 0xF986 :
-                frame.cue == PersonalityCue::BatteryReady ? 0x07E0 :
+            const uint16_t foreground = frame.cue == PersonalityCue::BatteryLow ? Theme::personality_battery_low :
+                frame.cue == PersonalityCue::BatteryReady ? Theme::personality_battery_ready :
                 frame.cue == PersonalityCue::WifiConnected || frame.cue == PersonalityCue::Search
-                    ? 0x5EDD : PersonalityAssets::palette[sprite->indices[source]];
+                    ? Theme::personality_working : PersonalityAssets::palette[sprite->indices[source]];
             auto &pixel = destination[x - first_column];
             const uint16_t background = CODY2D::rgb565_stored_to_native(pixel, strip.byte_order);
             pixel = CODY2D::rgb565_native_to_stored(

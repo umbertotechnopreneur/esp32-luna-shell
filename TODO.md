@@ -1,291 +1,121 @@
 # Active work
 
+This file tracks open implementation and acceptance. See [planned-todo.md](planned-todo.md) for deferred work and development history. Apply [AGENTS.md](AGENTS.md) to each operation. Activating work does not authorize builds, tests, simulator runs, asset generation or device operations.
+
 ## CODY-NEXT - Multi-chat domain and Muse
 
-Implementation is active on `feat/cody-vNext`. The authoritative phase/task
-specification is in [planned-todo.md](planned-todo.md#cody-next---domain-model-and-muse-implementation-plan).
+Work is tracked on `feat/cody-vNext`. Keep the status below aligned with the [phase plan](planned-todo.md#cody-next---domain-model-and-muse-implementation-plan), its task markers and progress summary. Retain reusable screen sources and IDs. The vNext contracts may change without compatibility layers or automatic migration.
 
-| Phase | Status | Remaining gates |
-| --- | --- | --- |
-| CODY-NEXT-00 | Accepted (source inventory) | G01/G02 document review complete in [screen catalog](docs/cody/screen-catalog.md); physical/route acceptance remains in 09/11 |
-| CODY-NEXT-01 | Implemented / validation pending | Schema and design review (G01/G02) in [domain contract](docs/cody/domain-model.md); header compilation, actual memory layout and runtime evidence remain pending |
-| CODY-NEXT-02 | Implemented / validation pending | G01/G02 design/source review complete for [protocol, schema and examples](cody-desktop/plugins/cody-codex-plugin/protocol/CODY_STATE_V1.md); schema execution, helper compilation and live protocol acceptance remain pending |
-| CODY-NEXT-14 | In progress | Portable store, shared firmware/host composition, Muse frame boundary and Waveshare descriptor are connected. Review current-target capacity, OS boundaries and scenario integration before G01. |
-| CODY-NEXT-03 | In progress (broker restart restore wired) | The private checkpoint restores stable records and historical evidence under a new epoch. The plugin exposes bounded state-v1 pages. Question correlation and executed acceptance remain open. |
-| CODY-NEXT-04 | In progress (Codex ledger wired) | Broker retains exact question, answer and confirmation evidence. Signed CCP1 still owns delivery. Native turn correlation, state-v1 question publication and executed restart/race acceptance remain open. |
-| CODY-NEXT-05 | In progress (canonical query and recovery wired) | DeviceSnapshotService exposes generation-bound views. The paired device restores historical counts, a bookmark and unresolved references. Executed storage and recovery acceptance remains open. |
-| CODY-NEXT-07 | In progress (native pose showcase wired) | Original floppy sequence and moving Muse use native CODY2D. The visible showcase changes pose every ten seconds. Domain-driven direction and physical acceptance remain open. |
-| CODY-NEXT-09 | In progress (native Codex browser wired) | Chats, Turns, Tool calls, Active calls, Events and Statistics are reachable from Codex. Home/Tools gestures, two-dot chrome and device acceptance remain open. |
+| Phase | State and remaining work |
+| --- | --- |
+| CODY-NEXT-00 | [Screen inventory](docs/cody/screen-catalog.md) accepted at G01/G02. Route and hardware acceptance remain in 09/11. |
+| CODY-NEXT-01 | [Domain contract](docs/cody/domain-model.md) reviewed at G01/G02. Compile headers and verify memory layout and runtime behavior. |
+| CODY-NEXT-02 | [Protocol, schema and examples](cody-desktop/plugins/cody-codex-plugin/protocol/CODY_STATE_V1.md) reviewed at G01/G02. Execute the schema, compile helpers and verify the live protocol. |
+| CODY-NEXT-14 | Portable store, firmware/host composition, Muse frame boundary and Waveshare descriptor wired. Review current-target capacity, OS boundaries and scenario integration before G01. |
+| CODY-NEXT-03 | Broker restores stable records and history under a new epoch and serves bounded state-v1 pages. Complete question correlation and executed acceptance. |
+| CODY-NEXT-04 | Broker preserves exact question, answer and confirmation evidence. Signed CCP1 owns delivery. Complete native turn correlation, state-v1 question publication and restart/race acceptance. |
+| CODY-NEXT-05 | DeviceSnapshotService serves generation-bound queries and the paired device restores counts, a bookmark and unresolved references. Verify storage and recovery. |
+| CODY-NEXT-07 | Native CODY2D floppy-to-Muse showcase changes pose every ten visible seconds. Complete domain-driven direction and physical acceptance. |
+| CODY-NEXT-09 | Native Codex browser exposes Chats, Turns, Tool calls, Active calls, Events and Statistics. Finish Home/Tools gestures, two-dot chrome and hardware acceptance. |
 
-Keep this table, the phase table, the individual markers and the progress
-summary in [planned-todo.md](planned-todo.md) aligned at each checkpoint.
-Static readiness never counts as executed tests. Muse direction and route
-changes follow their named phases.
-The broker and paired firmware share the authenticated state-v1 socket path.
-The initial profile admits source, chat, turn, tool definition and tool call
-records. It exposes unsupported categories explicitly. The broker keeps an
-authenticated private checkpoint. The device restores a historical summary
-and starts from a fresh snapshot. The native browser consumes bounded pages
-and restores a validated chat bookmark. The signed Codex question flow retains
-durable attempts and exposes unconfirmed delivery after restart. Other providers
-and the state-v1 question/answer projection remain deferred.
-
-Phase 11 must compile the headers and exercise the JSON schema/examples,
-chunk/revision helpers and specified scenarios against the phase-05 reducer.
-Cover missing chunks, changed epochs, lost ACKs, capacity and clock failures; inspect actual
-record/stack sizes, and measure available device memory before enabling the
-4,096-call candidate. No executable acceptance is marked complete.
-vNext may break old data/protocol/API contracts; no backward-compatibility layer
-or automatic legacy migration is required. Keep reusable screen sources and IDs.
-No build, test, simulator, asset generation or hardware operation is authorized
-by activation. Existing acceptance work below remains pending.
+Phase 11 executable acceptance remains pending. Compile headers and run schema/examples, chunk/revision helpers and phase-05 reducer scenarios covering missing chunks, epoch changes, lost ACKs and capacity/clock failures. Check record and stack sizes and measure available device memory before enabling the 4,096-call candidate.
 
 ## Creamwork 3 Muse avatar
 
-- Verify the VibeWare introduction hands off to the Muse avatar on the board.
-- Observe the wake and idle animation, tap reaction, and Cody cue with sound
-  enabled, muted, and in quiet hours. Check rotation and Options access.
+Verify the VibeWare-to-Muse handoff, wake/idle motion, tap reaction, rotation and Options access on the board. Listen for the Cody cue with sound enabled, muted and during quiet hours.
 
 ## Creamwork 3 audio menu
 
-- Add a native Audio menu with playback volume, separate Mic 1 and Mic 2 level
-  meters, a microphone-gain slider, Close and Power off. Keep it separate from
-  the unavailable Synth Voice settings and preserve the current Home navigation.
-- Apply playback volume/gain through the audio owner, using its supported range
-  and confirmed applied value. Preserve Sounds, quiet-hours and active-playback
-  policy; codec reconfiguration must not silently overwrite the user's choice.
-- Read both microphone meters exclusively from DeviceSnapshotService, using the
-  canonical per-channel mean/peak levels, timestamps, validity and errors. Reuse
-  AFE measurements while it owns capture; request level-only acquisition when
-  needed, without UI hardware reads, duplicate capture or spectrum processing.
-- Show two independent meters only when two input channels are supported. With
-  one microphone, show one measured meter and Mic 2 unavailable; with no input,
-  show microphones unavailable and disable microphone gain. Never duplicate a
-  channel, invent a silent reading or present stale values as current.
-- Route the shared microphone-gain slider through the existing audio/capture
-  owner, with codec-supported dB steps, confirmed application and explicit errors.
-  Use the same selected policy for AFE and diagnostic capture. Define persistence
-  through the settings owner; failed reads or writes must not become defaults.
-- Close restores the previous page and releases only this menu's acquisition
-  request. Power off requires deliberate confirmation using the existing control
-  pattern, then queues the power owner's shutdown transaction; never call the
-  PMU directly from the UI. Preserve farewell, resource draining and visible errors.
-- Fit complete sliders, meter labels and actions within the circular display and
-  retain logical rotation, native CODY2D rendering and bounded update work.
+- Add native CODY2D Audio with playback volume, Mic 1/2 meters, shared mic gain, Close and Power off. Keep the unavailable Synth Voice separate and preserve Home navigation, logical rotation, circular fit and bounded updates.
+- Apply supported volume and codec dB steps through audio/capture owners. Confirm applied values, surface failures and respect Sounds, quiet hours and active playback. Preserve choices through codec reconfiguration. Share gain policy between AFE and diagnostic capture and persist through the settings owner without defaulting failed reads/writes.
+- Use canonical per-channel mean/peak, timestamps, validity and errors from DeviceSnapshotService. Reuse AFE levels or request level-only acquisition. Exclude duplicate capture and spectrum processing. Two inputs show independent meters, one shows Mic 2 unavailable, and zero disables gain and shows both unavailable. Keep acquisition with its owner and keep stale, missing and failed observations explicit.
+- Close restores the prior route and releases only this menu's acquisition request. Confirm Power off with the existing UI pattern and queue the power owner's transaction, preserving farewell, resource drain and visible errors.
 
 ### Pending validation gates
 
-- Complete integration and static source review before requesting validation.
-- With fresh authorization for each exact command, validate applicable no-input,
-  single-microphone and dual-microphone compositions and the native menu layout.
-- With separate physical-device authorization, verify independent channel levels,
-  gain/volume application, playback and AFE ownership, stale/error presentation,
-  Close restoration and confirmed shutdown/cancellation. Compilation alone does
-  not establish audible output, microphone response or physical power-off.
+After integration and static review, obtain fresh authorization per exact command to cover zero/one/two inputs and native layout. With separate physical-device authorization, verify channel independence, gain/volume, audible playback, AFE ownership, stale/errors, Close, and shutdown/cancel.
 
 ## Cody layout refinement
 
-- Validate the Options destination cards, Behavior rows, saved-PC icon actions and full SSID
-  display at all rotations, with missing/stale and unsupported network names.
-- Verify Account and Token activity empty states. Exercise Credits with no vouchers,
-  one voucher, equal dates and multiple dates, including local midnight and vertical swipes.
-- Verify the dictation countdowns and start, send and close sounds with Sophia and
-  a double tap. Exercise cancellation, destination changes, unsupported titles,
-  repeated LAN loss before START and during PCM, and a real WAV queue receipt on
-  Windows, including a temporary loss after END.
-- Verify Connections action admission, passive Wi-Fi animation and the
-  provisioning result at all rotations, including a 32-byte SSID and a lost IP.
+- Check Options cards, Behavior rows, saved-PC icon actions and full SSIDs at every rotation, including missing, stale and unsupported network names. Check Connections action admission, passive Wi-Fi animation and provisioning at all rotations, with a 32-byte SSID or lost IP.
+- Check Account and Token activity empty states. Exercise Credits with zero, one, equal-date and multiple-date vouchers, local midnight and vertical swipes.
+- With Sophia and double tap, verify dictation countdowns and start/send/close sounds. Exercise cancellation, destination changes, unsupported titles and repeated LAN loss before START, during PCM and temporarily after END. Confirm a real Windows WAV queue receipt.
 
 ## CLOUD-01 - Private relay acceptance
 
-- Keep the independently versioned proprietary server outside the public Git
-  index. Public documentation contains only architecture and integration limits.
-- Exercise failed publication and explicit recovery through the unified
-  `device.ps1 relay` workflow while preserving the single writer and SMB state.
-- Exercise the direct Aspire CLI deployment against the existing app during
-  the next release. The AppHost pipeline can be listed from the solution root.
-- After explicit authorization, exercise account/device isolation, pairing races, DPoP
-  replay, token rotation, lost responses, revocation, expiry and bounded queues.
-- Verify Windows and Linux separately against the actual SMB/Samba mount,
-  including cross-host exclusion, interrupted writes, disconnect/reconnect,
-  restrictive permissions and power-loss durability limits.
-- Verify the operator portal and connect the remote MCP plugin to Dot through a
-  supported client authentication route. Verify actual notification calls and
-  acknowledgements.
-- Confirm HTTPS liveness from Dot's cloud computer after the DNS failure.
-  Record the source host with the result.
-- Verify the normal Aspire dashboard, HTTPS, operator-only console access and
-  authenticated OTLP after relay publication. Aspire's own local working files
-  are allowed. Service state and durable logs remain on SMB.
+- Keep the independently versioned proprietary server outside the public Git index. Limit public docs to architecture and integration limits.
+- Exercise failed publication and explicit recovery via `device.ps1 relay`, preserving the single writer and SMB state. At the next release, exercise direct Aspire CLI deployment against the existing app. The AppHost pipeline is listable from the solution root.
+- With authorization, verify account/device isolation, pairing races, DPoP replay, token rotation, lost responses, revocation, expiry and bounded queues. Test the actual SMB/Samba mount separately on Windows and Linux for cross-host exclusion, interrupted writes, reconnect, restrictive permissions and power-loss durability limits.
+- Verify the portal, supported remote MCP client authentication in Dot, notification calls and ACKs. Recheck HTTPS after the DNS failure from Dot's cloud computer and record the source host.
+- After publication, verify the Aspire dashboard, HTTPS, operator-only console and authenticated OTLP. Keep service state and durable logs on SMB. Aspire may keep its local working files.
 
 ## CLOUD-02 - Device relay integration
 
-- Obtain the deployed relay hostname. Validate the opt-in `-RelayHost` build
-  and Connections relay check on the board. Cover absent Wi-Fi, invalid time,
-  certificate rejection, HTTPS errors, upgrade rejection, a missing or malformed
-  WebSocket frame, a normal close and success. Measure the separate TLS worker's
-  stack headroom and free internal heap across both requests.
-- Reuse the canonical clock observation for device proof time. Wait for valid
-  UTC and surface time errors. Select protected device key and token storage
-  for the target board before enrollment.
-- Run enrollment as an explicit Connections action. Use a device-owned P-256
-  key, short-lived proof per request, a code for portal claim, and physical
-  confirmation of the claimed owner. Commit the key-bound token durably before
-  showing a completed link. Agent and administrator keys remain off-device.
-- Keep networking and token rotation with the relay owner and project its
-  state through DeviceSnapshotService. Validate bounded polling, retries and
-  credential recovery before admitting notifications. Acknowledge reception
-  after owner admission and display after the corresponding frame retires.
-- Connect the enrolled firmware to the relay's authenticated WebSocket wake
-  signal. Reconcile the queue after connecting and after each hint. Exercise
-  reconnect, lost hints, concurrent devices, revocation, rotation and expiry
-  without treating the signal as delivery evidence.
-- Select credential-safe HTTPS and WebSocket clients for ESP-IDF 6.0.2 before
-  attaching proof or token headers. The built-in HTTP client can log serialized
-  headers at Debug level, and the built-in WebSocket transport logs the upgrade
-  request on a write error. Check credential handling on failure in both build modes.
+- Obtain the deployed hostname and validate the opt-in `-RelayHost` build and Connections check on the board. Cover absent Wi-Fi, invalid time, certificate/HTTPS/upgrade errors, missing or malformed WebSocket frames, normal close and success. Measure TLS worker stack headroom and free internal heap across both requests.
+- Before enrollment, select protected key/token storage and credential-safe ESP-IDF 6.0.2 HTTPS/WebSocket clients. Verify failed requests in both build modes because HTTP Debug and WebSocket write errors can expose headers. Use valid UTC from the canonical clock for proof and surface time errors.
+- Enroll from Connections using a device-owned P-256 key, short-lived per-request proof, a portal claim code and physical owner confirmation. Persist the key-bound token before reporting success. Keep agent/admin keys off-device.
+- Keep network and rotation policy with the relay owner and expose state through DeviceSnapshotService. Validate bounded polling, retries and credential recovery before admitting notifications. Acknowledge receipt after owner admission and display after frame retirement.
+- Authenticate the WebSocket wake signal and reconcile the queue on connect and each hint. Exercise reconnect, lost hints, concurrent devices, revocation, rotation and expiry. Treat hints as prompts to reconcile.
 
 ## CLOUD-03 - Shared chat waiting state
 
-- Confirm the supported Dot surface and its stable chat and reply identities.
-  Persist unread state per reply in the relay, independently of delivery receipts.
-- Show a red dot and offer explicit Mark as read on each authorized surface.
-  Apply a read to the exact reply so it cannot clear a newer reply in the same
-  chat. Keep an unread reply eligible for quiet, rate-limited reminders.
-- Verify the two-surface flow: new reply, red dot, reminder on the associated
-  device, read on either surface, and clearance everywhere. Repeat with a later
-  reply in the same chat and verify that a display receipt alone keeps it unread.
+Confirm Dot's supported surface and stable chat/reply IDs. Persist unread state per reply in the relay, independently of delivery receipts. Show a red dot, offer explicit Mark as read on authorized surfaces and schedule quiet, rate-limited reminders. Verify new reply, device reminder and exact-reply clearance from either surface. A later reply stays unread after an earlier read or a display receipt.
 
 ## Offline statistics and local timer
 
-- Verify the saved snapshot, UTC timestamp and countdown with the paired PC off,
-  then reconnect and confirm fresh data supersedes the saved observation.
-- Verify cold startup with and without valid device time, saved-window expiry,
-  pairing changes, factory reset and storage failures.
-- Exercise Timer controls, background countdown, software standby wake and both
-  alarm sounds. Check quiet hours, Sounds Off and overlapping voice/audio.
-- Verify local Restart preserves pairing, preferences and saved statistics, and
-  that Factory reset still requires its own confirmation.
+- With the PC off, verify saved statistics, UTC timestamp and countdown. On reconnect, check that fresh data supersedes saved data. Cover cold boot with and without valid time, expiry, pairing changes, factory reset and storage failures.
+- Verify Timer controls, background countdown, software standby wake, both alarms, quiet hours, Sounds Off and overlapping voice/audio. Confirm Restart preserves pairing, preferences and statistics and Factory reset requires confirmation.
 
 ## Device information, effects and idle presentation
 
-- Execute the focused host checks when authorized.
-- Verify System, Memory and Firmware pages, the terminal project QR, CPU baselines
-  after standby, and unavailable/failed observations on the physical round display.
-- Verify event sounds with Sounds off/on, quiet hours, microphone failure, voice
-  capture, standby, battery thresholds and concurrent notifications. Measure stack
-  headroom and confirm no duplicate or overdue playback after navigation/reconnect.
-- Verify the optional 15-second globe screensaver, the brightness pulse and its pause
-  at minimum intensity, first-touch consumption, event interruption and dim/standby deadlines.
-- Verify Options/Visible screens responsiveness during held touches and actual
-  settings writes; compare display work and CPU with the screen resting.
-- Reload the updated plugin and verify context across tool working directories
-  plus consecutive quarter-hour account-counter observations.
-- Verify the Ready-gated floppy cycle and boot audio on a cold boot and software
-  restart. Check quiet hours and ordinary standby wake.
+- Run authorized focused host checks. On the round display, verify System, Memory, Firmware, terminal project QR, CPU baseline after standby and unavailable/failed readings.
+- Verify event sounds with Sounds on/off, quiet hours, microphone failure, voice capture, standby, battery thresholds and concurrent notices. Measure stack headroom and check for duplicate or late playback after navigation/reconnect.
+- Check the optional 15-second globe, brightness pulse and pause at minimum, first-touch consumption, interruptions and dim/standby deadlines. Check Options/Visible screens during held touches and settings writes against idle display work and CPU.
+- Reload the plugin and verify context across tool working directories and consecutive 15-minute account counters. Verify the Ready-gated floppy cycle and boot audio on cold boot and software restart, including quiet hours and ordinary standby wake.
 
 ## Codex reset countdown
 
-- Verify PWR standby and wake, BOOT Options, and Options to Codex stats on
-  the physical board. Exercise the enabled pages and Info children, lateral controls at all
-  rotations, countdown flips and quota ring, reconnect, and stale data.
-- Observe consecutive 15-minute samples with a live account. Verify zero,
-  missing, interrupted, and account-change intervals at all three zooms.
+On the board, exercise PWR standby/wake, BOOT Options, Options to Codex stats, enabled pages/Info children, lateral controls at each rotation, countdown flips, quota ring, reconnect and stale data. Observe consecutive 15-minute live-account samples at all three zooms, including zero, missing, interrupted and account-change intervals.
+
 ## WIDGET-STATE-01 - Widget state acceptance
 
-- Verify Visible screens saves and reloads on the board. Exercise skipping hidden
-  statistics pages, keeping Device available when all statistics pages are hidden,
-  and recovery from storage read and write failures.
-- Verify the selected statistics page resumes after standby and remote attention
-  events. Check arrow fade and touch cancellation across rotation and wake.
-- Shake to return to Reset or the first enabled statistics page. Verify the Device
-  fallback when all statistics pages are hidden.
-- Disconnect and reconnect Codex while a statistics page is selected. Verify that
-  canonical freshness changes independently of the saved visibility policy.
+Verify Visible screens saves, reloads and recovers from read/write failures. Skip hidden statistics pages and retain Device when all are hidden. Resume the selected page after standby or remote attention, checking arrow fade and touch cancellation on rotation/wake. Shake returns to Reset, the first enabled statistics page or Device when none are enabled. Verify Codex reconnect changes freshness independently of visibility.
 
 ## Companion source selection, typography and desktop controls
 
-- Review the Codex and local companion states and native proportional
-  Home typography on the round display at all rotations. Exercise source changes,
-  pending questions, finite footer pause/resume, local touch and offline startup.
-- Verify the two Setup rows, their left icons and the Options footer on the
-  display. Verify that Dictation persists after a restart and that Off prevents
-  every recording trigger. Exercise double-tap admission with Wi-Fi down,
-  with the paired PC disconnected, and with CCP connected over a LAN that has
-  no Internet access.
-- Validate Windows and Linux widget controls against the shared CCP broker,
-  including explicit pairing, source age, protected credentials, process lifetime
-  and rejected or unconfirmed settings writes. No macOS implementation is claimed.
-- The 1.75C source tables assign the upper 16 MiB to files/resources, preserving
-  OTA. The owner selected a clean layout without old-filesystem compatibility;
-  later installation needs the new table and filesystem initialization. No device
-  repartitioning or formatting has occurred.
+- On the round display at all rotations, check Codex/local states, proportional Home typography, source changes, pending questions, finite footer pause/resume, touch and offline startup.
+- Check both Setup rows, left icons, Options footer and Dictation persistence. Off blocks every trigger. Exercise double tap with Wi-Fi down, the paired PC disconnected and CCP on a LAN without Internet.
+- Verify Windows and Linux widgets against the shared CCP broker for explicit pairing, source age, protected credentials, process lifetime and rejected/unconfirmed settings writes. macOS remains outside the current implementation scope.
+- The 1.75C table reserves the upper 16 MiB for files/resources and preserves OTA. Installation requires the new table and fresh filesystem initialization. Repartitioning and formatting are pending.
 
 ## HARDWARE-PORT-01 - Waveshare 1.43C
 
-- Integrate the single-factory-slot 8 MB layout in the board selector and
-  validate the actual application size. USB is the firmware update path.
-- Add the CO5300 panel initialization, CST820 touch, 1.43C audio wiring,
-  battery ADC/charger status and board-specific power lifecycle. Exclude the
-  absent IMU, GNSS, RTC, SD and expander without synthesizing readings.
-- Build from source and flash the connected board on COM13. Physical display,
-  touch, power, audio and Wi-Fi behavior remain acceptance gates.
-
-The operating and authorization rules are in [AGENTS.md](AGENTS.md).
+- Integrate the 8 MB single-factory-slot board profile and validate application size. Use USB updates.
+- Add CO5300 initialization, CST820 touch, 1.43C audio wiring, battery ADC/charging status and board power lifecycle. Expose IMU, GNSS, RTC, SD and expander as unavailable.
+- Build from source and flash COM13 when authorized. Verify physical display, touch, power, audio and Wi-Fi.
 
 ## Waveshare 1.75C physical acceptance
 
-- Verify prerequisite installation, rerun and first-failure reporting on Windows
-  and Ubuntu, then build and flash Cody from Ubuntu booted from USB. Verify that
-  Windows still builds and flashes through the same console and `COM` selection.
-- Confirm that the post-pairing Debug screen displays the connection details and
-  accepts a tap to continue. The phone has confirmed provisioning and Cody has
-  obtained a Wi-Fi lease.
-- Check alignment and touch at all four rotations, speaker and microphones,
-  measured battery telemetry, PWR controls, standby and IMU INT1 wake.
-- Verify the 1.75C's 180-degree IMU-to-display mounting correction at all four
-  upright orientations and during flat-table turns. Confirm that automatic
-  rotation keeps content upright and touch aligned, including transitions
-  between gravity-based and gyro-based orientation.
-- Confirm the fitted RTC before enabling an external one. Keep SD and GNSS
-  unavailable on this board.
+- Verify prerequisite installation, reruns and first-failure reporting on Windows and Ubuntu. Build and flash from USB-booted Ubuntu and confirm Windows uses the same console and COM selection.
+- Provisioning and Wi-Fi lease were confirmed. Verify the post-pairing Debug details and tap to continue.
+- Verify display/touch at four rotations, speaker/mics, measured battery telemetry, PWR, standby and IMU INT1 wake. Check the 180-degree mounting correction upright and flat, including gravity/gyro transitions.
+- Confirm the fitted RTC before enabling an external one. Keep SD and GNSS unavailable.
 
 ## Cody connectivity indicators and sounds
 
-- Verify that Codex absence uses the terminal/disconnected-plug icon while a real
-  Wi-Fi loss uses NoWifi and a red crossed status glyph. Check reconnects and
-  unavailable observations without stale artwork or repeated sounds.
-- Verify measured RSSI updates on the canonical full-snapshot cadence, all three
-  signal levels, and unavailable/stale/read-error handling. Connectivity validity
-  must remain independent of signal measurement and reconnect-operation errors.
-- Listen to the four dedicated Wi-Fi/Codex transition effects on the speaker.
-  Check overlapping edges, volume, Sounds, quiet hours, busy admission, route
-  changes and standby cancellation. Audio dispatch is not audible completion.
-- Final compilation, firmware size, host contracts and physical checks are
-  pending authorization. Review compiled frames and device stack headroom after
-  the bounded Wi-Fi/status schema growth; no task stack was enlarged. The new
-  bitmap and three additional PCM clips add 130,432 source payload bytes before
-  descriptors/alignment; existing bitmap planes remain unchanged.
+- Verify the terminal/disconnected plug for Codex absence and NoWifi/red crossed glyph for Wi-Fi loss. Exercise reconnect and unavailable data without stale artwork or repeated sounds.
+- Check all three measured RSSI levels on the full snapshot cadence, plus unavailable, stale and failed reads. Connectivity validity stays independent of RSSI and reconnect errors.
+- Listen for all four Wi-Fi/Codex transitions on the speaker. Check overlap, volume, Sounds, quiet hours, busy admission, navigation and standby cancellation.
+- Final compilation, size, host contracts and board checks await authorization. Review compiled frames and stack headroom after Wi-Fi/status schema growth. The new bitmap and three PCM clips add 130,432 source payload bytes before descriptors/alignment, with existing bitmap planes and stack allocations retained.
 
 ## Standby wake on the SD-equipped prototype
 
-- Observe touch and PWR wake, including a touch interrupt with rejected
-  coordinates. Check retained diagnostics after reset and the current-image SD
-  session identity. Preserve the accepted SD/PCB workaround.
-- If the wake fault recurs, capture its onset and decode against the running ELF.
+Verify touch and PWR wake, including a touch interrupt with rejected coordinates. Check retained reset diagnostics and current-image SD session identity. Keep the accepted SD/PCB workaround. If the fault recurs, capture onset and decode against the running ELF.
 
 ## Native approval notices
 
-- After the updated plugin loads, use a genuine new prompt to observe one
-  advisory notice per physical recipient and native turn. Follow Back or expiry,
-  resumed activity and routing on Cody. Approval decisions stay on the PC.
-- Capture any recurrence at its onset. Keep replayed hooks out of this observation.
+After the updated plugin loads, use a genuine new prompt to verify one advisory notice per physical recipient and native turn. Follow Back/expiry, resumed activity and Cody routing. Approval remains on the PC. Capture recurrence at onset and exclude replayed hooks.
 
 ## Compiler failure on recurrence
 
-If an authorized build reproduces the GCC internal segmentation fault in ESP-DSP
-`dspi_conv_f32_ansi.c`, retain the failing invocation and compiler diagnostic.
-Reproduction alone does not justify another build.
-
-Deferred hardware ports, voice and walking trials, speech-to-Codex and other
-acceptance work are in [planned-todo.md](planned-todo.md).
+If an authorized build reproduces the ESP-DSP GCC internal segmentation fault in `dspi_conv_f32_ansi.c`, retain the invocation and diagnostic. Establish a reason beyond reproduction and obtain fresh authorization before any rerun.

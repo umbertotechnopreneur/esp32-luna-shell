@@ -46,8 +46,16 @@ void advance_pixel_demo_motion(PixelDemoMotionState &motion, const PixelDemoMoti
         motion = {};
         return;
     }
+    const bool angular_valid = sample.angular_valid && std::isfinite(sample.angular_velocity_x) &&
+        std::isfinite(sample.angular_velocity_y) && std::isfinite(sample.angular_velocity_z) &&
+        std::fabs(sample.angular_velocity_x) <= 4000 && std::fabs(sample.angular_velocity_y) <= 4000 &&
+        std::fabs(sample.angular_velocity_z) <= 4000;
     motion.rendering_rotation_degrees = sample.rendering_rotation_degrees;
-    if (motion.primed && sample.sampled_at_us == motion.sampled_at_us) return;
+    if (motion.primed && sample.sampled_at_us == motion.sampled_at_us) {
+        motion.surprised = motion.surprised_sample_us > 0 &&
+            now_us - motion.surprised_sample_us < 700000;
+        return;
+    }
     if (!motion.primed || sample.sampled_at_us < motion.sampled_at_us ||
         sample.sampled_at_us - motion.sampled_at_us > kMaximumAgeUs) {
         motion = {};
@@ -67,9 +75,23 @@ void advance_pixel_demo_motion(PixelDemoMotionState &motion, const PixelDemoMoti
     // Keep offsets in panel coordinates so a rotation never corrupts the filter.
     const float panel_x = sample.acceleration_y - motion.baseline_y;
     const float panel_y = sample.acceleration_x - motion.baseline_x;
+    const float gyro_x = angular_valid ? sample.angular_velocity_x : 0.0f;
+    const float gyro_y = angular_valid ? sample.angular_velocity_y : 0.0f;
+    const float gyro_z = angular_valid ? sample.angular_velocity_z : 0.0f;
+    const float angular_speed = std::sqrt(gyro_x * gyro_x + gyro_y * gyro_y + gyro_z * gyro_z);
+    if (angular_speed >= 90.0f || std::hypot(panel_x, panel_y) >= 5.0f) {
+        // Repeated motion extends the expression; an old sample never does.
+        motion.surprised_sample_us = sample.sampled_at_us;
+    }
+    motion.surprised = motion.surprised_sample_us > 0 &&
+        now_us - motion.surprised_sample_us < 700000;
     const float blend = -std::expm1(-seconds / 0.15f);
-    motion.offset_x += (3.0f * std::tanh(-panel_x / 3.0f) - motion.offset_x) * blend;
-    motion.offset_y += (3.0f * std::tanh(-panel_y / 3.0f) - motion.offset_y) * blend;
+    const float target_x = std::clamp(3.0f * std::tanh(-panel_x / 3.0f) -
+        2.0f * std::tanh(gyro_y / 80.0f), -4.0f, 4.0f);
+    const float target_y = std::clamp(3.0f * std::tanh(-panel_y / 3.0f) -
+        2.0f * std::tanh(gyro_x / 80.0f), -4.0f, 4.0f);
+    motion.offset_x += (target_x - motion.offset_x) * blend;
+    motion.offset_y += (target_y - motion.offset_y) * blend;
     motion.sampled_at_us = sample.sampled_at_us;
 }
 
@@ -146,6 +168,12 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
     auto style = view.visual_style;
     style.symbol.symbol = pose.symbol;
     apply_pixel_demo_motion(style, view.motion);
+    if (view.motion.surprised && !view.reaction_active && !view.manual &&
+        pose.pose != PixelAvatarPose::Waking && pose.pose != PixelAvatarPose::Sleep) {
+        if (style.face.left_eye == MuseEyeStyle::Automatic) style.face.left_eye = MuseEyeStyle::Wide;
+        if (style.face.right_eye == MuseEyeStyle::Automatic) style.face.right_eye = MuseEyeStyle::Wide;
+        if (style.face.mouth == MuseMouthStyle::Automatic) style.face.mouth = MuseMouthStyle::Round;
+    }
     if (view.manual && !view.manual_playing && view.retired_valid) {
         view.frames[view.write_buffer] = view.frames[1U - view.write_buffer];
     } else {

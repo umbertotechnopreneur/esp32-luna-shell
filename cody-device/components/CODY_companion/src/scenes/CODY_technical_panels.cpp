@@ -1,4 +1,5 @@
 #include "CODY_technical_panels.hpp"
+#include "CODY_theme_generated.hpp"
 #include "CODY2D_controls.hpp"
 #include "CODY_cost_badge.hpp"
 #include "esp_log.h"
@@ -9,13 +10,14 @@
 
 namespace CODY {
 namespace {
-constexpr uint16_t kWhite = 0xFFFF;
-constexpr uint16_t kMuted = 0xBDF7;
-constexpr uint16_t kAmber = 0xFD20;
-constexpr uint16_t kCyan = 0x07FF;
-constexpr uint16_t kRed = 0xF986;
-constexpr uint16_t kNeutral = 0x632C;
+constexpr uint16_t kWhite = Theme::text_bright;
+constexpr uint16_t kMuted = Theme::firmware_technical_panels_muted;
+constexpr uint16_t kAmber = Theme::dashboard_attention;
+constexpr uint16_t kCyan = Theme::accent_active;
+constexpr uint16_t kRed = Theme::dashboard_error;
+constexpr uint16_t kNeutral = Theme::firmware_technical_panels_neutral;
 constexpr uint16_t kPanelWidth = 320;
+constexpr CODY2D::Rect kHeadingBounds{73, 170, 320, 32};
 constexpr uint16_t kBarWidth = 296;
 constexpr uint8_t kDetailRows = 4;
 constexpr uint8_t kModelDetailRows = 6;
@@ -373,6 +375,7 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
     const bool previous_bar_visible = presentation.context_bar_visible;
     const bool previous_compaction_active = presentation.compaction_active;
     const uint32_t previous_compaction_clock = presentation.compaction_clock_us;
+    const uint16_t previous_heading_offset = presentation.heading_offset;
     for (size_t row = 0; row < std::size(presentation.lines); ++row) {
         presentation.prior_row_colors[row] = presentation.lines[row].color;
     }
@@ -569,8 +572,17 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
     std::snprintf(presentation.page, sizeof(presentation.page), "%u/3", page_number);
     std::snprintf(presentation.hint, sizeof(presentation.hint), "%s  Tap next; shake Home", presentation.page);
     presentation.page_line = {};
-    esp_err_t error = prepare_centered_line(font, presentation.title, 170,
-        presentation.compaction_active ? kAmber : kWhite, presentation.title_line);
+    const auto title_length = static_cast<uint16_t>(std::strlen(presentation.title));
+    esp_err_t error = prepare_styled_title({presentation.title, title_length}, kHeadingBounds,
+        presentation.heading, 3, true);
+    if (!previously_valid || previous_panel != panel ||
+        std::strcmp(presentation.prior_title, presentation.title) != 0 ||
+        active_time_us < presentation.heading_started_us) {
+        presentation.heading_started_us = active_time_us;
+    }
+    presentation.heading_offset = styled_title_scroll_offset(
+        TitleStyleDetail::width(title_length, presentation.heading.scale), kHeadingBounds.width,
+        static_cast<uint64_t>(active_time_us - presentation.heading_started_us));
     if (error == ESP_OK) { error = prepare_centered_line(font, presentation.banner, 208, kAmber, presentation.banner_line); }
     if (error == ESP_OK) {
         error = prepare_centered_line(font, panel == CompanionPanel::Activity ? presentation.hint : "",
@@ -605,6 +617,7 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
         previous_bar_pixels != presentation.bar_pixels || previous_bar_color != presentation.bar_color ||
         previous_bar_visible != presentation.context_bar_visible ||
         previous_compaction_active != presentation.compaction_active ||
+        previous_heading_offset != presentation.heading_offset ||
         (presentation.compaction_active && previous_compaction_clock != presentation.compaction_clock_us) ||
         std::memcmp(presentation.prior_captions, presentation.captions, sizeof(presentation.captions)) != 0 ||
         std::strcmp(presentation.prior_title, presentation.title) != 0 ||
@@ -616,6 +629,7 @@ esp_err_t prepare_companion_panel(CompanionPanel panel, const PanelInputs &input
     content.state = &presentation;
     content.revision = presentation.revision;
     content.draw_rows = draw_panel_callback;
+    content.heading = presentation.heading;
     return ESP_OK;
 }
 
@@ -747,15 +761,21 @@ esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
 
 // presentation: Valid prepared owner whose animation is independent of observations.
 // active_time_us: Nonnegative active presentation clock.
-// changed: Receives whether the small indeterminate accent moved to another opacity.
+// changed: Receives whether the heading offset or indeterminate accent changed.
 // Exception: Returns invalid state or clock without manufacturing progress.
 esp_err_t advance_companion_panel(PanelPresentation &presentation, int64_t active_time_us, bool &changed)
 {
     changed = false;
     if (!presentation.valid || active_time_us < 0) { return panel_result("advance", ESP_ERR_INVALID_ARG); }
     const uint32_t clock = static_cast<uint32_t>(active_time_us % 1800000 / 50000 * 50000);
-    changed = presentation.compaction_active && clock != presentation.compaction_clock_us;
+    if (active_time_us < presentation.heading_started_us) presentation.heading_started_us = active_time_us;
+    const auto heading_offset = styled_title_scroll_offset(
+        TitleStyleDetail::width(presentation.heading.text.length, presentation.heading.scale),
+        presentation.heading.bounds.width, static_cast<uint64_t>(active_time_us - presentation.heading_started_us));
+    changed = (presentation.compaction_active && clock != presentation.compaction_clock_us) ||
+        heading_offset != presentation.heading_offset;
     presentation.compaction_clock_us = clock;
+    presentation.heading_offset = heading_offset;
     if (changed) { ++presentation.revision; }
     return ESP_OK;
 }
@@ -779,7 +799,7 @@ esp_err_t draw_companion_panel_rows(const PanelPresentation &presentation, CODY2
         badge.border_color = CODY2D::blend_rgb565(color, 0, 112);
         error = CODY2D::draw_capsule_rows(badge, strip, first_row, first_column);
     }
-    const CODY2D::TextLine *fixed[] = {&presentation.title_line, &presentation.page_line,
+    const CODY2D::TextLine *fixed[] = {&presentation.page_line,
         &presentation.banner_line, &presentation.hint_line, &presentation.cost_line};
     for (const auto *line : fixed) {
         if (error == ESP_OK && line->valid) { error = CODY2D::draw_text_rows(*line, line->text.length, strip, first_row, first_column); }

@@ -2,7 +2,6 @@
   "schema": "cody.navigation.v1",
   "auto_hide_ms": 5000,
   "fade_ms": 330,
-  "colors_rgb565": {"top": 6339, "bottom": 2113, "ink": 44373, "selected": 65535},
   "controls": [
     {"id": "back", "identity": 1, "visible_by_default": false,
      "shape": "circle", "center": [40, 233], "radius": 30},

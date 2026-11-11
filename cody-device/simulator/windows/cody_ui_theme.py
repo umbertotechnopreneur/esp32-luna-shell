@@ -21,22 +21,12 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import font as tkfont, ttk
 
+from cody_semantic_palette import studio_hex
 
-PALETTE = {
-    "background": "#0c121d",
-    "canvas": "#0a1019",
-    "panel": "#121c2a",
-    "card": "#192536",
-    "field": "#0f1927",
-    "border": "#2b3b50",
-    "text": "#edf4fc",
-    "muted": "#99adc5",
-    "disabled": "#61748c",
-    "accent": "#60d4c5",
-    "accent_hover": "#8ae5d9",
-    "accent_dark": "#244e50",
-    "button_hover": "#24364a",
-}
+PALETTE = {name: studio_hex("host_ui", name) for name in (
+    "background", "canvas", "panel", "card", "field", "border", "text", "muted",
+    "disabled", "accent", "accent_hover", "accent_dark", "button_hover",
+)}
 
 FONTS = {
     "body": ("Consolas", 11),

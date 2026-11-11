@@ -1,4 +1,7 @@
 #include "CODY_codex_panels.hpp"
+#include "CODY_title_style.hpp"
+#include "CODY_typography.hpp"
+#include "CODY_theme_generated.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -15,12 +18,12 @@
 namespace CODY {
 namespace {
 
-constexpr uint16_t kWhite = 0xF7BE;
-constexpr uint16_t kMuted = 0x9CF3;
-constexpr uint16_t kAmber = 0xFE27;
-constexpr uint16_t kMint = 0x67F0;
-constexpr uint16_t kCyan = 0x06FF;
-constexpr uint16_t kRule = 0x39E7;
+constexpr uint16_t kWhite = Theme::text_default;
+constexpr uint16_t kMuted = Theme::text_muted;
+constexpr uint16_t kAmber = Theme::status_warning_content;
+constexpr uint16_t kMint = Theme::secondary_muted;
+constexpr uint16_t kCyan = Theme::firmware_codex_panels_cyan;
+constexpr uint16_t kRule = Theme::firmware_codex_panels_rule;
 constexpr CODY2D::Rect kList{73, 155, 320, 234};
 constexpr uint16_t kRowHeight = 78;
 constexpr CODY2D::Rect kPreview{94, 204, 282, 25};
@@ -46,6 +49,12 @@ esp_err_t add_line(CodexPanelView &view, const char *text, const CODY2D::MonoFon
     if (text[0] == '\0') return ESP_OK;
     if (view.line_count >= view.lines.size() || font.height > box.height) return ESP_ERR_INVALID_SIZE;
     const CODY2D::TextSpan span{text, static_cast<uint16_t>(std::strlen(text))};
+    if (view.line_count == 0) {
+        view.lines[0].text = span;
+        view.line_boxes[0] = box;
+        ++view.line_count;
+        return ESP_OK;
+    }
     uint32_t width = 0;
     auto error = CODY2D::measure_text_width(font, span, width);
     if (error != ESP_OK) return error;
@@ -150,7 +159,7 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
         for (uint8_t index = 0; error == ESP_OK && index < view.page.count; ++index) {
             const auto y = static_cast<uint16_t>(kList.y + index * kRowHeight);
             const bool question = view.page.rows[index].kind == LUNASHELL::CodexEventKind::Question;
-            if (index == 0) error = fill(strip, row, column, {78, y, 302, 72}, 0x1082);
+            if (index == 0) error = fill(strip, row, column, {78, y, 302, 72}, Theme::codex_panels_selected_row);
             if (error == ESP_OK) error = fill(strip, row, column, {83, static_cast<uint16_t>(y + 9), 3, 55},
                 question ? kAmber : kMint);
             if (error == ESP_OK) error = fill(strip, row, column, {80, static_cast<uint16_t>(y + 74), 303, 1}, kRule);
@@ -183,20 +192,22 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
         clipped.pixels += skip;
         clipped.pixel_capacity -= skip;
         clipped.width = static_cast<uint16_t>(right - left);
-        error = CODY2D::draw_text_rows(line, line.text.length, clipped, row, left);
+        error = index == 0 ? ESP_OK :
+            CODY2D::draw_text_rows(line, line.text.length, clipped, row, left);
     }
     return error;
 }
 
 // view: Prepared panel whose text storage remains stable until frame retirement.
 // content: Receives the native damage and draw callback.
-void attach(const CodexPanelView &view, SceneContent &content)
+esp_err_t attach(const CodexPanelView &view, SceneContent &content)
 {
     content = {};
     content.bounds = kBounds;
     content.revision = view.revision;
     content.state = &view;
     content.draw_rows = draw_rows;
+    return prepare_styled_title(view.lines[0].text, view.line_boxes[0], content.heading, 3, true);
 }
 
 // view: Persistent panel; borrows only its own storage or static captions.
@@ -208,8 +219,7 @@ esp_err_t finish(CodexPanelView &view, SceneContent &content, esp_err_t error)
     if (view.revision == std::numeric_limits<uint32_t>::max()) return ESP_ERR_INVALID_STATE;
     ++view.revision;
     view.valid = true;
-    attach(view, content);
-    return ESP_OK;
+    return attach(view, content);
 }
 
 // left: Previous bounded authenticated page, excluding the heartbeat.
@@ -256,8 +266,7 @@ esp_err_t prepare_codex_events(CodexPanelView &view, const LUNASHELL::CodexInbox
         }
     }
     if (unchanged && offset == view.marquee_offset) {
-        attach(view, content);
-        return ESP_OK;
+        return attach(view, content);
     }
     view.valid = false;
     view.kind = CodexPanelKind::Events;
@@ -279,8 +288,11 @@ esp_err_t prepare_codex_events(CodexPanelView &view, const LUNASHELL::CodexInbox
         const auto y = static_cast<uint16_t>(kList.y + index * kRowHeight);
         error = add_line(view, question ? "QUESTION" : "REPLY READY", HomeFonts::small_font,
             {94, static_cast<uint16_t>(y + 3), 282, 21}, question ? kAmber : kMint, false);
-        if (error == ESP_OK) error = add_line(view, entry.title, SceneData::body_font,
-            {94, static_cast<uint16_t>(y + 23), 282, 25}, kWhite, false);
+        const CODY2D::Rect title_bounds{94, static_cast<uint16_t>(y + 23), 282, 25};
+        const CODY2D::MonoFont *title_face = &Typography::monospace();
+        if (error == ESP_OK && entry.title[0] != '\0')
+            error = Typography::label_font(entry.title, title_bounds, *title_face, title_face);
+        if (error == ESP_OK) error = add_line(view, entry.title, *title_face, title_bounds, kWhite, false);
         if (error == ESP_OK && index == 0 && question) {
             error = add_line(view, entry.preview, HomeFonts::small_font, kPreview, kMuted, false, offset);
         }
@@ -358,8 +370,7 @@ esp_err_t prepare_current_turn(CodexPanelView &view, const LUNASHELL::CodexTechn
     if (same_view && !title_changed && view.glyph == glyph && std::strcmp(view.detail, detail) == 0 &&
         std::strcmp(view.elapsed, elapsed) == 0 && view.line_count >= 2 &&
         std::strcmp(view.lines[1].text.characters, status) == 0) {
-        attach(view, content);
-        return ESP_OK;
+        return attach(view, content);
     }
     view.valid = false;
     view.kind = CodexPanelKind::CurrentTurn;
@@ -373,11 +384,11 @@ esp_err_t prepare_current_turn(CodexPanelView &view, const LUNASHELL::CodexTechn
             : CODY2D::Rect{185, 185, 195, static_cast<uint16_t>(compacting ? 25 : 50)},
         compacting ? kAmber : kCyan);
     if (error == ESP_OK && compacting) {
-        error = add_line(view, "context", SceneData::body_font, {185, 210, 195, 25}, kAmber);
+        error = add_line(view, "context", Typography::system(), {185, 210, 195, 25}, kAmber);
         if (error == ESP_OK) error = add_line(view, view.elapsed, SceneData::title_font,
             {73, 257, 320, 46}, kWhite);
         if (error == ESP_OK && view.elapsed[0] != '\0') {
-            error = add_line(view, "Elapsed", SceneData::body_font, {73, 306, 320, 27}, kMuted);
+            error = add_line(view, "Elapsed", Typography::system(), {73, 306, 320, 27}, kMuted);
         }
     } else if (error == ESP_OK) {
         error = add_line(view, view.detail, SceneData::body_font, {73, 264, 320, 28}, kWhite);
@@ -394,8 +405,7 @@ esp_err_t prepare_codex_reply(CodexPanelView &view, const char *title, bool pend
 {
     if (view.valid && view.kind == CodexPanelKind::Reply && std::strcmp(view.subtitle, title) == 0 &&
         view.reply_action.enabled == !pending) {
-        attach(view, content);
-        return ESP_OK;
+        return attach(view, content);
     }
     view.valid = false;
     view.kind = CodexPanelKind::Reply;
@@ -405,8 +415,8 @@ esp_err_t prepare_codex_reply(CodexPanelView &view, const char *title, bool pend
     auto &action = view.reply_action;
     action = {};
     action.bounds = {113, 330, 240, 56};
-    action.top_color = 0x2127;
-    action.bottom_color = 0x1082;
+    action.top_color = Theme::codex_panels_action_top;
+    action.bottom_color = Theme::codex_panels_action_bottom;
     action.border_color = kRule;
     action.icon_color = kMint;
     action.enabled = !pending;

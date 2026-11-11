@@ -1,4 +1,7 @@
 #include "CODY_local_timer_view.hpp"
+#include "CODY_title_style.hpp"
+#include "CODY_typography.hpp"
+#include "CODY_ui_components.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -20,11 +23,10 @@ constexpr CODY2D::Rect kIncrease{239, 247, 154, 60};
 constexpr CODY2D::Rect kSound{73, 321, 154, 60};
 constexpr CODY2D::Rect kStart{239, 321, 154, 60};
 constexpr CODY2D::Rect kSingleAction{113, 321, 240, 60};
-constexpr uint16_t kWhite = 0xF7BE;
-constexpr uint16_t kMuted = 0x9CF3;
-constexpr uint16_t kCyan = 0x6F9E;
-constexpr uint16_t kMint = 0x5FF1;
-constexpr uint16_t kAmber = 0xFE27;
+constexpr uint16_t kWhite = UI::Palette::text;
+constexpr uint16_t kMuted = UI::Palette::muted;
+constexpr uint16_t kMint = UI::Palette::positive;
+constexpr uint16_t kAmber = UI::Palette::warning;
 
 // operation: Timer presentation operation that may fail.
 // error: Original error preserved for the display owner.
@@ -45,18 +47,7 @@ esp_err_t result(const char *operation, esp_err_t error)
 esp_err_t prepare_line(const CODY2D::MonoFont &font, const char *text, CODY2D::Rect bounds,
     uint16_t color, CODY2D::TextLine &line)
 {
-    const auto length = std::strlen(text);
-    if (length == 0 || length > 28 || font.height > bounds.height) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-    const CODY2D::TextSpan span{text, static_cast<uint16_t>(length)};
-    uint32_t width = 0;
-    const esp_err_t error = CODY2D::measure_text_width(font, span, width);
-    if (error != ESP_OK) return error;
-    if (width > bounds.width) return ESP_ERR_INVALID_SIZE;
-    return CODY2D::prepare_text_line(font, span,
-        {static_cast<int16_t>(bounds.x + (bounds.width - width) / 2U),
-         static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2U)}, color, line);
+    return UI::prepare_text(font, text, bounds, color, line, 28);
 }
 
 // action: Persistent control presentation with its semantic identity.
@@ -75,10 +66,8 @@ esp_err_t prepare_action(LocalTimerView::Action &action, LocalTimerControl id, C
     control.enabled = enabled;
     control.corner_radius = 28;
     const bool primary = id == LocalTimerControl::Start || id == LocalTimerControl::Dismiss;
-    control.top_color = primary ? 0x226B : 0x2947;
-    control.bottom_color = primary ? 0x10C6 : 0x10A4;
-    control.border_color = primary ? 0x4B9B : 0x73AF;
-    return prepare_line(font, label, bounds, enabled ? kWhite : kMuted, control.caption);
+    return UI::prepare_button(control, font, label, enabled ? kWhite : kMuted, 28,
+        primary ? UI::kContentPrimary : UI::kContentSecondary);
 }
 
 // state: Immutable view borrowed until the complete frame retires.
@@ -90,9 +79,11 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
 {
     const auto *view = static_cast<const LocalTimerView *>(state);
     if (view == nullptr || !view->valid) return result("draw state", ESP_ERR_INVALID_STATE);
-    for (const auto &line : view->captions) {
+    for (size_t index = 0; index < view->captions.size(); ++index) {
+        const auto &line = view->captions[index];
         if (!line.valid) continue;
-        const esp_err_t error = CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
+        const esp_err_t error = index == 0 ? ESP_OK :
+            CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
         if (error != ESP_OK) return result("draw caption", error);
     }
     for (const auto &action : view->actions) {
@@ -105,13 +96,14 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
 
 // view: Complete persistent timer presentation.
 // content: Receives the borrowed central renderer and damage envelope.
-void attach_content(const LocalTimerView &view, SceneContent &content)
+esp_err_t attach_content(const LocalTimerView &view, SceneContent &content)
 {
     content = {};
     content.bounds = kContentBounds;
     content.state = &view;
     content.revision = view.revision;
     content.draw_rows = draw_rows;
+    return prepare_styled_title(view.captions[0].text, kHeading, content.heading, 3, true);
 }
 
 // model: Confirmed idle duration and selected alarm sound.
@@ -199,8 +191,7 @@ esp_err_t prepare_local_timer_view(const LocalTimerModel &model, int64_t now_us,
 
     if (view.valid && view.phase == model.phase && view.sound == model.sound && view.alarm == model.alarm &&
         view.seconds == seconds && view.title_font == &title_font && view.body_font == &body_font) {
-        attach_content(view, content);
-        return ESP_OK;
+        return attach_content(view, content);
     }
     if (view.revision == std::numeric_limits<uint32_t>::max()) {
         return result("view revision", ESP_ERR_INVALID_STATE);
@@ -215,12 +206,13 @@ esp_err_t prepare_local_timer_view(const LocalTimerModel &model, int64_t now_us,
         return result("format time", ESP_ERR_INVALID_SIZE);
     }
     const bool finished = model.phase == LocalTimerPhase::Finished;
-    esp_err_t error = prepare_line(title_font, "Timer", kHeading, kCyan, view.captions[0]);
+    view.captions[0].text = {"Timer", 5};
+    esp_err_t error = ESP_OK;
     if (error == ESP_OK) {
         error = prepare_line(body_font, status, kStatus, finished ? kMint : kMuted, view.captions[1]);
     }
     if (error == ESP_OK) {
-        error = prepare_line(title_font, view.readout, kReadout, finished ? kMint : kWhite, view.captions[2]);
+        error = prepare_line(Typography::monospace_large(), view.readout, kReadout, finished ? kMint : kWhite, view.captions[2]);
     }
     if (error != ESP_OK) return result("prepare timer captions", error);
 
@@ -229,10 +221,10 @@ esp_err_t prepare_local_timer_view(const LocalTimerModel &model, int64_t now_us,
     } else if (finished) {
         error = prepare_alarm_status(model.alarm, body_font, view.captions[3]);
         if (error == ESP_OK) {
-            error = prepare_action(view.actions[0], LocalTimerControl::Dismiss, kSingleAction, "OK", body_font);
+            error = prepare_action(view.actions[0], LocalTimerControl::Dismiss, kSingleAction, "OK", Typography::system());
         }
     } else {
-        error = prepare_action(view.actions[0], LocalTimerControl::Cancel, kSingleAction, "Cancel", body_font);
+        error = prepare_action(view.actions[0], LocalTimerControl::Cancel, kSingleAction, "Cancel", Typography::system());
     }
     if (error != ESP_OK) return result("prepare timer controls", error);
 
@@ -244,8 +236,7 @@ esp_err_t prepare_local_timer_view(const LocalTimerModel &model, int64_t now_us,
     view.body_font = &body_font;
     ++view.revision;
     view.valid = true;
-    attach_content(view, content);
-    return ESP_OK;
+    return attach_content(view, content);
 }
 
 // view: Last complete timer presentation.

@@ -1,4 +1,8 @@
 #include "CODY_token_history.hpp"
+#include "CODY_title_style.hpp"
+#include "CODY_typography.hpp"
+#include "CODY_theme_generated.hpp"
+#include "CODY_ui_components.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -26,17 +30,17 @@ constexpr uint16_t kPlotHeight = 110;
 constexpr std::array<uint16_t, 3> kAxisRows{kBaseline - kPlotHeight,
     kBaseline - kPlotHeight / 2U, kBaseline};
 constexpr int64_t kQuarterSeconds = 900;
-constexpr uint16_t kWhite = 0xF7BE;
-constexpr uint16_t kMuted = 0x9CF3;
-constexpr uint16_t kBright = 0x5FF1;
-constexpr uint16_t kOldBright = 0x7C34;
-constexpr uint16_t kBars = 0x12CF;
-constexpr uint16_t kOldBars = 0x226A;
-constexpr uint16_t kGrid = 0x0986;
-constexpr uint16_t kChartBackground = 0x0062;
-constexpr uint16_t kGap = 0x318A;
-constexpr uint16_t kCyan = 0x6F9E;
-constexpr uint16_t kAmber = 0xFE27;
+constexpr uint16_t kWhite = UI::Palette::text;
+constexpr uint16_t kMuted = UI::Palette::muted;
+constexpr uint16_t kBright = Theme::secondary_bright;
+constexpr uint16_t kOldBright = Theme::firmware_token_history_oldbright;
+constexpr uint16_t kBars = Theme::firmware_token_history_bars;
+constexpr uint16_t kOldBars = Theme::firmware_token_history_oldbars;
+constexpr uint16_t kGrid = Theme::firmware_token_history_grid;
+constexpr uint16_t kChartBackground = Theme::firmware_token_history_chartbackground;
+constexpr uint16_t kGap = Theme::firmware_token_history_gap;
+constexpr uint16_t kCyan = UI::Palette::cyan;
+constexpr uint16_t kAmber = UI::Palette::warning;
 
 struct Extent {
     uint8_t bins;
@@ -105,6 +109,14 @@ esp_err_t add_caption(TokenHistoryPresentation &presentation, const CODY2D::Mono
 {
     if (presentation.caption_count >= presentation.captions.size()) { return ESP_ERR_INVALID_SIZE; }
     auto &caption = presentation.captions[presentation.caption_count];
+    if (presentation.caption_count == 0) {
+        const size_t length = std::strlen(text);
+        if (length == 0 || length >= sizeof(caption.text)) return ESP_ERR_INVALID_SIZE;
+        std::memcpy(caption.text, text, length + 1U);
+        caption.line.text = {caption.text, static_cast<uint16_t>(length)};
+        ++presentation.caption_count;
+        return ESP_OK;
+    }
     const esp_err_t error = prepare_caption(caption, font, text, bounds, color);
     if (error == ESP_OK) { ++presentation.caption_count; }
     return error;
@@ -121,9 +133,15 @@ esp_err_t prepare_empty_history(TokenHistoryPresentation &presentation,
     const bool stale = presentation.source_state == SourceState::Stale;
     auto error = add_caption(presentation, font, status, {73, 238, 320, 28}, stale ? kAmber : kWhite);
     if (error != ESP_OK) { return error; }
-    error = add_caption(presentation, font, guidance, {73, 279, 320, 25}, kMuted);
+    const CODY2D::Rect guidance_bounds{73, 279, 320, 25};
+    const CODY2D::MonoFont *guidance_font = nullptr;
+    error = Typography::label_font(guidance, guidance_bounds, font, guidance_font);
+    if (error == ESP_OK) error = add_caption(presentation, *guidance_font, guidance, guidance_bounds, kMuted);
     if (error != ESP_OK) { return error; }
-    return add_caption(presentation, font, "15-minute observations", {73, 310, 320, 25}, kMuted);
+    const CODY2D::Rect note_bounds{73, 310, 320, 25};
+    const CODY2D::MonoFont *note_font = nullptr;
+    error = Typography::label_font("15-minute observations", note_bounds, font, note_font);
+    return error == ESP_OK ? add_caption(presentation, *note_font, "15-minute observations", note_bounds, kMuted) : error;
 }
 
 // strip: Valid borrowed native RGB565 tile.
@@ -229,7 +247,8 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
     }
     for (uint8_t index = 0; error == ESP_OK && index < presentation.caption_count; ++index) {
         const auto &line = presentation.captions[index].line;
-        error = CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
+        error = index == 0 ? ESP_OK :
+            CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
     }
     if (error == ESP_OK) {
         error = CODY2D::draw_capsule_rows(presentation.interval_control, strip, first_row, first_column);
@@ -239,7 +258,7 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
 
 // presentation: Immutable page owner and interactive interval control.
 // content: Receives the central chart and separate action damage slots.
-void attach_content(const TokenHistoryPresentation &presentation, SceneContent &content)
+esp_err_t attach_content(const TokenHistoryPresentation &presentation, SceneContent &content)
 {
     content = {};
     content.bounds = kContentBounds;
@@ -248,6 +267,7 @@ void attach_content(const TokenHistoryPresentation &presentation, SceneContent &
     content.state = &presentation;
     content.revision = presentation.revision;
     content.draw_rows = draw_rows;
+    return prepare_styled_title(presentation.captions[0].line.text, CODY2D::Rect{73, 78, 320, 46}, content.heading, 3, true);
 }
 
 // peak: Largest observed value in the selected window, including a real zero.
@@ -432,8 +452,7 @@ esp_err_t prepare_token_history(TokenHistoryInterval interval,
         presentation.local_time == local_time && presentation.first_offset_minutes == first_offset &&
         presentation.last_offset_minutes == last_offset &&
         presentation.title_font == &title_font && presentation.body_font == &body_font) {
-        attach_content(presentation, content);
-        return ESP_OK;
+        return attach_content(presentation, content);
     }
     if (presentation.revision == std::numeric_limits<uint32_t>::max()) {
         return result("view revision", ESP_ERR_INVALID_STATE);
@@ -478,13 +497,12 @@ esp_err_t prepare_token_history(TokenHistoryInterval interval,
     control = {};
     control.bounds = kControlBounds;
     control.caption = presentation.interval_label.line;
-    control.top_color = 0x18E5;
-    control.bottom_color = 0x10A3;
-    control.border_color = 0x4A8C;
+    control.top_color = Theme::controls_secondary_top;
+    control.bottom_color = Theme::controls_secondary_bottom;
+    control.border_color = Theme::controls_secondary_border;
     ++presentation.revision;
     presentation.valid = true;
-    attach_content(presentation, content);
-    return ESP_OK;
+    return attach_content(presentation, content);
 }
 
 // presentation: Prepared current token history screen.

@@ -18,6 +18,7 @@
 #include "CODY_codex_event_presentation.hpp"
 #include "CODY_approval_notice.hpp"
 #include "CODY_debug_views.hpp"
+#include "CODY_title_style.hpp"
 #include "scene_data.hpp"
 #include "esp_log.h"
 #include <cstring>
@@ -376,6 +377,33 @@ extern "C" int cody_host_scene_id(const char *name, uint16_t *identity);
 extern "C" int cody_host_text(uint16_t *pixels, uint32_t capacity, const char *text,
     uint16_t length, uint16_t top, uint16_t color, bool body, uint16_t visible, uint16_t center, uint16_t max_width);
 
+// pixels: Existing logical framebuffer containing the authored scene artwork.
+// identity: Shared scene identity; elapsed_us excludes hidden and paused time.
+// Returns the same title reveal, circular viewport and marquee as the native scene.
+CODY_HOST_EXPORT int cody_host_scene_paint_title(uint16_t *pixels, uint32_t capacity,
+    uint16_t identity, int64_t elapsed_us)
+{
+    if (!pixels || capacity != 466U * 466U || elapsed_us < 0)
+        return result("scene_paint_title", ESP_ERR_INVALID_ARG);
+    const CODY::SceneDefinition *definition = nullptr;
+    esp_err_t error = CODY::find_scene(static_cast<CODY::SceneId>(identity), definition);
+    CODY::SceneFrame frame{};
+    if (error == ESP_OK) error = CODY::begin_scene(*definition, frame);
+    if (error == ESP_OK) error = CODY::advance_scene(frame, elapsed_us);
+    CODY::ScenePresentation presentation{};
+    if (error == ESP_OK) error = CODY::prepare_scene_presentation(frame, presentation);
+    if (error == ESP_OK && presentation.content_visible && definition->title_visible) {
+        CODY::StyledTitle title{};
+        error = CODY::prepare_styled_title(frame.title.text, frame.title.bounds, title, 3, true);
+        if (error == ESP_OK) {
+            CODY2D::Surface canvas{pixels, 466, 466, 466, capacity};
+            error = CODY::draw_styled_title_rows(title, canvas, 0, 0, frame.visible_characters,
+                false, CODY::scene_title_scroll_offset(frame));
+        }
+    }
+    return result("scene_paint_title", error);
+}
+
 // pixels: Logical RGB565 frame, with prepainted artwork only for the legacy inspector.
 // capacity: Exact full-display pixel count.
 // plan: Shared native layout for the current simulated event.
@@ -414,7 +442,16 @@ CODY_HOST_EXPORT int cody_host_event_paint_frame(uint16_t *pixels, uint32_t capa
         frame.visible_characters = title_length;
     }
     if (error == ESP_OK && title_length != 0) {
-        error = CODY2D::draw_text_rows(frame.title, frame.visible_characters, canvas, 0, 0);
+        CODY::StyledTitle heading{};
+        error = CODY::prepare_styled_title(frame.title.text, frame.title.bounds, heading, 3, true);
+        if (error == ESP_OK) {
+            // The device-first presentation exposes the complete title immediately;
+            // the legacy inspector instead waits for the native typewriter clock.
+            const uint16_t offset = timed ? CODY::scene_title_scroll_offset(frame) :
+                CODY::styled_title_scroll_offset(CODY::TitleStyleDetail::width(heading.text.length, heading.scale),
+                    heading.bounds.width, static_cast<uint64_t>(elapsed_us));
+            error = CODY::draw_styled_title_rows(heading, canvas, 0, 0, frame.visible_characters, false, offset);
+        }
     }
     uint16_t narrative_length = title_length;
     for (uint8_t index = 0; index < plan->line_count; ++index) {

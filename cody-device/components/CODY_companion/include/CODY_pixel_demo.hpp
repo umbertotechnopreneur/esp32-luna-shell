@@ -16,6 +16,10 @@ struct PixelDemoMotion {
     int64_t sampled_at_us = 0;
     uint16_t rendering_rotation_degrees = 0;
     bool valid = false;
+    float angular_velocity_x = 0;
+    float angular_velocity_y = 0;
+    float angular_velocity_z = 0;
+    bool angular_valid = false;
 };
 
 struct PixelDemoMotionState {
@@ -24,8 +28,10 @@ struct PixelDemoMotionState {
     float offset_x = 0;
     float offset_y = 0;
     int64_t sampled_at_us = 0;
+    int64_t surprised_sample_us = 0;
     uint16_t rendering_rotation_degrees = 0;
     bool primed = false;
+    bool surprised = false;
 };
 
 // state: Motion state owned by the physical display or a separate host preview.

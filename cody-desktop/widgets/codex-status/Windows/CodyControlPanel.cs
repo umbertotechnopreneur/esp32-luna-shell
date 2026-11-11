@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
 
 namespace OpenAIUsage.Windows;
@@ -22,12 +23,13 @@ public sealed class CodyControlPanel : UserControl
     private readonly TextBox launcher;
     private readonly TextBox pairing = new() { Header = "Six-character code shown on Cody", MaxLength = 6 };
     private readonly TextBox preferredName = new() { Header = "Preferred name", MaxLength = 24 };
-    private readonly ComboBox timezone = new() { Header = "Device time zone", HorizontalAlignment = HorizontalAlignment.Stretch };
+    private readonly TextBox utcOffset = new() { Header = "UTC offset in minutes (for example +330)", MaxLength = 4 };
     private readonly CheckBox quiet = new() { Content = "Quiet hours" };
     private readonly TextBox quietStart = new() { Header = "Start (HH:MM)", MaxLength = 5 };
     private readonly TextBox quietEnd = new() { Header = "End (HH:MM)", MaxLength = 5 };
     private bool busy;
     private bool clockLoaded;
+    private int? clockOffset;
     private bool disposed;
     private CodyBridgeStatus? lastStatus;
     private long statusReceivedAt;
@@ -59,15 +61,14 @@ public sealed class CodyControlPanel : UserControl
 
         Children.Add(devices);
         // Selection is an exact retained identity. Never select a different device after refresh.
-        devices.SelectionChanged += (_, _) => { clockLoaded = false; preferredName.Text = ""; timezone.SelectedIndex = -1; RenderSourceStatus(); };
+        devices.SelectionChanged += (_, _) => { clockLoaded = false; clockOffset = null; preferredName.Text = ""; utcOffset.Text = ""; RenderSourceStatus(); };
         Children.Add(Row(Command("Find Cody", () => ControlAsync("device/discover", new { include_simulator = false })),
             Command("Read preferences", ReadPreferencesAsync), Command("Normal screen", () => DeviceControlAsync("device/normal"))));
         Children.Add(pairing);
         Children.Add(Command("Pair this code", PairAsync));
         Children.Add(preferredName);
         Children.Add(Command("Save name", () => DeviceControlAsync("device/set-name", new() { ["preferred_name"] = preferredName.Text })));
-        foreach (var zone in new[] { "UTC", "Europe/Rome", "Asia/Ho_Chi_Minh" }) timezone.Items.Add(zone);
-        Children.Add(timezone);
+        Children.Add(utcOffset);
         Children.Add(quiet);
         Children.Add(quietStart);
         Children.Add(quietEnd);
@@ -234,7 +235,8 @@ public sealed class CodyControlPanel : UserControl
         RequireApplied(clock);
         if (disposed || SelectedDevice() != identity) return;
         preferredName.Text = name.GetProperty("preferred_name").GetString() ?? "";
-        timezone.SelectedItem = clock.GetProperty("timezone").GetString();
+        clockOffset = clock.GetProperty("utc_offset_minutes").GetInt32();
+        utcOffset.Text = clockOffset.Value.ToString(CultureInfo.InvariantCulture);
         quiet.IsChecked = clock.GetProperty("quiet_hours_enabled").GetBoolean();
         quietStart.Text = clock.GetProperty("quiet_hours_start").GetString() ?? "";
         quietEnd.Text = clock.GetProperty("quiet_hours_end").GetString() ?? "";
@@ -246,13 +248,18 @@ public sealed class CodyControlPanel : UserControl
     // Exception: Requires current selected-device preferences rather than guessing quiet hours.
     private async Task SaveClockAsync()
     {
-        if (!clockLoaded || timezone.SelectedItem is not string zone)
+        if (!clockLoaded || clockOffset is null)
             throw new ArgumentException("Read this Cody's preferences before editing its clock.");
-        await DeviceControlAsync("device/configure-clock", new()
+        if (!int.TryParse(utcOffset.Text.Trim(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var offset)
+            || offset < -840 || offset > 840)
+            throw new ArgumentException("Enter a UTC offset in whole minutes from -840 to 840.");
+        var clockSettings = new Dictionary<string, object>
         {
-            ["timezone"] = zone, ["quiet_hours_enabled"] = quiet.IsChecked == true,
+            ["quiet_hours_enabled"] = quiet.IsChecked == true,
             ["quiet_hours_start"] = quietStart.Text.Trim(), ["quiet_hours_end"] = quietEnd.Text.Trim()
-        });
+        };
+        if (offset != clockOffset.Value) clockSettings["utc_offset_minutes"] = offset;
+        await DeviceControlAsync("device/configure-clock", clockSettings);
     }
 
     // response: Native authenticated operation outcome returned unchanged by the service.

@@ -31,6 +31,7 @@ namespace {
 constexpr char kTag[] = "CODY_settings";
 constexpr char kFirstBootKey[] = "cody_firstboot";
 constexpr char kBirthIntroKey[] = "cody_birth";
+constexpr char kSetupProgressKey[] = "cody_setup";
 constexpr char kShakeKey[] = "cody_shake";
 constexpr char kSoundsKey[] = "cody_sounds";
 constexpr char kScreensaverKey[] = "cody_saver";
@@ -390,6 +391,13 @@ static esp_err_t load_companion_preferences_locked()
     preferences.battery_ring_error = storage_error == ESP_OK
         ? load_switch(kBatteryRingKey, true, preferences.battery_ring_enabled) : storage_error;
     preferences.battery_ring_valid = preferences.battery_ring_error == ESP_OK;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
+    preferences.auto_time_error = storage_error == ESP_OK
+        ? load_switch(LUNASHELL::kAutoTimePreferenceKey, true, preferences.auto_time_enabled) : storage_error;
+    preferences.auto_time_valid = preferences.auto_time_error == ESP_OK;
+#else
+    preferences.auto_time_error = ESP_ERR_NOT_SUPPORTED;
+#endif
     if (!preferences.assistant_quota_ring_valid || !preferences.battery_ring_valid) {
         ESP_LOGE(kTag, "Optional ring preferences unavailable: quota=%s battery=%s",
             esp_err_to_name(preferences.assistant_quota_ring_error), esp_err_to_name(preferences.battery_ring_error));
@@ -529,6 +537,33 @@ esp_err_t persist_companion_usage_mode(LUNASHELL::CodyUsageMode mode)
 // Exception: Returns the original validation, persistence, policy or publication error.
 esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
 {
+    if (preference == PreferenceId::AutoTime) {
+        if (value > 1U) {
+            ESP_LOGE(kTag, "Auto time rejected value=%lu (%s)", static_cast<unsigned long>(value), esp_err_to_name(ESP_ERR_INVALID_ARG));
+            return ESP_ERR_INVALID_ARG;
+        }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
+        std::lock_guard<std::mutex> guard(s_preferences_mutex);
+        LUNASHELL::CodyOptionsObservation observation{};
+        auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+        auto error = snapshots.readCodyOptionsObservation(observation);
+        if (error != ESP_OK) {
+            ESP_LOGE(kTag, "Auto time projection failed (%s)", esp_err_to_name(error));
+            return error;
+        }
+        error = save_preference_uint32(LUNASHELL::kAutoTimePreferenceKey, value);
+        if (error == ESP_OK) error = LUNASHELL_time_apply_auto_sync(value == 1U);
+        if (error != ESP_OK) ESP_LOGE(kTag, "Auto time apply failed (%s)", esp_err_to_name(error));
+        observation.preferences.auto_time_valid = error == ESP_OK;
+        observation.preferences.auto_time_error = error;
+        if (error == ESP_OK) observation.preferences.auto_time_enabled = value == 1U;
+        const auto publication_error = snapshots.reportCodyPreferences(observation.preferences);
+        if (publication_error != ESP_OK) ESP_LOGE(kTag, "Auto time publication failed (%s)", esp_err_to_name(publication_error));
+        return error != ESP_OK ? error : publication_error;
+#else
+        return ESP_ERR_NOT_SUPPORTED;
+#endif
+    }
     if (preference == PreferenceId::AssistantQuotaRing || preference == PreferenceId::BatteryRing) {
         if (value > 1U) {
             ESP_LOGE(kTag, "Ring preference rejected value=%lu (%s)",
@@ -704,13 +739,28 @@ esp_err_t load_onboarding_settings(OnboardingSettings &settings)
     }
     error = store.getBool(kBirthIntroKey, &loaded.birth_intro_pending);
     if (error == ESP_ERR_NVS_NOT_FOUND) {
-        ESP_LOGI(kTag, "Birth intro: key '%s' absent; persisting default=1", kBirthIntroKey);
-        error = persist_birth_intro_pending(true);
-        if (error == ESP_OK) loaded.birth_intro_pending = true;
+        // Existing configured installations must not acquire a first-run intro
+        // merely because a firmware update introduced this separate key.
+        const bool default_pending = loaded.persisted_first_boot;
+        ESP_LOGI(kTag, "Birth intro: key '%s' absent; persisting first-boot default=%u",
+            kBirthIntroKey, default_pending);
+        error = persist_birth_intro_pending(default_pending);
+        if (error == ESP_OK) loaded.birth_intro_pending = default_pending;
     }
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Birth intro read/default persistence '%s' failed (%s)",
             kBirthIntroKey, esp_err_to_name(error));
+        return error;
+    }
+    error = store.getBool(kSetupProgressKey, &loaded.setup_progress_pending);
+    if (error == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGI(kTag, "Setup progress: key '%s' absent; persisting default=1", kSetupProgressKey);
+        error = persist_setup_progress_pending(true);
+        if (error == ESP_OK) loaded.setup_progress_pending = true;
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Setup progress read/default persistence '%s' failed (%s)",
+            kSetupProgressKey, esp_err_to_name(error));
         return error;
     }
 #if CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT
@@ -763,6 +813,22 @@ esp_err_t persist_birth_intro_pending(bool pending)
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Birth intro preference '%s'=%u failed (%s)",
             kBirthIntroKey, pending, esp_err_to_name(error));
+    }
+    return error;
+}
+
+// pending: Whether setup still requires a confirmed Wi-Fi and Codex connection.
+// Exception: Returns the original write/readback error or a readback mismatch.
+esp_err_t persist_setup_progress_pending(bool pending)
+{
+    auto &store = LUNASHELL::UserSettingsService::instance();
+    auto error = store.setBool(kSetupProgressKey, pending);
+    bool stored = !pending;
+    if (error == ESP_OK) error = store.getBool(kSetupProgressKey, &stored);
+    if (error == ESP_OK && stored != pending) error = ESP_ERR_INVALID_RESPONSE;
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Setup progress preference '%s'=%u failed (%s)",
+            kSetupProgressKey, pending, esp_err_to_name(error));
     }
     return error;
 }

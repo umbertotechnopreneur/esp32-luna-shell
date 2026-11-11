@@ -71,7 +71,7 @@ For the existing followed-chat projection and progress:
   repeat a pairing with an ambiguous outcome.
 
 Use the [plugin README](../../README.md) for installation, recovery and limits.
-Use [cody-settings](../cody-settings/SKILL.md) for timezone and quiet hours.
+Use [cody-settings](../cody-settings/SKILL.md) for UTC offset and quiet hours.
 
 Route semantic user questions through the paired physical Cody when the trusted
 `UserPromptSubmit` context says it is available, unless the user requests PC-only

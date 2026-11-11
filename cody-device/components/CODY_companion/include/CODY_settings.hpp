@@ -26,7 +26,7 @@ struct WidgetVisibility;
 enum class PreferenceId : uint8_t {
     ShakeWake = 0, AutoRotate = 1, Sounds = 2, Orientation = 3, UsageMode = 4, Brightness = 5,
     Dictation = 6, Screensaver = 7, SynthEnabled = 8, SynthVolume = 9, SynthVoice = 10,
-    AssistantQuotaRing = 11, BatteryRing = 12,
+    AssistantQuotaRing = 11, BatteryRing = 12, AutoTime = 13,
 };
 
 // No parameters: loads exact persisted values, creating only genuinely absent keys.
@@ -57,6 +57,7 @@ struct OnboardingSettings {
     bool force_first_boot = false;
     bool effective_first_boot = false;
     bool birth_intro_pending = false;
+    bool setup_progress_pending = false;
 };
 
 // settings: Receives persisted/default/explicit-development decisions on success only.
@@ -69,4 +70,8 @@ esp_err_t persist_first_boot(bool first_boot);
 // pending: Whether the first-run Muse introduction still needs to retire.
 // Exception: Returns the original write/readback error or a readback mismatch.
 esp_err_t persist_birth_intro_pending(bool pending);
+
+// pending: Whether the initial Wi-Fi and Codex connection milestone remains outstanding.
+// Exception: Returns the original write/readback error or a readback mismatch.
+esp_err_t persist_setup_progress_pending(bool pending);
 } // namespace CODY

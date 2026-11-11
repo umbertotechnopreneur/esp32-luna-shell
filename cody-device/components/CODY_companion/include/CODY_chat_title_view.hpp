@@ -1,4 +1,5 @@
 #pragma once
+#include "CODY_theme_generated.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -73,7 +74,7 @@ inline esp_err_t prepare_chat_title(ChatTitleView &view, const char *title, cons
     }
     return CODY2D::prepare_text_line(font, span,
         {x, static_cast<int16_t>(kChatTitleBounds.y + (kChatTitleBounds.height - font.height) / 2U)},
-        0x6F9E, view.line);
+        Theme::accent_cyan, view.line);
 }
 
 // view: Prepared title borrowed through frame retirement.

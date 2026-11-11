@@ -199,6 +199,19 @@ esp_err_t LUNASHELL_time_refresh_snapshot(void);
 /** Start SNTP after DHCP has supplied an IP address. */
 esp_err_t LUNASHELL_time_notify_wifi_online(void);
 
+// enabled: Apply the already persisted automatic network-time preference.
+// Exception: Returns the original initialization, snapshot, or start error.
+esp_err_t LUNASHELL_time_apply_auto_sync(bool enabled);
+
+// epoch: Authenticated PC UTC seconds in the supported RTC calendar.
+// offset_minutes: Actual fixed PC UTC offset in minutes, inclusive range -840..840.
+// Exception: Returns the original validation, settings, clock, RTC, or publication error.
+esp_err_t LUNASHELL_time_sync_from_pc(int64_t epoch, int offset_minutes);
+
+// No parameters: enqueue one explicit authenticated PC time synchronization.
+// Exception: Returns a real admission error if no current paired PC is available.
+esp_err_t LUNASHELL_codex_request_pc_time(void);
+
 /** Apply a valid UTC GPS date/time to system time and the RTC. */
 esp_err_t LUNASHELL_time_sync_from_gps(
     uint16_t year,

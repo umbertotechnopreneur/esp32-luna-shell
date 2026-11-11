@@ -40,7 +40,7 @@ command-line arguments or returned by status reads.
 | `bridge/start` / `bridge/stop` | Explicitly retain or stop the owner; stop rejects while a native MCP client is live |
 | `device/discover` / `device/pair` | Use existing discovery and the physical display's six-character code |
 | `device/read-name` / `device/set-name` | Read or change the actual preferred name through the existing ACK flow |
-| `device/read-clock` / `device/configure-clock` | Read or change supported timezone and quiet hours |
+| `device/read-clock` / `device/configure-clock` | Read or change the fixed UTC offset and quiet hours |
 | `device/normal` | Restore the retained route through the existing authenticated display control |
 
 `bridge/status` returns `bridge`, global `source`, and `devices`. Each device
@@ -59,8 +59,8 @@ handling, not physical rendering.
 Windows retains per-user DPAPI. Linux uses `secret-tool` and an unlocked Secret
 Service, with private state under `$XDG_STATE_HOME/cody-companion` or
 `~/.local/state/cody-companion`. Missing/locked keyrings fail explicitly; there is
-no plaintext credential fallback. Automatic host timezone adoption remains
-Windows-specific; Linux users can select a supported zone explicitly. Optional
+no plaintext credential fallback. PC time synchronization uses the host's current
+UTC offset; it must be repeated when that offset changes. Optional
 audio uses the existing `cryptography` dependency; absence remains an explicit
 operation failure.
 
@@ -207,7 +207,7 @@ and technical fields from one coherent owner projection for each paired device.
 
 Home cycles Project, Branch, Model and token pages. On a healthy PC connection or
 a newly followed chat, an **Available commands** banner rotates **Change my
-name**, **Set my timezone**, **Set quiet hours** and **Ask Cody a question**.
+name**, **Set my UTC offset**, **Set quiet hours** and **Ask Cody a question**.
 Ready for More keeps the first three rotating alongside the token carousel. These
 are requests to write in Codex chat, not device buttons or terminal commands.
 

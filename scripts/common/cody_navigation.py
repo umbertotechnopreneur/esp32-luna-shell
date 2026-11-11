@@ -32,13 +32,22 @@ CONTROL_IDENTITIES = {
 # Raises ValueError for ambiguous controls, unsupported geometry or invalid timing.
 def load_navigation(root):
     document = read_json(Path(root) / "cody-device/assets/cody/navigation.json")
-    if set(document) != {"schema", "auto_hide_ms", "fade_ms", "colors_rgb565", "controls"} or document["schema"] != "cody.navigation.v1":
+    if set(document) != {"schema", "auto_hide_ms", "fade_ms", "controls"} or document["schema"] != "cody.navigation.v1":
         raise ValueError("Invalid Cody navigation schema")
-    colors = document["colors_rgb565"]
-    if not isinstance(colors, dict) or set(colors) != {"top", "bottom", "ink", "selected"}:
-        raise ValueError("Navigation requires explicit neutral material colors")
-    if any(type(value) is not int or not 0 <= value <= 65535 for value in colors.values()):
-        raise ValueError("Invalid navigation RGB565 color")
+    theme = read_json(Path(root) / "cody-device/assets/cody/palette/theme.json")
+    if theme.get("schema_version") != 1:
+        raise ValueError("Invalid Cody theme schema")
+    navigation_colors = theme["device"]["navigation"]
+    if not isinstance(navigation_colors, dict) or set(navigation_colors) != {"top", "bottom", "ink", "selected"}:
+        raise ValueError("Navigation requires explicit semantic theme colors")
+    colors = {}
+    for name, entry in navigation_colors.items():
+        word = entry.get("rgb565") if isinstance(entry, dict) else None
+        if (not isinstance(word, str) or len(word) != 6 or not word.startswith("0x")
+                or any(character not in "0123456789abcdefABCDEF" for character in word[2:])):
+            raise ValueError(f"Invalid navigation RGB565 color: {name}")
+        colors[name] = int(word, 16)
+    document["colors_rgb565"] = colors
     for key in ("auto_hide_ms", "fade_ms"):
         if type(document[key]) is not int or not 1 <= document[key] <= 60000:
             raise ValueError(f"Invalid navigation timing: {key}")

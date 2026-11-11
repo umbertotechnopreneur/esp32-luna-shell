@@ -23,6 +23,7 @@
 #include "CODY_dirty_plan.hpp"
 #endif
 #include "CODY_activity_overlay.hpp"
+#include "CODY_title_style.hpp"
 
 namespace LUNASHELL { enum class CodexCostBand : uint8_t; }
 
@@ -124,7 +125,22 @@ struct SceneContent {
     // first_column: Logical x origin shared with cloud and title.
     esp_err_t (*draw_rows)(const void *state, CODY2D::Surface strip,
                           uint16_t first_row, uint16_t first_column) = nullptr;
+    StyledTitle heading{};
 };
+
+// content: Prepared screen content with an optional heading.
+// strip: Borrowed display tile.
+// first_row: Logical y origin of the tile.
+// first_column: Logical x origin of the tile.
+// offset: Leading pixels hidden by the marquee viewport.
+// Exception: Returns the original heading raster error.
+inline esp_err_t draw_content_heading_rows(const SceneContent &content, CODY2D::Surface strip,
+    uint16_t first_row, uint16_t first_column, uint16_t offset = 0)
+{
+    if (content.heading.scale == 0) return ESP_OK;
+    return draw_styled_title_rows(content.heading, strip, first_row, first_column,
+        content.heading.text.length, false, offset);
+}
 
 struct SceneFrame {
     const CommandHintsState *command_hints = nullptr;
@@ -180,6 +196,12 @@ esp_err_t begin_scene(const SceneDefinition &definition, SceneFrame &frame);
 // title: Immutable ASCII text retained until all frames referencing it retire.
 esp_err_t set_scene_title(SceneFrame &frame, CODY2D::TextSpan title);
 
+// frame: Prepared title and its authored scene.
+bool scene_title_overflows(const SceneFrame &frame);
+
+// frame: Scene carrying the title's active-time clock.
+uint16_t scene_title_scroll_offset(const SceneFrame &frame);
+
 // frame: Prepared scene retaining the absolute activity layer and its active clock.
 // state: Authenticated activity or Hidden when unavailable, stale, disconnected or idle.
 // Exception: Returns invalid scene or activity identity without changing the frame.
@@ -223,7 +245,8 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
 // strip: Cloud-composited caller-owned RGB565 tile; this layer does not clear it.
 // first_row: Logical tile y origin shared by all layers.
 // first_column: Logical tile x origin shared by all layers.
+// heading_offset: Marquee position for a heading owned by the scene's content.
 esp_err_t draw_scene_rows(const SceneFrame &frame, CODY2D::Surface strip,
-                          uint16_t first_row, uint16_t first_column);
+                          uint16_t first_row, uint16_t first_column, uint16_t heading_offset = 0);
 
 } // namespace CODY

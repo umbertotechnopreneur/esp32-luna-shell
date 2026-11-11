@@ -1,4 +1,5 @@
 #pragma once
+#include "CODY_theme_generated.hpp"
 
 #include <cstdint>
 #include "CODY_scene.hpp"
@@ -74,7 +75,7 @@ struct PanelPresentation {
     char banner[32]{};
     char hint[32]{};
     char cost_caption[32]{};
-    CODY2D::TextLine title_line{};
+    StyledTitle heading{};
     CODY2D::TextLine page_line{};
     CODY2D::TextLine banner_line{};
     CODY2D::TextLine hint_line{};
@@ -90,8 +91,10 @@ struct PanelPresentation {
     LUNASHELL::CodexCostBand cost_band = LUNASHELL::CodexCostBand::Unknown;
     uint32_t revision = 0;
     uint32_t compaction_clock_us = 0;
+    int64_t heading_started_us = 0;
+    uint16_t heading_offset = 0;
     uint16_t bar_pixels = 0;
-    uint16_t bar_color = 0x632C;
+    uint16_t bar_color = Theme::firmware_technical_panels_neutral;
     uint8_t line_count = 0;
     bool context_bar_visible = false;
     bool compaction_active = false;
@@ -146,8 +149,8 @@ esp_err_t prepare_companion_panel_from_observation(CompanionPanel panel,
     const char *firmware_version = "", const LUNASHELL::ActivitySnapshot *motion = nullptr);
 
 // presentation: Successfully prepared serialized panel state.
-// active_time_us: Nonnegative active clock; this changes only the compaction accent.
-// changed: Receives whether its quantized indeterminate opacity changed.
+// active_time_us: Nonnegative active clock for the title and compaction accent.
+// changed: Receives whether an animated pixel changed.
 // Exception: Returns invalid panel/clock state without fabricating compaction progress.
 esp_err_t advance_companion_panel(PanelPresentation &presentation, int64_t active_time_us, bool &changed);
 

@@ -1,4 +1,5 @@
 #pragma once
+#include "CODY_theme_generated.hpp"
 
 #include <cstring>
 #include "LUNASHELL_device_snapshot.hpp"
@@ -22,10 +23,10 @@ constexpr uint16_t cost_band_color(LUNASHELL::CodexCostBand band)
 {
     using Band = LUNASHELL::CodexCostBand;
     switch (band) {
-    case Band::Economy: return 0x87EF;
-    case Band::Balanced: return 0xFD20;
-    case Band::Expensive: return 0xF986;
-    default: return 0xBDF7;
+    case Band::Economy: return Theme::cost_economy;
+    case Band::Balanced: return Theme::cost_balanced;
+    case Band::Expensive: return Theme::cost_expensive;
+    default: return Theme::text_subdued;
     }
 }
 

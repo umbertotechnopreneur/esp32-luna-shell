@@ -21,6 +21,7 @@ from __future__ import annotations
 import math
 
 from cody_coverage import FULL_COVERAGE, coverage_mask
+from cody_semantic_palette import studio_rgb
 
 
 # Each volume is tied to a semantic rig anchor. Broad overlapping supports reach
@@ -297,10 +298,12 @@ def paint_cloud_material(image, vertices, scene):
     width, height = image.size
     center_x, center_y = scene['world']['center']
     material_scale = 145 / scene['scale']
-    shadow = (102, 134, 174)
+    shadow = studio_rgb("preview", "cloud_shadow")
+    cool = studio_rgb("preview", "cloud_cool")
+    warm = studio_rgb("preview", "cloud_warm")
     for row in range(bounds[1], bounds[3]):
         warmth = max(0, min(1, (center_y + 65 - row) / 165))
-        sunlight = (229 + 26 * warmth, 239 + 7 * warmth, 247 - 28 * warmth)
+        sunlight = tuple(first + (last - first) * warmth for first, last in zip(cool, warm))
         underside = max(0, min(1, (row - center_y + 8) / 100))
         for column in range(bounds[0], bounds[2]):
             amount = coverage[column, row]

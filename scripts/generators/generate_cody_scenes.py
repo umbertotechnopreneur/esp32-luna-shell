@@ -101,7 +101,7 @@ def bake_font(font_path: Path, document):
 def definition_header(document, width, height, advance):
     header = [
         "// Generated via scripts/device.ps1 generate -Generator cody-scenes.",
-        "#pragma once", '#include "CODY_scene.hpp"', '#include "sdkconfig.h"',
+        "#pragma once", '#include "CODY_scene.hpp"', '#include "CODY_theme_generated.hpp"', '#include "sdkconfig.h"',
         "namespace CODY::SceneData {",
         f"inline constexpr uint32_t boot_delay_ms = {document['boot_delay_ms']}U;",
         "extern const CODY2D::MonoFont title_font;",
@@ -133,8 +133,8 @@ def definition_header(document, width, height, advance):
             f"        {{{intro['bitmap_fade_out_ms']}, {intro['cloud_fade_in_ms']}}},",
             f"        {{{{{channels}}}}}, &title_font,",
             f'        {{{json.dumps(title["text"])}, {len(title["text"])}}},',
-            f"        {title['top']}, {title['color_rgb565']}, {title['character_interval_ms']}, {flags}, {str(title['visible']).lower()},",
-            f"        {{{{{entrance_from}}}, {entrance['move_ms']}, {entrance['text_delay_ms']}}}, {scene['background_rgb565']},",
+            f"        {title['top']}, Theme::{title['color_rgb565'].token.replace('.', '_')}, {title['character_interval_ms']}, {flags}, {str(title['visible']).lower()},",
+            f"        {{{{{entrance_from}}}, {entrance['move_ms']}, {entrance['text_delay_ms']}}}, Theme::{scene['background_rgb565'].token.replace('.', '_')},",
             f"        {scene['standby_override_seconds']}U",
             "    },",
         ])

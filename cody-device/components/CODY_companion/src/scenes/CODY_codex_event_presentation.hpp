@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <cmath>
 #include "CODY2D_controls.hpp"
+#include "CODY_theme_generated.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "esp_err.h"
 
@@ -127,7 +128,7 @@ enum class Effect : uint8_t { None, Render, Reply, Dismiss, Observe, SelectQuest
 struct Bounds { uint16_t x = 0, y = 0, width = 0, height = 0; };
 inline constexpr Bounds kReviewPanel{73, 191, 320, 134};
 inline constexpr uint16_t kReviewPanelRadius = 12;
-inline constexpr uint16_t kQuestionAccent = 0xFCC0;
+inline constexpr uint16_t kQuestionAccent = Theme::accent_question;
 
 // strip: Borrowed logical tile; this read-only background is never a control.
 // first_row: Logical y origin of the tile.
@@ -138,9 +139,9 @@ inline esp_err_t draw_review_panel(CODY2D::Surface strip, uint16_t first_row, ui
     CODY2D::CapsuleControl panel{};
     panel.bounds = {kReviewPanel.x, kReviewPanel.y, kReviewPanel.width, kReviewPanel.height};
     panel.corner_radius = kReviewPanelRadius;
-    panel.top_color = 0x10C6;
-    panel.bottom_color = 0x0843;
-    panel.border_color = 0x294B;
+    panel.top_color = Theme::surface_review_top;
+    panel.bottom_color = Theme::surface_review_bottom;
+    panel.border_color = Theme::events_review_border;
     return CODY2D::draw_capsule_rows(panel, strip, first_row, first_column);
 }
 struct Line {
@@ -155,7 +156,7 @@ struct Line {
 inline constexpr uint16_t kChatWaitingDotSize = 10;
 inline constexpr uint16_t kChatWaitingDotGap = 8;
 inline constexpr uint16_t kChatWaitingDotSpace = kChatWaitingDotSize + kChatWaitingDotGap;
-inline constexpr uint16_t kChatWaitingDotColor = 0xFA28;
+inline constexpr uint16_t kChatWaitingDotColor = Theme::events_waiting_dot;
 
 // text: Prepared title line whose centered group reserves space for the dot.
 // strip: Borrowed display tile retaining its stride and byte order.
@@ -176,8 +177,8 @@ inline esp_err_t draw_chat_waiting_dot(const CODY2D::TextLine &text, CODY2D::Sur
 // elapsed_us: Pausable scene time, unrelated to the actual delivery deadline.
 inline uint16_t line_color(const Line &line, uint64_t elapsed_us)
 {
-    if (line.pc_heading) { return 0xFE07; }
-    if (!line.delivery_pulse) { return line.instant ? 0xBDF7 : 0xFFFF; }
+    if (line.pc_heading) { return Theme::events_pc_heading; }
+    if (!line.delivery_pulse) { return line.instant ? Theme::text_subdued : Theme::text_bright; }
     // A 1.6-second breathing cycle stays readable at its darkest point. Quantize
     // to 50 ms so unchanged colors do not request redundant content redraws.
     const uint32_t step = (elapsed_us % 1600000U) / 50000U;
@@ -229,7 +230,7 @@ struct Plan {
     uint8_t page_index = 0;
     uint8_t page_count = 1;
     bool scrollable = false;
-    uint16_t title_color = 0xFFFF;
+    uint16_t title_color = Theme::text_bright;
 };
 
 // action: Complete semantic identity and tone receiving production colors.
@@ -238,38 +239,38 @@ inline void style(Action &action)
     using Tone = LUNASHELL::CodexChoiceTone;
     switch (action.tone) {
     case Tone::Neutral:
-        action.colors[0] = 0x18E5;
-        action.colors[1] = 0x10A3;
-        action.colors[2] = 0x4A8C;
-        action.colors[3] = 0xBDF7;
+        action.colors[0] = Theme::controls_secondary_top;
+        action.colors[1] = Theme::controls_secondary_bottom;
+        action.colors[2] = Theme::controls_secondary_border;
+        action.colors[3] = Theme::controls_secondary_icon;
         break;
     case Tone::Positive:
-        action.colors[0] = 0x1147;
-        action.colors[1] = 0x08C4;
-        action.colors[2] = 0x2B4F;
-        action.colors[3] = 0x8F1D;
+        action.colors[0] = Theme::controls_primary_top;
+        action.colors[1] = Theme::controls_primary_bottom;
+        action.colors[2] = Theme::controls_primary_border;
+        action.colors[3] = Theme::controls_primary_icon;
         break;
     case Tone::Negative:
-        action.colors[0] = 0x28A4;
-        action.colors[1] = 0x1883;
-        action.colors[2] = 0x796B;
-        action.colors[3] = 0xED53;
+        action.colors[0] = Theme::controls_destructive_top;
+        action.colors[1] = Theme::controls_destructive_bottom;
+        action.colors[2] = Theme::controls_destructive_border;
+        action.colors[3] = Theme::controls_destructive_icon;
         break;
     case Tone::Info:
-        action.colors[0] = 0x1106;
-        action.colors[1] = 0x08A4;
-        action.colors[2] = 0x3291;
-        action.colors[3] = 0xA71F;
+        action.colors[0] = Theme::controls_tertiary_top;
+        action.colors[1] = Theme::controls_tertiary_bottom;
+        action.colors[2] = Theme::controls_tertiary_border;
+        action.colors[3] = Theme::controls_tertiary_icon;
         break;
     }
     switch (action.id) {
     case ActionId::Open:
     case ActionId::Retry:
     case ActionId::Failures:
-        action.colors[0] = 0x2924;
-        action.colors[1] = 0x18C3;
-        action.colors[2] = 0x7BEF;
-        action.colors[3] = 0xE5F1;
+        action.colors[0] = Theme::controls_attention_top;
+        action.colors[1] = Theme::controls_attention_bottom;
+        action.colors[2] = Theme::controls_attention_border;
+        action.colors[3] = Theme::controls_attention_icon;
         break;
     default: break;
     }
@@ -299,7 +300,7 @@ inline esp_err_t prepare_read_confirmation(const CODY2D::MonoFont &font, CODY2D:
         static_cast<int16_t>(bounds.y + bounds.height / 2)};
     return CODY2D::prepare_text_line(font, label,
         {static_cast<int16_t>(left + icon_size + icon_gap),
-         static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2)}, 0xFFFF, control.caption);
+         static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2)}, Theme::text_bright, control.caption);
 }
 
 // action: Model-owned semantic style, exact bounds and full untimed caption.
@@ -336,7 +337,7 @@ inline esp_err_t prepare_control(const Action &action, const CODY2D::MonoFont &f
     const uint16_t top = bounds.y + (bounds.height - height) / 2;
     const uint16_t left = action.row ? bounds.x + 10U : bounds.x + (bounds.width - width) / 2;
     esp_err_t error = CODY2D::prepare_text_line(font, {label, length},
-        {static_cast<int16_t>(left), static_cast<int16_t>(top)}, 0xFFFF, control.caption);
+        {static_cast<int16_t>(left), static_cast<int16_t>(top)}, Theme::text_bright, control.caption);
     if (error == ESP_OK && space != nullptr) {
         const char *text = space + 1;
         const uint16_t count = static_cast<uint16_t>(std::strlen(text));
@@ -344,7 +345,7 @@ inline esp_err_t prepare_control(const Action &action, const CODY2D::MonoFont &f
         if (width_second > text_width) { return ESP_ERR_INVALID_SIZE; }
         error = CODY2D::prepare_text_line(font, {text, count},
             {static_cast<int16_t>(bounds.x + (bounds.width - width_second) / 2),
-             static_cast<int16_t>(top + font.height + 2U)}, 0xFFFF, second);
+             static_cast<int16_t>(top + font.height + 2U)}, Theme::text_bright, second);
     }
     return error;
 }
@@ -698,7 +699,7 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
     } else if (plan.route == Route::ApprovalOnPc) {
         // This read-only notice never offers a native permission decision on Cody.
         std::strcpy(plan.title, "Approval needed");
-        plan.title_color = 0xFFFF;
+        plan.title_color = Theme::text_bright;
         auto &label = plan.lines[plan.line_count++];
         std::strcpy(label.text, "On your PC:");
         label.top = 120;
@@ -718,7 +719,7 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         // A typed response-ready observation identifies an available reply, never a successful task.
         // Its body belongs to the originating chat; selected Home metadata cannot replace it.
         std::strcpy(plan.title, "Chat waiting");
-        plan.title_color = 0x5FF9;
+        plan.title_color = Theme::firmware_home_dashboard_mint;
         top = 214;
         text(event.body, false, 28);
         if (error == ESP_OK && plan.line_count != 0) { plan.lines[0].chat_waiting = true; }

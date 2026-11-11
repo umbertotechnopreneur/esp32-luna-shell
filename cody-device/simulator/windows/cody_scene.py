@@ -20,6 +20,7 @@ import math
 
 from scripts.common.cody_scene_contract import load_generated_scene_fonts, load_scenes, scene_source_hash
 from scripts.common.cody_rig_types import FaceChannel
+from cody_semantic_palette import device_rgb565
 
 
 class ScenePainter:
@@ -172,6 +173,8 @@ class ScenePainter:
         title = self.definition(identity)["title"]
         if not title["visible"]:
             return
+        if self.native is not None:
+            return self.native.paint_scene_title(image, identity, active_ms)
         visible = self.visible_characters(identity, active_ms)
         self.paint_text(image, title["text"], title["top"], title["color_rgb565"], visible=visible)
 
@@ -185,7 +188,7 @@ class ScenePainter:
     # center_x: Shared logical horizontal center for a bounded event label or action caption.
     # max_width: Optional explicit slot width; default preserves the authored title/caption slot.
     # Raises ValueError for unsupported pixels, text, extent or glyph counts.
-    def paint_text(self, image, text, top, color=65535, *, body=False, visible=None,
+    def paint_text(self, image, text, top, color=device_rgb565("text", "bright"), *, body=False, visible=None,
                    center_x=233, max_width=None):
         if self.native is not None:
             return self.native.paint_text(image, text, top, color, body=body, visible=visible,

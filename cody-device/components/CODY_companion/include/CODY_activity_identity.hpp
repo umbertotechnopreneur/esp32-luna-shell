@@ -1,4 +1,5 @@
 #pragma once
+#include "CODY_theme_generated.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -157,11 +158,11 @@ inline esp_err_t prepare_activity_identity(ActivityIdentityState &state, const C
     esp_err_t error = CODY2D::validate_mono_font(font);
     if (error == ESP_OK) {
         error = prepare_activity_identity_caption(font, project, "Project: ", state.project, state.project_line,
-            0xFFFF, state.project_length, state.project_width, 64);
+            Theme::text_bright, state.project_length, state.project_width, 64);
     }
     if (error == ESP_OK) {
         error = prepare_activity_identity_caption(font, branch, "Branch: ", state.branch, state.branch_line,
-            0xF7BE, state.branch_length, state.branch_width, 64);
+            Theme::text_default, state.branch_length, state.branch_width, 64);
     }
     if (error != ESP_OK) {
         return error;
@@ -214,7 +215,7 @@ inline esp_err_t set_activity_model_cost(ActivityIdentityState &state, const COD
     const bool model_changed = std::strcmp(model, previous_model) != 0;
     if (model_changed) {
         const esp_err_t error = prepare_activity_identity_caption(font, model, kActivityModelPrefix,
-            state.model, state.model_line, 0xFD20, state.model_length, state.model_width, 128);
+            state.model, state.model_line, Theme::dashboard_attention, state.model_length, state.model_width, 128);
         if (error != ESP_OK) { return error; }
         state.model_offset = 0;
         state.started_at_us = active_time_us;
@@ -291,13 +292,13 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
     static_assert(sizeof(Caption) * 4 <= 256, "Home carousel descriptors must remain bounded");
     Caption captions[] = {
         {ActivityIdentityKind::Project, state.project, &state.project_line, &state.project_offset,
-            state.project_length, state.project_width, 0xFFFF, 5000000},
+            state.project_length, state.project_width, Theme::text_bright, 5000000},
         {ActivityIdentityKind::Branch, state.branch, &state.branch_line, &state.branch_offset,
-            state.branch_length, state.branch_width, 0xF7BE, 3000000},
+            state.branch_length, state.branch_width, Theme::text_default, 3000000},
         {ActivityIdentityKind::Model, state.model, &state.model_line, &state.model_offset,
-            state.model_length, state.model_width, 0xFD20, 4000000},
+            state.model_length, state.model_width, Theme::dashboard_attention, 4000000},
         {ActivityIdentityKind::Tokens, state.tokens, &state.tokens_line, &state.tokens_offset,
-            state.tokens_length, state.tokens_width, 0xBDF7, 5000000}};
+            state.tokens_length, state.tokens_width, Theme::text_subdued, 5000000}};
     Caption *sequence[4]{};
     size_t count = 0;
     int64_t cycle_us = 0;
@@ -341,7 +342,7 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
         const char *caption = state.token_fields[static_cast<size_t>(state.token_metric)];
         if (old_token_metric != state.token_metric || std::strcmp(state.tokens, caption) != 0) {
             const esp_err_t error = prepare_activity_identity_caption(font, caption, "", state.tokens,
-                state.tokens_line, 0xBDF7, state.tokens_length, state.tokens_width, sizeof(state.tokens) - 1);
+                state.tokens_line, Theme::text_subdued, state.tokens_length, state.tokens_width, sizeof(state.tokens) - 1);
             if (error != ESP_OK) { return error; }
         }
         shown->text = state.tokens;
@@ -382,7 +383,7 @@ inline esp_err_t advance_activity_identity(ActivityIdentityState &state, const C
             const esp_err_t error = CODY2D::prepare_text_line(font,
                 {state.timer, static_cast<uint16_t>(count)},
                 {static_cast<int16_t>((cost_visible ? kActivityCostTimerCenter : 233U) - width / 2U), 330},
-                0xC618, state.timer_line);
+                Theme::activity_timer_text, state.timer_line);
             if (error != ESP_OK) {
                 return error;
             }

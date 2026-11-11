@@ -1,5 +1,9 @@
 /* Copyright (c) 2026 Umberto Giacobbi */
 #include "CODY_codex_browser.hpp"
+#include "CODY_title_style.hpp"
+#include "CODY_typography.hpp"
+#include "CODY_theme_generated.hpp"
+#include "CODY_ui_components.hpp"
 
 #include <algorithm>
 #include <cstdio>
@@ -24,11 +28,11 @@ using Domain::StateViewHealth;
 using LUNASHELL::DeviceSnapshotService;
 
 constexpr DamageRect kBounds{73, 73, 393, 393};
-constexpr uint16_t kWhite = 0xF7BE;
-constexpr uint16_t kMuted = 0x9CF3;
-constexpr uint16_t kAmber = 0xFE27;
-constexpr uint16_t kCyan = 0x6F9E;
-constexpr uint16_t kMint = 0x67F0;
+constexpr uint16_t kWhite = UI::Palette::text;
+constexpr uint16_t kMuted = UI::Palette::muted;
+constexpr uint16_t kAmber = UI::Palette::warning;
+constexpr uint16_t kCyan = UI::Palette::cyan;
+constexpr uint16_t kMint = Theme::secondary_muted;
 constexpr int64_t kRefreshUs = 350000;
 
 // out: Fixed display-owned caption buffer.
@@ -523,6 +527,14 @@ esp_err_t add_line(CodexBrowser &browser, const char *text, const CODY2D::MonoFo
     if (browser.line_count == browser.lines.size() || slot.height < font.height ||
         slot.width < font.width || font.advance == 0) return ESP_ERR_INVALID_SIZE;
     auto &prepared = browser.lines[browser.line_count];
+    if (browser.line_count == 0) {
+        const auto length = std::strlen(text);
+        if (length >= prepared.text.size()) return ESP_ERR_INVALID_SIZE;
+        copy(prepared.text, text);
+        prepared.line.text = {prepared.text.data(), static_cast<uint16_t>(length)};
+        ++browser.line_count;
+        return ESP_OK;
+    }
     copy(prepared.text, text);
     const auto maximum = static_cast<size_t>((slot.width - font.width) / font.advance + 1);
     auto length = std::strlen(prepared.text.data());
@@ -555,10 +567,10 @@ esp_err_t add_button(CodexBrowser &browser, uint8_t index, CODY2D::Rect bounds,
 {
     auto &control = browser.controls[index];
     control.bounds = bounds;
-    control.top_color = 0x2947;
-    control.bottom_color = 0x10A3;
+    control.top_color = Theme::codex_browser_action_top;
+    control.bottom_color = Theme::controls_secondary_bottom;
     control.corner_radius = 16;
-    control.border_color = 0x39E7;
+    control.border_color = Theme::codex_browser_action_border;
     browser.actions[index] = action;
     const auto &font = SceneData::body_font;
     const CODY2D::TextSpan span{caption, static_cast<uint16_t>(std::strlen(caption))};
@@ -588,16 +600,19 @@ esp_err_t prepare_layout(CodexBrowser &browser)
         const auto &row = page.rows[index];
         auto &control = browser.controls[index];
         control.bounds = {93, y, 280, 56};
-        control.top_color = 0x2125;
-        control.bottom_color = 0x1082;
+        control.top_color = Theme::controls_browser_row_top;
+        control.bottom_color = Theme::controls_browser_row_bottom;
         control.corner_radius = 16;
-        control.border_color = 0x31A6;
+        control.border_color = Theme::controls_browser_row_border;
         control.icon = row.icon;
         control.icon_center = {120, static_cast<int16_t>(y + 28)};
         control.icon_color = row.color;
         browser.actions[index] = row.control;
-        error = add_line(browser, row.label.data(), SceneData::body_font,
-            {141, static_cast<uint16_t>(y + 3), 218, 25}, kWhite, false);
+        const CODY2D::Rect label_bounds{141, static_cast<uint16_t>(y + 3), 218, 25};
+        const CODY2D::MonoFont *label_face = &Typography::monospace();
+        if (row.label[0] != '\0')
+            error = Typography::label_font(row.label.data(), label_bounds, *label_face, label_face);
+        if (error == ESP_OK) error = add_line(browser, row.label.data(), *label_face, label_bounds, kWhite, false);
         if (error == ESP_OK) error = add_line(browser, row.detail.data(), SceneData::body_font,
             {141, static_cast<uint16_t>(y + 28), 218, 25}, row.color, false);
     }
@@ -644,7 +659,8 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
     }
     for (uint8_t index = 0; index < browser.line_count; ++index) {
         const auto &line = browser.lines[index].line;
-        const auto error = CODY2D::draw_text_rows(line, line.text.length, strip, row, column);
+        const auto error = index == 0 ? ESP_OK :
+            CODY2D::draw_text_rows(line, line.text.length, strip, row, column);
         if (error != ESP_OK) return error;
     }
     if (browser.paging_hint.valid) {
@@ -741,7 +757,7 @@ esp_err_t prepare_codex_browser(CodexBrowser &browser, int64_t now_us, SceneCont
     content.revision = browser.revision;
     content.control_revision = browser.revision;
     content.draw_rows = draw_rows;
-    return ESP_OK;
+    return prepare_styled_title(browser.lines[0].line.text, {73, 89, 320, 44}, content.heading, 3, true);
 }
 
 // browser: Captured panel used by the last successfully retired frame.

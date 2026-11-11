@@ -15,6 +15,7 @@
  * VBWR E */
 
 #include "CODY_companion.h"
+#include "CODY_theme_generated.hpp"
 #include "CODY_personality.hpp"
 #include "CODY_personality_audio.hpp"
 #include "CODY_codex_audio.hpp"
@@ -144,7 +145,7 @@ constexpr int64_t kCaptureStepUs = 1000000;
 constexpr int64_t kCaptureFeedbackUs = 2000000;
 constexpr int64_t kCaptureActivityRefreshUs = 250000;
 constexpr CODY::DamageRect kCaptureOverlayBounds{153, 174, 313, 292};
-constexpr uint16_t kWhitesmoke = 0xF7BE; // #F5F5F5 quantized to RGB565.
+constexpr uint16_t kWhitesmoke = CODY::Theme::text_default; // #F5F5F5 quantized to RGB565.
 
 enum class CaptureVisual : uint8_t { None, Three, Two, One, Saving, Saved, Failed };
 
@@ -904,7 +905,7 @@ esp_err_t resolve_personality_device_cues(CODY::PersonalityCue requested,
             return ESP_ERR_INVALID_SIZE;
         }
         error = CODY2D::prepare_text_line(font, {text, length},
-            {static_cast<int16_t>((kPanelWidth - width) / 2), 345}, 0xF7BE,
+            {static_cast<int16_t>((kPanelWidth - width) / 2), 345}, CODY::Theme::text_default,
             s_state.battery_notice_line);
         if (error != ESP_OK) {
             ESP_LOGE(kTag, "Battery notice caption preparation failed (%s)", esp_err_to_name(error));
@@ -1326,9 +1327,9 @@ esp_err_t prepare_capture_feedback(CaptureVisual visual, CODY2D::TextLine &line)
     const char *label = nullptr;
     uint16_t color = kWhitesmoke;
     switch (visual) {
-    case CaptureVisual::Saving: label = "SAVING"; color = 0xF5A9; break;
-    case CaptureVisual::Saved: label = "SAVED"; color = 0x26F8; break;
-    case CaptureVisual::Failed: label = "FAILED"; color = 0xF9CB; break;
+    case CaptureVisual::Saving: label = "SAVING"; color = CODY::Theme::status_warning; break;
+    case CaptureVisual::Saved: label = "SAVED"; color = CODY::Theme::status_ready_turquoise; break;
+    case CaptureVisual::Failed: label = "FAILED"; color = CODY::Theme::status_error; break;
     default: return ESP_OK;
     }
     const uint16_t length = static_cast<uint16_t>(std::strlen(label));
@@ -1356,7 +1357,7 @@ esp_err_t draw_capture_overlay(CaptureVisual visual,
         {kCaptureOverlayBounds.left, kCaptureOverlayBounds.top,
          static_cast<uint16_t>(kCaptureOverlayBounds.right - kCaptureOverlayBounds.left),
          static_cast<uint16_t>(kCaptureOverlayBounds.bottom - kCaptureOverlayBounds.top)},
-        0x1082);
+        CODY::Theme::surface_capture);
     if (error != ESP_OK) return error;
     if (feedback_line != nullptr && feedback_line->valid) {
         return CODY2D::draw_text_rows(*feedback_line, feedback_line->text.length,
@@ -2540,7 +2541,7 @@ esp_err_t prepare_routine_user_name(const LUNASHELL::CodyUserNameSnapshot &profi
             return ESP_ERR_INVALID_SIZE;
         }
         const esp_err_t error = CODY2D::prepare_text_line(font,
-            {s_state.routine_user_name, static_cast<uint16_t>(length)}, {left, 390}, 0xF7BE,
+            {s_state.routine_user_name, static_cast<uint16_t>(length)}, {left, 390}, CODY::Theme::text_default,
             s_state.routine_user_name_line);
         if (error != ESP_OK) {
             return error;
@@ -3437,7 +3438,7 @@ struct VoiceCaption {
     CODY2D::TextLine line{};
     uint16_t length = 0;
     uint16_t width = 0;
-    uint16_t color = 0xF7BE;
+    uint16_t color = CODY::Theme::text_default;
 };
 VoiceCaption s_voice_captions[] = {{VoiceCaptionKind::Model}, {VoiceCaptionKind::Cost},
     {VoiceCaptionKind::Effort}, {VoiceCaptionKind::Branch}, {VoiceCaptionKind::Project}};
@@ -3575,7 +3576,7 @@ esp_err_t prepare_voice_identity()
         }
         const char *old_source = caption.length == 0 ? "" : caption.text + std::strlen(prefix);
         changed = changed || std::strcmp(old_source, source) != 0;
-        caption.color = caption.kind == VoiceCaptionKind::Cost ? CODY::cost_band_color(model_cost.band) : 0xF7BE;
+        caption.color = caption.kind == VoiceCaptionKind::Cost ? CODY::cost_band_color(model_cost.band) : CODY::Theme::text_default;
         error = CODY::prepare_activity_identity_caption(CODY::SceneData::body_font, source, prefix,
             caption.text, caption.line, caption.color, caption.length, caption.width, 128);
         if (error != ESP_OK) return error;
@@ -3618,25 +3619,25 @@ esp_err_t prepare_voice_hint()
     s_voice_send = s_voice_silence = s_voice_discard = s_voice_discard_detail = {};
     if (phase == Phase::Preparing || phase == Phase::StartCountdown || phase == Phase::SendCountdown ||
         phase == Phase::AwaitingPc) {
-        esp_err_t error = prepare_voice_caption(CODY::kVoiceCancelHint, 334, 0xF7BE, s_voice_discard);
+        esp_err_t error = prepare_voice_caption(CODY::kVoiceCancelHint, 334, CODY::Theme::text_default, s_voice_discard);
         if (error == ESP_OK) {
-            error = prepare_voice_caption(CODY::kVoiceShakeCancelHint, 362, 0xAD75, s_voice_discard_detail);
+            error = prepare_voice_caption(CODY::kVoiceShakeCancelHint, 362, CODY::Theme::text_voice_hint, s_voice_discard_detail);
         }
         if (error == ESP_OK && phase == Phase::Preparing) {
-            error = prepare_voice_caption("Please wait", CODY::kVoiceCountdownTop, 0xAD75, s_voice_send);
+            error = prepare_voice_caption("Please wait", CODY::kVoiceCountdownTop, CODY::Theme::text_voice_hint, s_voice_send);
         }
         return error;
     }
     if (phase == Phase::Sending) {
         // END may already have been sent; without a canonical cancellation capability do not promise it.
-        return prepare_voice_caption("Finishing delivery", 334, 0xAD75, s_voice_discard);
+        return prepare_voice_caption("Finishing delivery", 334, CODY::Theme::text_voice_hint, s_voice_discard);
     }
     if (phase != Phase::Listening) return ESP_OK;
     esp_err_t error = ESP_OK;
-    error = prepare_voice_caption(CODY::kVoiceSendHint, 260, 0xF7BE, s_voice_send);
-    if (error == ESP_OK) error = prepare_voice_caption(CODY::kVoiceSilenceHint, 292, 0xAD75, s_voice_silence);
-    if (error == ESP_OK) error = prepare_voice_caption(CODY::kVoiceDiscardHint, 334, 0xAD75, s_voice_discard);
-    if (error == ESP_OK) error = prepare_voice_caption(CODY::kVoiceDiscardDetail, 362, 0xAD75, s_voice_discard_detail);
+    error = prepare_voice_caption(CODY::kVoiceSendHint, 260, CODY::Theme::text_default, s_voice_send);
+    if (error == ESP_OK) error = prepare_voice_caption(CODY::kVoiceSilenceHint, 292, CODY::Theme::text_voice_hint, s_voice_silence);
+    if (error == ESP_OK) error = prepare_voice_caption(CODY::kVoiceDiscardHint, 334, CODY::Theme::text_voice_hint, s_voice_discard);
+    if (error == ESP_OK) error = prepare_voice_caption(CODY::kVoiceDiscardDetail, 362, CODY::Theme::text_voice_hint, s_voice_discard_detail);
     return error;
 }
 
@@ -3664,7 +3665,7 @@ esp_err_t draw_voice_input_rows()
             phase == Phase::Cancelling ? "Cancelling" : phase == Phase::Received ? "On your PC" :
             phase == Phase::Delivered ? "Sent to Codex" : phase == Phase::Cancelled ? "Discarded" :
             phase == Phase::Unconfirmed ? "Check on your PC" : "Audio failed";
-        error = prepare_voice_caption(title, 92, 0xF7BE, s_voice_title);
+        error = prepare_voice_caption(title, 92, CODY::Theme::text_default, s_voice_title);
         if (error == ESP_OK) error = prepare_voice_hint();
         if (error != ESP_OK) return error;
     }
@@ -3677,11 +3678,11 @@ esp_err_t draw_voice_input_rows()
                     unsigned(s_voice_input_view.input.countdown_seconds), esp_err_to_name(ESP_ERR_INVALID_STATE));
                 return ESP_ERR_INVALID_STATE;
             }
-            error = prepare_voice_caption(caption, CODY::kVoiceCountdownTop, 0xF7BE, s_voice_send);
+            error = prepare_voice_caption(caption, CODY::kVoiceCountdownTop, CODY::Theme::text_default, s_voice_send);
         } else if (phase != Phase::Preparing && phase != Phase::AwaitingPc) {
             const int64_t captured_at_us = s_voice_input_view.input.capturing_started_at_us;
             if (phase == Phase::Listening && (captured_at_us <= 0 || captured_at_us > now_us)) {
-                error = prepare_voice_caption("Timing unavailable", 402, 0xAD75, s_voice_timer);
+                error = prepare_voice_caption("Timing unavailable", 402, CODY::Theme::text_voice_hint, s_voice_timer);
             } else {
                 const int64_t elapsed_seconds = phase == Phase::Listening ?
                     (now_us - captured_at_us) / 1000000 :
@@ -3690,7 +3691,7 @@ esp_err_t draw_voice_input_rows()
                 const int count = std::snprintf(s_voice_countdown, sizeof(s_voice_countdown), "%02us elapsed / %02us left",
                     static_cast<unsigned>(used), static_cast<unsigned>(60U - used));
                 if (count <= 0 || count >= int(sizeof(s_voice_countdown))) return ESP_ERR_INVALID_SIZE;
-                error = prepare_voice_caption(s_voice_countdown, 402, 0xF7BE, s_voice_timer);
+                error = prepare_voice_caption(s_voice_countdown, 402, CODY::Theme::text_default, s_voice_timer);
             }
         }
         if (error == ESP_OK) error = prepare_voice_identity();
@@ -5735,7 +5736,7 @@ esp_err_t stage_power_caption(PowerPresentation presentation, esp_err_t cause, u
     }
     esp_err_t error = CODY2D::prepare_text_line(font, {s_power_caption_text, length},
         {static_cast<int16_t>((466 - width) / 2),
-         static_cast<int16_t>(offline ? (466 - font.height) / 2 : 92)}, 0xFFFF, s_power_caption);
+         static_cast<int16_t>(offline ? (466 - font.height) / 2 : 92)}, CODY::Theme::text_bright, s_power_caption);
     s_power_detail_line = {};
     if (error == ESP_OK && !offline) {
         if (presentation == PowerPresentation::Failure) {
@@ -5752,7 +5753,7 @@ esp_err_t stage_power_caption(PowerPresentation presentation, esp_err_t cause, u
             return ESP_ERR_INVALID_SIZE;
         }
         error = CODY2D::prepare_text_line(font, {s_power_detail_text, error_length},
-            {static_cast<int16_t>((466 - error_width) / 2), 124}, 0xFBA0, s_power_detail_line);
+            {static_cast<int16_t>((466 - error_width) / 2), 124}, CODY::Theme::status_power_error, s_power_detail_line);
     }
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Power caption preparation failed (%s)", esp_err_to_name(error));

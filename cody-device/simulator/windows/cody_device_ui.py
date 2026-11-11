@@ -25,7 +25,7 @@ from cody_device_state import (
 from cody_fake_audio import FakeAudioDriver
 from cody_muse_preview import DISPLAY_SIZE as MUSE_SIZE, NO_REACTION, SCREEN_OFFSETS_MS, MusePose, NativeMusePreview
 from cody_preview_layout import PreviewLayout, SIZE, enlarge_framebuffer
-from cody_semantic_palette import studio_rgb
+from cody_semantic_palette import device_rgb, studio_hex, studio_rgb
 from cody_screensaver import render_screensaver
 from cody_ui_theme import install_theme
 from vibeware_boot import VibeWareBoot
@@ -50,21 +50,22 @@ OPTIONS_ROW_TOP = 130
 OPTIONS_ROW_STEP = 80
 OPTIONS_ROW_WIDTH = 280
 OPTIONS_ROW_HEIGHT = 72
+SETTINGS_ROW_STEP = 58
+SETTINGS_ROW_HEIGHT = 56
 OPTIONS_PAGE_COUNT = 3
 QUICK_GUIDE = (
     ("Buttons", ACCENT, (
         ("HOLD BOOT 2S", "Options / tap: Home"), ("POWER", "Standby or wake"), ("HOLD PWR 3S", "Power off"),
     ), None),
-    ("Touch", (188, 164, 255), (
+    ("Touch", studio_rgb("device_ui", "guide_touch"), (
         ("SWIPE", "Change pages"), ("SWIPE DOWN", "Home from top edge"), ("DOUBLE TAP", "Record on stats"),
     ), "Dictation On + Codex link"),
-    ("Offline", (133, 239, 195), (
+    ("Offline", studio_rgb("device_ui", "guide_offline"), (
         ("SAVED STATS", "Last update in UTC"), ("TIMER", "Works without PC"), ("RESTART", "Keeps settings"),
     ), None),
 )
 NAVIGATION_IDLE_SECONDS = 10
 NAVIGATION_FADE_SECONDS = 0.35
-HOME_MENU_TRANSITION_SECONDS = 0.5
 # Stable identities are shared with the local-network animation command.
 # Each entry carries the existing native pose, artwork symbol, and work flag.
 ANIMATION_SCENES = (
@@ -91,6 +92,9 @@ PAGES = (
     "Device", "Reset countdown", "Context", "Codex limits", "Today", "Last 7 days",
     "Token history", "Credits", "Codex account", "About",
 )
+# Fixed demonstration fixtures, never reported as scanned radio observations.
+SIMULATED_WIFI_NETWORKS = (("SIMULATED Home", -42), ("SIMULATED Office", -63), ("SIMULATED Guest", -78))
+WIFI_NETWORKS_PER_PAGE = 3
 VISIBILITY_ROWS = 3
 VISIBILITY_PAGE_COUNT = (len(PAGES) - 1 + VISIBILITY_ROWS - 1) // VISIBILITY_ROWS
 ABOUT_INFO = "Scan for more info"
@@ -164,6 +168,21 @@ def font(size):
         return ImageFont.load_default()
 
 
+@lru_cache(maxsize=8)
+# size: Requested point size of the proportional application system face.
+# Exception: Retains Pillow's default-font fallback if installed faces are unavailable.
+def system_font(size):
+    for filename in ("segoeui.ttf", "DejaVuSans.ttf", "LiberationSans-Regular.ttf"):
+        try:
+            return ImageFont.truetype(filename, size)
+        except OSError:
+            continue
+    try:
+        return ImageFont.load_default(size=size)
+    except TypeError:
+        return ImageFont.load_default()
+
+
 @lru_cache(maxsize=4)
 # size: Requested pixel size of the vendored arcade face.
 # Exception: Preserves the font loader error if the bundled face is unavailable.
@@ -197,12 +216,13 @@ def setup_wordmark(caption, size, advance, icon=None):
     outline = mask.filter(ImageFilter.MaxFilter(3))
     width, rows = mask.size
     layer = Image.new("RGBA", (width + 2, rows + 3))
-    layer.paste((47, 31, 128, 255), (2, 3, width + 2, rows + 3), outline)
-    layer.paste((15, 11, 45, 255), (0, 0, width, rows), outline)
+    layer.paste((*studio_rgb("device_ui", "title_shadow"), 255), (2, 3, width + 2, rows + 3), outline)
+    layer.paste((*studio_rgb("device_ui", "title_outline"), 255), (0, 0, width, rows), outline)
 
     face_fill = Image.new("RGBA", mask.size)
     fill = ImageDraw.Draw(face_fill)
-    frost, lavender = ((192, 246, 255), (220, 153, 244)) if icon else ((218, 199, 255), (126, 91, 233))
+    frost, lavender = ((studio_rgb("device_ui", "icon_title_top"), studio_rgb("device_ui", "icon_title_bottom"))
+                       if icon else (studio_rgb("device_ui", "title_top"), studio_rgb("device_ui", "title_bottom")))
     for y in range(rows):
         fraction = min(1.0, max(0.0, (y - margin) / (height - 1)))
         color = tuple(round(start + (end - start) * fraction) for start, end in zip(frost, lavender))
@@ -222,15 +242,94 @@ def label(draw, text, top, size=20, color=FOREGROUND, x=CENTER, width=310):
     draw.text((x, top), text, font=face, fill=color, anchor="mt")
 
 
+# text: Complete screen heading.
+# Returns a reusable monochrome bitmap from the same arcade face as SET UP WI-FI.
+@lru_cache(maxsize=64)
+def screen_title_mask(text):
+    face = arcade_font(32)
+    bounds = face.getbbox(text)
+    mask = Image.new("L", (max(1, bounds[2] - bounds[0]), max(1, bounds[3] - bounds[1])))
+    ImageDraw.Draw(mask).text((-bounds[0], -bounds[1]), text, font=face, fill=255)
+    return mask.point(lambda value: 255 if value >= 128 else 0)
+
+
+# draw: Logical preview surface.
+# text: Complete screen heading; its original spelling is retained.
+# top: Heading top edge, above the body.
+# width: Maximum heading width inside the circular display.
+# offset: Horizontal marquee position inside the full heading mask.
+def screen_title(draw, text, top=82, width=320, offset=0):
+    mask = screen_title_mask(str(text))
+    viewport_width = min(width, mask.width)
+    offset = min(max(0, offset), mask.width - viewport_width)
+    left = CENTER - viewport_width // 2
+    shadow = mask.filter(ImageFilter.MaxFilter(3))
+    if mask.width <= width:
+        draw.bitmap((left + 2, top + 3), shadow, fill=studio_rgb("device_ui", "title_shadow"))
+        draw.bitmap((left, top), shadow, fill=studio_rgb("device_ui", "title_outline"))
+    else:
+        shadow_start = max(0, offset - 2)
+        shadow_end = min(mask.width, offset + viewport_width - 2)
+        if shadow_end > shadow_start:
+            draw.bitmap((left + shadow_start - offset + 2, top + 3),
+                        shadow.crop((shadow_start, 0, shadow_end, shadow.height)),
+                        fill=studio_rgb("device_ui", "title_shadow"))
+        draw.bitmap((left, top), shadow.crop((offset, 0, offset + viewport_width, shadow.height)),
+                    fill=studio_rgb("device_ui", "title_outline"))
+    first = studio_rgb("device_ui", "title_top")
+    last = studio_rgb("device_ui", "title_bottom")
+    for row in range(mask.height):
+        fraction = row / max(1, mask.height - 1)
+        color = tuple(round(start + (end - start) * fraction) for start, end in zip(first, last))
+        draw.bitmap((left, top + row), mask.crop((offset, row, offset + viewport_width, row + 1)), fill=color)
+
+
+# elapsed: Visible time since this title became current, in seconds.
+# travel: Distance between the first and last readable positions in pixels.
+def marquee_offset(elapsed, travel):
+    if travel <= 0:
+        return 0
+    phase = max(0.0, elapsed) % (2.8 + travel * 0.016)
+    return min(travel, int(max(0.0, phase - 1.2) / 0.016))
+
+
+# elapsed: Visible time since the current heading first appeared, in seconds.
+# travel: Overflow distance in logical pixels.
+def screen_title_offset(elapsed, travel):
+    if travel <= 0:
+        return 0
+    travel_time = travel / 40
+    motion = elapsed % (3.0 + 2 * travel_time) - 1.2
+    if motion <= 0:
+        return 0
+    if motion < travel_time:
+        return int(motion * 40)
+    return max(0, travel - int(max(0.0, motion - travel_time - 1.8) * 40))
+
+
+# draw: Logical preview surface.
+# text: Supporting line beneath the heading.
+# top: Top edge of the supporting line.
+# width: Available line width within the display.
+def screen_subtitle(draw, text, top, width=310):
+    face = arcade_font(18)
+    text = str(text)
+    if draw.textlength(text, font=face) > width:
+        while text and draw.textlength(text + "...", font=face) > width:
+            text = text[:-1]
+        text += "..."
+    draw.text((CENTER, top), text, font=face, fill=device_rgb("text", "subtitle"), anchor="mt")
+
+
 def blend(color, opacity):
     return tuple(round(base + (value - base) * opacity) for base, value in zip(BACKGROUND, color))
 
 
 def arrow(draw, center, step, opacity=1):
     x, y = center
-    draw.ellipse((x - 30, y - 30, x + 29, y + 29), fill=blend((43, 48, 59), opacity))
+    draw.ellipse((x - 30, y - 30, x + 29, y + 29), fill=blend(studio_rgb("secondary_control", "top"), opacity))
     draw.line(((x - 5 * step, y - 10), (x + 5 * step, y), (x - 5 * step, y + 10)),
-              fill=blend(FOREGROUND, opacity), width=3, joint="curve")
+              fill=blend(studio_rgb("secondary_control", "icon"), opacity), width=3, joint="curve")
 
 
 # draw: Logical preview surface.
@@ -245,7 +344,7 @@ def page_marks(draw, selected, count, top=370, compact=False):
     width = count * mark_width + (count - 1) * 3
     left = (SIZE - width) // 2
     for index in range(count):
-        color = (165, 167, 255) if index == selected else (58, 48, 85)
+        color = studio_rgb("device_ui", "page_active" if index == selected else "page_inactive")
         x = left + index * (mark_width + 3)
         draw.rounded_rectangle((x, top, x + mark_width - 1, top + 3), radius=2, fill=color)
 
@@ -290,13 +389,13 @@ def qr_tile(draw, matrix, top, size):
     module = size // (len(matrix) + 8)
     left = CENTER - size // 2
     quiet = (size - len(matrix) * module) // 2
-    draw.rectangle((left, top, left + size - 1, top + size - 1), fill=(255, 255, 255))
+    draw.rectangle((left, top, left + size - 1, top + size - 1), fill=studio_rgb("device_ui", "qr_light"))
     for row, modules in enumerate(matrix):
         y = top + quiet + row * module
         for column, value in enumerate(modules):
             if value == "1":
                 x = left + quiet + column * module
-                draw.rectangle((x, y, x + module - 1, y + module - 1), fill=(0, 0, 0))
+                draw.rectangle((x, y, x + module - 1, y + module - 1), fill=studio_rgb("device_ui", "qr_dark"))
 
 
 @lru_cache(maxsize=1)
@@ -380,6 +479,9 @@ def setup_icon(draw, icon, center, size, color):
         span = size // 4
         draw.line(((x - span, y - span), (x + span, y), (x - span, y + span)),
                   fill=color, width=stroke, joint="curve")
+    elif icon == "check":
+        draw.line(((x - half // 2, y), (x - half // 6, y + half // 3), (x + half // 2, y - half // 3)),
+                  fill=color, width=stroke, joint="curve")
     elif icon == "home":
         side = half - 2
         draw.line(((x - side, y), (x, y - side), (x + side, y)),
@@ -431,6 +533,9 @@ class DeviceStudioWindow:
         self.animation_frame = None
         self.animation_transport = None
         self.animation_device_pending = False
+        # Studio-only intent; never sent to a physical device or stored on disk.
+        self.birth_preview_queued = False
+        self.birth_preview_started_at = None
         self.motion_until = 0.0
         self.motion_direction = (0.0, 0.0)
         self.motion_sample_at_us = 0
@@ -441,8 +546,9 @@ class DeviceStudioWindow:
         self.guide_return = WifiSetupRoute.NOT_CONNECTED
         self.pairing_return = WifiSetupRoute.PHONE_GUIDE
         self.home_pair_return = WifiSetupRoute.HOME_CHOICES
-        self.home_menu_since = None
+        self.wifi_choices_return = "connections"
         self.wifi_networks_scanned = False
+        self.wifi_network_page = 0
         self.wifi_scan_until = 0.0
         self.wifi_selected_network = ""
         self.wifi_selected_index = -1
@@ -471,7 +577,12 @@ class DeviceStudioWindow:
         self.available_pages = (0, PAGES.index("About"))
         self.chat_title_key = None
         self.chat_title_since = 0.0
+        self.heading_key = None
+        self.heading_elapsed = 0.0
+        self.heading_last_frame = None
+        self.frame_time = time.monotonic()
         self.targets = {}
+        self.qr_chrome_until = 0.0
         self.acknowledged = ()
         self.photo = None
         self.timer = None
@@ -589,6 +700,8 @@ class DeviceStudioWindow:
         self.shake_to_wake = False
         self.show_assistant_quota_ring = True
         self.show_battery_ring = True
+        self.auto_time = True
+        self.simulated_time_notice = ""
         self.info = SystemInfoModel()
         self.screensaver = ScreensaverModel()
         self.local_timer = LocalTimerModel()
@@ -597,6 +710,7 @@ class DeviceStudioWindow:
     # self: Preview window playing the standard startup animation.
     def start_boot(self):
         self.boot = self.boot_frame = None
+        self.birth_preview_started_at = None
         self.boot_error = ""
         self.muse_elapsed_ms = 0.0
         self.mascot_was_waking = False
@@ -608,7 +722,6 @@ class DeviceStudioWindow:
         self.animation_elapsed_ms = 0.0
         self.animation_last_frame_at = None
         self.animation_frame = None
-        self.home_menu_since = None
         self.setup_mascot = None
         if self.muse is not None:
             self.muse.reset(self.muse_seed)
@@ -621,6 +734,9 @@ class DeviceStudioWindow:
             self.boot_started_at = time.monotonic()
         except (OSError, RuntimeError, ValueError, AttributeError, KeyError) as error:
             self.boot_error = f"VibeWare boot unavailable: {error}"
+            if self.birth_preview_queued:
+                self.birth_preview_queued = False
+                self.birth_preview_started_at = time.monotonic()
 
     def observe(self):
         return self.endpoint.observe() if self.endpoint else (SimulatorSnapshot(), "")
@@ -628,12 +744,12 @@ class DeviceStudioWindow:
     # self: Local route owner cancelling screensaver presentation on user navigation.
     # route: Requested setup, options or dashboard route.
     def open(self, route):
+        if route != self.route:
+            self.qr_chrome_until = 0.0
         if self.route is WifiSetupRoute.HOME_PASSWORD and route is not self.route:
             self.clear_simulated_wifi_secret()
         if route != "mascot":
             self.hide_mascot()
-        elif self.route != "mascot":
-            self.home_menu_since = None
         self.route = route
         self.chat_title_key = None
         self.screensaver.active = False
@@ -656,8 +772,9 @@ class DeviceStudioWindow:
         self.guide_return = previous
         self.open(WifiSetupRoute.PHONE_GUIDE)
 
-    # self: Home owner opening the connectivity choices.
-    def open_home_wifi(self):
+    # self: Open the Wi-Fi choices from the Connections view.
+    def open_wifi_choices(self):
+        self.wifi_choices_return = self.route
         self.open(WifiSetupRoute.HOME_CHOICES)
 
     # self: Open the Bluetooth guide before a simulated pairing session.
@@ -672,6 +789,10 @@ class DeviceStudioWindow:
         self.home_apple_selected = apple
         self.open(WifiSetupRoute.HOME_PLATFORM_QR)
 
+    # self: QR route owner showing transient status and decorative edge after a tap.
+    def reveal_qr_chrome(self):
+        self.qr_chrome_until = time.monotonic() + 3.5
+
     # self: Open the synthetic network picker and begin a new simulated scan.
     def open_home_networks(self):
         self.wifi_selected_index = -1
@@ -681,6 +802,7 @@ class DeviceStudioWindow:
     # self: Begin another explicitly synthetic scan and retire the old selection.
     def scan_simulated_networks(self):
         self.wifi_networks_scanned = False
+        self.wifi_network_page = 0
         self.wifi_scan_until = time.monotonic() + 2.4
         self.wifi_selected_index = -1
         self.wifi_network_scroll_elapsed = 0.0
@@ -764,7 +886,7 @@ class DeviceStudioWindow:
 
     # self: Active Studio preview receiving the short BOOT Home shortcut.
     def home(self):
-        if self.boot is None and not self.standby and not self.event_visible:
+        if self.boot is None and self.birth_preview_started_at is None and not self.standby and not self.event_visible:
             if self.route is WifiSetupRoute.HOME_PASSWORD:
                 self.clear_simulated_wifi_secret()
             self.about_from_options = False
@@ -772,7 +894,7 @@ class DeviceStudioWindow:
 
     # self: Active Studio preview receiving the long BOOT Options shortcut.
     def options(self):
-        if self.boot is None and not self.standby and not self.event_visible:
+        if self.boot is None and self.birth_preview_started_at is None and not self.standby and not self.event_visible:
             self.show_options_page(0)
 
     # self: Studio navigation owner.
@@ -816,7 +938,7 @@ class DeviceStudioWindow:
 
     # self: Preview power owner; standby cancels screensaver without changing its preference.
     def toggle_standby(self):
-        if self.boot is not None:
+        if self.boot is not None or self.birth_preview_started_at is not None:
             return
         self.standby = not self.standby
         if self.standby:
@@ -832,7 +954,7 @@ class DeviceStudioWindow:
 
     # self: Preview owner applying the same first-visible-statistics shortcut as firmware.
     def shake(self):
-        if self.boot is not None:
+        if self.boot is not None or self.birth_preview_started_at is not None:
             return
         if self.shake_to_wake:
             self.toggle_standby()
@@ -849,7 +971,7 @@ class DeviceStudioWindow:
 
     # self: SIMULATED device owner accepting an ideal cardinal clockwise turn.
     def turn_device(self):
-        if self.boot is not None or self.standby:
+        if self.boot is not None or self.birth_preview_started_at is not None or self.standby:
             return
         self.last_navigation = time.monotonic()
         self.device_rotation = (self.device_rotation + 90) % 360
@@ -862,7 +984,7 @@ class DeviceStudioWindow:
     # self: SIMULATED source owner; no physical sensor or device is contacted.
     # direction: Unit direction in the host screen's physical coordinate frame.
     def simulate_motion(self, direction):
-        if self.boot is not None or self.standby:
+        if self.boot is not None or self.birth_preview_started_at is not None or self.standby:
             return
         self.last_navigation = time.monotonic()
         if self.route == "mascot":
@@ -872,6 +994,7 @@ class DeviceStudioWindow:
     # self: Local navigation owner retaining the typed Info subpage.
     # step: Previous (-1) or next (1) action admitted by a visible arrow.
     def move(self, step):
+        self.qr_chrome_until = 0.0
         if self.route == "visibility":
             if step < 0 and self.visibility_page == 0:
                 self.back()
@@ -898,7 +1021,7 @@ class DeviceStudioWindow:
 
     # self: Active Studio preview returning to the calling route or menu page.
     def back(self):
-        if self.boot is None and not self.standby and not self.event_visible:
+        if self.boot is None and self.birth_preview_started_at is None and not self.standby and not self.event_visible:
             if self.route == "timer" and self.timer_return == "widgets":
                 self.touch = None
                 self.targets.clear()
@@ -913,6 +1036,8 @@ class DeviceStudioWindow:
                 self.show_options_page(self.options_page)
             elif self.route == "display_rings":
                 self.open("display")
+            elif self.route == "display_time":
+                self.open("display_rings")
             elif self.route == "quick_guide":
                 self.move_quick_guide(-1)
             elif self.route == "more_behavior":
@@ -920,7 +1045,7 @@ class DeviceStudioWindow:
             elif self.route == "synth_voice":
                 self.open("more_behavior")
             elif self.route is WifiSetupRoute.HOME_CHOICES:
-                self.open("mascot")
+                self.open(self.wifi_choices_return)
             elif self.route is WifiSetupRoute.HOME_INTRO:
                 self.open(self.home_pair_return)
             elif self.route is WifiSetupRoute.HOME_PLATFORM_QR:
@@ -1012,6 +1137,7 @@ class DeviceStudioWindow:
             self.endpoint.act("factory_reset", True)
             self.events = events
         self.restore_preview_defaults()
+        self.birth_preview_queued = True
         self.page = 0
         self.reboot_preview(WifiSetupRoute.NOT_CONNECTED)
 
@@ -1032,6 +1158,10 @@ class DeviceStudioWindow:
         self.started_at = time.monotonic()
         self.open(route)
         self.start_boot()
+
+    # self: Schedule only this Studio window's next simulated restart.
+    def schedule_birth_preview(self):
+        self.birth_preview_queued = True
 
     # self: Preview owner returning to the first enabled statistics page with data.
     def open_statistics(self):
@@ -1075,6 +1205,14 @@ class DeviceStudioWindow:
     # self: Simulated preference for displaying an available battery arc.
     def change_battery_ring(self):
         self.show_battery_ring = not self.show_battery_ring
+
+    # self: Simulated preference only; Studio does not perform a device NTP sync.
+    def change_auto_time(self):
+        self.auto_time = not self.auto_time
+
+    # self: Simulated Sync time action; no device or PC time is fabricated.
+    def request_simulated_time_sync(self):
+        self.simulated_time_notice = "PC time unavailable in Studio"
 
     # self: Simulated manual orientation, admitted only while automatic rotation is off.
     def change_orientation(self):
@@ -1133,40 +1271,6 @@ class DeviceStudioWindow:
         if action is not None:
             self.targets[name] = (box, action)
 
-    # self: Studio frame owner registering a context-specific footer action.
-    # image: Logical framebuffer before rotation.
-    # caption: Complete English action label.
-    # top: Top of the existing 220 x 52 touch target.
-    # action: Callback admitted only when the target is enabled.
-    def gradient_footer(self, image, caption, top, action):
-        box = (CENTER - 110, top, CENTER + 110, top + 52)
-        face = arcade_font(24)
-        bounds = face.getbbox(caption)
-        if bounds[2] - bounds[0] > 220:
-            face = arcade_font(18)
-            bounds = face.getbbox(caption)
-        width = bounds[2] - bounds[0]
-        height = bounds[3] - bounds[1]
-        if width > 220 or height > 52:
-            raise ValueError("Footer caption does not fit")
-        left = CENTER - width // 2
-        text_top = top + (52 - height) // 2
-        mask = Image.new("L", image.size, 0)
-        ImageDraw.Draw(mask).text((left - bounds[0], text_top - bounds[1]), caption, font=face, fill=255)
-        mask = mask.point(lambda value: 255 if value >= 128 and action is not None else 0)
-        gradient = Image.new("RGB", image.size)
-        pixels = ImageDraw.Draw(gradient)
-        cyan, violet, pink = (82, 212, 255), (166, 125, 255), (251, 143, 239)
-        for y in range(text_top, text_top + height):
-            progress = (y - text_top) / max(1, height - 1)
-            start, end = (cyan, violet) if progress < 0.5 else (violet, pink)
-            fraction = progress * 2 if progress < 0.5 else (progress - 0.5) * 2
-            color = tuple(round(first + (last - first) * fraction) for first, last in zip(start, end))
-            pixels.line((left, y, left + width, y), fill=color)
-        image.paste(gradient, (0, 0), mask)
-        if action is not None:
-            self.targets[caption] = (box, action)
-
     # self: Studio frame owner registering touch targets.
     # draw: Logical canvas before rotation.
     # side: Negative for Back and positive for Next.
@@ -1205,10 +1309,10 @@ class DeviceStudioWindow:
     # code: Active simulated Codex pairing code, if any.
     # now: Monotonic frame time for the quiet link pulse.
     def draw_connections(self, draw, snapshot, code, now):
-        colors = ((98, 105, 106), (140, 150, 165), (181, 182, 222), (140, 150, 165))
+        colors = tuple(studio_rgb("device_ui", name) for name in ("link_pulse_dark", "link_pulse_mid", "link_pulse_light", "link_pulse_mid"))
         link_pulse = colors[int(now / 0.4) % len(colors)]
         if code or snapshot.pending_pairing:
-            label(draw, "Pair Codex", 88, 34)
+            self.screen_title(draw, "Pair Codex", 88)
             setup_icon(draw, "link", (CENTER, 176), 56, SETUP_ACCENT if code else link_pulse)
             if code:
                 label(draw, code, 236, 40, ACCENT)
@@ -1221,32 +1325,33 @@ class DeviceStudioWindow:
             return
         connect = (lambda: self.pair(snapshot)) if self.endpoint and snapshot.network_ready else None
         if self.pairing_attempted and snapshot.state in (LinkState.PAIRED, LinkState.DISCOVERING):
-            label(draw, "Waiting for PC", 88, 34)
+            self.screen_title(draw, "Waiting for PC", 88)
             setup_icon(draw, "link", (CENTER, 176), 56, link_pulse if snapshot.network_ready else MUTED)
             label(draw, "Open Codex on your PC" if snapshot.network_ready else "Wi-Fi unavailable", 256, 18)
             label(draw, "Pairing stays saved", 284, 18, MUTED)
             self.button(draw, "Later", 352, self.leave_pairing_wait, width=240, height=72, secondary=True)
             return
         if self.pairing_attempted and snapshot.state is LinkState.TIMED_OUT:
-            label(draw, "Try again", 88, 34)
+            self.screen_title(draw, "Try again", 88)
             setup_icon(draw, "retry", (CENTER, 176), 56, SETUP_AMBER)
             label(draw, "Pairing code expired", 256, 18, MUTED)
             self.button(draw, "Retry", 352, connect, width=240, height=72)
             self.sidebar(draw, -1, self.back)
             return
-        label(draw, "Connections", OPTIONS_TITLE_TOP, 34)
+        self.screen_title(draw, "Connections", OPTIONS_TITLE_TOP)
         self.draw_connection_action(draw, 148, ("Connect", "Codex"), "link",
                                     CODEX_CONNECTION_COLOR, connect)
         self.draw_connection_action(draw, 318, ("Set up", "Wi-Fi"), "wifi",
-                                    WIFI_CONNECTION_COLOR, lambda: self.open_phone_guide("connections"))
+                                    WIFI_CONNECTION_COLOR, self.open_wifi_choices)
         self.sidebar(draw, -1, self.back)
 
     # self: Synthetic status chrome; host clock and loopback link are never firmware observations.
     # image: Logical framebuffer receiving the compact toolbar before rotation.
     # snapshot: Explicitly simulated loopback state.
     # now: Monotonic time for the visibility fade.
-    def draw_status(self, image, snapshot, now):
-        opacity = self.navigation_opacity(now)
+    # opacity_override: Optional QR-specific fade independent of general navigation.
+    def draw_status(self, image, snapshot, now, opacity_override=None):
+        opacity = self.navigation_opacity(now) if opacity_override is None else opacity_override
         if opacity <= 0:
             return
         # Blend the chrome over the actual pixels of every scene, including the globe.
@@ -1267,7 +1372,7 @@ class DeviceStudioWindow:
         layer.putalpha(layer.getchannel("A").point(lambda alpha: round(alpha * opacity)))
         image.paste(layer, (0, 0), layer)
 
-    # draw: Simulated scan and network rows use the requested solid violet fill.
+    # draw: Simulated network rows share flat icons and separators with Settings.
     # name: Complete network identifier or action caption.
     # top: Logical top of the row.
     # action: Callback for a complete touch.
@@ -1279,22 +1384,26 @@ class DeviceStudioWindow:
     def simulated_network_button(self, draw, name, top, action, height=44, rssi=None,
                                  selected=False, now=0.0, target=None):
         box = (93, top, 373, top + height)
-        draw.rounded_rectangle(box, radius=14, fill=(107, 28, 173),
-                               outline=FOREGROUND if selected else None, width=2)
         if rssi is None:
+            draw.rounded_rectangle(box, radius=14, fill=studio_rgb("device_ui", "wifi_keyboard"))
             label(draw, name, top + (height - 18) // 2, 18, FOREGROUND, width=256)
-        elif selected:
-            self.draw_selected_wifi_network(draw, now, top + 7)
         else:
-            shown = name
-            while shown and draw.textlength(shown, font=font(15)) > 174:
-                shown = shown[:-1]
-            if shown != name:
-                while shown and draw.textlength(shown + "...", font=font(15)) > 174:
+            setup_icon(draw, "wifi", (120, top + height // 2), 24,
+                       WIFI_CONNECTION_COLOR if selected else SETUP_ACCENT)
+            if selected:
+                self.draw_selected_wifi_network(draw, now, top + 7)
+            else:
+                shown = name
+                while shown and draw.textlength(shown, font=font(15)) > 132:
                     shown = shown[:-1]
-                shown += "..."
-            draw.text((107, top + height // 2), shown, font=font(15), fill=FOREGROUND, anchor="lm")
-            draw.text((359, top + height // 2), f"{rssi} dBm", font=font(15), fill=FOREGROUND, anchor="rm")
+                if shown != name:
+                    while shown and draw.textlength(shown + "...", font=font(15)) > 132:
+                        shown = shown[:-1]
+                    shown += "..."
+                draw.text((141, top + height // 2), shown, font=font(15), fill=FOREGROUND, anchor="lm")
+                draw.text((359, top + height // 2), f"{rssi} dBm", font=font(15), fill=FOREGROUND, anchor="rm")
+            draw.line((141, top + height - 2, 373, top + height - 2),
+                      fill=studio_rgb("device_ui", "row_separator"), width=2)
         self.targets[target if target is not None else name] = (box, action)
 
     # draw: Frame receiving the selected network's clipped text.
@@ -1310,10 +1419,10 @@ class DeviceStudioWindow:
                 self.wifi_network_scroll_elapsed += delta
         self.wifi_network_scroll_last_draw = now
         face = font(18)
-        width = 256
+        width = 220
         travel = max(0, round(draw.textlength(text, font=face)) - width)
         if travel == 0:
-            label(draw, text, top, 18, FOREGROUND, width=width)
+            draw.text((141, top), text, font=face, fill=FOREGROUND, anchor="lt")
             return
         # Keep both ends readable, then move back rather than jumping to the start.
         start_hold = 1.2
@@ -1331,14 +1440,14 @@ class DeviceStudioWindow:
             offset = max(0, round(travel - (elapsed - start_hold - movement - end_hold) * speed))
         viewport = Image.new("L", (width, 25))
         ImageDraw.Draw(viewport).text((-offset, 0), text, font=face, fill=255, anchor="lt")
-        draw.bitmap((105, top), viewport, fill=FOREGROUND)
+        draw.bitmap((141, top), viewport, fill=FOREGROUND)
 
     # draw: Studio representation of the native CODY_text_entry multitap layout.
     def draw_simulated_wifi_keyboard(self, draw):
-        label(draw, "Wi-Fi password", 72, 19)
-        label(draw, "Replaces saved Wi-Fi", 98, 15, MUTED, width=300)
+        self.screen_title(draw, "Wi-Fi password", 70)
+        screen_subtitle(draw, "Replaces saved Wi-Fi", 106, width=300)
         field = (95, 125, 371, 156)
-        draw_control_pill(draw, field, ((24, 24, 49), (8, 8, 16), (74, 113, 222), FOREGROUND), 14)
+        draw_control_pill(draw, field, (studio_rgb("device_ui", "wifi_field_top"), studio_rgb("device_ui", "wifi_field_bottom"), studio_rgb("device_ui", "wifi_field_border"), FOREGROUND), 14)
         value = self.wifi_password if self.wifi_key_reveal else "*" * len(self.wifi_password)
         while value and draw.textlength(value, font=font(17)) > 250:
             value = value[1:]
@@ -1352,7 +1461,7 @@ class DeviceStudioWindow:
             else:
                 left, top, width, height = 104 + (key - 12) * 88, 340, 82, 43
             box = (left, top, left + width, top + height)
-            draw.rounded_rectangle(box, radius=12, fill=(107, 28, 173))
+            draw.rounded_rectangle(box, radius=12, fill=studio_rgb("device_ui", "wifi_keyboard"))
             if key < 9:
                 caption = groups[key].upper() if mode == "letters" and self.wifi_key_uppercase else groups[key]
             else:
@@ -1365,13 +1474,12 @@ class DeviceStudioWindow:
 
     # self: Preview owner drawing the same Wi-Fi menu as the native device.
     # image: Logical framebuffer before rotation.
-    # draw: Drawing context for the device name.
+    # draw: Drawing context for the screen title and device name.
     # Exception: Preserves native preview or bundled font failures.
     def draw_home_wifi_choices(self, image, draw):
-        title = setup_wordmark("SET UP WI-FI", 24, 21)
-        image.paste(title, (CENTER - title.width // 2, 84), title)
+        self.screen_title(draw, "SET UP WI-FI", 84)
         draw.text((CENTER, 118), self.simulated_ble_name, font=arcade_font(18),
-                  fill=(216, 199, 247), anchor="mt")
+                  fill=studio_rgb("device_ui", "wifi_key_hint"), anchor="mt")
 
         self.prepare_setup_mascot()
         image.paste(self.setup_mascot, (169, 150), self.setup_mascot)
@@ -1396,7 +1504,7 @@ class DeviceStudioWindow:
         if self.route is WifiSetupRoute.HOME_CHOICES:
             self.draw_home_wifi_choices(image, draw)
         elif self.route is WifiSetupRoute.HOME_INTRO:
-            label(draw, "Bluetooth setup", 82, 30)
+            self.screen_title(draw, "Bluetooth setup")
             for top, text in ((140, "1. Get Espressif app"), (180, "2. Scan Cody QR in app"),
                               (220, "3. Choose your Wi-Fi"), (270, "TAP BELOW TO CHOOSE")):
                 label(draw, text, top, 19)
@@ -1406,34 +1514,35 @@ class DeviceStudioWindow:
             android = ("..#......#..", "...#....#...", "...######...", "..########..", "..##.##.##..",
                        "..########..", "............", "#.########.#", "#.########.#", "#.########.#",
                        "..########..", "...##..##...")
-            colors = ("#00ff00", "#ffff00", "#ffaa00", "#ff0000", "#aa00ff", "#0055ff")
+            colors = tuple(studio_hex("device_ui", name) for name in
+                           ("platform_green", "platform_yellow", "platform_orange", "platform_red", "platform_violet", "platform_blue"))
             for left, glyph, platform in ((143, apple, True), (275, android, False)):
                 for y, row in enumerate(glyph):
                     for x, pixel in enumerate(row):
                         if pixel == "#":
                             draw.rectangle((left + x * 4, 316 + y * 4, left + x * 4 + 3, 319 + y * 4),
-                                           fill=colors[y // 2] if platform else "#00ff00")
+                                           fill=colors[y // 2] if platform else colors[0])
             self.targets["Apple"] = ((112, 305, 222, 375), lambda: self.open_platform_qr(True))
             self.targets["Android"] = ((244, 305, 354, 375), lambda: self.open_platform_qr(False))
         elif self.route is WifiSetupRoute.HOME_PLATFORM_QR:
-            label(draw, "SIMULATED app QR", 82, 26)
+            self.screen_title(draw, "SIMULATED app QR")
             matrix = store_qr_matrix("SIMULATED-APP-QR-NOT-A-DEVICE")
             if matrix is not None:
-                qr_tile(draw, matrix, 128, 288)
-            self.targets["QR back"] = ((0, 0, SIZE, SIZE), self.back)
+                qr_tile(draw, matrix, 128, 264)
+            self.targets["QR chrome"] = ((0, 0, SIZE, SIZE), self.reveal_qr_chrome)
             return
         elif self.route is WifiSetupRoute.HOME_PAIR:
-            label(draw, "SIMULATED pairing", 82, 26)
+            self.screen_title(draw, "SIMULATED pairing")
             matrix = store_qr_matrix("SIMULATED-CODY-NOT-A-DEVICE")
             if matrix is None:
                 label(draw, "QR preview unavailable", 240, 17, MUTED)
             else:
-                qr_tile(draw, matrix, 128, 288)
-            self.targets["QR back"] = ((0, 0, SIZE, SIZE), self.back)
+                qr_tile(draw, matrix, 128, 264)
+            self.targets["QR chrome"] = ((0, 0, SIZE, SIZE), self.reveal_qr_chrome)
             return
         elif self.route is WifiSetupRoute.HOME_NETWORKS:
-            label(draw, "Wi-Fi networks", 75, 27)
-            label(draw, "Replaces saved Wi-Fi", 106, 15, MUTED)
+            self.screen_title(draw, "Wi-Fi networks", 75)
+            screen_subtitle(draw, "Replaces saved Wi-Fi", 110)
             searching = now < self.wifi_scan_until
             if not searching and self.wifi_scan_until:
                 self.wifi_scan_until = 0.0
@@ -1449,7 +1558,7 @@ class DeviceStudioWindow:
                                 and edge < x < 13 - edge)
                         falling = x == 6 + (y + frame) % 2 and 9 <= y <= 15 and (y + frame) % 3 == 0
                         if cap or glass or sand or falling:
-                            color = (173, 179, 255) if cap else (107, 190, 255) if glass else (255, 213, 0)
+                            color = studio_rgb("device_ui", "hourglass_cap" if cap else "hourglass_glass" if glass else "hourglass_sand")
                             draw.rectangle((205 + 4 * x, 174 + 4 * y, 208 + 4 * x, 177 + 4 * y), fill=color)
                 label(draw, "Searching...", 270, 17)
                 label(draw, "SIMULATED", 305, 13, MUTED)
@@ -1457,20 +1566,24 @@ class DeviceStudioWindow:
                 label(draw, "Tap again to select" if self.wifi_selected_index >= 0 else
                       "SIMULATED - no radio scan", 132, 15, MUTED)
             if self.wifi_networks_scanned and not searching:
-                for index, (name, rssi) in enumerate((("SIMULATED Home", -42),
-                                                       ("SIMULATED Office", -63),
-                                                       ("SIMULATED Guest", -78))):
-                    self.simulated_network_button(draw, name, 160 + index * 45,
+                start = self.wifi_network_page * WIFI_NETWORKS_PER_PAGE
+                visible = SIMULATED_WIFI_NETWORKS[start:start + WIFI_NETWORKS_PER_PAGE]
+                for row, (name, rssi) in enumerate(visible):
+                    index = start + row
+                    self.simulated_network_button(draw, name, 160 + row * 45,
                         lambda selected_index=index, selected=name:
                             self.select_simulated_network(selected_index, selected),
                         39, rssi, index == self.wifi_selected_index, now, f"wifi-network-{index}")
+                pages = (len(SIMULATED_WIFI_NETWORKS) + WIFI_NETWORKS_PER_PAGE - 1) // WIFI_NETWORKS_PER_PAGE
+                if pages:
+                    page_marks(draw, self.wifi_network_page, pages, 310)
             if not searching:
                 self.simulated_network_button(draw, "Scan for networks", 342,
                                               self.scan_simulated_networks, 38)
         elif self.route is WifiSetupRoute.HOME_PASSWORD:
             self.draw_simulated_wifi_keyboard(draw)
         elif self.route is WifiSetupRoute.HOME_NETWORK_RESULT:
-            label(draw, "SIMULATED Wi-Fi", 82, 26)
+            self.screen_title(draw, "SIMULATED Wi-Fi")
             label(draw, self.wifi_selected_network, 154, 19, SETUP_ACCENT)
             label(draw, self.wifi_result, 200, 21)
             label(draw, "No real network was used", 243, 16, MUTED)
@@ -1493,8 +1606,8 @@ class DeviceStudioWindow:
             recovering = self.route is WifiSetupRoute.OFFLINE
             draw.ellipse((191, 76, 274, 159), fill=SETUP_AMBER_FIELD)
             setup_icon(draw, "offline", (CENTER, 118), 60, SETUP_AMBER)
-            label(draw, "Wi-Fi offline" if recovering else "Not connected", 180, 34)
-            label(draw, "Connect Cody to Wi-Fi", 223, 17, MUTED)
+            self.screen_title(draw, "Wi-Fi offline" if recovering else "Not connected", 180)
+            screen_subtitle(draw, "Connect Cody to Wi-Fi", 223)
             self.button(draw, "Set up Wi-Fi" if recovering else "Tap to pair", 272 if recovering else 352,
                         lambda: self.open_phone_guide(WifiSetupRoute.NOT_CONNECTED),
                         width=280 if recovering else 240, height=58 if recovering else 72,
@@ -1504,7 +1617,7 @@ class DeviceStudioWindow:
                             width=160, height=50, secondary=True, icon="chevron")
             return
         if self.route is WifiSetupRoute.PHONE_GUIDE:
-            label(draw, "Wi-Fi setup", 130, 32)
+            self.screen_title(draw, "Wi-Fi setup", 130)
             label(draw, "Get the Espressif app", 186, 17, MUTED)
             label(draw, "Then open it and scan", 212, 17, MUTED)
             label(draw, "the pairing QR.", 238, 17, MUTED)
@@ -1513,15 +1626,15 @@ class DeviceStudioWindow:
             self.button(draw, "Show pairing QR", 348, self.open_pairing_preview,
                         width=280, height=64, icon="bluetooth")
         elif self.route is WifiSetupRoute.INSTALL_APP:
-            label(draw, "Scan to install", 82, 28)
-            qr_tile(draw, INSTALL_APP_QR, 128, 288)
-            self.targets["QR back"] = ((0, 0, SIZE, SIZE), self.back)
+            self.screen_title(draw, "Scan to install")
+            qr_tile(draw, INSTALL_APP_QR, 128, 264)
+            self.targets["QR chrome"] = ((0, 0, SIZE, SIZE), self.reveal_qr_chrome)
             return
         elif self.route is WifiSetupRoute.SCAN_TO_PAIR:
             setup_icon(draw, "bluetooth", (CENTER, 121), 54, SETUP_ACCENT)
-            label(draw, "Scan to pair", 180, 32)
-            label(draw, "Bluetooth setup runs", 230, 17, MUTED)
-            label(draw, "on the physical device.", 256, 17, MUTED)
+            self.screen_title(draw, "Scan to pair", 180)
+            screen_subtitle(draw, "Bluetooth setup runs", 230)
+            screen_subtitle(draw, "on the physical device.", 256)
             self.button(draw, "Cancel", 390, self.back, width=220, height=44, secondary=True)
             return
         opacity = self.navigation_opacity(now)
@@ -1530,21 +1643,21 @@ class DeviceStudioWindow:
 
     # self: Studio preview owning Options and its categories.
     # draw: Logical canvas before rotation.
-    # rows: Visible captions and actions, with at most three entries per page.
+    # rows: Visible captions and actions, with at most four entries per page.
     def draw_option_rows(self, draw, rows):
         for index, (name, action) in enumerate(rows):
-            top = OPTIONS_ROW_TOP + index * OPTIONS_ROW_STEP
-            box = (93, top, 373, top + OPTIONS_ROW_HEIGHT)
+            top = OPTIONS_ROW_TOP + index * SETTINGS_ROW_STEP
+            box = (93, top, 373, top + SETTINGS_ROW_HEIGHT)
             parts = name.split("  ", 1)
             icon = "phone" if "Orientation" in name or "rotate" in name else "motion"
-            setup_icon(draw, icon, (126, top + 36), 28, SETUP_ACCENT if action else MUTED)
-            draw.text((156, top + (23 if len(parts) > 1 else 36)), parts[0],
-                      font=font(17 if len(parts[0]) > 18 else 20), fill=FOREGROUND, anchor="lm")
+            setup_icon(draw, icon, (111, top + 28), 28, SETUP_ACCENT if action else MUTED)
+            draw.text((141, top + (15 if len(parts) > 1 else 28)), parts[0],
+                      font=system_font(17 if len(parts[0]) > 18 else 20), fill=FOREGROUND, anchor="lm")
             if len(parts) > 1:
-                draw.text((156, top + 50), parts[1], font=font(18),
+                draw.text((141, top + 42), parts[1], font=font(18),
                           fill=WIFI_CONNECTION_COLOR if action else MUTED, anchor="lm")
-            draw.line((141, top + OPTIONS_ROW_HEIGHT - 2, 373, top + OPTIONS_ROW_HEIGHT - 2),
-                      fill=(33, 32, 49), width=2)
+            draw.line((141, top + SETTINGS_ROW_HEIGHT - 2, 373, top + SETTINGS_ROW_HEIGHT - 2),
+                      fill=studio_rgb("device_ui", "row_separator"), width=2)
             if action is not None:
                 self.targets[name] = (box, action)
 
@@ -1552,18 +1665,18 @@ class DeviceStudioWindow:
     # draw: Logical canvas before rotation.
     # now: Monotonic time for the shared arrow fade.
     def draw_visibility(self, draw, now):
-        label(draw, "Visible screens", OPTIONS_TITLE_TOP, 34)
+        self.screen_title(draw, "Visible screens", OPTIONS_TITLE_TOP)
         start = 1 + self.visibility_page * VISIBILITY_ROWS
         for index, page in enumerate(PAGES[start:start + VISIBILITY_ROWS]):
             visible = page in self.visible
             top = OPTIONS_ROW_TOP + index * OPTIONS_ROW_STEP
             box = (93, top, 373, top + OPTIONS_ROW_HEIGHT)
             setup_icon(draw, "phone", (126, top + 36), 28, SETUP_ACCENT)
-            draw.text((156, top + 23), page, font=font(19), fill=FOREGROUND, anchor="lm")
+            draw.text((156, top + 23), page, font=system_font(19), fill=FOREGROUND, anchor="lm")
             draw.text((156, top + 50), "Visible" if visible else "Hidden",
                       font=font(18), fill=WIFI_CONNECTION_COLOR if visible else MUTED, anchor="lm")
             draw.line((141, top + OPTIONS_ROW_HEIGHT - 2, 373, top + OPTIONS_ROW_HEIGHT - 2),
-                      fill=(33, 32, 49), width=2)
+                      fill=studio_rgb("device_ui", "row_separator"), width=2)
             self.targets[page] = (box, lambda selected=page: self.change_visibility(selected))
         page_marks(draw, self.visibility_page, VISIBILITY_PAGE_COUNT)
         opacity = self.navigation_opacity(now)
@@ -1575,8 +1688,7 @@ class DeviceStudioWindow:
     # draw: Logical canvas before rotation.
     # now: Monotonic frame time for the lateral arrow fade.
     def draw_options(self, image, draw, now):
-        draw.text((CENTER, OPTIONS_TITLE_TOP), ("TOOLS", "PREFERENCES", "DEVICE")[self.options_page],
-                  font=arcade_font(34), fill=FOREGROUND, anchor="mt")
+        self.screen_title(draw, ("TOOLS", "PREFERENCES", "DEVICE")[self.options_page], OPTIONS_TITLE_TOP)
         if self.options_page == 0:
             rows = (
                 ("Connections", self.open_connections),
@@ -1594,23 +1706,23 @@ class DeviceStudioWindow:
                 ("Restart device", lambda: self.open("restart")),
                 ("Factory reset", lambda: self.open("factory_reset")),
                 ("Quick guide", self.open_quick_guide),
+                ("About", self.open_about),
             )
         icons = (("link", "motion", "clock"), ("qr", "phone", "motion"),
-                 ("retry", "offline", "phone"))[self.options_page]
-        colors = ((186, 178, 255), (133, 239, 195), (255, 183, 74))
+                 ("retry", "offline", "phone", "link"))[self.options_page]
+        colors = (studio_rgb("codex_connection"), studio_rgb("device_ui", "guide_offline"),
+                  studio_rgb("setup_warning"), studio_rgb("codex_connection"))
         for index, ((name, action), icon) in enumerate(zip(rows, icons)):
-            top = OPTIONS_ROW_TOP + index * OPTIONS_ROW_STEP
-            box = (93, top, 373, top + OPTIONS_ROW_HEIGHT)
-            setup_icon(draw, icon, (126, top + 36), 28, colors[index])
+            top = OPTIONS_ROW_TOP + index * SETTINGS_ROW_STEP
+            box = (93, top, 373, top + SETTINGS_ROW_HEIGHT)
+            setup_icon(draw, icon, (126, top + 28), 28, colors[index])
             words = name.split(" ", 1) if name in ("Visible screens", "Factory reset", "Quick guide", "Restart device") else (name,)
             for line, title in enumerate(words):
-                baseline = top + 36 if len(words) == 1 else top + 23 + line * 24
-                draw.text((156, baseline), title.upper(), font=arcade_font(23), fill=FOREGROUND, anchor="lm")
-            draw.line((141, top + OPTIONS_ROW_HEIGHT - 2, 373, top + OPTIONS_ROW_HEIGHT - 2), fill=(33, 32, 49), width=2)
+                baseline = top + 28 if len(words) == 1 else top + 15 + line * 24
+                draw.text((156, baseline), title, font=system_font(21), fill=FOREGROUND, anchor="lm")
+            draw.line((141, top + SETTINGS_ROW_HEIGHT - 2, 373, top + SETTINGS_ROW_HEIGHT - 2), fill=studio_rgb("device_ui", "row_separator"), width=2)
             self.targets[name] = (box, action)
         page_marks(draw, self.options_page, OPTIONS_PAGE_COUNT)
-        if self.options_page == OPTIONS_PAGE_COUNT - 1:
-            self.gradient_footer(image, "About", 382, self.open_about)
         opacity = self.navigation_opacity(now)
         if opacity > 0 and self.options_page == 0:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
@@ -1620,7 +1732,7 @@ class DeviceStudioWindow:
     # draw: Logical canvas before rotation.
     def draw_quick_guide(self, image, draw):
         title, accent, rows, note = QUICK_GUIDE[self.quick_guide_page]
-        label(draw, title, OPTIONS_TITLE_TOP, 34, accent)
+        self.screen_title(draw, title, OPTIONS_TITLE_TOP)
         for index, (action, detail) in enumerate(rows):
             label(draw, action, 130 + index * 68, 36, accent)
             label(draw, detail, 173 + index * 68, 19, MUTED)
@@ -1631,7 +1743,10 @@ class DeviceStudioWindow:
         if self.quick_guide_page == 0:
             self.sidebar(draw, -1, self.back)
         if last_page:
-            self.gradient_footer(image, "OK", 382, lambda: self.show_options_page(OPTIONS_PAGE_COUNT - 1))
+            setup_icon(draw, "check", (111, 351), 24, WIFI_CONNECTION_COLOR)
+            draw.text((141, 351), "OK", font=font(20), fill=FOREGROUND, anchor="lm")
+            draw.line((141, 364, 373, 364), fill=studio_rgb("device_ui", "row_separator"), width=2)
+            self.targets["OK"] = ((93, 336, 373, 366), lambda: self.show_options_page(OPTIONS_PAGE_COUNT - 1))
 
     # self: Studio preview drawing its independently retained timer state.
     # draw: Logical canvas before rotation.
@@ -1639,7 +1754,7 @@ class DeviceStudioWindow:
     def draw_local_timer(self, draw, now):
         timer = self.local_timer
         minutes, seconds = divmod(timer.remaining_seconds(now), 60)
-        label(draw, "Timer", 93, 34, ACCENT)
+        self.screen_title(draw, "Timer", 93)
         status = {
             LocalTimerPhase.IDLE: "Set duration",
             LocalTimerPhase.RUNNING: "Time remaining",
@@ -1669,24 +1784,33 @@ class DeviceStudioWindow:
     # image: Logical framebuffer receiving the gradient footer.
     # draw: Logical canvas before rotation.
     def draw_restart(self, image, draw):
-        label(draw, "Restart device", OPTIONS_TITLE_TOP, 34)
-        label(draw, "Keep Wi-Fi and settings", 155, 17, MUTED)
-        label(draw, "Stops any active timer", 184, 17, MUTED)
-        self.button(draw, "Cancel", 270, self.back, width=280, height=64, secondary=True, caption_size=20)
-        self.gradient_footer(image, "Restart device", 382, self.restart_device)
+        self.screen_title(draw, "Restart device", OPTIONS_TITLE_TOP)
+        screen_subtitle(draw, "Keeps Wi-Fi/settings", 155)
+        screen_subtitle(draw, "Stops active timer", 184)
+        self.draw_confirmation_rows(draw, "Restart device", self.restart_device)
         self.sidebar(draw, -1, self.back)
 
     # self: Studio preview routing cancellation or an explicit reset to its owner.
     # image: Logical framebuffer receiving the gradient footer.
     # draw: Logical canvas before rotation.
     def draw_factory_reset(self, image, draw):
-        label(draw, "Factory reset", OPTIONS_TITLE_TOP, 34)
-        label(draw, "Clear Wi-Fi, Codex", 155, 17, MUTED)
-        label(draw, "link and preferences.", 184, 17, MUTED)
-        label(draw, "Restart with defaults", 213, 17, MUTED)
-        self.button(draw, "Cancel", 270, self.back, width=280, height=64, secondary=True, caption_size=20)
-        self.gradient_footer(image, "Reset device", 382, self.reset_device)
+        self.screen_title(draw, "Factory reset", OPTIONS_TITLE_TOP)
+        screen_subtitle(draw, "Clear Wi-Fi, Codex", 155)
+        screen_subtitle(draw, "link and preferences.", 184)
+        screen_subtitle(draw, "Restart with defaults", 213)
+        self.draw_confirmation_rows(draw, "Factory reset", self.reset_device)
         self.sidebar(draw, -1, self.back)
+
+    # draw: Logical framebuffer for the two explicit, release-activated choices.
+    # caption: Confirmed action label.
+    # confirm: Callback invoked only when the confirmation row is tapped.
+    def draw_confirmation_rows(self, draw, caption, confirm):
+        for index, (name, action, icon) in enumerate((("Cancel", self.back, "offline"), (caption, confirm, "check"))):
+            top = 250 + index * 60
+            setup_icon(draw, icon, (111, top + 28), 28, SETUP_ACCENT if index == 0 else WIFI_CONNECTION_COLOR)
+            draw.text((141, top + 28), name, font=font(20), fill=FOREGROUND, anchor="lm")
+            draw.line((141, top + 54, 373, top + 54), fill=studio_rgb("device_ui", "row_separator"), width=2)
+            self.targets[name] = ((93, top, 373, top + 56), action)
 
     def open_about_url(self):
         if not webbrowser.open_new_tab(ABOUT_URL):
@@ -1695,14 +1819,13 @@ class DeviceStudioWindow:
     # self: Studio preview registering the project link action.
     # draw: Logical canvas before rotation.
     def draw_about_qr(self, draw):
-        label(draw, ABOUT_INFO, 89, 27)
+        self.screen_title(draw, ABOUT_INFO, 82)
         matrix = store_qr_matrix(ABOUT_URL)
         if matrix is None:
             label(draw, "QR preview unavailable", 240, 17, MUTED)
         else:
             qr_tile(draw, matrix, 128, 264)
-        page_marks(draw, INFO_PAGES.index(InfoPage.PROJECT_LINK), len(INFO_PAGES), 397)
-        self.targets["QR back"] = ((0, 0, SIZE, SIZE), lambda: self.move(-1))
+        self.targets["QR chrome"] = ((0, 0, SIZE, SIZE), self.reveal_qr_chrome)
 
     # self: Preview renderer borrowing the typed Info state and observation.
     # image: Logical framebuffer receiving the existing VibeWare artwork.
@@ -1723,10 +1846,10 @@ class DeviceStudioWindow:
             InfoPage.MEMORY: "MEMORY",
             InfoPage.FIRMWARE: "FIRMWARE",
         }[page]
-        label(draw, title, 82, 30, ACCENT, width=230)
+        self.screen_title(draw, title, 82, width=230)
         page_marks(draw, INFO_PAGES.index(page), len(INFO_PAGES), 397)
         self.draw_info_icon(draw, page)
-        draw.line((73, 125, 392, 125), fill=(62, 91, 113))
+        draw.line((73, 125, 392, 125), fill=studio_rgb("device_ui", "guide_outline"))
         if page is InfoPage.SYSTEM:
             for index, top in enumerate((137, 187), 1):
                 draw.text((93, top), f"CPU {index}", font=font(17), fill=MUTED)
@@ -1791,6 +1914,29 @@ class DeviceStudioWindow:
             self.info.page = InfoPage.SYSTEM
             self.touch = None
 
+    # self: Display owner retaining the current heading and visible animation time.
+    # draw: Logical preview canvas.
+    # text: Complete heading, without truncating or changing font size.
+    # top: Heading top edge.
+    # width: Fixed viewport width inside the admitted display chord.
+    def screen_title(self, draw, text, top=82, width=320):
+        text = str(text)
+        key = (self.route, self.page, self.options_page, self.visibility_page,
+               self.quick_guide_page, text, top, width)
+        now = self.frame_time
+        if key != self.heading_key:
+            self.heading_key = key
+            self.heading_elapsed = 0.0
+        elif self.heading_last_frame is not None:
+            delta = now - self.heading_last_frame
+            # An unseen screen does not advance while a different route owns the display.
+            if 0.0 <= delta <= 0.25:
+                self.heading_elapsed += delta
+        self.heading_last_frame = now
+        mask = screen_title_mask(text)
+        offset = screen_title_offset(self.heading_elapsed, mask.width - width)
+        screen_title(draw, text, top, width, offset)
+
     # self: Display owner retaining the scroll clock for this title and page.
     # draw: Current logical canvas.
     # snapshot: Exact title and its validity and source age from CCP.
@@ -1809,8 +1955,7 @@ class DeviceStudioWindow:
         if not travel:
             label(draw, title, top, 18, ACCENT, width=320)
             return
-        elapsed = max(0.0, now - self.chat_title_since) % (2.8 + travel * 0.016)
-        offset = min(travel, int(max(0.0, elapsed - 1.2) / 0.016))
+        offset = marquee_offset(now - self.chat_title_since, travel)
         viewport = Image.new("L", (320, 24))
         ImageDraw.Draw(viewport).text((-offset, 0), title, font=face, fill=255, anchor="lt")
         draw.bitmap((73, top), viewport, fill=ACCENT)
@@ -1839,7 +1984,7 @@ class DeviceStudioWindow:
             remaining = capacity - used
             label(draw, "TOKENS REMAINING", 154, 18)
             label(draw, f"{remaining:,}", 177, 45, ACCENT)
-            draw.rectangle((93, 244, 372, 250), fill=(24, 34, 48))
+            draw.rectangle((93, 244, 372, 250), fill=studio_rgb("device_ui", "context_track"))
             filled = remaining * 280 // capacity
             if filled:
                 draw.rectangle((93, 244, 92 + filled, 250), fill=ACCENT)
@@ -1862,7 +2007,7 @@ class DeviceStudioWindow:
     # snapshot: Current SIMULATED connection and authenticated activity projection.
     # now: Monotonic frame time for the title viewport.
     def draw_device_summary(self, draw, snapshot, now):
-        label(draw, "Device", 86, 34)
+        self.screen_title(draw, "Device", 82)
         observed = snapshot.source == "SIMULATED" and snapshot.state is not LinkState.STOPPED
         linked = (observed and snapshot.network_ready and snapshot.state is LinkState.CONNECTED
                   and snapshot.ready_age_ms is not None and 0 <= snapshot.ready_age_ms < 8000)
@@ -1891,7 +2036,7 @@ class DeviceStudioWindow:
             wifi, wifi_icon, wifi_color = "Offline", "offline", SETUP_AMBER
 
         for y in (190, 242):
-            draw.line((95, y, 371, y), fill=(33, 39, 53))
+            draw.line((95, y, 371, y), fill=studio_rgb("device_ui", "device_divider"))
         setup_icon(draw, "link", (112, 164), 28, codex_color)
         setup_icon(draw, wifi_icon, (112, 216), 28, wifi_color)
         draw.rectangle((99, 261, 122, 274), outline=MUTED, width=2)
@@ -1915,13 +2060,13 @@ class DeviceStudioWindow:
     def draw_widget(self, image, draw, snapshot, now):
         page = PAGES[self.page]
         if page in ("Codex account", "Credits", "Context", "Codex limits", "Last 7 days"):
-            label(draw, page.upper(), 82, 33, ACCENT)
+            self.screen_title(draw, page.upper(), 82)
         elif page == "Reset countdown":
-            label(draw, "Codex reset", 83, 34)
+            self.screen_title(draw, "Codex reset", 82)
         elif page == "Token history":
-            label(draw, "TOKEN ACTIVITY", 78, 33, ACCENT)
+            self.screen_title(draw, "TOKEN ACTIVITY", 82)
         elif page not in ("About", "Device"):
-            label(draw, page, 105, 33)
+            self.screen_title(draw, page, 82)
         if page == "Device":
             self.draw_device_summary(draw, snapshot, now)
         elif page == "Context":
@@ -1949,37 +2094,6 @@ class DeviceStudioWindow:
             page_marks(draw, self.available_pages.index(self.page), len(self.available_pages), 435, compact=True)
         if opacity > 0 and self.about_from_options and page == "About" and self.info.page is InfoPage.SYSTEM:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
-
-    # image: Logical framebuffer receiving a scalable vector icon and gradient text.
-    # top: Visible top of the text; opacity follows the shared navigation timeout.
-    def draw_home_action(self, image, caption, icon, top, opacity, action):
-        face = arcade_font(24)
-        bounds = face.getbbox(caption)
-        text_height = max(1, bounds[3] - bounds[1])
-        mask = Image.new("L", image.size, 0)
-        draw = ImageDraw.Draw(mask)
-        text_width = round(draw.textlength(caption, font=face))
-        gap = 11
-        left = CENTER - (text_height + gap + text_width) // 2
-        setup_icon(draw, icon, (left + text_height // 2, top + text_height // 2),
-                   text_height, 255)
-        draw.text((left + text_height + gap, top - bounds[1]), caption, font=face, fill=255)
-        # Hard pixel edges avoid a glow or blurred type on the small display.
-        mask = mask.point(lambda value: round(255 * opacity) if value >= 128 else 0)
-        gradient = Image.new("RGB", image.size)
-        pixels = ImageDraw.Draw(gradient)
-        width = max(1, text_height + gap + text_width)
-        cyan, violet, pink = (82, 212, 255), (166, 125, 255), (251, 143, 239)
-        for y in range(top - text_height, top + 2 * text_height + 1):
-            progress = max(0.0, min(1.0, (y - top) / max(1, text_height - 1)))
-            start, end = (cyan, violet) if progress < 0.5 else (violet, pink)
-            progress = progress * 2 if progress < 0.5 else (progress - 0.5) * 2
-            color = tuple(round(first + (last - first) * progress)
-                          for first, last in zip(start, end))
-            pixels.line((left, y, left + width, y), fill=color)
-        image.paste(gradient, (0, 0), mask)
-        if opacity >= 0.99:
-            self.targets[caption] = ((left - 12, top - 9, left + width + 12, top + text_height + 10), action)
 
     # self: Serialized Tk owner of the native avatar preview.
     # Exception: Preserves the native renderer loader failure.
@@ -2020,7 +2134,6 @@ class DeviceStudioWindow:
         self.boot = self.boot_frame = None
         self.standby = False
         self.open("mascot")
-        self.home_menu_since = None
         self.prepare_setup_mascot()
         self.avatar_preview().reset(0)
 
@@ -2088,7 +2201,6 @@ class DeviceStudioWindow:
     # now: Current monotonic time, used for both animation and touch reaction.
     # Exception: Propagates native load or drawing errors to the preview tick.
     def draw_mascot(self, image, now):
-        self.prepare_setup_mascot()
         muse = self.avatar_preview()
         if self.muse_last_frame_at is not None:
             self.muse_elapsed_ms += max(0.0, (now - self.muse_last_frame_at) * 1000)
@@ -2112,17 +2224,7 @@ class DeviceStudioWindow:
             self.motion_acceleration = (panel_y * 4.0, panel_x * 4.0)
             self.motion_sample_at_us = now_us
         muse.motion(*self.motion_acceleration, self.motion_sample_at_us, now_us, self.rotation, True)
-        image.paste((0, 0, 0), (0, 0, SIZE, SIZE))
-        menu_progress = 0.0
-        if self.home_menu_since is not None:
-            visibility = self.navigation_opacity(now)
-            if visibility <= 0:
-                self.home_menu_since = None
-            else:
-                menu_progress = min(1.0, max(0.0, (now - self.home_menu_since) /
-                                                  HOME_MENU_TRANSITION_SECONDS)) * visibility
-        mascot_size = round(MUSE_SIZE * (1.0 - 0.35 * menu_progress))
-        mascot_top = round(MUSE_OFFSET + 39 * menu_progress)
+        image.paste(studio_rgb("device_ui", "canvas_black"), (0, 0, SIZE, SIZE))
         if self.animation_scene is None:
             mascot = muse.image(elapsed_ms, reaction_ms)
         else:
@@ -2135,23 +2237,8 @@ class DeviceStudioWindow:
                 self.animation_frame = muse.face_image(pose, int(self.animation_elapsed_ms), pose_ms,
                                                        symbol=symbol, working=working)
             mascot = self.animation_frame
-        if mascot_size != MUSE_SIZE:
-            mascot = mascot.resize((mascot_size, mascot_size), Image.Resampling.NEAREST)
-        image.paste(mascot, (CENTER - mascot_size // 2, mascot_top))
-        draw = ImageDraw.Draw(image)
-        snapshot, _ = self.observe()
-        if self.endpoint is None or not snapshot.network_ready:
-            opacity = max(0.0, min(1.0, (self.muse_elapsed_ms - 5500.0) / 2000.0))
-            if opacity:
-                purple = tuple(round(value * opacity) for value in (199, 145, 255))
-                label(draw, "SET UP WI-FI", 70, 21, purple)
-                label(draw, self.simulated_ble_name, 98, 19, purple)
-        if menu_progress > 0:
-            self.draw_home_action(image, "PAIR WITH APP", "bluetooth", 344, menu_progress,
-                                  self.open_home_pairing)
-            self.draw_home_action(image, "SETUP WIFI", "wifi", 382, menu_progress,
-                                  self.open_home_wifi)
-        # Insert the full Home target after the menu actions, which get first refusal.
+        image.paste(mascot, (MUSE_OFFSET, MUSE_OFFSET))
+        # The full Home target keeps the mascot's existing tap interaction.
         self.targets["Mascot"] = ((0, 0, SIZE, SIZE), self.pet_mascot)
 
     # self: Preview owner excluding hidden time and retiring the visible touch reaction.
@@ -2170,8 +2257,6 @@ class DeviceStudioWindow:
         now = time.monotonic()
         if not 0.03 <= now - self.touch_pressed_at <= 0.45:
             return
-        if self.home_menu_since is None:
-            self.home_menu_since = now
         self.muse_reaction_ms = int(self.muse_elapsed_ms)
         if self.audio is not None:
             self.audio.touch()
@@ -2182,6 +2267,7 @@ class DeviceStudioWindow:
     # now: Monotonic frame time.
     # Exception: Propagates drawing failures to the preview tick.
     def frame(self, snapshot, code, now):
+        self.frame_time = now
         self.update_available_pages(snapshot)
         wifi_setup = isinstance(self.route, WifiSetupRoute)
         image = Image.new("RGB", (SIZE, SIZE), BACKGROUND)
@@ -2207,7 +2293,7 @@ class DeviceStudioWindow:
                                  now - self.screensaver_idle_since)
         if self.standby:
             self.hide_mascot()
-            image.paste((0, 0, 0), (0, 0, SIZE, SIZE))
+            image.paste(studio_rgb("device_ui", "canvas_black"), (0, 0, SIZE, SIZE))
         elif event_active:
             self.hide_mascot()
             self.touch = None
@@ -2228,7 +2314,7 @@ class DeviceStudioWindow:
         elif self.route == "mascot":
             self.draw_mascot(image, now)
             if self.safe_guide:
-                draw.rectangle((73, 73, 392, 392), outline=(62, 91, 113))
+                draw.rectangle((73, 73, 392, 392), outline=studio_rgb("device_ui", "guide_outline"))
         else:
             if wifi_setup:
                 self.draw_wifi_setup(image, draw, now)
@@ -2247,56 +2333,57 @@ class DeviceStudioWindow:
             elif self.route == "visibility":
                 self.draw_visibility(draw, now)
             elif self.route == "display":
-                label(draw, "Display", OPTIONS_TITLE_TOP, 34)
+                self.screen_title(draw, "Display", OPTIONS_TITLE_TOP)
                 self.draw_option_rows(draw, (
                     (f"Brightness  {self.brightness}%", self.change_brightness),
                     ("Auto-rotate  " + ("On" if self.auto_rotate else "Off"), self.change_auto_rotation),
                     ("Orientation  Auto" if self.auto_rotate else f"Orientation  {self.rotation} deg",
                      None if self.auto_rotate else self.change_orientation),
+                    ("More...", lambda: self.open("display_rings")),
                 ))
-                page_marks(draw, 0, 2)
-                self.gradient_footer(image, "More...", 382, lambda: self.open("display_rings"))
+                page_marks(draw, 0, 3)
                 self.sidebar(draw, -1, self.back)
             elif self.route == "display_rings":
-                label(draw, "Display rings", OPTIONS_TITLE_TOP, 34)
-                page_marks(draw, 1, 2)
-                rows = (("Assistant quota", self.show_assistant_quota_ring, self.change_assistant_quota_ring,
-                         "motion", SETUP_ACCENT),
-                        ("Battery ring", self.show_battery_ring, self.change_battery_ring,
-                         "clock", WIFI_CONNECTION_COLOR))
-                for index, (name, enabled, action, icon, color) in enumerate(rows):
-                    top = OPTIONS_ROW_TOP + index * OPTIONS_ROW_STEP
-                    box = (93, top, 373, top + OPTIONS_ROW_HEIGHT)
-                    setup_icon(draw, icon, (126, top + 36), 28, color)
-                    draw.text((156, top + 23), name, font=font(20), fill=FOREGROUND, anchor="lm")
-                    draw.text((156, top + 50), "On" if enabled else "Off", font=font(18),
-                              fill=WIFI_CONNECTION_COLOR if enabled else MUTED, anchor="lm")
-                    draw.line((141, top + OPTIONS_ROW_HEIGHT - 2, 373, top + OPTIONS_ROW_HEIGHT - 2),
-                              fill=(33, 32, 49), width=2)
-                    self.targets[name] = (box, action)
+                self.screen_title(draw, "Display & time", OPTIONS_TITLE_TOP)
+                page_marks(draw, 1, 3)
+                self.draw_option_rows(draw, (
+                    ("Assistant quota  " + ("On" if self.show_assistant_quota_ring else "Off"), self.change_assistant_quota_ring),
+                    ("Battery ring  " + ("On" if self.show_battery_ring else "Off"), self.change_battery_ring),
+                    ("Time", lambda: self.open("display_time")),
+                    ("Next restart" if self.birth_preview_queued else "Replay intro",
+                     None if self.birth_preview_queued else self.schedule_birth_preview),
+                ))
+                self.sidebar(draw, -1, self.back)
+            elif self.route == "display_time":
+                self.screen_title(draw, "Time", OPTIONS_TITLE_TOP)
+                page_marks(draw, 2, 3)
+                rows = (("Auto time", "On" if self.auto_time else "Off", self.change_auto_time),
+                        ("Sync time", "SIMULATED / unavailable", self.request_simulated_time_sync))
+                for index, (name, status, action) in enumerate(rows):
+                    top = OPTIONS_ROW_TOP + index * SETTINGS_ROW_STEP
+                    setup_icon(draw, "clock", (111, top + 28), 28, SETUP_AMBER)
+                    draw.text((141, top + 15), name, font=system_font(20), fill=FOREGROUND, anchor="lm")
+                    draw.text((141, top + 42), status, font=font(14 if index == 1 else 18),
+                              fill=MUTED if index == 1 else WIFI_CONNECTION_COLOR, anchor="lm")
+                    draw.line((141, top + SETTINGS_ROW_HEIGHT - 2, 373, top + SETTINGS_ROW_HEIGHT - 2),
+                              fill=studio_rgb("device_ui", "row_separator"), width=2)
+                    self.targets[name] = ((93, top, 373, top + SETTINGS_ROW_HEIGHT), action)
+                if self.simulated_time_notice:
+                    label(draw, self.simulated_time_notice, 318, 15, MUTED)
                 self.sidebar(draw, -1, self.back)
             elif self.route == "behavior":
-                label(draw, "Behavior", OPTIONS_TITLE_TOP, 34)
+                self.screen_title(draw, "Behavior", OPTIONS_TITLE_TOP)
                 self.draw_option_rows(draw, (("Dictation  N/A", None),
                     ("Shake standby/wake  " + ("On" if self.shake_to_wake else "Off"), self.change_shake_to_wake),
-                    ("Sounds  N/A", None)))
-                self.gradient_footer(image, "More...", 382, lambda: self.open("more_behavior"))
+                    ("Sounds  N/A", None), ("More...", lambda: self.open("more_behavior"))))
                 self.sidebar(draw, -1, self.back)
             elif self.route == "more_behavior":
-                label(draw, "More behavior", OPTIONS_TITLE_TOP, 34)
-                setup_icon(draw, "motion", (CENTER, 169), 52, SETUP_ACCENT)
-                label(draw, "Animate while idle", 208, 18, MUTED)
-                box = (93, 273, 373, 345)
-                setup_icon(draw, "motion", (126, 309), 28, SETUP_ACCENT)
-                draw.text((156, 296), "Screensaver", font=font(20), fill=FOREGROUND, anchor="lm")
-                draw.text((156, 323), "On" if self.screensaver.enabled else "Off",
-                          font=font(18), fill=WIFI_CONNECTION_COLOR if self.screensaver.enabled else MUTED, anchor="lm")
-                draw.line((141, 343, 373, 343), fill=(33, 32, 49), width=2)
-                self.targets["Screensaver"] = (box, self.screensaver.toggle)
-                self.gradient_footer(image, "Synth Voice", 382, lambda: self.open("synth_voice"))
+                self.screen_title(draw, "More behavior", OPTIONS_TITLE_TOP)
+                self.draw_option_rows(draw, (("Screensaver  " + ("On" if self.screensaver.enabled else "Off"), self.screensaver.toggle),
+                    ("Audio  N/A", None), ("Synth Voice", lambda: self.open("synth_voice"))))
                 self.sidebar(draw, -1, self.back)
             elif self.route == "synth_voice":
-                label(draw, "Synth Voice", OPTIONS_TITLE_TOP, 34)
+                self.screen_title(draw, "Synth Voice", OPTIONS_TITLE_TOP)
                 self.draw_option_rows(draw, (("Enable Synth Voice  N/A", None),
                                              ("Voice volume  N/A", None),
                                              ("Voice type  N/A", None)))
@@ -2304,13 +2391,19 @@ class DeviceStudioWindow:
             else:
                 self.draw_widget(image, draw, snapshot, now)
             if self.safe_guide:
-                draw.rectangle((73, 73, 392, 392), outline=(62, 91, 113))
+                draw.rectangle((73, 73, 392, 392), outline=studio_rgb("device_ui", "guide_outline"))
         qr_visible = (not event_active and not self.screensaver.active and
                       ((wifi_setup and self.route in (WifiSetupRoute.INSTALL_APP,
                        WifiSetupRoute.HOME_PLATFORM_QR, WifiSetupRoute.HOME_PAIR)) or
                        (self.route == "widgets" and project_link)))
-        if not self.standby and not qr_visible:
-            self.draw_status(image, snapshot, now)
+        qr_opacity = max(0.0, min(1.0, (self.qr_chrome_until - now) / 0.5)) if qr_visible else 0.0
+        if qr_opacity > 0:
+            border = Image.new("RGBA", image.size)
+            ImageDraw.Draw(border).ellipse((3, 3, SIZE - 4, SIZE - 4),
+                outline=(*studio_rgb("device_ui", "qr_chrome_border"), round(qr_opacity * 255)), width=2)
+            image.paste(border, (0, 0), border)
+        if not self.standby and (not qr_visible or qr_opacity > 0):
+            self.draw_status(image, snapshot, now, qr_opacity if qr_visible else None)
         if not self.standby and self.brightness != 100:
             image = ImageEnhance.Brightness(image).enhance(self.brightness / 100)
         return self.display_image(image)
@@ -2326,6 +2419,9 @@ class DeviceStudioWindow:
         if elapsed_ms >= self.boot_cycle_ms:
             self.boot = None
             self.boot_frame = None
+            if self.birth_preview_queued:
+                self.birth_preview_queued = False
+                self.birth_preview_started_at = now
             self.last_navigation = now
             self.screensaver_idle_since = now
             return None
@@ -2336,6 +2432,32 @@ class DeviceStudioWindow:
                 image = ImageEnhance.Brightness(image).enhance(self.brightness / 100)
             self.boot_frame = (index, self.display_image(image))
         return self.boot_frame[1]
+
+    # self: Render an in-memory approximation of the device's first-run intro.
+    # now: Monotonic Studio frame time; no device setting is read or written.
+    # Returns a rotated image, or None after the simulated introduction completes.
+    def birth_preview_image(self, now):
+        elapsed_ms = max(0.0, (now - self.birth_preview_started_at) * 1000)
+        if elapsed_ms >= 5000:
+            self.birth_preview_started_at = None
+            self.last_navigation = self.screensaver_idle_since = now
+            return None
+        white = 255 if elapsed_ms < 600 else max(0, round((2000 - elapsed_ms) * 255 / 1400))
+        image = Image.new("RGB", (SIZE, SIZE), (white, white, white))
+        if elapsed_ms >= 2000:
+            phase = int(elapsed_ms - 2000)
+            avatar = self.avatar_preview().face_image(MusePose.IDLE, phase, phase)
+            avatar = avatar.resize((256, 256), Image.Resampling.NEAREST)
+            avatar = ImageEnhance.Brightness(avatar).enhance(min(1.0, phase / 1550))
+            image.paste(avatar, (105, 72))
+        if elapsed_ms >= 3600:
+            welcome = Image.new("RGB", (SIZE, SIZE))
+            screen_title(ImageDraw.Draw(welcome), "Welcome!", 356)
+            welcome = ImageEnhance.Brightness(welcome).enhance(min(1.0, (elapsed_ms - 3600) / 600))
+            image = ImageChops.lighter(image, welcome)
+        if self.brightness != 100:
+            image = ImageEnhance.Brightness(image).enhance(self.brightness / 100)
+        return self.display_image(image)
 
     # self: Preview scheduler publishing only observations actually supported by Studio.
     # Original source and drawing failures remain visible in the existing status surface.
@@ -2361,6 +2483,8 @@ class DeviceStudioWindow:
                     status = "Offline preview / use -Ccp to pair Codex"
             self.status.configure(text=f"SIMULATED / device {self.device_rotation}° / {status}")
             image = self.boot_image(now) if self.boot else None
+            if image is None and self.birth_preview_started_at is not None:
+                image = self.birth_preview_image(now)
             if image is None:
                 image = self.frame(snapshot, code, now)
         except (OSError, RuntimeError, ValueError, AttributeError) as error:
@@ -2379,7 +2503,7 @@ class DeviceStudioWindow:
             self.canvas.coords(self.image, self.layout.left, self.layout.top)
             self.canvas.itemconfigure(self.image, image=self.photo)
             self.acknowledged = tuple(self.targets)
-        animated = self.boot or self.screensaver.active or (self.route == "mascot" and not self.standby)
+        animated = self.boot or self.birth_preview_started_at is not None or self.screensaver.active or (self.route == "mascot" and not self.standby)
         self.timer = self.root.after(40 if animated else 100, self.tick)
 
     def point(self, event):
@@ -2402,7 +2526,7 @@ class DeviceStudioWindow:
     def press(self, event):
         point = self.point(event)
         self.gesture = None
-        if self.boot is not None or self.standby:
+        if self.boot is not None or self.birth_preview_started_at is not None or self.standby:
             return
         if point is not None:
             self.screensaver_idle_since = time.monotonic()
@@ -2453,7 +2577,7 @@ class DeviceStudioWindow:
         touch, self.touch = self.touch, None
         gesture, self.gesture = self.gesture, None
         point = self.point(event)
-        if self.boot is not None or self.standby or point is None:
+        if self.boot is not None or self.birth_preview_started_at is not None or self.standby or point is None:
             return
         self.last_navigation = self.screensaver_idle_since = time.monotonic()
         try:
@@ -2482,14 +2606,31 @@ class DeviceStudioWindow:
                     if self.route == "quick_guide":
                         self.move_quick_guide(step)
                         return
+                    if self.route == "display" and step > 0:
+                        self.open("display_rings")
+                        return
+                    if self.route == "display_rings" and step > 0:
+                        self.open("display_time")
+                        return
+                    if self.route is WifiSetupRoute.HOME_NETWORKS:
+                        pages = (len(SIMULATED_WIFI_NETWORKS) + WIFI_NETWORKS_PER_PAGE - 1) // WIFI_NETWORKS_PER_PAGE
+                        page = self.wifi_network_page + step
+                        if self.wifi_networks_scanned and 0 <= page < pages:
+                            self.wifi_network_page = page
+                            self.wifi_selected_index = -1
+                            self.wifi_network_scroll_elapsed = 0.0
+                            self.wifi_network_scroll_last_draw = None
+                        return
                     if self.route in ("visibility", "widgets"):
                         self.move(step)
                         return
                     if self.route is WifiSetupRoute.HOME_INTRO and step > 0:
                         self.open(WifiSetupRoute.HOME_PAIR)
                         return
-                    if step < 0 and self.route in ("display", "display_rings", "behavior", "more_behavior", "synth_voice",
-                                                  "connections", "timer", "restart", "factory_reset"):
+                    if step < 0 and self.route in ("display", "display_rings", "display_time", "behavior", "more_behavior", "synth_voice",
+                                                  "connections", "timer", "restart", "factory_reset",
+                                                  WifiSetupRoute.INSTALL_APP, WifiSetupRoute.HOME_PLATFORM_QR,
+                                                  WifiSetupRoute.HOME_PAIR):
                         self.back()
                         return
             if self.event_visible:

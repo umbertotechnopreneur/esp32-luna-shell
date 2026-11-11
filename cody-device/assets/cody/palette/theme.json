@@ -10,120 +10,988 @@
   },
   "device": {
     "primary": {
-      "default": {"rgb565": "0x953F", "srgb": "#94A6FF", "role": "Pairing and setup accent"},
-      "muted": {"rgb565": "0xBD9F", "srgb": "#BDB2FF", "role": "Behavior and Codex connection accent"},
-      "indicator_active": {"rgb565": "0xA53F", "srgb": "#A5A6FF", "role": "Selected page mark"},
-      "indicator_inactive": {"rgb565": "0x422A", "srgb": "#424552", "role": "Unselected page mark"}
+      "default": {
+        "rgb565": "0x953F",
+        "srgb": "#94A6FF",
+        "role": "Pairing and setup accent"
+      },
+      "muted": {
+        "rgb565": "0xBD9F",
+        "srgb": "#BDB2FF",
+        "role": "Behavior and Codex connection accent"
+      },
+      "indicator_active": {
+        "rgb565": "0xA53F",
+        "srgb": "#A5A6FF",
+        "role": "Selected page mark"
+      },
+      "indicator_inactive": {
+        "rgb565": "0x422A",
+        "srgb": "#424552",
+        "role": "Unselected page mark"
+      }
     },
     "secondary": {
-      "default": {"rgb565": "0x7759", "srgb": "#73EBCE", "role": "Connected Wi-Fi and positive setting accent"},
-      "bright": {"rgb565": "0x5FF1", "srgb": "#5AFF8C", "role": "Visible or enabled setting"},
-      "muted": {"rgb565": "0x67F0", "srgb": "#63FF84", "role": "Codex browser mint accent"}
+      "default": {
+        "rgb565": "0x7759",
+        "srgb": "#73EBCE",
+        "role": "Connected Wi-Fi and positive setting accent"
+      },
+      "bright": {
+        "rgb565": "0x5FF1",
+        "srgb": "#5AFF8C",
+        "role": "Visible or enabled setting"
+      },
+      "muted": {
+        "rgb565": "0x67F0",
+        "srgb": "#63FF84",
+        "role": "Codex browser mint accent"
+      }
     },
     "accent": {
-      "cyan": {"rgb565": "0x6F9E", "srgb": "#6BF3F7", "role": "Informational text and icons"},
-      "active": {"rgb565": "0x07FF", "srgb": "#00FFFF", "role": "Active, charging and pairing code"},
-      "violet": {"rgb565": "0xBD1F", "srgb": "#BDA2FF", "role": "Guide and secondary accent"},
-      "warm": {"rgb565": "0xFDA9", "srgb": "#FFB64A", "role": "Timer and offline setting accents"},
-      "question": {"rgb565": "0xFCC0", "srgb": "#FF9A00", "role": "Question attention accent"},
-      "error_icon": {"rgb565": "0xED53", "srgb": "#EFAA9C", "role": "Destructive action icon"},
-      "home_notice": {"rgb565": "0xCCFF", "srgb": "#CE9EFF", "role": "Offline Home notice"}
+      "cyan": {
+        "rgb565": "0x6F9E",
+        "srgb": "#6BF3F7",
+        "role": "Informational text and icons"
+      },
+      "active": {
+        "rgb565": "0x07FF",
+        "srgb": "#00FFFF",
+        "role": "Active, charging and pairing code"
+      },
+      "violet": {
+        "rgb565": "0xBD1F",
+        "srgb": "#BDA2FF",
+        "role": "Guide and secondary accent"
+      },
+      "warm": {
+        "rgb565": "0xFDA9",
+        "srgb": "#FFB64A",
+        "role": "Timer and offline setting accents"
+      },
+      "question": {
+        "rgb565": "0xFCC0",
+        "srgb": "#FF9A00",
+        "role": "Question attention accent"
+      },
+      "error_icon": {
+        "rgb565": "0xED53",
+        "srgb": "#EFAA9C",
+        "role": "Destructive action icon"
+      },
+      "home_notice": {
+        "rgb565": "0xCCFF",
+        "srgb": "#CE9EFF",
+        "role": "Offline Home notice"
+      }
     },
     "surface": {
-      "canvas": {"rgb565": "0x0000", "srgb": "#000000", "role": "Default dark canvas"},
-      "pairing": {"rgb565": "0x0842", "srgb": "#080810", "role": "Pairing background"},
-      "menu_card_legacy": {"rgb565": "0x0844", "srgb": "#080821", "role": "Prior options card fill"},
-      "keyboard": {"rgb565": "0x68F5", "srgb": "#6B1CAD", "role": "Local Wi-Fi controls"},
-      "review_top": {"rgb565": "0x10C6", "srgb": "#101831", "role": "Question review panel top"},
-      "review_bottom": {"rgb565": "0x0843", "srgb": "#080818", "role": "Question review panel bottom"},
-      "offline_disc": {"rgb565": "0x3122", "srgb": "#312410", "role": "Offline symbol background"}
+      "canvas": {
+        "rgb565": "0x0000",
+        "srgb": "#000000",
+        "role": "Default dark canvas"
+      },
+      "pairing": {
+        "rgb565": "0x0842",
+        "srgb": "#080810",
+        "role": "Pairing background"
+      },
+      "menu_card_legacy": {
+        "rgb565": "0x0844",
+        "srgb": "#080821",
+        "role": "Prior options card fill"
+      },
+      "keyboard": {
+        "rgb565": "0x68F5",
+        "srgb": "#6B1CAD",
+        "role": "Local Wi-Fi controls"
+      },
+      "review_top": {
+        "rgb565": "0x10C6",
+        "srgb": "#101831",
+        "role": "Question review panel top"
+      },
+      "review_bottom": {
+        "rgb565": "0x0843",
+        "srgb": "#080818",
+        "role": "Question review panel bottom"
+      },
+      "offline_disc": {
+        "rgb565": "0x3122",
+        "srgb": "#312410",
+        "role": "Offline symbol background"
+      },
+      "light": {
+        "rgb565": "0xFFFF",
+        "srgb": "#FFFFFF",
+        "role": "Light canvas used by authored scenes"
+      },
+      "capture": {
+        "rgb565": "0x1082"
+      }
     },
     "text": {
-      "primary": {"rgb565": "0xF7BF", "srgb": "#F7F7FF", "role": "Pairing and options titles"},
-      "default": {"rgb565": "0xF7BE", "srgb": "#F7F7F7", "role": "General foreground"},
-      "bright": {"rgb565": "0xFFFF", "srgb": "#FFFFFF", "role": "Bright foreground and charge mark"},
-      "secondary": {"rgb565": "0xADB9", "srgb": "#ADB6CE", "role": "Pairing supporting text"},
-      "muted": {"rgb565": "0x9CF3", "srgb": "#9C9E9C", "role": "Unavailable or secondary text"},
-      "detail": {"rgb565": "0xC65B", "srgb": "#C6CBDE", "role": "Quick guide detail"}
+      "primary": {
+        "rgb565": "0xF7BF",
+        "srgb": "#F7F7FF",
+        "role": "Pairing and options titles"
+      },
+      "default": {
+        "rgb565": "0xF7BE",
+        "srgb": "#F7F7F7",
+        "role": "General foreground"
+      },
+      "bright": {
+        "rgb565": "0xFFFF",
+        "srgb": "#FFFFFF",
+        "role": "Bright foreground and charge mark"
+      },
+      "secondary": {
+        "rgb565": "0xADB9",
+        "srgb": "#ADB6CE",
+        "role": "Pairing supporting text"
+      },
+      "muted": {
+        "rgb565": "0x9CF3",
+        "srgb": "#9C9E9C",
+        "role": "Unavailable or secondary text"
+      },
+      "detail": {
+        "rgb565": "0xC65B",
+        "srgb": "#C6CBDE",
+        "role": "Quick guide detail"
+      },
+      "heading_gradient": [
+        {
+          "rgb565": "0xE63F"
+        },
+        {
+          "rgb565": "0xBD5F"
+        },
+        {
+          "rgb565": "0xA4FF"
+        },
+        {
+          "rgb565": "0x9C7F"
+        },
+        {
+          "rgb565": "0x945F"
+        },
+        {
+          "rgb565": "0x83BF"
+        },
+        {
+          "rgb565": "0x737C"
+        }
+      ],
+      "subtitle": {
+        "rgb565": "0xDEDF",
+        "srgb": "#DEDBFF"
+      },
+      "subdued": {
+        "rgb565": "0xBDF7"
+      },
+      "identity_gradient": [
+        {
+          "rgb565": "0xFFDF"
+        },
+        {
+          "rgb565": "0xEF7F"
+        },
+        {
+          "rgb565": "0xE75F"
+        },
+        {
+          "rgb565": "0xE71F"
+        },
+        {
+          "rgb565": "0xDEDF"
+        },
+        {
+          "rgb565": "0xDEBF"
+        },
+        {
+          "rgb565": "0xCE5F"
+        }
+      ],
+      "choice_gradient": [
+        {
+          "rgb565": "0xEFFF"
+        },
+        {
+          "rgb565": "0xBFFF"
+        },
+        {
+          "rgb565": "0x9F5F"
+        },
+        {
+          "rgb565": "0xAEDF"
+        },
+        {
+          "rgb565": "0xC65F"
+        },
+        {
+          "rgb565": "0xD5DF"
+        },
+        {
+          "rgb565": "0xC51F"
+        }
+      ],
+      "heading_shadow": {
+        "rgb565": "0x49B7"
+      },
+      "heading_outline": {
+        "rgb565": "0x190B"
+      },
+      "voice_hint": {
+        "rgb565": "0xAD75"
+      }
     },
     "status": {
-      "ready": {"rgb565": "0x3E8A", "srgb": "#39D352", "role": "Confirmed ready/connected state"},
-      "active": {"rgb565": "0x07FF", "srgb": "#00FFFF", "role": "Active or charging state"},
-      "warning": {"rgb565": "0xF5A9", "srgb": "#F7B64A", "role": "Warning status chrome"},
-      "warning_content": {"rgb565": "0xFE27", "srgb": "#FFC739", "role": "Warning in content views"},
-      "missing": {"rgb565": "0xEA6B", "srgb": "#EF4D5A", "role": "Observed missing state"},
-      "error": {"rgb565": "0xF9CB", "srgb": "#FF385A", "role": "Observed fault"},
-      "unavailable": {"rgb565": "0x63F2", "srgb": "#637D94", "role": "Unavailable or muted status"}
+      "ready": {
+        "rgb565": "0x3E8A",
+        "srgb": "#39D352",
+        "role": "Confirmed ready/connected state"
+      },
+      "active": {
+        "rgb565": "0x07FF",
+        "srgb": "#00FFFF",
+        "role": "Active or charging state"
+      },
+      "warning": {
+        "rgb565": "0xF5A9",
+        "srgb": "#F7B64A",
+        "role": "Warning status chrome"
+      },
+      "warning_content": {
+        "rgb565": "0xFE27",
+        "srgb": "#FFC739",
+        "role": "Warning in content views"
+      },
+      "missing": {
+        "rgb565": "0xEA6B",
+        "srgb": "#EF4D5A",
+        "role": "Observed missing state"
+      },
+      "error": {
+        "rgb565": "0xF9CB",
+        "srgb": "#FF385A",
+        "role": "Observed fault"
+      },
+      "unavailable": {
+        "rgb565": "0x63F2",
+        "srgb": "#637D94",
+        "role": "Unavailable or muted status"
+      },
+      "ready_turquoise": {
+        "rgb565": "0x26F8"
+      },
+      "power_error": {
+        "rgb565": "0xFBA0"
+      }
+    },
+    "navigation": {
+      "top": {"rgb565": "0x18C3", "role": "Navigation gradient top"},
+      "bottom": {"rgb565": "0x0841", "role": "Navigation gradient bottom"},
+      "ink": {"rgb565": "0xAD55", "role": "Navigation icon"},
+      "selected": {"rgb565": "0xFFFF", "role": "Selected navigation icon"}
     },
     "chrome": {
-      "date_on_dark": {"rgb565": "0xA577", "srgb": "#A5AEBD"},
-      "date_on_light": {"rgb565": "0x63B1", "srgb": "#63758C"},
-      "time_on_dark": {"rgb565": "0xE75E", "srgb": "#E7EBF7"},
-      "time_on_light": {"rgb565": "0x3A2A", "srgb": "#394552"},
-      "row_separator": {"rgb565": "0x2106", "srgb": "#212031"},
-      "wifi_search_muted": {"rgb565": "0x39AB", "srgb": "#39345A"}
+      "date_on_dark": {
+        "rgb565": "0xA577",
+        "srgb": "#A5AEBD"
+      },
+      "date_on_light": {
+        "rgb565": "0x63B1",
+        "srgb": "#63758C"
+      },
+      "time_on_dark": {
+        "rgb565": "0xE75E",
+        "srgb": "#E7EBF7"
+      },
+      "time_on_light": {
+        "rgb565": "0x3A2A",
+        "srgb": "#394552"
+      },
+      "row_separator": {
+        "rgb565": "0x2106",
+        "srgb": "#212031"
+      },
+      "wifi_search_muted": {
+        "rgb565": "0x39AB",
+        "srgb": "#39345A"
+      },
+      "setup_progress_track": {
+        "rgb565": "0x3810",
+        "srgb": "#390084"
+      },
+      "setup_progress_highlight": {
+        "rgb565": "0xA53F",
+        "srgb": "#A5A6FF"
+      },
+      "qr_border": {
+        "rgb565": "0x8CFF",
+        "srgb": "#8C9EFF"
+      }
     },
     "controls": {
       "primary": {
-        "top": {"rgb565": "0x1147", "srgb": "#102839"},
-        "bottom": {"rgb565": "0x08C4", "srgb": "#081821"},
-        "border": {"rgb565": "0x2B4F", "srgb": "#29697B"},
-        "icon": {"rgb565": "0x8F1D", "srgb": "#8CE3EF"}
+        "top": {
+          "rgb565": "0x1147",
+          "srgb": "#102839"
+        },
+        "bottom": {
+          "rgb565": "0x08C4",
+          "srgb": "#081821"
+        },
+        "border": {
+          "rgb565": "0x2B4F",
+          "srgb": "#29697B"
+        },
+        "icon": {
+          "rgb565": "0x8F1D",
+          "srgb": "#8CE3EF"
+        }
       },
       "secondary": {
-        "top": {"rgb565": "0x18E5", "srgb": "#181C29"},
-        "bottom": {"rgb565": "0x10A3", "srgb": "#101418"},
-        "border": {"rgb565": "0x4A8C", "srgb": "#4A5163"},
-        "icon": {"rgb565": "0xBDF7", "srgb": "#BDBEBD"}
+        "top": {
+          "rgb565": "0x18E5",
+          "srgb": "#181C29"
+        },
+        "bottom": {
+          "rgb565": "0x10A3",
+          "srgb": "#101418"
+        },
+        "border": {
+          "rgb565": "0x4A8C",
+          "srgb": "#4A5163"
+        },
+        "icon": {
+          "rgb565": "0xBDF7",
+          "srgb": "#BDBEBD"
+        }
       },
       "attention": {
-        "top": {"rgb565": "0x2924", "srgb": "#292421"},
-        "bottom": {"rgb565": "0x18C3", "srgb": "#181818"},
-        "border": {"rgb565": "0x7BEF", "srgb": "#7B7D7B"},
-        "icon": {"rgb565": "0xE5F1", "srgb": "#E7BE8C"}
+        "top": {
+          "rgb565": "0x2924",
+          "srgb": "#292421"
+        },
+        "bottom": {
+          "rgb565": "0x18C3",
+          "srgb": "#181818"
+        },
+        "border": {
+          "rgb565": "0x7BEF",
+          "srgb": "#7B7D7B"
+        },
+        "icon": {
+          "rgb565": "0xE5F1",
+          "srgb": "#E7BE8C"
+        }
       },
       "destructive": {
-        "top": {"rgb565": "0x28A4", "srgb": "#291421"},
-        "bottom": {"rgb565": "0x1883", "srgb": "#181018"},
-        "border": {"rgb565": "0x796B", "srgb": "#7B2C5A"},
-        "icon": {"rgb565": "0xED53", "srgb": "#EFAA9C"}
+        "top": {
+          "rgb565": "0x28A4",
+          "srgb": "#291421"
+        },
+        "bottom": {
+          "rgb565": "0x1883",
+          "srgb": "#181018"
+        },
+        "border": {
+          "rgb565": "0x796B",
+          "srgb": "#7B2C5A"
+        },
+        "icon": {
+          "rgb565": "0xED53",
+          "srgb": "#EFAA9C"
+        }
       },
       "browser_row": {
-        "top": {"rgb565": "0x2125", "srgb": "#212429"},
-        "bottom": {"rgb565": "0x1082", "srgb": "#101010"},
-        "border": {"rgb565": "0x31A6", "srgb": "#313431"}
+        "top": {
+          "rgb565": "0x2125",
+          "srgb": "#212429"
+        },
+        "bottom": {
+          "rgb565": "0x1082",
+          "srgb": "#101010"
+        },
+        "border": {
+          "rgb565": "0x31A6",
+          "srgb": "#313431"
+        }
+      },
+      "info": {
+        "top": {
+          "rgb565": "0x1106",
+          "srgb": "#102031"
+        },
+        "bottom": {
+          "rgb565": "0x08A4",
+          "srgb": "#081421"
+        },
+        "border": {
+          "rgb565": "0x3291",
+          "srgb": "#31518C"
+        },
+        "icon": {
+          "rgb565": "0xA71F",
+          "srgb": "#A5E3FF"
+        }
+      },
+      "content_primary": {
+        "bottom": {
+          "rgb565": "0x10C6"
+        },
+        "top": {
+          "rgb565": "0x226B"
+        },
+        "border": {
+          "rgb565": "0x4B9B"
+        }
+      },
+      "content_secondary": {
+        "bottom": {
+          "rgb565": "0x10A4"
+        },
+        "top": {
+          "rgb565": "0x2947"
+        },
+        "border": {
+          "rgb565": "0x73AF"
+        }
+      },
+      "content_selected": {
+        "bottom": {
+          "rgb565": "0x10C6"
+        },
+        "top": {
+          "rgb565": "0x246E"
+        },
+        "border": {
+          "rgb565": "0x5FF1"
+        }
+      },
+      "tertiary": {
+        "border": {
+          "rgb565": "0x3291"
+        },
+        "icon": {
+          "rgb565": "0xA71F"
+        },
+        "top": {
+          "rgb565": "0x1106"
+        },
+        "bottom": {
+          "rgb565": "0x08A4"
+        }
+      },
+      "setup_highlight": {
+        "top": {
+          "rgb565": "0x2B9D"
+        },
+        "bottom": {
+          "rgb565": "0x128E"
+        },
+        "border": {
+          "rgb565": "0x64DF"
+        }
+      },
+      "menu_legacy_border": {
+        "rgb565": "0x8CFF"
       }
     },
     "perimeter": {
       "assistant_quota": {
         "role": "Outer allowance arc, interpolated clockwise from twelve o'clock; the measured remaining quota controls its visible extent.",
         "stops": [
-          {"rgb565": "0x4F9B", "srgb": "#4AF3DE"},
-          {"rgb565": "0x651F", "srgb": "#63A2FF"},
-          {"rgb565": "0xB37F", "srgb": "#B56DFF"},
-          {"rgb565": "0xE39B", "srgb": "#E771DE"},
-          {"rgb565": "0x4F9B", "srgb": "#4AF3DE"}
+          {
+            "rgb565": "0x4F9B",
+            "srgb": "#4AF3DE"
+          },
+          {
+            "rgb565": "0x651F",
+            "srgb": "#63A2FF"
+          },
+          {
+            "rgb565": "0xB37F",
+            "srgb": "#B56DFF"
+          },
+          {
+            "rgb565": "0xE39B",
+            "srgb": "#E771DE"
+          },
+          {
+            "rgb565": "0x4F9B",
+            "srgb": "#4AF3DE"
+          }
         ]
       },
       "battery": {
         "role": "Inner battery arc: dark track and a green-to-yellow fill reflecting measured charge.",
-        "track": {"rgb565": "0x18C3", "srgb": "#181818"},
-        "green": {"rgb565": "0x366A", "srgb": "#31CF52"},
-        "yellow": {"rgb565": "0xCF25", "srgb": "#CEE729"}
+        "track": {
+          "rgb565": "0x18C3",
+          "srgb": "#181818"
+        },
+        "green": {
+          "rgb565": "0x366A",
+          "srgb": "#31CF52"
+        },
+        "yellow": {
+          "rgb565": "0xCF25",
+          "srgb": "#CEE729"
+        }
       }
     },
     "gradients": {
       "home_action_text": {
         "role": "Seven-row Home action text and icon color; interpolation follows gradient_action_color in native RGB565.",
         "segments": [
-          {"foreground": "0x2C7F", "background": "0x56BF"},
-          {"foreground": "0xA3FF", "background": "0x2C7F"},
-          {"foreground": "0xFC7D", "background": "0xA3FF"}
+          {
+            "foreground": "0x2C7F",
+            "background": "0x56BF"
+          },
+          {
+            "foreground": "0xA3FF",
+            "background": "0x2C7F"
+          },
+          {
+            "foreground": "0xFC7D",
+            "background": "0xA3FF"
+          }
         ]
       },
       "codex_waiting": {
         "role": "Connecting icon pulse frames in native RGB565 order.",
-        "frames": ["0x634D", "0x8CB4", "0xB5BB", "0x8CB4"]
+        "frames": [
+          "0x634D",
+          "0x8CB4",
+          "0xB5BB",
+          "0x8CB4"
+        ]
+      }
+    },
+    "dashboard": {
+      "secondary": {"rgb565": "0x549E", "role": "Secondary metric and allowance"},
+      "positive": {"rgb565": "0x4EE8", "role": "Connected and positive metric"},
+      "track": {"rgb565": "0x2127", "role": "Metric track and subtle separator"},
+      "separator": {"rgb565": "0x39F1", "role": "Metric section separator"},
+      "attention": {"rgb565": "0xFD20", "role": "Attention in dashboard and countdown"},
+      "error": {"rgb565": "0xF986", "role": "Error in dashboard metrics"}
+    },
+    "firmware": {
+      "account_dashboard": {
+        "gold": {
+          "rgb565": "0xFE27"
+        }
+      },
+      "codex_browser": {
+        "mint": {
+          "rgb565": "0x67F0"
+        }
+      },
+      "codex_panels": {
+        "cyan": {
+          "rgb565": "0x06FF"
+        },
+        "rule": {
+          "rgb565": "0x39E7"
+        }
+      },
+      "device_view": {
+        "attention": {
+          "rgb565": "0xFE27"
+        }
+      },
+      "home_dashboard": {
+        "mint": {
+          "rgb565": "0x5FF9"
+        },
+        "white": {
+          "rgb565": "0xFFFF"
+        },
+        "muted": {
+          "rgb565": "0x9CD3"
+        },
+        "track": {
+          "rgb565": "0x2125"
+        }
+      },
+      "onboarding": {
+        "debugtextcolor": {
+          "rgb565": "0xF7BE"
+        }
+      },
+      "reset_countdown": {
+        "tiletop": {
+          "rgb565": "0x2125"
+        },
+        "tilebottom": {
+          "rgb565": "0x0862"
+        },
+        "foldtop": {
+          "rgb565": "0x1904"
+        },
+        "foldbottom": {
+          "rgb565": "0x10A3"
+        },
+        "hinge": {
+          "rgb565": "0x4208"
+        }
+      },
+      "technical_panels": {
+        "white": {
+          "rgb565": "0xFFFF"
+        },
+        "muted": {
+          "rgb565": "0xBDF7"
+        },
+        "cyan": {
+          "rgb565": "0x07FF"
+        },
+        "neutral": {
+          "rgb565": "0x632C"
+        }
+      },
+      "text_entry": {
+        "ink": {
+          "rgb565": "0xF7BE"
+        }
+      },
+      "token_history": {
+        "bright": {
+          "rgb565": "0x5FF1"
+        },
+        "oldbright": {
+          "rgb565": "0x7C34"
+        },
+        "bars": {
+          "rgb565": "0x12CF"
+        },
+        "oldbars": {
+          "rgb565": "0x226A"
+        },
+        "grid": {
+          "rgb565": "0x0986"
+        },
+        "chartbackground": {
+          "rgb565": "0x0062"
+        },
+        "gap": {
+          "rgb565": "0x318A"
+        }
+      },
+      "debug_hud": {
+        "textwhitesmoke": {
+          "rgb565": "0xF7BE"
+        },
+        "textblack": {
+          "rgb565": "0x0000"
+        }
+      },
+      "debug_views": {
+        "usedcolor": {
+          "rgb565": "0x347F"
+        },
+        "largestcolor": {
+          "rgb565": "0x4F39"
+        },
+        "otherfreecolor": {
+          "rgb565": "0xFDA5"
+        }
+      }
+    },
+    "events": {
+      "review_border": {
+        "rgb565": "0x294B"
+      },
+      "waiting_dot": {
+        "rgb565": "0xFA28"
+      },
+      "pc_heading": {
+        "rgb565": "0xFE07"
+      }
+    },
+    "audio": {
+      "meter_track": {
+        "rgb565": "0x18C3"
+      },
+      "meter_border": {
+        "rgb565": "0x4A69"
+      }
+    },
+    "device_view": {
+      "battery_normal_top": {
+        "rgb565": "0x0926"
+      },
+      "battery_bottom": {
+        "rgb565": "0x0841"
+      },
+      "battery_charge_top": {
+        "rgb565": "0x3204"
+      },
+      "cancel_top": {
+        "rgb565": "0x70C8"
+      },
+      "battery_charge_border": {
+        "rgb565": "0xFD25"
+      },
+      "cancel_bottom": {
+        "rgb565": "0x38A5"
+      },
+      "cancel_border": {
+        "rgb565": "0xBA0B"
+      }
+    },
+    "text_entry": {
+      "field_top": {
+        "rgb565": "0x18C6"
+      }
+    },
+    "codex_browser": {
+      "action_border": {
+        "rgb565": "0x39E7"
+      },
+      "action_top": {
+        "rgb565": "0x2947"
+      }
+    },
+    "waveform": {
+      "stops": [
+        {
+          "rgb565": "0x16FF"
+        },
+        {
+          "rgb565": "0x4A9F"
+        },
+        {
+          "rgb565": "0xF2B8"
+        },
+        {
+          "rgb565": "0xAB1F"
+        }
+      ]
+    },
+    "activity": {
+      "timer_text": {
+        "rgb565": "0xC618"
+      }
+    },
+    "cost": {
+      "economy": {
+        "rgb565": "0x87EF"
+      },
+      "expensive": {
+        "rgb565": "0xF986"
+      },
+      "balanced": {
+        "rgb565": "0xFD20"
+      }
+    },
+    "approval": {
+      "clock_hand": {
+        "rgb565": "0xFE87"
+      },
+      "approved_mark": {
+        "rgb565": "0x7F55"
+      },
+      "chat_title": {
+        "rgb565": "0x3DFF"
+      },
+      "rejected_mark": {
+        "rgb565": "0xFAD3"
+      },
+      "keyboard_highlight": {
+        "rgb565": "0x5DBB"
+      },
+      "panels": [
+        {
+          "bottom": {
+            "rgb565": "0x09AB"
+          },
+          "border": {
+            "rgb565": "0x2C15"
+          },
+          "top": {
+            "rgb565": "0x1B32"
+          }
+        },
+        {
+          "bottom": {
+            "rgb565": "0x1A90"
+          },
+          "border": {
+            "rgb565": "0x3C97"
+          },
+          "top": {
+            "rgb565": "0x3D39"
+          }
+        },
+        {
+          "bottom": {
+            "rgb565": "0x1B94"
+          },
+          "border": {
+            "rgb565": "0x867F"
+          },
+          "top": {
+            "rgb565": "0x65FF"
+          }
+        },
+        {
+          "bottom": {
+            "rgb565": "0x0045"
+          },
+          "border": {
+            "rgb565": "0x2BF6"
+          },
+          "top": {
+            "rgb565": "0x096A"
+          }
+        },
+        {
+          "bottom": {
+            "rgb565": "0x08C5"
+          },
+          "border": {
+            "rgb565": "0x2BCE"
+          },
+          "top": {
+            "rgb565": "0x11C9"
+          }
+        },
+        {
+          "bottom": {
+            "rgb565": "0x2085"
+          },
+          "border": {
+            "rgb565": "0xA1CD"
+          },
+          "top": {
+            "rgb565": "0x38C7"
+          }
+        },
+        {
+          "bottom": {
+            "rgb565": "0x28C2"
+          },
+          "border": {
+            "rgb565": "0xFE07"
+          },
+          "top": {
+            "rgb565": "0x5144"
+          }
+        },
+        {
+          "bottom": {
+            "rgb565": "0x096A"
+          },
+          "border": {
+            "rgb565": "0x2C36"
+          },
+          "top": {
+            "rgb565": "0x1B52"
+          }
+        }
+      ],
+      "keyboard_shadow": {
+        "rgb565": "0x2B94"
+      },
+      "keyboard_primary": {
+        "rgb565": "0x3C98"
+      }
+    },
+    "look": {
+      "scrollbar": {
+        "rgb565": "0x6C33"
+      }
+    },
+    "debug": {
+      "back_top": {
+        "rgb565": "0x2104"
+      },
+      "button_bottom": {
+        "rgb565": "0x11C6"
+      },
+      "neutral": {
+        "rgb565": "0x3186"
+      },
+      "button_top": {
+        "rgb565": "0x22CA"
+      },
+      "back_bottom": {
+        "rgb565": "0x1082"
+      }
+    },
+    "branding": {
+      "rainbow": [
+        {
+          "rgb565": "0x07E0"
+        },
+        {
+          "rgb565": "0xFFE0"
+        },
+        {
+          "rgb565": "0xFD20"
+        },
+        {
+          "rgb565": "0xF800"
+        },
+        {
+          "rgb565": "0xA01F"
+        },
+        {
+          "rgb565": "0x001F"
+        }
+      ]
+    },
+    "wifi_hourglass": {
+      "glass": {
+        "rgb565": "0x6DFF"
+      },
+      "cap": {
+        "rgb565": "0xAD9F"
+      },
+      "sand": {
+        "rgb565": "0xFEA0"
+      }
+    },
+    "account": {
+      "older_bar": {
+        "rgb565": "0x4435"
+      },
+      "newest_bar": {
+        "rgb565": "0x4DF9"
+      }
+    },
+    "codex_panels": {
+      "action_bottom": {
+        "rgb565": "0x1082"
+      },
+      "selected_row": {
+        "rgb565": "0x1082"
+      },
+      "action_top": {
+        "rgb565": "0x2127"
+      }
+    },
+    "qr": {
+      "light": {
+        "rgb565": "0xFFFF"
+      },
+      "dark": {
+        "rgb565": "0x0000"
+      }
+    },
+    "personality": {
+      "battery_ready": {
+        "rgb565": "0x07E0"
+      },
+      "working": {
+        "rgb565": "0x5EDD"
+      },
+      "battery_low": {
+        "rgb565": "0xF986"
       }
     }
   },
@@ -137,8 +1005,96 @@
     "setup_warning_field": "#36240E",
     "codex_connection": "#BAB2FF",
     "wifi_connection": "#77E9CA",
-    "primary_control": {"top": "#10283A", "bottom": "#081821", "border": "#29697B", "icon": "#8CE2EF"},
-    "secondary_control": {"top": "#191C29", "bottom": "#101419", "border": "#4A5163", "icon": "#BDBEBD"},
-    "destructive_control": {"top": "#291421", "bottom": "#181018", "border": "#7B2D5A", "icon": "#EFAA9C"}
+    "primary_control": {
+      "top": "#10283A",
+      "bottom": "#081821",
+      "border": "#29697B",
+      "icon": "#8CE2EF"
+    },
+    "secondary_control": {
+      "top": "#191C29",
+      "bottom": "#101419",
+      "border": "#4A5163",
+      "icon": "#BDBEBD"
+    },
+    "destructive_control": {
+      "top": "#291421",
+      "bottom": "#181018",
+      "border": "#7B2D5A",
+      "icon": "#EFAA9C"
+    },
+    "host_ui": {
+      "background": "#0C121D",
+      "canvas": "#0A1019",
+      "panel": "#121C2A",
+      "card": "#192536",
+      "field": "#0F1927",
+      "border": "#2B3B50",
+      "text": "#EDF4FC",
+      "muted": "#99ADC5",
+      "disabled": "#61748C",
+      "accent": "#60D4C5",
+      "accent_hover": "#8AE5D9",
+      "accent_dark": "#244E50",
+      "button_hover": "#24364A"
+    },
+    "globe": {
+      "blue": "#2391DC",
+      "violet": "#A02DB4",
+      "green": "#1E9B78"
+    },
+    "device_ui": {
+      "guide_touch": "#BCA4FF",
+      "guide_offline": "#85EFC3",
+      "title_shadow": "#2F1F80",
+      "title_outline": "#0F0B2D",
+      "icon_title_top": "#C0F6FF",
+      "icon_title_bottom": "#DC99F4",
+      "title_top": "#DAC7FF",
+      "title_bottom": "#7E5BE9",
+      "back_background": "#2B303B",
+      "page_active": "#A5A7FF",
+      "page_inactive": "#3A3055",
+      "qr_light": "#FFFFFF",
+      "qr_dark": "#000000",
+      "canvas_black": "#000000",
+      "action_cyan": "#52D4FF",
+      "action_violet": "#A67DFF",
+      "action_pink": "#FB8FEF",
+      "link_pulse_dark": "#62696A",
+      "link_pulse_mid": "#8C96A5",
+      "link_pulse_light": "#B5B6DE",
+      "wifi_keyboard": "#6B1CAD",
+      "wifi_field_top": "#181831",
+      "wifi_field_bottom": "#080810",
+      "wifi_field_border": "#4A71DE",
+      "wifi_key_hint": "#D8C7F7",
+      "platform_green": "#00FF00",
+      "platform_yellow": "#FFFF00",
+      "platform_orange": "#FFAA00",
+      "platform_red": "#FF0000",
+      "platform_violet": "#AA00FF",
+      "platform_blue": "#0055FF",
+      "hourglass_cap": "#ADB3FF",
+      "hourglass_glass": "#6BBEFF",
+      "hourglass_sand": "#FFD500",
+      "row_separator": "#212031",
+      "guide_outline": "#3E5B71",
+      "context_track": "#182230",
+      "device_divider": "#212735",
+      "home_notice": "#C791FF",
+      "qr_chrome_border": "#A5A7FF"
+    },
+    "preview": {
+      "sheet_background": "#101820",
+      "sheet_title": "#75CBF3",
+      "sheet_detail": "#C3D0D5",
+      "question_sheet": "#171C24",
+      "mesh_edge": "#DC9477",
+      "mesh_vertex": "#6AEBEC",
+      "cloud_shadow": "#6686AE",
+      "cloud_cool": "#E5EFF7",
+      "cloud_warm": "#FFF6DB"
+    }
   }
 }

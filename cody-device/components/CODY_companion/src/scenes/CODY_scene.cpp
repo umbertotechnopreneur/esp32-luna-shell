@@ -18,6 +18,7 @@
 #include "CODY_activity_description.hpp"
 #include "CODY_command_hints.hpp"
 #include "CODY_activity_identity.hpp"
+#include "CODY_title_style.hpp"
 
 #include <algorithm>
 #include <cstring>
@@ -99,6 +100,40 @@ DamageRect text_bounds(const CODY2D::TextLine &line)
     return {line.bounds.x, line.bounds.y,
         static_cast<uint16_t>(line.bounds.x + line.bounds.width),
         static_cast<uint16_t>(line.bounds.y + line.bounds.height)};
+}
+
+// length: Full borrowed caption length.
+// height: Height of the authored title slot.
+uint32_t scene_heading_width(uint16_t length, uint16_t height)
+{
+    return TitleStyleDetail::width(length, std::min<uint16_t>(3, height / 7U));
+}
+
+// definition: Authored title row and its metrics.
+// text: Complete caption retained through frame retirement.
+// line: Receives the title and its circular viewport.
+// Exception: Returns invalid text or size when no title slot can be admitted.
+esp_err_t prepare_scene_heading(const SceneDefinition &definition, CODY2D::TextSpan text, CODY2D::TextLine &line)
+{
+    const auto font_error = CODY2D::validate_mono_font(*definition.font);
+    if (font_error != ESP_OK) return font_error;
+    const uint16_t height = definition.font->height;
+    const uint16_t bottom = definition.title_top + height;
+    uint16_t width = static_cast<uint16_t>(std::min<uint32_t>(320, scene_heading_width(text.length, height)));
+    if (bottom > 466) return ESP_ERR_INVALID_SIZE;
+    for (; width > 0; --width) {
+        const uint16_t left = (466U - width) / 2U;
+        if (!inside_circle({left, definition.title_top, static_cast<uint16_t>(left + width), bottom})) continue;
+        const CODY2D::Rect viewport{left, definition.title_top, width, height};
+        StyledTitle heading{};
+        const auto error = prepare_styled_title(text, viewport, heading, 3, true);
+        if (error != ESP_OK) return error;
+        // This line carries the viewport for the arcade renderer, which clips the complete caption.
+        line = {definition.font, text, {static_cast<int16_t>(left), static_cast<int16_t>(definition.title_top)},
+            definition.title_color, viewport, true};
+        return ESP_OK;
+    }
+    return ESP_ERR_INVALID_SIZE;
 }
 } // namespace
 
@@ -196,28 +231,10 @@ esp_err_t begin_scene(const SceneDefinition &definition, SceneFrame &frame)
         return error;
     }
 #endif
-    error = CODY2D::validate_mono_font(*definition.font);
-    if (error != ESP_OK) {
-        return error;
-    }
-    const uint32_t width = static_cast<uint32_t>(definition.title.length - 1U) *
-        definition.font->advance + definition.font->width;
-    if (width > 320) {
-        ESP_LOGE(kTag, "Scene title too wide: %lu (%s)", static_cast<unsigned long>(width),
-            esp_err_to_name(ESP_ERR_INVALID_SIZE));
-        return ESP_ERR_INVALID_SIZE;
-    }
     SceneFrame prepared{};
-    const CODY2D::Point origin{static_cast<int16_t>((466U - width) / 2U),
-        static_cast<int16_t>(definition.title_top)};
-    error = CODY2D::prepare_text_line(*definition.font, definition.title,
-        origin, definition.title_color, prepared.title);
+    error = prepare_scene_heading(definition, definition.title, prepared.title);
     if (error != ESP_OK) {
         return error;
-    }
-    if (!inside_circle(text_bounds(prepared.title))) {
-        ESP_LOGE(kTag, "Scene title leaves the display circle (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
-        return ESP_ERR_INVALID_SIZE;
     }
     prepared.definition = &definition;
 #if defined(CODY_DEVICE_UI_ONLY)
@@ -244,36 +261,42 @@ esp_err_t set_scene_title(SceneFrame &frame, CODY2D::TextSpan title)
         ESP_LOGE(kTag, "Scene title replacement rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
-    const auto &definition = *frame.definition;
-    const uint32_t width = static_cast<uint32_t>(title.length - 1U) *
-        definition.font->advance + definition.font->width;
-    if (width > 320) {
-        ESP_LOGE(kTag, "Replacement scene title too wide: %lu (%s)",
-            static_cast<unsigned long>(width), esp_err_to_name(ESP_ERR_INVALID_SIZE));
-        return ESP_ERR_INVALID_SIZE;
-    }
     CODY2D::TextLine prepared;
-    const CODY2D::Point origin{static_cast<int16_t>((466U - width) / 2U),
-        static_cast<int16_t>(definition.title_top)};
-    const esp_err_t error = CODY2D::prepare_text_line(*definition.font, title,
-        origin, definition.title_color, prepared);
+    const esp_err_t error = prepare_scene_heading(*frame.definition, title, prepared);
     if (error != ESP_OK) {
         return error;
-    }
-    if (!inside_circle(text_bounds(prepared))) {
-        ESP_LOGE(kTag, "Replacement title leaves circular chord (%s)", esp_err_to_name(ESP_ERR_INVALID_SIZE));
-        return ESP_ERR_INVALID_SIZE;
     }
     frame.title = prepared;
 #if defined(CODY_DEVICE_UI_ONLY)
     frame.visible_characters = title.length;
 #else
     frame.visible_characters = frame.intro_phase == SceneIntroPhase::Complete &&
-        definition.character_interval_ms == 0 ? title.length : 0;
+        frame.definition->character_interval_ms == 0 ? title.length : 0;
 #endif
     frame.character_remainder_us = 0;
     frame.text_elapsed_us = 0;
     return ESP_OK;
+}
+
+// frame: Prepared title and its authored scene.
+bool scene_title_overflows(const SceneFrame &frame)
+{
+    return frame.valid && frame.definition->title_visible &&
+        scene_heading_width(frame.title.text.length, frame.title.bounds.height) > frame.title.bounds.width;
+}
+
+// frame: Scene carrying the title's active-time clock.
+uint16_t scene_title_scroll_offset(const SceneFrame &frame)
+{
+    if (!scene_title_overflows(frame) || frame.visible_characters != frame.title.text.length) return 0;
+    uint64_t elapsed_us = frame.text_elapsed_us;
+#if !defined(CODY_DEVICE_UI_ONLY)
+    const uint64_t reveal_us = static_cast<uint64_t>(frame.definition->character_interval_ms) *
+        1000U * frame.title.text.length;
+    elapsed_us -= std::min(elapsed_us, reveal_us);
+#endif
+    return styled_title_scroll_offset(scene_heading_width(frame.title.text.length, frame.title.bounds.height),
+        frame.title.bounds.width, elapsed_us);
 }
 
 // frame: Prepared scene with a bounded, explicitly named introduction phase.
@@ -485,6 +508,13 @@ esp_err_t set_scene_content(SceneFrame &frame, const SceneContent &content)
         }
     }
     const bool empty = content.draw_rows == nullptr && content.state == nullptr && empty_bounds(content.bounds);
+    if (content.heading.scale != 0) {
+        const auto &heading = content.heading.bounds;
+        if (empty || heading.x < content.bounds.left || heading.y < content.bounds.top ||
+            heading.x + heading.width > content.bounds.right || heading.y + heading.height > content.bounds.bottom) {
+            return ESP_ERR_INVALID_SIZE;
+        }
+    }
     const auto &caption = content.leading_caption_bounds;
     const bool has_caption = !empty_bounds(caption);
     if (has_caption && (empty || !frame.title.valid || !inside_circle(caption) ||
@@ -555,16 +585,10 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
         if (error != ESP_OK) {
             return error;
         }
-    } else if (previous.visible_characters != current.visible_characters) {
-        const uint16_t first = std::min(previous.visible_characters, current.visible_characters);
-        const uint16_t last = std::max(previous.visible_characters, current.visible_characters);
-        const auto &font = *current.title.font;
-        const DamageRect changed{
-            static_cast<uint16_t>(current.title.origin.x + first * font.advance),
-            static_cast<uint16_t>(current.title.origin.y),
-            static_cast<uint16_t>(current.title.origin.x + (last - 1U) * font.advance + font.width),
-            static_cast<uint16_t>(current.title.origin.y + font.height)};
-        const esp_err_t error = include_damage(plan, changed);
+    } else if (previous.visible_characters != current.visible_characters ||
+        scene_title_scroll_offset(previous) != scene_title_scroll_offset(current)) {
+        // The full title viewport may change when the prefix reveals or the title moves.
+        const esp_err_t error = include_damage(plan, text_bounds(current.title));
         if (error != ESP_OK) {
             return error;
         }
@@ -674,9 +698,10 @@ esp_err_t plan_scene_damage(const SceneFrame &previous, const SceneFrame &curren
 // strip: Cloud-composited caller-owned RGB565 tile; this layer does not clear it.
 // first_row: Logical tile y origin shared by all layers.
 // first_column: Logical tile x origin shared by all layers.
+// heading_offset: Marquee position for a heading owned by the scene's content.
 // Exception: Returns real scene, presentation or clipped content drawing failures.
 esp_err_t draw_scene_rows(const SceneFrame &frame, CODY2D::Surface strip,
-                          uint16_t first_row, uint16_t first_column)
+                          uint16_t first_row, uint16_t first_column, uint16_t heading_offset)
 {
     if (!frame.valid || frame.definition == nullptr) {
         ESP_LOGE(kTag, "Scene draw rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
@@ -687,9 +712,17 @@ esp_err_t draw_scene_rows(const SceneFrame &frame, CODY2D::Surface strip,
     if (presentation_error != ESP_OK || !presentation.content_visible) {
         return presentation_error;
     }
-    esp_err_t error = frame.definition->title_visible
-        ? CODY2D::draw_text_rows(frame.title, frame.visible_characters, strip, first_row, first_column)
-        : ESP_OK;
+    esp_err_t error = ESP_OK;
+    if (frame.definition->title_visible) {
+        StyledTitle title{};
+        // Rebuild only the small borrowed projection: callers may replace the
+        // prepared title or its font between frames while retaining scene timing.
+        error = prepare_styled_title(frame.title.text, frame.title.bounds, title, 3, true);
+        if (error == ESP_OK) {
+            error = draw_styled_title_rows(title, strip, first_row, first_column, frame.visible_characters,
+                false, scene_title_scroll_offset(frame));
+        }
+    }
     if (error == ESP_OK && frame.command_hints != nullptr) {
         error = draw_command_hints(*frame.command_hints, strip, first_row, first_column);
     }
@@ -701,6 +734,9 @@ esp_err_t draw_scene_rows(const SceneFrame &frame, CODY2D::Surface strip,
     }
     if (error == ESP_OK && frame.activity_identity != nullptr) {
         error = draw_activity_identity(*frame.activity_identity, strip, first_row, first_column);
+    }
+    if (error == ESP_OK) {
+        error = draw_content_heading_rows(frame.content, strip, first_row, first_column, heading_offset);
     }
     if (error != ESP_OK || frame.content.draw_rows == nullptr) {
         return error;

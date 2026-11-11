@@ -4,6 +4,7 @@ from functools import lru_cache
 from PIL import Image
 
 from cody_preview_layout import SIZE
+from cody_semantic_palette import studio_rgb
 
 
 GRID = 65
@@ -43,9 +44,9 @@ def render_screensaver(tick: int) -> Image.Image:
     lobes = tuple((32 * subpixel + drift_x + int(wave(phase_time * 2 + phase * 25) * (5 * subpixel) / 127),
                    32 * subpixel + drift_y + int(wave(phase_time * 2 + (phase + 64) * 25) * (5 * subpixel) / 127),
                    radius * subpixel, color)
-                  for phase, radius, color in ((0, 25, (35, 145, 220)),
-                                               (85, 24, (160, 45, 180)),
-                                               (170, 23, (30, 155, 120))))
+                  for phase, radius, color in ((0, 25, studio_rgb("globe", "blue")),
+                                               (85, 24, studio_rgb("globe", "violet")),
+                                               (170, 23, studio_rgb("globe", "green"))))
     pixels = []
     for y in range(GRID):
         for x in range(GRID):
@@ -61,7 +62,7 @@ def render_screensaver(tick: int) -> Image.Image:
             pixels.append(((red >> 3) * 255 // 31, (green >> 2) * 255 // 63, (blue >> 3) * 255 // 31))
     image = Image.new("RGB", (GRID, GRID))
     image.putdata(pixels)
-    frame = Image.new("RGB", (SIZE, SIZE))
+    frame = Image.new("RGB", (SIZE, SIZE), studio_rgb("device_ui", "canvas_black"))
     # Firmware repeats the first 64 cells five times; the extra row/column
     # remains a grid border and is not stretched into the image.
     cells = image.crop((0, 0, GRID - 1, GRID - 1))

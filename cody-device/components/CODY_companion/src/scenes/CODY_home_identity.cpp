@@ -1,4 +1,5 @@
 #include "CODY_home_identity.hpp"
+#include "CODY_theme_generated.hpp"
 #include "home_dashboard_fonts.hpp"
 #include "LUNASHELL_codex_presence.hpp"
 #include "esp_log.h"
@@ -63,7 +64,8 @@ esp_err_t prepare_home_identity(SceneFrame &scene, const LUNASHELL::CodexLinkSna
     const bool attention = codex && (inputs.phase == LUNASHELL::CodexActivityState::Paused ||
         inputs.phase == LUNASHELL::CodexActivityState::Interrupted);
     const bool compacting = codex && inputs.compaction == LUNASHELL::CodexCompactionState::Active;
-    const uint16_t title_color = compacting ? 0xFD20 : attention ? scene.title.color : 0x5FF9;
+    const uint16_t title_color = compacting ? Theme::dashboard_attention :
+        attention ? scene.title.color : Theme::firmware_home_dashboard_mint;
     error = CODY2D::prepare_text_line(heading, scene.title.text,
         {static_cast<int16_t>((466U - title_width) / 2U), 190}, title_color, scene.title);
     if (error != ESP_OK) { return identity_result("heading_prepare", error); }
@@ -118,7 +120,7 @@ esp_err_t prepare_home_identity(SceneFrame &scene, const LUNASHELL::CodexLinkSna
     if (error != ESP_OK) { return identity_result("model_window", error); }
     const int16_t left = width <= 320 ? static_cast<int16_t>((466U - width) / 2U) :
         static_cast<int16_t>(73 + origin_offset);
-    error = CODY2D::prepare_text_line(font, window, {left, 236}, 0x9CD3, owner.model_line);
+    error = CODY2D::prepare_text_line(font, window, {left, 236}, Theme::firmware_home_dashboard_muted, owner.model_line);
     if (error != ESP_OK) { return identity_result("model_prepare", error); }
     changed = changed || owner.offset != offset;
     owner.offset = offset;

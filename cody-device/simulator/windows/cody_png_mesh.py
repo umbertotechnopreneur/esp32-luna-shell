@@ -24,6 +24,7 @@ import math
 from PIL import Image, ImageDraw
 
 from scripts.common.cody_rig_contract import evaluate
+from cody_semantic_palette import studio_hex
 
 
 @dataclass(frozen=True)
@@ -252,7 +253,7 @@ class PngMeshStudy:
             draw = ImageDraw.Draw(image)
             for triangle in self.triangles:
                 points = [positions[name] for name in triangle.vertices]
-                draw.line(points + points[:1], fill='#DC9477', width=1)
+                draw.line(points + points[:1], fill=studio_hex("preview", "mesh_edge"), width=1)
             for name in self.anchors:
                 horizontal, vertical = scene['world'][name]
-                draw.ellipse((horizontal - 2, vertical - 2, horizontal + 2, vertical + 2), fill='#6AEBEC')
+                draw.ellipse((horizontal - 2, vertical - 2, horizontal + 2, vertical + 2), fill=studio_hex("preview", "mesh_vertex"))

@@ -15,6 +15,7 @@
  * VBWR E */
 
 #include "CODY_rig.hpp"
+#include "CODY_theme_generated.hpp"
 
 #include <cmath>
 #include <algorithm>
@@ -414,13 +415,13 @@ esp_err_t draw_navigation_rows(CODY2D::Surface strip, uint16_t first_row,
             case RigControlState::Idle:
                 break;
             case RigControlState::Busy:
-                icon_color = 0xF5A9; // Luna semantic warning #f0b44d.
+                icon_color = Theme::status_warning;
                 break;
             case RigControlState::Succeeded:
-                icon_color = 0x26F8; // Luna semantic ready #20dfc1.
+                icon_color = Theme::status_ready_turquoise;
                 break;
             case RigControlState::Failed:
-                icon_color = 0xF9CB; // Luna semantic fault #ff3859.
+                icon_color = Theme::status_error;
                 break;
             }
         }
