@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Offline logging and native USB readback
 
 The canonical logger captures diagnostics before best-effort native USB output.
@@ -202,3 +204,7 @@ storage task polls card status; removal or transport failure invalidates and
 unmounts the volume before retrying. Internal, destructive, poisoned, or
 incompletely cleaned failures stop retries for the current boot and remain
 visible as terminal cleanup/ownership errors.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

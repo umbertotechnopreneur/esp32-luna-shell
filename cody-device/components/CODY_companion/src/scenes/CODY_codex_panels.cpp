@@ -1,4 +1,5 @@
 #include "CODY_codex_panels.hpp"
+#include "CODY_screen_content.hpp"
 #include "CODY_title_style.hpp"
 #include "CODY_ui_components.hpp"
 #include "CODY_typography.hpp"
@@ -206,14 +207,13 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
 
 // view: Prepared panel whose text storage remains stable until frame retirement.
 // content: Receives the native damage and draw callback.
+// Exception: Preserves native caption preparation errors.
 esp_err_t attach(const CodexPanelView &view, SceneContent &content)
 {
-    content = {};
-    content.bounds = kBounds;
-    content.revision = view.revision;
-    content.state = &view;
-    content.draw_rows = draw_rows;
-    return prepare_styled_title(view.lines[0].text, view.line_boxes[0], content.heading, 3, true);
+    ScreenHeader header{};
+    header.title = view.lines[0].text;
+    header.title_bounds = view.line_boxes[0];
+    return ScreenContent::attach(content, kBounds, &view, view.revision, draw_rows, header);
 }
 
 // view: Persistent panel; borrows only its own storage or static captions.

@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Cody pearl boot frames
 
 `cody-sleep-pearl.png`, `cody-waking-pearl.png`, and `cody-ready-pearl.png` are the opaque 1254-square Imagegen source frames. The built-in image generator was used in reference-guided edit mode (`transparent_background=false`), starting from the existing pearl Cody body and then editing each face while keeping its silhouette, scale, position, pastel material, soft coral cheeks, and black backdrop consistent. These sources are not decoded on-device.
@@ -9,3 +11,7 @@ The final visual briefs were:
 - Waking: preserve the Sleeping cloud's shape and material; two drowsy half-open eyes with dark pupils and a small round mouth; pure black backdrop, no additional marks.
 
 Run `scripts/device.ps1 generate -Generator package-cody-boot` after source changes. This produces 466-square, 63-color indexed RGB565 row-RLE tables in `generated/`; the firmware reads these directly from flash without a PNG decoder or full-screen asset buffer. The original generator outputs remain in the local Codex image store; these project PNGs are the selected copies.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Waveshare ESP32-S3 AMOLED board comparison
 
 Hardware specifications come from the supplied schematics, PCB sheets, dimension
@@ -162,3 +164,7 @@ OTA/speech budget, CST820, audio wiring and ADC/charger ownership before activat
 - [1.43C pin definitions](../../../cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/software/esp-idf-v5.5.3/01_ADC_Test/components/port_bsp/bsp_config.h).
 - [1.43C display, touch and ADC example](../../../cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/software/esp-idf-v5.5.3/01_ADC_Test/components/port_bsp/esp32_s3_touch_amoled_1.43c.cpp).
 - [1.43C audio pins](../../../cody-device/hardware/references/waveshare/ESP32-S3-Touch-AMOLED-1.43C/software/esp-idf-v5.5.3/01_ADC_Test/components/externlib/codec_board/board_cfg.txt).
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

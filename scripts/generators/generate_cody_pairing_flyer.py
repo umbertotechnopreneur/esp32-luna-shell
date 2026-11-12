@@ -163,7 +163,7 @@ def plugin_page(pdf):
 # pdf: Destination ReportLab canvas.
 def pairing_page(pdf):
     page(pdf, 3, "PAIR CODY", "One code. Your PC.", "Use the live code on the Cody you are holding.")
-    y = step(pdf, 1, "Open Connect Codex", "Finish Wi-Fi setup. To manage the connection later, press BOOT, then choose Options > Connections > Connect Codex.", 454)
+    y = step(pdf, 1, "Open Connect Codex", "Finish Wi-Fi setup. To manage the connection later, press BOOT, then choose Settings > Connections > Connect Codex.", 454)
     y = step(pdf, 2, "Read the six-character code", "Keep the code visible on Cody. In a new Codex chat with CCP enabled, ask:", y)
     pdf.setFillColor(PALE)
     pdf.roundRect(MARGIN + 31, y - 27, CONTENT - 31, 52, 8, fill=1, stroke=0)
@@ -181,9 +181,9 @@ def everyday_page(pdf):
     page(pdf, 4, "EVERY DAY", "Back to what matters.", "Keep Codex running. Let Cody bring you the useful bits.")
     y = step(pdf, 1, "Start a chat in Codex", "Send a message in your chat. Cody follows the chat you most recently messaged and shows its current activity.", 454)
     y = step(pdf, 2, "Read, choose, then send", "For a question on Cody, tap Open, read the choices and review your selection. Tap Send to answer. Reply sent confirms delivery.", y)
-    y = step(pdf, 3, "Choose your settings", "Hold BOOT for two seconds for Options. Use Visible screens to choose your statistics and Behavior for sound. Timer and Quick guide work locally.", y)
+    y = step(pdf, 3, "Choose your settings", "Hold BOOT for two seconds for Options. Swipe between menu pages. Statistics appear when data is available; Behavior controls sound. Quick guide works locally.", y)
     text(pdf, "YOUR SCHEDULE. YOUR CHOICE.", MARGIN, 205, 9, "CodyBold", TEAL)
-    paragraph(pdf, "Quiet hours are optional. Set them under Behavior > More... > More... > Quiet hours. Check Cody's timezone first.", MARGIN, 183, size=10.5, leading=15)
+    paragraph(pdf, "Quiet hours are optional. Swipe to the third Behavior page and select Quiet hours. Check Cody's timezone first.", MARGIN, 183, size=10.5, leading=15)
     callout(pdf, "Not connecting?", "Keep CCP enabled and both devices on the same private network. If a pairing code expires, use the new code shown on Cody. If Cody is connected but idle, send a new chat message and check /hooks.", min(y + 6, 152), 91)
     text(pdf, "Approvals requested by Codex are answered on your PC.", MARGIN, 53, 9.2, "CodyBold", MUTED)
     pdf.showPage()

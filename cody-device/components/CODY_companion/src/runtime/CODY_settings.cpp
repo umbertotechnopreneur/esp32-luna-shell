@@ -15,7 +15,6 @@
  * VBWR E */
 
 #include "CODY_settings.hpp"
-#include "CODY_widget_state.hpp"
 #include "LUNASHELL_settings.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_clock.hpp"
@@ -30,6 +29,7 @@
 #include "esp_timer.h"
 #include <cstring>
 #include <initializer_list>
+#include <iterator>
 #include <mutex>
 
 namespace CODY {
@@ -37,11 +37,19 @@ namespace {
 constexpr char kTag[] = "CODY_settings";
 constexpr char kFirstBootKey[] = "cody_firstboot";
 constexpr char kBirthIntroKey[] = "cody_birth";
+constexpr char kFirstBootMusicKey[] = "cody_firstmusic";
+constexpr char kOnboardingTourKey[] = "cody_tour_step";
 constexpr char kSetupProgressKey[] = "cody_setup";
 constexpr char kShakeKey[] = "cody_shake";
 constexpr char kSoundsKey[] = "cody_sounds";
 constexpr char kScreensaverKey[] = "cody_saver";
 constexpr char kCounterModeKey[] = "cody_counter";
+constexpr char kWeeklyAlarmKey[] = "cody_walarm";
+constexpr char kIdlePolicyKey[] = "cody_idle";
+constexpr char kEventCodyKey[] = "cody_evtmuse";
+constexpr char kParallaxKey[] = "cody_parallax";
+constexpr char kCharacterThemeKey[] = "cody_theme";
+constexpr uint16_t kIdleDurations[] = {15, 30, 60, 120, 300};
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
 constexpr char kSofiaKey[] = "cody_sofia";
 #endif
@@ -53,7 +61,6 @@ constexpr char kMicrophoneGainKey[] = "cody_ingain";
 constexpr char kSynthVoiceKey[] = "cody_synth";
 #endif
 constexpr char kUserNameKey[] = "cody_user_name";
-constexpr char kWidgetVisibilityKey[] = "cody_widgets";
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
 constexpr char kDictationKey[] = "cody_dictation";
 #endif
@@ -232,6 +239,173 @@ esp_err_t save_preference_uint32(const char *key, uint32_t value)
     return error;
 }
 
+// storage_error: Owner initialization result; absent data alone receives a default.
+// Exception: Returns the original read, validation or publication error.
+esp_err_t load_idle_policy(esp_err_t storage_error)
+{
+    uint32_t stored = 0;
+    auto &store = LUNASHELL::UserSettingsService::instance();
+    auto error = storage_error == ESP_OK ? store.getUInt32(kIdlePolicyKey, &stored) : storage_error;
+    if (error == ESP_ERR_NVS_NOT_FOUND) {
+        error = save_preference_uint32(kIdlePolicyKey, 4U); // Counters, 60 seconds.
+        if (error == ESP_OK) stored = 4U;
+    }
+    if (error == ESP_OK && (stored >> 1U) >= std::size(kIdleDurations)) error = ESP_ERR_INVALID_RESPONSE;
+    LUNASHELL::CodyIdleObservation observation{};
+    observation.last_error = error;
+    observation.valid = error == ESP_OK;
+    if (error == ESP_OK) {
+        observation.show_muse = (stored & 1U) != 0;
+        observation.delay_seconds = kIdleDurations[stored >> 1U];
+    } else {
+        ESP_LOGE(kTag, "Idle preference read failed (%s)", esp_err_to_name(error));
+    }
+    const auto publication = LUNASHELL::DeviceSnapshotService::instance().reportCodyIdleObservation(observation);
+    if (publication != ESP_OK) ESP_LOGE(kTag, "Idle preference publication failed (%s)", esp_err_to_name(publication));
+    return error != ESP_OK ? error : publication;
+}
+
+// preference: Idle display or idle delay control.
+// value: Exact mode 0/1 or one of the five supported durations in seconds.
+// Exception: Returns the original projection, validation, write or publication error.
+esp_err_t persist_idle_policy(PreferenceId preference, uint32_t value)
+{
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+    LUNASHELL::CodyIdleObservation observation{};
+    auto error = snapshots.readCodyIdleObservation(observation);
+    if (error != ESP_OK) return error;
+    if (!observation.valid || observation.last_error != ESP_OK)
+        return observation.last_error != ESP_OK ? observation.last_error : ESP_ERR_INVALID_STATE;
+    if (preference == PreferenceId::IdleMode) {
+        if (value > 1U) return ESP_ERR_INVALID_ARG;
+        observation.show_muse = value != 0;
+    } else if (preference == PreferenceId::IdleDelay) {
+        bool supported = false;
+        for (const auto seconds : kIdleDurations) supported |= value == seconds;
+        if (!supported) return ESP_ERR_INVALID_ARG;
+        observation.delay_seconds = static_cast<uint16_t>(value);
+    } else return ESP_ERR_INVALID_ARG;
+    uint32_t index = 0;
+    while (index < std::size(kIdleDurations) && kIdleDurations[index] != observation.delay_seconds) ++index;
+    if (index == std::size(kIdleDurations)) return ESP_ERR_INVALID_RESPONSE;
+    error = save_preference_uint32(kIdlePolicyKey, (index << 1U) | (observation.show_muse ? 1U : 0U));
+    observation.valid = error == ESP_OK;
+    observation.last_error = error;
+    const auto publication = snapshots.reportCodyIdleObservation(observation);
+    if (publication != ESP_OK) ESP_LOGE(kTag, "Idle preference publication failed (%s)", esp_err_to_name(publication));
+    return error != ESP_OK ? error : publication;
+}
+
+// storage_error: Settings store initialization result.
+// Exception: Returns the original read or snapshot publication error.
+esp_err_t load_event_cody(esp_err_t storage_error)
+{
+    LUNASHELL::CodyEventVisualObservation observation{};
+    observation.last_error = storage_error == ESP_OK
+        ? load_switch(kEventCodyKey, false, observation.enabled) : storage_error;
+    observation.valid = observation.last_error == ESP_OK;
+    const auto publication = LUNASHELL::DeviceSnapshotService::instance().reportCodyEventVisualObservation(observation);
+    if (publication != ESP_OK) ESP_LOGE(kTag, "Event Cody publication failed (%s)", esp_err_to_name(publication));
+    return observation.last_error != ESP_OK ? observation.last_error : publication;
+}
+
+// value: Explicit zero/one event Cody preference.
+// Exception: Returns the original storage or snapshot publication error.
+esp_err_t persist_event_cody(uint32_t value)
+{
+    if (value > 1U) return ESP_ERR_INVALID_ARG;
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+    LUNASHELL::CodyEventVisualObservation observation{};
+    const auto read_error = snapshots.readCodyEventVisualObservation(observation);
+    if (read_error != ESP_OK) return read_error;
+    const auto error = save_preference_uint32(kEventCodyKey, value);
+    observation.valid = error == ESP_OK;
+    observation.last_error = error;
+    if (error == ESP_OK) observation.enabled = value != 0;
+    const auto publication = snapshots.reportCodyEventVisualObservation(observation);
+    if (publication != ESP_OK) ESP_LOGE(kTag, "Event Cody publication failed (%s)", esp_err_to_name(publication));
+    return error != ESP_OK ? error : publication;
+}
+
+// storage_error: Settings store initialization result.
+// Exception: Returns the original read, validation or publication error.
+esp_err_t load_parallax_policy(esp_err_t storage_error)
+{
+    auto &store = LUNASHELL::UserSettingsService::instance();
+    uint32_t stored = 0;
+    auto error = storage_error == ESP_OK ? store.getUInt32(kParallaxKey, &stored) : storage_error;
+    if (error == ESP_ERR_NVS_NOT_FOUND) error = save_preference_uint32(kParallaxKey, 0U);
+    if (error == ESP_OK && stored > 3U) error = ESP_ERR_INVALID_RESPONSE;
+    LUNASHELL::CodyParallaxObservation observation{};
+    observation.last_error = error;
+    observation.valid = error == ESP_OK;
+    if (error == ESP_OK) observation.level = static_cast<uint8_t>(stored);
+    else ESP_LOGE(kTag, "Parallax preference read failed (%s)", esp_err_to_name(error));
+    const auto publication = LUNASHELL::DeviceSnapshotService::instance().reportCodyParallaxObservation(observation);
+    if (publication != ESP_OK) ESP_LOGE(kTag, "Parallax preference publication failed (%s)", esp_err_to_name(publication));
+    return error != ESP_OK ? error : publication;
+}
+
+// value: Explicit Off/Low/Medium/High level, represented by 0..3.
+// Exception: Returns the original readback or publication error.
+esp_err_t persist_parallax_policy(uint32_t value)
+{
+    if (value > 3U) return ESP_ERR_INVALID_ARG;
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+    LUNASHELL::CodyParallaxObservation observation{};
+    const auto read_error = snapshots.readCodyParallaxObservation(observation);
+    if (read_error != ESP_OK) return read_error;
+    const auto error = save_preference_uint32(kParallaxKey, value);
+    observation.valid = error == ESP_OK;
+    observation.last_error = error;
+    if (error == ESP_OK) observation.level = static_cast<uint8_t>(value);
+    const auto publication = snapshots.reportCodyParallaxObservation(observation);
+    if (publication != ESP_OK) ESP_LOGE(kTag, "Parallax preference publication failed (%s)", esp_err_to_name(publication));
+    return error != ESP_OK ? error : publication;
+}
+
+// storage_error: Settings store initialization result.
+// Exception: Returns the original read, validation or publication error.
+esp_err_t load_character_theme(esp_err_t storage_error)
+{
+    auto &store = LUNASHELL::UserSettingsService::instance();
+    uint32_t stored = 0;
+    auto error = storage_error == ESP_OK ? store.getUInt32(kCharacterThemeKey, &stored) : storage_error;
+    if (error == ESP_ERR_NVS_NOT_FOUND) error = save_preference_uint32(kCharacterThemeKey, 0U);
+    if (error == ESP_OK && stored >= 8U) error = ESP_ERR_INVALID_RESPONSE;
+    LUNASHELL::CodyCharacterThemeObservation observation{};
+    observation.last_error = error;
+    observation.valid = error == ESP_OK;
+    if (error == ESP_OK) observation.theme = static_cast<uint8_t>(stored);
+    else ESP_LOGE(kTag, "Character theme read failed (%s)", esp_err_to_name(error));
+    const auto publication = LUNASHELL::DeviceSnapshotService::instance().reportCodyCharacterThemeObservation(observation);
+    if (publication != ESP_OK) ESP_LOGE(kTag, "Character theme publication failed (%s)", esp_err_to_name(publication));
+    return error != ESP_OK ? error : publication;
+}
+
+// value: Explicit theme identity 0..7.
+// Exception: Returns the original readback or publication error.
+esp_err_t persist_character_theme(uint32_t value)
+{
+    if (value >= 8U) return ESP_ERR_INVALID_ARG;
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+    LUNASHELL::CodyCharacterThemeObservation observation{};
+    const auto read_error = snapshots.readCodyCharacterThemeObservation(observation);
+    if (read_error != ESP_OK) return read_error;
+    if (observation.valid && observation.last_error == ESP_OK && observation.theme == value) return ESP_OK;
+    const auto error = save_preference_uint32(kCharacterThemeKey, value);
+    observation.valid = error == ESP_OK;
+    observation.last_error = error;
+    if (error == ESP_OK) observation.theme = static_cast<uint8_t>(value);
+    const auto publication = snapshots.reportCodyCharacterThemeObservation(observation);
+    if (publication != ESP_OK) ESP_LOGE(kTag, "Character theme publication failed (%s)", esp_err_to_name(publication));
+    return error != ESP_OK ? error : publication;
+}
+
 // preference: One of the two stable audio settings identities.
 // value: Requested NVS value before narrowing or codec application.
 bool valid_audio_preference(PreferenceId preference, uint32_t value)
@@ -345,68 +519,6 @@ esp_err_t persist_audio_preference(PreferenceId preference, uint32_t value)
     return error != ESP_OK ? error : publication_error;
 }
 
-// visibility: Validated, independent screen and Cody child visibility masks.
-uint32_t encode_widget_visibility(const WidgetVisibility &visibility)
-{
-#if defined(CODY_DEVICE_UI_ONLY)
-    return (static_cast<uint32_t>(visibility.version) << 24U) | visibility.screen_mask;
-#else
-    return (static_cast<uint32_t>(visibility.version) << 24U) |
-        (static_cast<uint32_t>(visibility.panel_mask) << 8U) | visibility.screen_mask;
-#endif
-}
-
-// stored: Exact owner record from the U32 key.
-// visibility: Receives only supported, validated bits.
-// Exception: Returns ESP_ERR_INVALID_RESPONSE for unsupported version or invalid masks.
-esp_err_t decode_widget_visibility(uint32_t stored, WidgetVisibility &visibility)
-{
-    WidgetVisibility candidate;
-    candidate.version = static_cast<uint8_t>(stored >> 24U);
-#if defined(CODY_DEVICE_UI_ONLY)
-    bool reserved_zero = (stored & 0x00ff0000U) == 0;
-    if (candidate.version == 1) {
-        const auto legacy_screens = static_cast<uint8_t>(stored);
-        const auto legacy_panels = static_cast<uint8_t>(stored >> 8U);
-        reserved_zero = reserved_zero && legacy_screens != 0 && (legacy_panels & ~kWidgetPanelMask) == 0;
-        candidate.version = kWidgetVisibilityVersion;
-        candidate.screen_mask = legacy_screens | WidgetStateDetail::bit(WidgetScreen::Device) |
-            WidgetStateDetail::bit(WidgetScreen::Context) | WidgetStateDetail::bit(WidgetScreen::About);
-    } else {
-        candidate.screen_mask = static_cast<uint16_t>(stored);
-    }
-#else
-    const bool reserved_zero = (stored & 0x00ff0000U) == 0;
-    candidate.screen_mask = static_cast<uint8_t>(stored);
-    candidate.panel_mask = static_cast<uint8_t>(stored >> 8U);
-#endif
-    if (!reserved_zero || !valid_widget_visibility(candidate)) {
-        ESP_LOGE(kTag, "Widget visibility '%s' rejected record=0x%08lx (%s)", kWidgetVisibilityKey,
-            static_cast<unsigned long>(stored), esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    visibility = candidate;
-    return ESP_OK;
-}
-
-// stored: Receives the exact U32 record from the initialized settings owner.
-// Exception: Returns original initialization or read errors, including genuine absence.
-esp_err_t read_widget_visibility(uint32_t &stored)
-{
-    auto &store = LUNASHELL::UserSettingsService::instance();
-    const esp_err_t initialization = store.isInitialized() ? ESP_OK : store.initialize();
-    if (initialization != ESP_OK) {
-        ESP_LOGE(kTag, "Widget visibility '%s' storage initialization failed (%s)",
-            kWidgetVisibilityKey, esp_err_to_name(initialization));
-        return initialization;
-    }
-    const esp_err_t error = store.getUInt32(kWidgetVisibilityKey, &stored);
-    if (error != ESP_OK && error != ESP_ERR_NVS_NOT_FOUND) {
-        ESP_LOGE(kTag, "Widget visibility '%s' read failed (%s)", kWidgetVisibilityKey, esp_err_to_name(error));
-    }
-    return error;
-}
-
 // value: Explicit zero/one choice; the dispatcher rejects other values.
 // Exception: Preserves real snapshot, persistence/readback and publication failures.
 esp_err_t persist_screensaver(uint32_t value)
@@ -442,6 +554,24 @@ esp_err_t persist_counter_mode(uint32_t value)
     if (error == ESP_OK) observed.preferences.counter_mode_enabled = value == 1U;
     const auto publication_error = snapshots.reportCodyPreferences(observed.preferences);
     if (publication_error != ESP_OK) ESP_LOGE(kTag, "Counter mode publication failed (%s)", esp_err_to_name(publication_error));
+    return error != ESP_OK ? error : publication_error;
+}
+
+// value: Explicit zero/one weekly usage alarm choice.
+// Exception: Returns the original snapshot, storage or publication error.
+esp_err_t persist_weekly_alarm(uint32_t value)
+{
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    LUNASHELL::CodyOptionsObservation observed{};
+    auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+    const auto read_error = snapshots.readCodyOptionsObservation(observed);
+    if (read_error != ESP_OK) return read_error;
+    const auto error = save_preference_uint32(kWeeklyAlarmKey, value);
+    observed.preferences.weekly_alarm_valid = error == ESP_OK;
+    observed.preferences.weekly_alarm_error = error;
+    if (error == ESP_OK) observed.preferences.weekly_alarm_enabled = value == 1U;
+    const auto publication_error = snapshots.reportCodyPreferences(observed.preferences);
+    if (publication_error != ESP_OK) ESP_LOGE(kTag, "Weekly alarm publication failed (%s)", esp_err_to_name(publication_error));
     return error != ESP_OK ? error : publication_error;
 }
 
@@ -552,6 +682,10 @@ static esp_err_t load_companion_preferences_locked()
 {
     auto &store = LUNASHELL::UserSettingsService::instance();
     const esp_err_t storage_error = store.isInitialized() ? ESP_OK : store.initialize();
+    (void)load_idle_policy(storage_error);
+    (void)load_event_cody(storage_error);
+    (void)load_parallax_policy(storage_error);
+    (void)load_character_theme(storage_error);
     esp_err_t error = storage_error;
     LUNASHELL::CodyPreferencesSnapshot preferences;
     preferences.last_attempt_at_us = esp_timer_get_time();
@@ -561,6 +695,9 @@ static esp_err_t load_companion_preferences_locked()
     preferences.counter_mode_error = storage_error == ESP_OK
         ? load_switch(kCounterModeKey, true, preferences.counter_mode_enabled) : storage_error;
     preferences.counter_mode_valid = preferences.counter_mode_error == ESP_OK;
+    preferences.weekly_alarm_error = storage_error == ESP_OK
+        ? load_switch(kWeeklyAlarmKey, false, preferences.weekly_alarm_enabled) : storage_error;
+    preferences.weekly_alarm_valid = preferences.weekly_alarm_error == ESP_OK;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     preferences.sofia_error = storage_error == ESP_OK
         ? load_switch(kSofiaKey, true, preferences.sofia_enabled) : storage_error;
@@ -739,6 +876,11 @@ esp_err_t reconcile_audio_output_preference()
 // Exception: Returns the original validation, persistence, policy or publication error.
 esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
 {
+    if (preference == PreferenceId::IdleMode || preference == PreferenceId::IdleDelay)
+        return persist_idle_policy(preference, value);
+    if (preference == PreferenceId::EventCody) return persist_event_cody(value);
+    if (preference == PreferenceId::Parallax) return persist_parallax_policy(value);
+    if (preference == PreferenceId::CharacterTheme) return persist_character_theme(value);
     if (preference == PreferenceId::SynthEnabled) {
         if (value > 1U) return ESP_ERR_INVALID_ARG;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
@@ -814,6 +956,10 @@ esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
     if (preference == PreferenceId::CounterMode) {
         if (value > 1U) return ESP_ERR_INVALID_ARG;
         return persist_counter_mode(value);
+    }
+    if (preference == PreferenceId::WeeklyAlarm) {
+        if (value > 1U) return ESP_ERR_INVALID_ARG;
+        return persist_weekly_alarm(value);
     }
     if (preference == PreferenceId::Sofia) {
         if (value > 1U) return ESP_ERR_INVALID_ARG;
@@ -902,60 +1048,6 @@ esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
     return error;
 }
 
-// visibility: Receives the current readback-confirmed version and masks.
-// Exception: Returns the original initialization/read/write error or invalid-record error.
-esp_err_t load_widget_visibility(WidgetVisibility &visibility)
-{
-    std::lock_guard<std::mutex> guard(s_preferences_mutex);
-    uint32_t stored = 0;
-    const esp_err_t read_error = read_widget_visibility(stored);
-    if (read_error == ESP_OK) {
-        return decode_widget_visibility(stored, visibility);
-    }
-    if (read_error != ESP_ERR_NVS_NOT_FOUND) {
-        return read_error;
-    }
-
-    const WidgetVisibility defaults{};
-    const uint32_t encoded = encode_widget_visibility(defaults);
-    ESP_LOGI(kTag, "First boot: key '%s' absent; persisting default record=0x%08lx",
-        kWidgetVisibilityKey, static_cast<unsigned long>(encoded));
-    const esp_err_t error = save_preference_uint32(kWidgetVisibilityKey, encoded);
-    if (error == ESP_OK) {
-        visibility = defaults;
-    }
-    return error;
-}
-
-// visibility: Explicit owner choice, preserving independently configured Cody panels.
-// Exception: Returns the original failed read/write/readback or invalid record/argument error.
-esp_err_t persist_widget_visibility(const WidgetVisibility &visibility)
-{
-    const uint32_t encoded = encode_widget_visibility(visibility);
-    if (!valid_widget_visibility(visibility)) {
-        ESP_LOGE(kTag, "Widget visibility '%s' rejected input=0x%08lx (%s)", kWidgetVisibilityKey,
-            static_cast<unsigned long>(encoded), esp_err_to_name(ESP_ERR_INVALID_ARG));
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    std::lock_guard<std::mutex> guard(s_preferences_mutex);
-    uint32_t stored = 0;
-    const esp_err_t read_error = read_widget_visibility(stored);
-    if (read_error == ESP_OK) {
-        WidgetVisibility current;
-        const esp_err_t decode_error = decode_widget_visibility(stored, current);
-        if (decode_error != ESP_OK) {
-            return decode_error;
-        }
-        if (stored == encoded) {
-            return ESP_OK;
-        }
-    } else if (read_error != ESP_ERR_NVS_NOT_FOUND) {
-        return read_error;
-    }
-    return save_preference_uint32(kWidgetVisibilityKey, encoded);
-}
-
 // settings: Receives persisted/default/explicit-development decisions on success only.
 esp_err_t load_onboarding_settings(OnboardingSettings &settings)
 {
@@ -994,6 +1086,35 @@ esp_err_t load_onboarding_settings(OnboardingSettings &settings)
             kBirthIntroKey, esp_err_to_name(error));
         return error;
     }
+    error = store.getBool(kFirstBootMusicKey, &loaded.first_boot_music_pending);
+    if (error == ESP_ERR_NVS_NOT_FOUND) {
+        const bool default_pending = loaded.persisted_first_boot && loaded.birth_intro_pending;
+        ESP_LOGI(kTag, "First-boot music: key '%s' absent; first-boot default=%u",
+            kFirstBootMusicKey, default_pending);
+        error = persist_first_boot_music_pending(default_pending);
+        if (error == ESP_OK) loaded.first_boot_music_pending = default_pending;
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "First-boot music read/default '%s' failed (%s)",
+            kFirstBootMusicKey, esp_err_to_name(error));
+        return error;
+    }
+    uint32_t tour_step = 0;
+    error = store.getUInt32(kOnboardingTourKey, &tour_step);
+    if (error == ESP_ERR_NVS_NOT_FOUND) {
+        const uint32_t default_step = loaded.persisted_first_boot ? 0U : 5U;
+        ESP_LOGI(kTag, "Onboarding tour: key '%s' absent; first-boot default=%lu",
+            kOnboardingTourKey, static_cast<unsigned long>(default_step));
+        error = persist_onboarding_tour_step(default_step);
+        if (error == ESP_OK) tour_step = default_step;
+    }
+    if (error == ESP_OK && tour_step > 6U) error = ESP_ERR_INVALID_ARG;
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Onboarding tour read/default '%s' failed (%s)",
+            kOnboardingTourKey, esp_err_to_name(error));
+        return error;
+    }
+    loaded.onboarding_tour_step = static_cast<uint8_t>(tour_step);
     error = store.getBool(kSetupProgressKey, &loaded.setup_progress_pending);
     if (error == ESP_ERR_NVS_NOT_FOUND) {
         ESP_LOGI(kTag, "Setup progress: key '%s' absent; persisting default=1", kSetupProgressKey);
@@ -1055,6 +1176,42 @@ esp_err_t persist_birth_intro_pending(bool pending)
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Birth intro preference '%s'=%u failed (%s)",
             kBirthIntroKey, pending, esp_err_to_name(error));
+    }
+    return error;
+}
+
+// pending: Whether the one-time first-boot melody remains to be attempted.
+// Exception: Returns the original storage error or a readback mismatch.
+esp_err_t persist_first_boot_music_pending(bool pending)
+{
+    auto &store = LUNASHELL::UserSettingsService::instance();
+    auto error = store.setBool(kFirstBootMusicKey, pending);
+    bool stored = !pending;
+    if (error == ESP_OK) error = store.getBool(kFirstBootMusicKey, &stored);
+    if (error == ESP_OK && stored != pending) error = ESP_ERR_INVALID_RESPONSE;
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "First-boot music preference '%s'=%u failed (%s)",
+            kFirstBootMusicKey, pending, esp_err_to_name(error));
+    }
+    return error;
+}
+
+// step: Guide pages 0..4 or 6; 5 retains its existing completed/skipped meaning.
+// Exception: Returns the original storage error or a readback mismatch.
+esp_err_t persist_onboarding_tour_step(uint32_t step)
+{
+    if (step > 6U) {
+        ESP_LOGE(kTag, "Onboarding tour step rejected: %lu", static_cast<unsigned long>(step));
+        return ESP_ERR_INVALID_ARG;
+    }
+    auto &store = LUNASHELL::UserSettingsService::instance();
+    auto error = store.setUInt32(kOnboardingTourKey, step);
+    uint32_t stored = ~step;
+    if (error == ESP_OK) error = store.getUInt32(kOnboardingTourKey, &stored);
+    if (error == ESP_OK && stored != step) error = ESP_ERR_INVALID_RESPONSE;
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Onboarding tour preference '%s'=%lu failed (%s)",
+            kOnboardingTourKey, static_cast<unsigned long>(step), esp_err_to_name(error));
     }
     return error;
 }

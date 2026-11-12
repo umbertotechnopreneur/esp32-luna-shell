@@ -446,6 +446,13 @@ void observe_event(DeviceEffectsModel &model, int64_t now_us, SoundRequest &requ
     if (!first) {
         return;
     }
+    if ((event.kind == Kind::ChecksFailed || event.kind == Kind::ChecksPassed ||
+         event.kind == Kind::ReplyReady || event.kind == Kind::Notice || event.kind == Kind::PrPending) &&
+        model.event_visual_sequence != UINT32_MAX) {
+        ++model.event_visual_sequence;
+        model.event_visual_at_us = now_us;
+        model.event_visual_kind = event.kind;
+    }
     switch (event.kind) {
     case Kind::ReplyReady:
         schedule_event_sound(model, CodexAudioCue::ResponseReady, now_us);
@@ -459,8 +466,19 @@ void observe_event(DeviceEffectsModel &model, int64_t now_us, SoundRequest &requ
     case Kind::ChecksPassed:
         schedule_event_sound(model, CodexAudioCue::ChecksPassed, now_us);
         break;
+    case Kind::Notice:
+    case Kind::PrPending: {
+        LUNASHELL::CodyEventVisualObservation preference{};
+        const auto error = LUNASHELL::DeviceSnapshotService::instance().readCodyEventVisualObservation(preference);
+        if (error == ESP_OK && preference.valid && preference.last_error == ESP_OK && preference.enabled) {
+            // Reuse distinct neutral clips through this owner's single correlated sound queue.
+            schedule_event_sound(model, event.kind == Kind::Notice ? CodexAudioCue::ActivityOpen :
+                CodexAudioCue::BookmarkSaved, now_us);
+        }
+        break;
+    }
     default:
-        // A generic notice, PR opening or work transition is not a completed response.
+        // Work transitions are not completed responses.
         break;
     }
 }
@@ -792,7 +810,7 @@ esp_err_t play_device_boot_cue(DeviceEffectsModel &model)
 // model: Receives the actual admission disposition and original optional failure.
 // cue: Explicit pet event selected by the retired animation or boot owner.
 // voice: Canonical voice observation, or null when voice is unavailable at startup.
-// Exception: Returns the original asset, preparation or audio-owner error.
+// Exception: Returns original owner errors or NOT_FINISHED while first-boot voice state is unknown.
 esp_err_t play_pet_cue(DeviceEffectsModel &model, PetCue cue, const LUNASHELL::VoiceSnapshot *voice)
 {
     model.pet_audio_status = {LUNASHELL_CUE_UNAVAILABLE, ESP_OK, 0, static_cast<uint32_t>(cue)};
@@ -801,16 +819,23 @@ esp_err_t play_pet_cue(DeviceEffectsModel &model, PetCue cue, const LUNASHELL::V
         model.pet_audio_status.last_error = model.pet_audio_error;
         return model.pet_audio_error;
     }
-    if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
-            !voice_sound_state_known(*voice, esp_timer_get_time()))) {
+    if (voice != nullptr && !voice_input_stopped(voice->input.phase)) {
+        model.pet_audio_status.state = LUNASHELL_CUE_SUPPRESSED;
+        return ESP_OK;
+    }
+    if (voice != nullptr && !voice_sound_state_known(*voice, esp_timer_get_time())) {
+        // Startup may precede the first voice observation; retry the first-boot
+        // melody within the display owner's existing bounded admission window.
+        if (cue == PetCue::FirstBootMelody) return ESP_ERR_NOT_FINISHED;
         model.pet_audio_status.state = LUNASHELL_CUE_SUPPRESSED;
         return ESP_OK;
     }
     PetAudioClip clip{};
     auto error = pet_audio_clip(cue, clip);
     if (error == ESP_OK) {
+        const auto channel = cue == PetCue::FirstBootMelody ? LUNASHELL_AUDIO_BOOT : LUNASHELL_AUDIO_PET;
         const lunashell_audio_request_t request{clip.samples, clip.sample_count, 16000,
-            static_cast<uint32_t>(cue), LUNASHELL_AUDIO_PET, LUNASHELL_CODEX_CUE_NOTICE,
+            static_cast<uint32_t>(cue), channel, LUNASHELL_CODEX_CUE_NOTICE,
             1, 0, LUNASHELL_AUDIO_WAVE_PCM, 0, 1000, 0, 0, 0, 0, false, 0, 0};
         error = LUNASHELL_audio_submit(&request, &model.pet_audio_status);
     } else {
@@ -1071,9 +1096,6 @@ esp_err_t update_device_effects(DeviceEffectsModel &model,
     switch (model.feedback) {
     case DeviceFeedback::OptionsOpened:
         choose(request, CodexAudioCue::ConnectionRestored, SoundPriority::Feedback);
-        break;
-    case DeviceFeedback::TimerStarted:
-        choose(request, CodexAudioCue::AnswerReceived, SoundPriority::Feedback);
         break;
     case DeviceFeedback::None: break;
     }

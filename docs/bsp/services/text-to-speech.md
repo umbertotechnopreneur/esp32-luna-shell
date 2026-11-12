@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Optional local text-to-speech
 
 TTS is an optional native service with explicit SD/flash packages and one audio
@@ -233,3 +235,7 @@ normal/SD/flash linked and flash-list exclusion, source/package contracts,
 PSRAM/stack/CPU budget, continuous PCM, all four languages, cancellation,
 standby/policy, card/package errors and actual listening. No successful host
 assertion or build should be presented as proof of device audio behavior.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

@@ -369,7 +369,7 @@ esp_err_t draw_look_list(const LookView &view, CODY2D::Surface strip,
         // Complete control captions share the title's reveal gate without typewriter timing.
         const CODY2D::TextLine caption = row.caption;
         row.caption = {};
-        esp_err_t error = draw_flat_menu_row(row, 24, list_strip, clipped_top, clipped_left);
+        esp_err_t error = FlatMenuRow::draw(row, 24, list_strip, clipped_top, clipped_left);
         if (error == ESP_OK) {
             error = CODY2D::draw_text_rows(caption, item.visible_characters,
                 list_strip, clipped_top, clipped_left);

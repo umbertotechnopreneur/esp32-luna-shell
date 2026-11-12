@@ -1,4 +1,5 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
+// Modified by the Cody project; see ORIGIN.md for the local changes.
 
 #include "muse_pixel.h"
 #include "muse_speaking.h"
@@ -50,6 +51,17 @@ enum {
     C_SYMBOL,
     C_COUNT,
 };
+
+/* Cody checks exported semantic slots against the original indexed artwork. */
+_Static_assert((int)C_OUT == (int)MUSE_PX_OUTLINE && (int)C_OUT2 == (int)MUSE_PX_OUTLINE_SOFT &&
+    (int)C_BD == (int)MUSE_PX_FUR_DARK && (int)C_BM == (int)MUSE_PX_FUR_MID &&
+    (int)C_BL == (int)MUSE_PX_FUR_LIGHT && (int)C_BH == (int)MUSE_PX_FUR_HIGHLIGHT &&
+    (int)C_RIM == (int)MUSE_PX_RIM && (int)C_SKIND == (int)MUSE_PX_FACE_DARK &&
+    (int)C_SKIN == (int)MUSE_PX_FACE && (int)C_SKINL == (int)MUSE_PX_FACE_LIGHT &&
+    (int)C_IRIS == (int)MUSE_PX_IRIS && (int)C_BROW == (int)MUSE_PX_BROW &&
+    (int)C_BLUSH == (int)MUSE_PX_BLUSH && (int)C_BLUSHD == (int)MUSE_PX_BLUSH_DARK &&
+    (int)C_MOUTH == (int)MUSE_PX_MOUTH && (int)C_ACC == (int)MUSE_PX_STATE_ACCENT &&
+    (int)C_HEART == (int)MUSE_PX_HEART, "Muse palette handoff changed");
 
 typedef struct {
     float r, g, b;

@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Waveshare ESP32-S3-Touch-AMOLED-1.75 hardware inventory
 
 Target: GPS variant of the Waveshare ESP32-S3-Touch-AMOLED-1.75.
@@ -107,3 +109,7 @@ and [NXP PCF85063A datasheet](https://www.nxp.com/docs/en/data-sheet/PCF85063A.p
 RTC retention, SNTP recovery, clock fault handling, timezone/DST transitions and
 physical cue gating still require explicitly approved device observation. No
 network-duty-cycle or battery-life improvement is established by this design.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

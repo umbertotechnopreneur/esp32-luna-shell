@@ -1,8 +1,10 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Portable Cody domain
 
 The C++17 headers define typed identities, field evidence, relationships,
-capacity budgets and preliminary revision decisions. The [domain contract](../../../docs/cody/domain-model.md)
-covers ownership and admission. The [state protocol](../../../cody-desktop/plugins/cody-codex-plugin/protocol/CODY_STATE_V1.md)
+capacity budgets and preliminary revision decisions. The [Cody overview](../../../docs/cody/runtime.md#the-road-ahead)
+introduces the domain. The [state protocol](../../../cody-desktop/plugins/cody-codex-plugin/protocol/CODY_STATE_V1.md)
 defines the wire format and security boundary.
 
 | Layer | Current owner and boundary |
@@ -95,3 +97,7 @@ Both existing Waveshare configurations keep their authored circular geometry.
 Other layouts, OS ports, durable recovery and the canonical UI projections
 still need their respective integrations. Source registration does not establish
 build, network, memory or device acceptance.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Device HTTP API
 
 The firmware contains a small read-only HTTP API module on port `8080`.
@@ -200,3 +202,7 @@ ESP-IDF Task-WDT has no host owner. Host health therefore reports
 it does not manufacture firmware watchdog evidence. HTTP transport counters
 remain distinct from measured device data. A missing, stale or incompatible
 native library is an explicit failure, with no Python response fallback.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

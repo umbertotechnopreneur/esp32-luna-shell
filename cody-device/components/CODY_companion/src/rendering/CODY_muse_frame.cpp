@@ -4,6 +4,7 @@
  */
 
 #include "CODY_muse_frame.hpp"
+#include "CODY_muse_themes.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -41,6 +42,66 @@ constexpr std::array<muse_mode_t, 7> kMuseModes{
     MUSE_MODE_BOOT, MUSE_MODE_IDLE, MUSE_MODE_LISTENING, MUSE_MODE_THINKING,
     MUSE_MODE_SPEAKING, MUSE_MODE_ERROR, MUSE_MODE_OFF,
 };
+
+// a, b: Opaque RGB888 colors. amount: Integer proportion of b in 0..255.
+// Exception: None; each channel remains bounded to one byte.
+uint32_t mix_rgb(uint32_t a, uint32_t b, unsigned amount)
+{
+    uint32_t out = 0;
+    for (unsigned shift = 0; shift <= 16; shift += 8) {
+        const unsigned av = (a >> shift) & 255U, bv = (b >> shift) & 255U;
+        out |= ((av * (255U - amount) + bv * amount + 127U) / 255U) << shift;
+    }
+    return out;
+}
+
+// color: Native RGB565 value produced by Muse's state palette.
+// Exception: None; expands the existing quantized state color to RGB888.
+uint32_t rgb888(uint16_t color)
+{
+    const unsigned r = (color >> 11U) & 31U, g = (color >> 5U) & 63U, b = color & 31U;
+    return ((r * 255U / 31U) << 16U) | ((g * 255U / 63U) << 8U) | (b * 255U / 31U);
+}
+
+// color: Opaque RGB888 theme color. percent: Brightness in 0..100.
+// Exception: None; produces the renderer's native RGB565 representation.
+uint16_t theme_rgb565(uint32_t color, unsigned percent = 100)
+{
+    const auto r = ((color >> 16U) & 255U) * percent / 100U;
+    const auto g = ((color >> 8U) & 255U) * percent / 100U;
+    const auto b = (color & 255U) * percent / 100U;
+    return static_cast<uint16_t>(((r >> 3U) << 11U) | ((g >> 2U) << 5U) | (b >> 3U));
+}
+
+// frame: Newly copied indexed avatar and its original state-dependent palettes.
+// theme_id: Stable character theme identity; Classic and unknown IDs preserve every pixel.
+// Exception: None; state glows, symbols, eyeshine and geometry are left intact.
+void apply_character_theme(PixelAvatarFrame &frame, uint8_t theme_id)
+{
+    if (theme_id == 0 || theme_id >= kMuseCharacterThemes.size()) return;
+    const auto &theme = muse_character_theme(theme_id);
+    const uint32_t state_accent = rgb888(frame.palette[MUSE_PX_STATE_ACCENT]);
+    const auto apply = [&](unsigned index, uint32_t color) {
+        frame.palette[index] = theme_rgb565(color);
+        frame.dim_palette[index] = theme_rgb565(color, 72);
+    };
+    apply(MUSE_PX_OUTLINE, theme.outline_rgb);
+    apply(MUSE_PX_OUTLINE_SOFT, mix_rgb(theme.outline_rgb, theme.face_rgb, 125));
+    apply(MUSE_PX_FUR_DARK, mix_rgb(theme.outline_rgb, theme.fur_rgb, 175));
+    apply(MUSE_PX_FUR_MID, mix_rgb(theme.outline_rgb, theme.fur_rgb, 220));
+    apply(MUSE_PX_FUR_LIGHT, theme.fur_rgb);
+    apply(MUSE_PX_FUR_HIGHLIGHT, mix_rgb(theme.fur_rgb, 0xffffff, 75));
+    apply(MUSE_PX_RIM, mix_rgb(theme.fur_rgb, state_accent, 115));
+    apply(MUSE_PX_FACE_DARK, mix_rgb(theme.outline_rgb, theme.face_rgb, 220));
+    apply(MUSE_PX_FACE, theme.face_rgb);
+    apply(MUSE_PX_FACE_LIGHT, mix_rgb(theme.face_rgb, 0xffffff, 65));
+    apply(MUSE_PX_IRIS, theme.outline_rgb);
+    apply(MUSE_PX_BROW, mix_rgb(theme.outline_rgb, theme.fur_rgb, 35));
+    apply(MUSE_PX_MOUTH, theme.outline_rgb);
+    apply(MUSE_PX_BLUSH, mix_rgb(theme.face_rgb, theme.accent_rgb, 165));
+    apply(MUSE_PX_BLUSH_DARK, theme.accent_rgb);
+    apply(MUSE_PX_HEART, theme.accent_rgb);
+}
 
 }  // namespace
 
@@ -117,6 +178,7 @@ PixelAvatarComposeStatus compose_muse_frame(PixelAvatarFrame &frame, PixelAvatar
     };
     muse_pixel_render(&pose);
     muse_pixel_copy_frame(frame.cells.data(), frame.palette.data(), frame.dim_palette.data());
+    apply_character_theme(frame, input.style.character_theme);
     return PixelAvatarComposeStatus::Ok;
 }
 

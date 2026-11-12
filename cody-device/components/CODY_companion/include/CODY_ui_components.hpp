@@ -80,14 +80,15 @@ inline esp_err_t prepare_button(CODY2D::CapsuleControl &control, const CODY2D::M
 // strip: Borrowed RGB565 tile.
 // first_row: Logical tile y origin.
 // first_column: Logical tile x origin.
+// size: Square icon side in logical pixels; defaults to the standard 24-pixel action icon.
 // Exception: Returns the original icon raster error or rejects an out-of-bounds icon.
 inline esp_err_t draw_action_icon(const CODY2D::CapsuleControl &control, CODY2D::Surface strip,
-    uint16_t first_row, uint16_t first_column)
+    uint16_t first_row, uint16_t first_column, uint16_t size = 24)
 {
     if (control.icon == CODY2D::ActionIcon::None) return CODY2D::validate_surface(strip);
-    constexpr int size = 24;
-    const int left = control.icon_center.x - size / 2;
-    const int top = control.icon_center.y - size / 2;
+    if (size == 0) return ESP_ERR_INVALID_SIZE;
+    const int left = control.icon_center.x - static_cast<int>(size / 2U);
+    const int top = control.icon_center.y - static_cast<int>(size / 2U);
     const auto &bounds = control.bounds;
     if (left < bounds.x || top < bounds.y || left + size > bounds.x + bounds.width ||
         top + size > bounds.y + bounds.height) return ESP_ERR_INVALID_SIZE;
@@ -100,11 +101,12 @@ inline esp_err_t draw_action_icon(const CODY2D::CapsuleControl &control, CODY2D:
 // strip: Borrowed RGB565 tile.
 // first_row: Logical tile y origin.
 // first_column: Logical tile x origin.
+// icon_size: Square side for the optional icon, without changing touch bounds.
 // Exception: Returns the original icon, text or surface raster error.
 inline esp_err_t draw_text_action(const CODY2D::CapsuleControl &control, CODY2D::Surface strip,
-    uint16_t first_row, uint16_t first_column)
+    uint16_t first_row, uint16_t first_column, uint16_t icon_size = 24)
 {
-    const auto error = draw_action_icon(control, strip, first_row, first_column);
+    const auto error = draw_action_icon(control, strip, first_row, first_column, icon_size);
     if (error != ESP_OK || !control.caption.valid) return error;
     return CODY2D::draw_text_rows(control.caption, control.caption.text.length, strip, first_row, first_column);
 }

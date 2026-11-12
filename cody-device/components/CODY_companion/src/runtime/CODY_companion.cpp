@@ -48,7 +48,7 @@
 #include "CODY_dirty_plan.hpp"
 #include "CODY_response.hpp"
 #include "CODY_character_direction.hpp"
-#include "CODY_widget_visibility_view.hpp"
+#include "CODY_widget_state.hpp"
 #include "CODY_petting.hpp"
 #include "CODY_companion_gestures.hpp"
 #include "CODY_home_dashboard.hpp"
@@ -421,16 +421,14 @@ bool debug_memory_page_active()
 }
 
 using CODY::WidgetScreen;
-enum class WidgetOverlay : uint8_t { None, Statistics, CodyFallback, Visibility };
-enum class WidgetSave : uint8_t { Idle, Pending, Failed };
-enum class WidgetTouch : uint8_t { None, Previous, Next, Interval, Toggle, OpenChildren };
+enum class WidgetOverlay : uint8_t { None, Statistics, CodyFallback };
+enum class WidgetTouch : uint8_t { None, Previous, Next, Interval };
 enum class WidgetPresentation : uint8_t { AwaitingFrame, Presented };
 
 struct WidgetFrame {
     CODY::ResetCountdownScreen reset;
     CODY::AccountDashboardPresentation account;
     CODY::TokenHistoryPresentation history;
-    CODY::WidgetVisibilityView editor;
     LUNASHELL::CodexWeeklyLimitSnapshot weekly{};
     LUNASHELL::CodexAccountSnapshot details{};
     LUNASHELL::CodexTokenIntervalsSnapshot intervals{};
@@ -441,14 +439,6 @@ struct WidgetFrame {
 struct WidgetRuntime {
     CODY::WidgetRouteState route;
     WidgetOverlay overlay = WidgetOverlay::None;
-    esp_err_t load_error = ESP_OK;
-    struct VisibilityEditor {
-        WidgetScreen screen = WidgetScreen::Cody;
-        CODY::CompanionPanel panel = CODY::CompanionPanel::Home;
-        bool children = false;
-        WidgetSave save = WidgetSave::Idle;
-        CODY::WidgetVisibility pending;
-    } editor;
     CODY::TokenHistoryInterval interval = CODY::TokenHistoryInterval::FiveHours;
     WidgetPresentation presentation = WidgetPresentation::AwaitingFrame;
     WidgetFrame *frame = nullptr;
@@ -555,21 +545,11 @@ void open_widget_overlay(WidgetOverlay overlay, CODY::WidgetReturnRoute return_r
     s_state.frame_dirty.store(true, std::memory_order_release);
 }
 
-// No parameters: start at the Cody entry, including when its screen is hidden.
-void open_widget_visibility()
-{
-    s_widget.editor = {};
-    open_widget_overlay(WidgetOverlay::Visibility, CODY::WidgetReturnRoute::Options);
-}
-
 // No parameters: open the first enabled statistics page from Options.
 void open_statistics()
 {
     const auto first = CODY::first_visible_widget(s_widget.route.visibility, CODY::WidgetScope::Statistics);
-    if (!first) {
-        open_widget_visibility();
-        return;
-    }
+    if (!first) return;
     open_widget_overlay(WidgetOverlay::Statistics, CODY::WidgetReturnRoute::Options);
     CODY::select_widget_screen(s_widget.route, *first);
 }
@@ -589,82 +569,6 @@ void open_cody_fallback()
     }
 }
 
-// No parameters: apply only a completed settings write to the active route.
-void complete_widget_visibility_save()
-{
-    auto &editor = s_widget.editor;
-    if (editor.save != WidgetSave::Pending) {
-        return;
-    }
-    esp_err_t result = ESP_OK;
-    if (!CODY::take_widget_visibility_save_result(result)) {
-        return;
-    }
-    editor.save = WidgetSave::Failed;
-    if (result == ESP_OK && CODY::apply_widget_visibility(s_widget.route, editor.pending)) {
-        editor.save = WidgetSave::Idle;
-        s_state.home_dashboard.valid = false;
-        CODY::reset_home_dashboard_rotation(s_state.home_rotation);
-    } else {
-        ESP_LOGW(kTag, "Widget visibility save failed (%s)", esp_err_to_name(result));
-    }
-    invalidate_widget_frame();
-}
-
-// No parameters: preserve the confirmed setting until storage completes.
-void request_widget_visibility_toggle()
-{
-    auto &editor = s_widget.editor;
-    if (s_widget.load_error != ESP_OK) {
-        return;
-    }
-    auto candidate = s_widget.route.visibility;
-    const bool changed = editor.children
-        ? CODY::set_widget_visibility(candidate, editor.panel, !CODY::widget_panel_enabled(candidate, editor.panel))
-        : CODY::set_widget_visibility(candidate, editor.screen, !CODY::widget_visible(candidate, editor.screen));
-    if (!changed) {
-        return;
-    }
-    const esp_err_t error = CODY::request_widget_visibility_save(candidate);
-    editor.pending = candidate;
-    editor.save = error == ESP_OK ? WidgetSave::Pending : WidgetSave::Failed;
-    if (error != ESP_OK) {
-        ESP_LOGW(kTag, "Widget visibility save admission failed (%s)", esp_err_to_name(error));
-    }
-}
-
-// target: Released control from the current, fully retired editor page.
-void handle_widget_visibility_action(WidgetTouch target)
-{
-    auto &editor = s_widget.editor;
-    if (editor.save == WidgetSave::Pending) {
-        return;
-    }
-    const auto step = target == WidgetTouch::Previous ? CODY::WidgetStep::Previous : CODY::WidgetStep::Next;
-    if (target == WidgetTouch::Toggle) {
-        request_widget_visibility_toggle();
-    } else if (target == WidgetTouch::OpenChildren) {
-        editor.children = true;
-        editor.panel = CODY::kWidgetPanels.front().id;
-    } else if (editor.children) {
-        if (target == WidgetTouch::Previous && editor.panel == CODY::kWidgetPanels.front().id) {
-            editor.children = false;
-        } else {
-            editor.panel = CODY::next_visible_widget_panel({}, editor.panel, step).value_or(editor.panel);
-        }
-    } else if (target == WidgetTouch::Previous && editor.screen == CODY::kWidgetScreens.front().id) {
-        close_widget_overlay();
-        return;
-    } else {
-        editor.screen = CODY::next_visible_widget({}, editor.screen, step).value_or(editor.screen);
-    }
-    if (target != WidgetTouch::Toggle) {
-        editor.save = WidgetSave::Idle;
-    }
-    invalidate_widget_frame();
-    s_state.frame_dirty.store(true, std::memory_order_release);
-}
-
 // point: Acquired logical point on the fully retired statistics view.
 WidgetTouch widget_target_at(CODY2D::Point point)
 {
@@ -672,13 +576,6 @@ WidgetTouch widget_target_at(CODY2D::Point point)
     case CODY::LateralNavigation::Previous: return WidgetTouch::Previous;
     case CODY::LateralNavigation::Next: return WidgetTouch::Next;
     case CODY::LateralNavigation::None: break;
-    }
-    if (s_widget.overlay == WidgetOverlay::Visibility) {
-        switch (CODY::widget_visibility_control_at(s_widget.frame->editor, point)) {
-        case CODY::WidgetVisibilityControl::Toggle: return WidgetTouch::Toggle;
-        case CODY::WidgetVisibilityControl::OpenChildren: return WidgetTouch::OpenChildren;
-        case CODY::WidgetVisibilityControl::None: return WidgetTouch::None;
-        }
     }
     return s_widget.route.selected_screen == WidgetScreen::TokenHistory &&
         CODY::hit_token_history_interval(s_widget.frame->history, point)
@@ -711,10 +608,6 @@ void handle_widget_touch(const LUNASHELL_touch_point_t &point, bool pressed_edge
     const auto contact = s_widget.contact;
     s_widget.contact = {};
     if (contact.target == WidgetTouch::None || contact.display_revision != revision) {
-        return;
-    }
-    if (s_widget.overlay == WidgetOverlay::Visibility) {
-        handle_widget_visibility_action(contact.target);
         return;
     }
     if (contact.target == WidgetTouch::Interval) {
@@ -3443,7 +3336,6 @@ uint8_t s_voice_view_countdown_seconds = 0;
 int64_t s_voice_view_started_at_us = 0;
 int64_t s_voice_tap_due_us = 0;
 uint16_t s_voice_tap_rotation = 0;
-int16_t s_voice_tap_x = 0, s_voice_tap_y = 0;
 
 // No parameters: only the fully retired voice view can own shake cancellation.
 bool voice_input_view_active()
@@ -3769,12 +3661,6 @@ bool home_panel_rotation_interaction_active()
 esp_err_t prepare_widget_content(int64_t now_us)
 {
     auto &view = *s_widget.frame;
-    if (s_widget.overlay == WidgetOverlay::Visibility) {
-        const auto &editor = s_widget.editor;
-        return CODY::prepare_widget_visibility_view(editor.screen, editor.panel, editor.children,
-            s_widget.route.visibility, editor.save == WidgetSave::Pending, editor.save == WidgetSave::Failed,
-            s_widget.load_error != ESP_OK, CODY::SceneData::title_font, CODY::SceneData::body_font, view.editor, view.content);
-    }
     const auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
     if (s_widget.route.selected_screen == WidgetScreen::TokenHistory) {
         const esp_err_t error = snapshots.readCodexTokenIntervals(view.intervals);
@@ -3828,8 +3714,7 @@ esp_err_t draw_widget_rows(uint32_t revision, int64_t now_us, bool force_full,
         return error;
     }
     const auto &view = *s_widget.frame;
-    const bool ring = s_widget.overlay != WidgetOverlay::Visibility &&
-        s_widget.route.selected_screen == WidgetScreen::Reset &&
+    const bool ring = s_widget.route.selected_screen == WidgetScreen::Reset &&
         CODY::reset_countdown_ring_visible(view.reset.presentation());
     const uint16_t allowance = ring ? view.weekly.remaining_basis_points : 0;
     const auto &previous = s_widget.presented;
@@ -4070,14 +3955,12 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         }
     }
 
-    complete_widget_visibility_save();
-    const bool options_overlay = s_widget.overlay == WidgetOverlay::Statistics ||
-        s_widget.overlay == WidgetOverlay::Visibility;
+    const bool options_overlay = s_widget.overlay == WidgetOverlay::Statistics;
     if (options_overlay && !widget_options_parent_active() && !s_state.resume_scene_pending) {
         s_widget.route.return_route = CODY::WidgetReturnRoute::None;
         close_widget_overlay();
     }
-    if (s_widget.editor.save != WidgetSave::Pending && s_boot_home_pending.load(std::memory_order_acquire) &&
+    if (s_boot_home_pending.load(std::memory_order_acquire) &&
         s_state.rig_visible && s_state.boot_phase == BootPhase::Ready &&
         CODY::lifecycle_is_resting(s_state.lifecycle) && !s_state.resume_scene_pending &&
         !s_greeting_scheduled.load(std::memory_order_acquire) && !debug_view_active() &&
@@ -4102,8 +3985,7 @@ DrawResult draw_companion_frame(bool resume_animation = false,
             }
         }
     }
-    if (s_widget.editor.save != WidgetSave::Pending &&
-        s_boot_options_pending.exchange(false, std::memory_order_acq_rel) &&
+    if (s_boot_options_pending.exchange(false, std::memory_order_acq_rel) &&
         s_state.rig_visible && s_state.boot_phase == BootPhase::Ready &&
         CODY::lifecycle_is_resting(s_state.lifecycle) && !s_state.resume_scene_pending &&
         !s_greeting_scheduled.load(std::memory_order_acquire) && !debug_view_active() &&
@@ -4145,11 +4027,10 @@ DrawResult draw_companion_frame(bool resume_animation = false,
         s_state.onboarding_sampled_us = 0;
         if (completed.error == ESP_OK) {
             s_widget.presented = candidate;
-            s_state.frame_dirty.store(s_widget.editor.save != WidgetSave::Pending &&
-                (s_boot_options_pending.load(std::memory_order_acquire) ||
-                 s_boot_home_pending.load(std::memory_order_acquire)), std::memory_order_release);
-            const bool flipping = s_widget.overlay != WidgetOverlay::Visibility &&
-                s_widget.route.selected_screen == WidgetScreen::Reset && s_widget.frame->reset.animating();
+            s_state.frame_dirty.store(s_boot_options_pending.load(std::memory_order_acquire) ||
+                s_boot_home_pending.load(std::memory_order_acquire), std::memory_order_release);
+            const bool flipping = s_widget.route.selected_screen == WidgetScreen::Reset &&
+                s_widget.frame->reset.animating();
             s_state.next_frame_us = now_us + (flipping ? 33333 : 150000);
         }
         return completed;
@@ -6117,10 +5998,8 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
         }
         switch (CODY::take_widget_open_request()) {
         case CODY::WidgetOpenRequest::Statistics: open_statistics(); break;
-        case CODY::WidgetOpenRequest::Visibility: open_widget_visibility(); break;
         case CODY::WidgetOpenRequest::None: break;
         case CODY::WidgetOpenRequest::Home:
-        case CODY::WidgetOpenRequest::Timer:
         case CODY::WidgetOpenRequest::CodexBrowser:
         case CODY::WidgetOpenRequest::Audio:
         case CODY::WidgetOpenRequest::About:
@@ -6234,28 +6113,6 @@ esp_err_t handle_touch_sample(const LUNASHELL_touch_point_t &point)
     }
     const esp_err_t body_error = publish_body_gesture(point, pressed_edge);
     if (body_error == ESP_OK && passive_tap && !s_state.petting.triggered) {
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-        bool on_character = false;
-        const auto &tap = s_state.companion_tap;
-        const esp_err_t hit_error = CODY::hit_test_body(*s_resources.rig,
-            {static_cast<float>(tap.origin_x), static_cast<float>(tap.origin_y)}, on_character);
-        if (hit_error != ESP_OK) return hit_error;
-        if (on_character) {
-            const int dx = tap.origin_x - s_voice_tap_x;
-            const int dy = tap.origin_y - s_voice_tap_y;
-            if (s_voice_tap_due_us != 0 && point.sample_timestamp_us <= s_voice_tap_due_us &&
-                s_voice_tap_rotation == s_state.rendered_rotation_degrees && dx * dx + dy * dy <= 1600) {
-                s_voice_tap_due_us = 0;
-                return LUNASHELL::requestVoiceInput(LUNASHELL::VoiceInputTrigger::DoubleTap);
-            }
-            s_voice_tap_due_us = point.sample_timestamp_us + 420000;
-            s_voice_tap_rotation = s_state.rendered_rotation_degrees;
-            s_voice_tap_x = tap.origin_x;
-            s_voice_tap_y = tap.origin_y;
-            s_state.frame_dirty.store(true, std::memory_order_release);
-            return ESP_OK;
-        }
-#endif
         advance_local_companion_panel();
         return ESP_OK;
     }
@@ -6818,13 +6675,6 @@ extern "C" esp_err_t CODY_companion_start(void)
     const esp_err_t settings_error = CODY::load_onboarding_settings(s_state.onboarding);
     if (settings_error != ESP_OK) {
         return fail_consumer("Onboarding settings", settings_error, false);
-    }
-    CODY::WidgetVisibility visibility;
-    s_widget.load_error = CODY::load_widget_visibility(visibility);
-    if (s_widget.load_error == ESP_OK) {
-        CODY::apply_widget_visibility(s_widget.route, visibility);
-    } else {
-        ESP_LOGW(kTag, "Widget visibility unavailable (%s)", esp_err_to_name(s_widget.load_error));
     }
     const esp_err_t preferences_error = CODY::load_companion_preferences();
     if (preferences_error != ESP_OK) {

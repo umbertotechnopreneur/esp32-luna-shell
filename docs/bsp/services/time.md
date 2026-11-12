@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Trusted time, clock preferences and RTC
 
 The hardware acquisition owner restores trusted UTC from PCF85063 and publishes
@@ -71,3 +73,7 @@ RTC wiring and alarm limits belong to the
 effects. Reminder/snooze scheduling is deferred. RTC retention, SNTP recovery,
 fault handling, timezone/DST and physical cue gating remain device observations
 tracked in [TODO.md](../../../TODO.md).
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

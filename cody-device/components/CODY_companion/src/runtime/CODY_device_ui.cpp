@@ -10,13 +10,13 @@
 #include <new>
 
 #include "CODY_boot_branding.hpp"
+#include "CODY_boot_menu.hpp"
 #include "CODY_codex_audio.hpp"
 #include "CODY_cost_badge.hpp"
 #include "CODY_device_view.hpp"
 #include "CODY_device_effects.hpp"
 #include "CODY_codex_panels.hpp"
 #include "CODY_codex_browser.hpp"
-#include "CODY_local_timer_view.hpp"
 #include "CODY_audio_view.hpp"
 #include "CODY_pixel_demo.hpp"
 #include "CODY_pet_service.hpp"
@@ -26,12 +26,16 @@
 #include "CODY_onboarding.hpp"
 #include "CODY_page_marks.hpp"
 #include "CODY_settings.hpp"
+#include "CODY_third_party_view.hpp"
+#include "CODY_prices_view.hpp"
+#include "CODY_parallax.hpp"
+#include "CODY_usage_alarm.hpp"
+#include "CODY_model_background.hpp"
 #include "CODY_setup_progress.hpp"
 #include "CODY_theme_generated.hpp"
 #include "CODY_technical_panels.hpp"
 #include "CODY_voice_waveform.hpp"
 #include "CODY_waveshare_device.hpp"
-#include "CODY_widget_visibility_view.hpp"
 #include "LUNASHELL_codex_debug.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_platform.h"
@@ -50,6 +54,8 @@ extern "C" {
 extern const uint8_t cody_surprise_portrait_start[], cody_surprise_portrait_end[];
 extern const uint8_t cody_surprise_vietnam_start[], cody_surprise_vietnam_end[];
 extern const uint8_t cody_surprise_italy_start[], cody_surprise_italy_end[];
+extern const uint8_t cody_onboarding_welcome_start[], cody_onboarding_welcome_end[];
+extern const uint8_t cody_onboarding_sofia_start[], cody_onboarding_sofia_end[];
 }
 
 namespace {
@@ -81,22 +87,18 @@ constexpr uint32_t kReadyTimeoutMs = kPowerTimeoutMs + VIBEWARE_BOOT_DURATION_MS
 constexpr uint32_t kWorkerStackBytes = 12288;
 
 enum class Layer : uint8_t {
-    Branding, Birth, Mascot, Animation, Message, Scene, Dashboard, AboutLink, Visibility, Timer, Voice, Diagnostics,
-    VoucherWarning, Events, CurrentTurn, EventReply, CodexBrowser, Screensaver, Blank, Audio, Surprise, Counter
+    Branding, Birth, Mascot, Animation, Message, Scene, Dashboard, AboutLink, Voice, Diagnostics,
+    VoucherWarning, Events, CurrentTurn, EventReply, CodexBrowser, Screensaver, Blank, Audio, Surprise, Counter, UsageAlarm, BootMenu, EventCody, ThirdParty, Prices
 };
 enum class Command : uint8_t { Ready = 1, Sleep, Wake, Shutdown, ShutdownFailed };
 enum class ActivityPage : uint8_t { Events, CurrentTurn, Reply, Statistics };
+enum class BootSection : uint8_t { Default, Events, Counters };
 enum class BrandingPhase : uint8_t { Inactive, AwaitingReady, Playing };
-using Save = CODY::VisibilitySave;
 enum class Target : uint8_t {
-    None, Previous, Next, VisibilityFirst, VisibilitySecond, VisibilityThird,
+    None, Previous, Next,
     Interval, FirstAction, SecondAction, VoiceGesture, VoucherScroll, VoucherDismiss,
-    TimerDecrease, TimerIncrease, TimerSound, TimerStart, TimerCancel, TimerDismiss,
     EventsGesture, ActivityBack, EventDismiss, CodexBrowserControl, CodexBrowserBack, AudioClose,
-    AudioVolumeDown, AudioVolumeUp, AudioGainDown, AudioGainUp
-};
-constexpr std::array<Target, CODY::kVisibilityRowsPerPage> kVisibilityTargets{
-    Target::VisibilityFirst, Target::VisibilitySecond, Target::VisibilityThird,
+    AudioVolumeDown, AudioVolumeUp, AudioGainDown, AudioGainUp, ThirdPartyBack
 };
 
 struct FrameView {
@@ -137,6 +139,7 @@ struct RetiredFrame {
     int64_t heading_started_us = 0;
     uint16_t heading_offset = 0;
     bool heading_scrolls = false;
+    CODY::ModelBackground model_background = CODY::ModelBackground::None;
 };
 
 // heading: Current borrowed title; hash the bytes because view owners can reuse their buffers.
@@ -155,8 +158,6 @@ struct DeviceUi {
     CODY::DeviceModel model{};
     CODY::SceneFrame scene{};
     CODY::SceneFrame completed_scene{};
-    CODY::WidgetVisibilityView editor{};
-    CODY::LocalTimerView timer_view{};
     CODY::AudioView audio_view{};
     LUNASHELL::CodyOptionsObservation audio_options{};
     esp_err_t audio_options_error = ESP_ERR_NOT_FINISHED;
@@ -164,14 +165,41 @@ struct DeviceUi {
     bool audio_setting_pending = false;
     bool audio_refresh_needed = false;
     bool counter_mode_enabled = false;
+    BootSection boot_section = BootSection::Default;
+    CODY::BootMenuView boot_menu{};
+    CODY::ParallaxState parallax{};
+    uint8_t applied_character_theme = UINT8_MAX;
+    CODY::ThirdPartyView third_party{};
+    bool third_party_open = false;
+    CODY::PricesView prices{};
+    bool prices_open = false;
+    CODY2D::Point prices_start{};
+    CODY2D::Point prices_last{};
+    uint32_t prices_touch_revision = 0;
+    int8_t prices_touch_row = -1;
+    bool boot_menu_open = false;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    int64_t voice_boot_error_until_us = 0;
+    bool voice_boot_route_hold = false;
+    bool voice_boot_phase_seen = false;
+#endif
+    CODY::BootMenuAction boot_menu_contact = CODY::BootMenuAction::None;
+    CODY2D::Point boot_menu_start{};
+    CODY2D::Point boot_menu_last{};
+    uint32_t boot_menu_revision = 0;
     uint8_t counter_page = 0;
+    uint8_t counter_mask = 0;
     char counter_model_name[129]{};
     CODY::StyledTitle counter_model_title{};
+    CODY::ModelBackground counter_model_background = CODY::ModelBackground::None;
     int64_t audio_refresh_retry_us = 0;
     CODY::StatusOverlay status{};
     CODY::StatusOverlay retired_status{};
     bool status_retired = false;
     bool show_battery_percentage = true;
+    LUNASHELL::CodyIdleObservation idle_policy{};
+    int64_t idle_eligible_since_us = -1;
+    bool idle_applied = false;
     int64_t chrome_imu_at_us = 0;
     int64_t screensaver_last_touch_us = 0;
     float chrome_acceleration[3]{};
@@ -179,6 +207,8 @@ struct DeviceUi {
     CODY::BootBranding::Scratch branding_scratch{};
     int64_t branding_due_us = 0;
     int64_t boot_ding_deadline_us = 0;
+    int64_t first_boot_melody_deadline_us = 0;
+    uint32_t first_boot_melody_sequence = 0;
     uint16_t branding_frame = 0;
     BrandingPhase branding_phase = BrandingPhase::Inactive;
     CODY::PixelAvatarFrame birth_avatar{};
@@ -189,6 +219,7 @@ struct DeviceUi {
     uint16_t birth_background = 0;
     bool birth_pending = false;
     bool birth_active = false;
+    bool first_boot_melody = false;
     bool boot_ding_pending = false;
     bool birth_rise_pending = false;
     bool pet_tap_cue_pending = false;
@@ -209,6 +240,17 @@ struct DeviceUi {
 #endif
     int64_t animation_deadline_us = 0;
     bool animation_active = false;
+    CODY::UsageAlarmState usage_alarm_state{};
+    CODY::UsageAlarmNotice usage_alarm_notice{};
+    uint32_t event_visual_seen = 0;
+    int64_t event_cody_started_us = 0;
+    LUNASHELL::CodexEventKind event_cody_kind = LUNASHELL::CodexEventKind::None;
+    bool event_cody_active = false;
+    bool usage_alarm_active = false;
+    bool usage_alarm_presented = false;
+    int64_t usage_alarm_started_us = 0;
+    char usage_alarm_title[24]{};
+    char usage_alarm_peer[33]{};
     int64_t muse_frame_due_us = 0;
     CODY::CodexPanelView codex_panel{};
     CODY::CodexBrowser codex_browser{};
@@ -247,13 +289,13 @@ struct DeviceUi {
     bool scene_dirty = true;
     bool asleep = false;
     bool diagnostics = false;
-    bool timer_open = false;
     bool audio_open = false;
     bool audio_demand_requested = false;
     bool audio_worker_started = false;
     int64_t audio_demand_started_us = 0;
     int64_t audio_worker_retry_at_us = 0;
     bool first_boot = false;
+    uint8_t tour_step = 5;
     bool setup_progress_pending = false;
     int64_t setup_retry_at_us = 0;
     int64_t qr_reveal_at_us = 0;
@@ -268,6 +310,16 @@ struct DeviceUi {
     uint8_t surprise_page = 0;
     bool mascot_home = false;
     bool about_from_options = false;
+    bool about_from_boot_menu = false;
+    bool about_return_settings = false;
+    uint8_t about_return_settings_page = 0;
+    bool about_return_third_party = false;
+    bool about_return_prices = false;
+    bool about_return_home = false;
+    BootSection about_return_section = BootSection::Default;
+    ActivityPage about_return_activity = ActivityPage::Events;
+    WidgetScreen about_return_screen = WidgetScreen::Device;
+    CODY::InfoPage about_return_info = CODY::InfoPage::System;
     bool options_return_valid = false;
     bool options_return_home = false;
     ActivityPage options_return_activity = ActivityPage::Events;
@@ -281,7 +333,12 @@ DeviceUi *s_ui = nullptr;
 std::atomic<bool> s_ready{false};
 std::atomic<bool> s_options_requested{false};
 std::atomic<bool> s_home_requested{false};
+std::atomic<bool> s_boot_menu_requested{false};
 std::atomic<bool> s_boot_activity{false};
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+std::atomic<bool> s_boot_voice_requested{false};
+std::atomic<int64_t> s_boot_voice_requested_at_us{0};
+#endif
 std::atomic<bool> s_surprise_requested{false};
 std::atomic<uint32_t> s_ticket{0};
 std::atomic<uint32_t> s_command{0};
@@ -314,6 +371,49 @@ void invalidate()
     CODY::cancel_onboarding_touch();
 }
 
+// ui: Serialized display owner; changes apply only after a confirmed theme observation.
+// Exception: An unavailable preference keeps the last valid visual theme.
+void synchronize_character_theme(DeviceUi &ui)
+{
+    LUNASHELL::CodyCharacterThemeObservation theme{};
+    const auto error = DeviceSnapshotService::instance().readCodyCharacterThemeObservation(theme);
+    if (error != ESP_OK || !theme.valid || theme.last_error != ESP_OK || theme.theme >= 8 ||
+        ui.applied_character_theme == theme.theme) return;
+    ui.applied_character_theme = theme.theme;
+    ui.pixel_demo.visual_style.character_theme = theme.theme;
+    ui.animation_preview.visual_style.character_theme = theme.theme;
+    ui.pixel_demo.manual_needs_compose = true;
+    ui.animation_preview.manual_needs_compose = true;
+    invalidate();
+}
+
+// ui: Display owner of an optional usage alert; preserve the underlying route.
+// Exception: None; the fixed default viewport is known valid.
+void close_usage_alarm(DeviceUi &ui)
+{
+    ui.usage_alarm_active = false;
+    ui.usage_alarm_presented = false;
+    CODY::hide_pixel_demo(ui.animation_preview);
+    ui.animation_preview.manual = false;
+    ui.animation_preview.manual_playing = false;
+    ui.animation_preview.manual_needs_compose = false;
+    (void)CODY::set_pixel_demo_viewport(ui.animation_preview, kMuseViewport);
+    invalidate();
+}
+
+// ui: Display owner of the optional event overlay; underlying navigation is retained.
+// Exception: None; the fixed default viewport is known valid.
+void close_event_cody(DeviceUi &ui)
+{
+    ui.event_cody_active = false;
+    CODY::hide_pixel_demo(ui.animation_preview);
+    ui.animation_preview.manual = false;
+    ui.animation_preview.manual_playing = false;
+    ui.animation_preview.manual_needs_compose = false;
+    (void)CODY::set_pixel_demo_viewport(ui.animation_preview, kMuseViewport);
+    invalidate();
+}
+
 // No parameters: choose the first enabled statistics page, with Device always available.
 void select_statistics()
 {
@@ -325,12 +425,24 @@ void select_statistics()
     invalidate();
 }
 
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
 // No parameters: physical BOOT posts an intent for the display owner.
 void queue_options()
 {
     s_boot_activity.store(true, std::memory_order_release);
     s_options_requested.store(true, std::memory_order_release);
 }
+#endif
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+// No parameters: the power owner posts a BOOT long-hold intent to the display owner.
+void queue_boot_voice()
+{
+    s_boot_activity.store(true, std::memory_order_release);
+    s_boot_voice_requested_at_us.store(esp_timer_get_time(), std::memory_order_release);
+    s_boot_voice_requested.store(true, std::memory_order_release);
+}
+#endif
 
 // No parameters: post a Home intent for the display owner.
 void queue_home()
@@ -350,11 +462,13 @@ void queue_boot_home()
         presses = 1;
     } else if (++presses == 3) {
         presses = 0;
+        s_boot_menu_requested.store(false, std::memory_order_release);
         s_boot_activity.store(true, std::memory_order_release);
         s_surprise_requested.store(true, std::memory_order_release);
         return;
     }
-    queue_home();
+    s_boot_activity.store(true, std::memory_order_release);
+    s_boot_menu_requested.store(true, std::memory_order_release);
 }
 
 // page: One-based display image selection.
@@ -390,15 +504,49 @@ esp_err_t draw_surprise_rows(uint8_t page, CODY2D::Surface strip, uint16_t row, 
     return ESP_OK;
 }
 
+// art: Explicit current guide artwork; never used for QR or connection pages.
+// strip: Display-owner tile receiving immutable palette-indexed RGB565 pixels.
+// row: Logical top row of the tile.
+// left: Logical left column of the tile.
+// Exception: Returns the original surface error or rejects mismatched asset geometry.
+esp_err_t draw_onboarding_art_rows(CODY::OnboardingArtwork art, CODY2D::Surface strip,
+                                   uint16_t row, uint16_t left)
+{
+    const uint8_t *start = art == CODY::OnboardingArtwork::Welcome ? cody_onboarding_welcome_start :
+        art == CODY::OnboardingArtwork::Sofia ? cody_onboarding_sofia_start : nullptr;
+    const uint8_t *end = art == CODY::OnboardingArtwork::Welcome ? cody_onboarding_welcome_end :
+        art == CODY::OnboardingArtwork::Sofia ? cody_onboarding_sofia_end : nullptr;
+    if (start == nullptr || end == nullptr) return ESP_ERR_INVALID_ARG;
+    const auto error = CODY2D::validate_surface(strip);
+    if (error != ESP_OK) return error;
+    constexpr size_t palette_bytes = 256U * 2U;
+    constexpr size_t bytes = palette_bytes + size_t{466} * 466;
+    if (reinterpret_cast<uintptr_t>(end) < reinterpret_cast<uintptr_t>(start) ||
+        reinterpret_cast<uintptr_t>(end) - reinterpret_cast<uintptr_t>(start) != bytes ||
+        static_cast<uint32_t>(row) + strip.height > 466 ||
+        static_cast<uint32_t>(left) + strip.width > 466) return ESP_ERR_INVALID_SIZE;
+    for (uint16_t y = 0; y < strip.height; ++y) {
+        const uint8_t *source = start + palette_bytes + (static_cast<size_t>(row) + y) * 466 + left;
+        uint16_t *destination = strip.pixels + size_t{y} * strip.stride;
+        for (uint16_t x = 0; x < strip.width; ++x) {
+            const auto index = static_cast<size_t>(source[x]) * 2U;
+            const uint16_t color = static_cast<uint16_t>((uint16_t{start[index]} << 8) | start[index + 1]);
+            destination[x] = CODY2D::rgb565_native_to_stored(color, strip.byte_order);
+        }
+    }
+    return ESP_OK;
+}
+
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
 using VoicePhase = LUNASHELL::VoiceInputPhase;
 
 // ui: Current route and its display-owned overlays. The same route is retained through standby.
+// Exception: None.
 bool voice_route_available(const DeviceUi &ui)
 {
     return CODY::Waveshare::kDevice.voice_recording && ui.surprise_page == 0 &&
         !ui.mascot_home && CODY::onboarding_dashboard_active() &&
-        !ui.model.editing && !ui.timer_open && !ui.audio_open && !ui.diagnostics &&
+        !ui.audio_open && !ui.diagnostics &&
         ui.activity_page != ActivityPage::Reply && ui.model.screensaver.phase != CODY::ScreensaverPhase::Visible &&
         !(ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::ProjectLink) &&
         !s_options_requested.load(std::memory_order_acquire);
@@ -605,33 +753,26 @@ esp_err_t prepare_counter_view(DeviceUi &ui, FrameView &frame, int64_t now_us)
     const auto &data = ui.model.dashboard;
     frame.layer = Layer::Counter;
     frame.arrows = false;
-    if (ui.counter_page == 0) {
-        return CODY::prepare_device_dashboard(ui.view, frame.presentation, WidgetScreen::Reset,
-            ui.model.interval, data, now_us, CODY::VoucherList{});
-    }
     CODY::PanelInputs inputs{};
     const auto error = CODY::project_companion_panel_inputs(data.context.link, data.context.technical,
         now_us, data.context.firmware_version, inputs);
     if (error != ESP_OK) return error;
     const bool active = inputs.activity == CODY::PanelValueState::Current && inputs.chat_id[0] != '\0';
-    if (ui.counter_page == 1) {
-        if (!active || !inputs.context_coherent || inputs.used.state != CODY::PanelValueState::Current ||
-            inputs.capacity.state != CODY::PanelValueState::Current || inputs.capacity.value == 0 ||
-            inputs.used.value > inputs.capacity.value) {
-            return CODY::prepare_device_message(ui.view, frame.presentation, "Context", "Unavailable",
-                "No current chat data");
-        }
-        char used[32]{};
-        char remaining[32]{};
-        char capacity[32]{};
-        std::snprintf(used, sizeof(used), "Used %llu", static_cast<unsigned long long>(inputs.used.value));
-        std::snprintf(remaining, sizeof(remaining), "Free %llu",
-            static_cast<unsigned long long>(inputs.capacity.value - inputs.used.value));
-        std::snprintf(capacity, sizeof(capacity), "Window %llu", static_cast<unsigned long long>(inputs.capacity.value));
-        return CODY::prepare_device_message(ui.view, frame.presentation, "Context", used, remaining, nullptr, nullptr, capacity);
-    }
     const bool model_current = active && inputs.model_state == CODY::PanelValueState::Current &&
         inputs.model[0] != '\0' && std::strlen(inputs.model) < sizeof(ui.counter_model_name);
+    // Keep the three destinations stable as observations arrive or expire.
+    // Each destination renders its own unavailable or stale state.
+    ui.counter_mask = 0x07U;
+    ui.counter_model_background = CODY::ModelBackground::None;
+    if (ui.counter_page == 0) {
+        CODY::project_device_statistics_calendar(ui.model.dashboard, WidgetScreen::Reset, ui.model.interval);
+        return CODY::prepare_device_dashboard(ui.view, frame.presentation, WidgetScreen::Reset,
+            ui.model.interval, data, now_us, CODY::VoucherList{});
+    }
+    if (ui.counter_page == 1) {
+        return CODY::prepare_device_dashboard(ui.view, frame.presentation, WidgetScreen::Context,
+            ui.model.interval, data, now_us, CODY::VoucherList{});
+    }
     const char *band = active && inputs.cost_state == CODY::PanelValueState::Current
         ? CODY::cost_band_text(inputs.cost_band) : "Price unavailable";
     auto result = CODY::prepare_device_message(ui.view, frame.presentation, "Model",
@@ -639,6 +780,7 @@ esp_err_t prepare_counter_view(DeviceUi &ui, FrameView &frame, int64_t now_us)
     if (result != ESP_OK || !model_current) return result;
     std::snprintf(ui.counter_model_name, sizeof(ui.counter_model_name), "%s", inputs.model);
     const auto length = static_cast<uint16_t>(std::strlen(ui.counter_model_name));
+    ui.counter_model_background = CODY::model_background_for({ui.counter_model_name, length}, true);
     result = CODY::prepare_styled_title({ui.counter_model_name, length},
         frame.presentation.content.heading.bounds, ui.counter_model_title, 3, true);
     if (result == ESP_OK) frame.presentation.content.heading = ui.counter_model_title;
@@ -690,18 +832,13 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
     if (!ui.audio_open || ui.diagnostics) {
         set_audio_demand(false);
     }
-    // Read an admitted alarm's result before another effect can reuse the audio mailbox.
-    auto &timer = ui.model.timer;
-    const bool tracking_alarm = timer.alarm_request_sequence != 0;
-    if (tracking_alarm) CODY::update_local_timer_alarm(timer, now_us, voice_busy);
     // Optional sound failures remain in the effects model; visual controls keep working.
     (void)CODY::update_device_effects(ui.model.effects, ui.model.dashboard.codex_presence,
         ui.model.dashboard.codex_presence_error == ESP_OK, ui.model.dashboard.hardware.wifi,
         ui.model.dashboard.hardware_error == ESP_OK, ui.model.battery_banner, voice, now_us,
         CODY::onboarding_saved_wifi_startup_offline(now_us));
-    if (!tracking_alarm) CODY::update_local_timer_alarm(timer, now_us, voice_busy);
     const bool voucher_attention_allowed = !ui.mascot_home && CODY::onboarding_dashboard_active() &&
-        !ui.model.editing && !ui.diagnostics && !ui.timer_open && !ui.audio_open && !voice_busy &&
+        !ui.diagnostics && !ui.audio_open && !voice_busy &&
         !CODY::device_effects_require_attention(ui.model.effects) && ui.model.battery_banner.sequence == 0 &&
         !(ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::ProjectLink);
     if (voucher_attention_allowed && !ui.asleep && !ui.pressed &&
@@ -716,8 +853,8 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         ? (ui.mascot_home || CODY::onboarding_dashboard_active())
         : (ui.mascot_home ? ui.pixel_demo.elapsed_us >= CODY::kPixelDemoWakingUs :
            CODY::onboarding_dashboard_active())) &&
-        !ui.model.editing && !ui.diagnostics && !ui.animation_active &&
-        !ui.timer_open && !ui.audio_open && !voice_busy &&
+        !ui.diagnostics && !ui.animation_active && !ui.usage_alarm_active && !ui.event_cody_active && !ui.boot_menu_open &&
+        !ui.audio_open && !voice_busy &&
         ui.model.vouchers.warning_expiry == 0 &&
         !CODY::device_effects_require_attention(ui.model.effects) && ui.model.battery_banner.sequence == 0 &&
         !(!ui.mascot_home && ui.model.widgets.selected_screen == WidgetScreen::About &&
@@ -741,11 +878,74 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         if (error == ESP_OK) prepare_device_voice_ribbon(ui, frame, motion_error);
         return error;
     }
+    if (now_us < ui.voice_boot_error_until_us) {
+        frame.layer = Layer::Message;
+        return CODY::prepare_device_message(ui.view, frame.presentation,
+            "Voice unavailable", "Check settings and connection");
+    }
 #endif
+    const bool critical_event = CODY::device_effects_require_attention(ui.model.effects) &&
+        ui.model.effects.event.kind != LUNASHELL::CodexEventKind::ReplyReady;
+    if (ui.event_cody_active && (critical_event ||
+        ui.model.battery_banner.sequence != 0 || ui.diagnostics || ui.audio_open)) close_event_cody(ui);
+    if (ui.boot_menu_open) {
+        frame.layer = Layer::BootMenu;
+        frame.arrows = true;
+        const bool in_settings = ui.scene.valid && ui.scene.definition->id == CODY::SceneId::MakeItYours;
+        const bool can_change_route = CODY::onboarding_dashboard_active() ||
+            (in_settings && CODY::can_open_wifi_setup_from_home());
+        const bool can_open_settings = in_settings ? CODY::can_open_wifi_setup_from_home() : CODY::can_open_setup_menu();
+        const bool inbox_available = ui.inbox.health == LUNASHELL::DeviceHealth::Ready &&
+            ui.inbox.data_valid && !ui.inbox.data_stale && ui.inbox.last_error == ESP_OK;
+        return CODY::prepare_boot_menu(ui.boot_menu, CODY::SceneData::body_font, inbox_available,
+            can_change_route, can_open_settings, frame.presentation.content);
+    }
     if (ui.animation_active) {
         frame.layer = Layer::Animation;
         ui.muse_frame_due_us = now_us + kMuseFramePeriodUs;
         return CODY::prepare_pixel_demo(ui.animation_preview, ui.awake_us, frame.presentation.content);
+    }
+    if (ui.usage_alarm_active) {
+        frame.layer = Layer::UsageAlarm;
+        const auto elapsed = std::max<int64_t>(0, now_us - ui.usage_alarm_started_us);
+        const int64_t half_period = 350000 - ui.usage_alarm_notice.intensity * 40000;
+        const bool raised = (elapsed / half_period) % 2 != 0;
+        const auto amplitude = static_cast<uint16_t>(4U + 4U * ui.usage_alarm_notice.intensity);
+        const CODY::LogicalRect viewport{113, static_cast<uint16_t>(154U - (raised ? amplitude : 0U)), 240, 240};
+        auto error = CODY::set_pixel_demo_viewport(ui.animation_preview, viewport);
+        if (error != ESP_OK) return error;
+        ui.muse_frame_due_us = now_us + kMuseFramePeriodUs;
+        error = CODY::prepare_pixel_demo(ui.animation_preview, ui.awake_us, frame.presentation.content);
+        if (error != ESP_OK) return error;
+        return CODY::prepare_styled_title({ui.usage_alarm_title,
+            static_cast<uint16_t>(std::strlen(ui.usage_alarm_title))}, {73, 85, 320, 44},
+            frame.presentation.content.heading, 3, true);
+    }
+    if (ui.event_cody_active) {
+        frame.layer = Layer::EventCody;
+        const bool raised = ((now_us - ui.event_cody_started_us) / 180000) % 2 != 0;
+        auto error = CODY::set_pixel_demo_viewport(ui.animation_preview,
+            {113, static_cast<uint16_t>(raised ? 140U : 154U), 240, 240});
+        if (error != ESP_OK) return error;
+        ui.muse_frame_due_us = now_us + kMuseFramePeriodUs;
+        error = CODY::prepare_pixel_demo(ui.animation_preview, ui.awake_us, frame.presentation.content);
+        if (error != ESP_OK) return error;
+        const char *title = ui.event_cody_kind == LUNASHELL::CodexEventKind::ChecksFailed ? "CHECKS FAILED" :
+            ui.event_cody_kind == LUNASHELL::CodexEventKind::ChecksPassed ? "CHECKS PASSED" :
+            ui.event_cody_kind == LUNASHELL::CodexEventKind::ReplyReady ? "REPLY READY" :
+            ui.event_cody_kind == LUNASHELL::CodexEventKind::PrPending ? "PULL REQUEST" : "NOTICE";
+        return CODY::prepare_styled_title({title, static_cast<uint16_t>(std::strlen(title))},
+            {73, 85, 320, 44}, frame.presentation.content.heading, 3, true);
+    }
+    if (ui.third_party_open) {
+        frame.layer = Layer::ThirdParty;
+        frame.arrows = true;
+        return CODY::prepare_third_party_view(ui.third_party, CODY::SceneData::body_font, frame.presentation.content);
+    }
+    if (ui.prices_open) {
+        frame.layer = Layer::Prices;
+        frame.arrows = true;
+        return CODY::prepare_prices_view(ui.prices, CODY::SceneData::body_font, now_us, frame.presentation.content);
     }
     if (ui.diagnostics) {
         frame.layer = Layer::Diagnostics;
@@ -780,19 +980,6 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
             ui.audio_options_error, ui.audio_setting_pending, ui.audio_setting_error, esp_timer_get_time(),
             CODY::SceneData::title_font, CODY::SceneData::body_font, ui.audio_view, frame.presentation.content);
     }
-    if (ui.timer_open) {
-        frame.layer = Layer::Timer;
-        frame.arrows = true;
-        return CODY::prepare_local_timer_view(timer, now_us, CODY::SceneData::title_font,
-            CODY::SceneData::body_font, ui.timer_view, frame.presentation.content);
-    }
-    if (ui.model.editing) {
-        frame.layer = Layer::Visibility;
-        frame.arrows = true;
-        return CODY::prepare_widget_visibility_view(ui.model.editor_page, ui.model.widgets.visibility,
-            ui.model.save == Save::Pending, ui.model.save == Save::Failed, ui.model.settings_error != ESP_OK,
-            CODY::SceneData::title_font, CODY::SceneData::body_font, ui.editor, frame.presentation.content);
-    }
     if (!ui.counter_mode_enabled && ui.codex_browser.route != CODY::CodexBrowserRoute::Closed &&
         ui.browser_destination == CODY::CodexBrowserDestination::None &&
         CODY::onboarding_codex_tools_active()) {
@@ -800,14 +987,24 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         frame.arrows = true;
         return CODY::prepare_codex_browser(ui.codex_browser, now_us, frame.presentation.content);
     }
-    if (ui.counter_mode_enabled && !ui.about_from_options &&
+    if (
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        !s_boot_voice_requested.load(std::memory_order_acquire) && !ui.voice_boot_route_hold &&
+#endif
+        (ui.boot_section == BootSection::Counters ||
+        (ui.boot_section == BootSection::Default && ui.counter_mode_enabled)) && !ui.about_from_options &&
         (CODY::onboarding_dashboard_active() || ui.mascot_home)) {
         return prepare_counter_view(ui, frame, now_us);
     }
     const bool mascot_waking = ui.pixel_demo.elapsed_us < CODY::kPixelDemoWakingUs;
     if (ui.mascot_home && (mascot_waking || !CODY::device_effects_require_attention(ui.model.effects))) {
         frame.layer = Layer::Mascot;
-        const auto viewport_error = CODY::set_pixel_demo_viewport(ui.pixel_demo, kMuseViewport);
+        ui.pixel_demo.fixed_touch_bounds = true;
+        const CODY::LogicalRect viewport{
+            static_cast<uint16_t>(static_cast<int>(kMuseViewport.x) + ui.parallax.x),
+            static_cast<uint16_t>(static_cast<int>(kMuseViewport.y) + ui.parallax.y),
+            kMuseViewport.width, kMuseViewport.height};
+        const auto viewport_error = CODY::set_pixel_demo_viewport(ui.pixel_demo, viewport);
         if (viewport_error != ESP_OK) return viewport_error;
         ui.muse_frame_due_us = now_us + kMuseFramePeriodUs;
         CODY::PixelDemoMotion motion{};
@@ -914,7 +1111,7 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         }
         frame.statistics_unavailable = true;
         frame.presentation = {};
-        return CODY::prepare_device_message(ui.view, frame.presentation, "Statistics", "Data unavailable", "BOOT opens Options");
+        return CODY::prepare_device_message(ui.view, frame.presentation, "Statistics", "Data unavailable", "BOOT opens Menu");
     }
     if (ui.scene.valid) {
         frame.layer = Layer::Scene;
@@ -932,7 +1129,8 @@ esp_err_t render(const FrameView &frame, bool force = false)
 {
     auto &ui = *s_ui;
     if (frame.layer != Layer::Mascot) CODY::hide_pixel_demo(ui.pixel_demo);
-    if (frame.layer != Layer::Animation) CODY::hide_pixel_demo(ui.animation_preview);
+    if (frame.layer != Layer::Animation && frame.layer != Layer::UsageAlarm && frame.layer != Layer::EventCody)
+        CODY::hide_pixel_demo(ui.animation_preview);
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     // Standby retains the route so an eligible dashboard can still wake by voice.
     const bool keep_voice_route = frame.layer == Layer::Blank && voice_route_available(ui);
@@ -965,7 +1163,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
         !(screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::VibeWare)) ||
         frame.layer == Layer::VoucherWarning;
     const bool show_battery = frame.layer != Layer::Blank && frame.layer != Layer::Branding && frame.layer != Layer::Birth &&
-        frame.layer != Layer::Screensaver && frame.layer != Layer::Mascot && frame.layer != Layer::Animation &&
+        frame.layer != Layer::Screensaver && frame.layer != Layer::Mascot && frame.layer != Layer::Animation && frame.layer != Layer::UsageAlarm && frame.layer != Layer::EventCody &&
         frame.layer != Layer::Surprise &&
         (!qr_view || qr_opacity != 0);
     const auto saved_epoch = frame.layer == Layer::Dashboard && !frame.statistics_unavailable
@@ -998,22 +1196,30 @@ esp_err_t render(const FrameView &frame, bool force = false)
         battery.data_valid && !battery.data_stale && battery.last_error == ESP_OK &&
         battery.level_percent_valid && battery.level_percent >= 0 && battery.level_percent <= 100;
     const int8_t battery_percent = battery_current ? static_cast<int8_t>(battery.level_percent) : -1;
+    const auto model_background = frame.layer == Layer::Counter && ui.counter_page == 2
+        ? ui.counter_model_background : CODY::ModelBackground::None;
     const bool full = force || !old.valid || old.display_revision != revision ||
         old.layer != frame.layer || old.screen != screen ||
+        old.model_background != model_background ||
         old.allowance != allowance || old.battery_percent != battery_percent ||
         old.statistics_unavailable != frame.statistics_unavailable || old.qr_opacity != qr_opacity ||
         old.setup_opacity != setup_opacity ||
         (frame.layer == Layer::Scene && ui.scene_dirty);
     const bool draws_navigation = frame.arrows || frame.layer == Layer::Scene || show_status;
-    const uint8_t opacity = qr_view ? qr_opacity : draws_navigation ? frame.navigation_opacity : 0;
+    // Menu Back remains visible and tappable instead of disappearing with idle chrome.
+    const bool persistent_menu_back = frame.layer == Layer::BootMenu || frame.layer == Layer::Prices ||
+        frame.layer == Layer::ThirdParty || frame.layer == Layer::CodexBrowser ||
+        (frame.layer == Layer::Scene && ui.scene.valid &&
+         ui.scene.definition->id == CODY::SceneId::MakeItYours);
+    const uint8_t opacity = qr_view ? qr_opacity : persistent_menu_back ? 255 :
+        draws_navigation ? frame.navigation_opacity : 0;
     const bool dashboard_next = frame.layer != Layer::Dashboard || screen == WidgetScreen::About ||
         CODY::next_visible_widget(ui.available_statistics, screen, WidgetStep::Next) != screen;
     const bool next_navigation = frame.arrows && dashboard_next && frame.layer != Layer::Dashboard &&
-        frame.layer != Layer::Visibility && frame.layer != Layer::AboutLink && frame.layer != Layer::Timer &&
+        frame.layer != Layer::AboutLink &&
         frame.layer != Layer::VoucherWarning && frame.layer != Layer::CurrentTurn &&
         frame.layer != Layer::EventReply && frame.layer != Layer::CodexBrowser && frame.layer != Layer::Events &&
-        frame.layer != Layer::Audio &&
-        (frame.layer != Layer::Visibility || ui.editor.page + 1U < CODY::kVisibilityPageCount);
+        frame.layer != Layer::Audio && frame.layer != Layer::BootMenu && frame.layer != Layer::ThirdParty && frame.layer != Layer::Prices;
     const bool navigation_changed = old.navigation_opacity != opacity || old.next_navigation != next_navigation;
     const auto same_bounds = [](const CODY::DamageRect &first, const CODY::DamageRect &second) {
         return first.left == second.left && first.top == second.top &&
@@ -1040,9 +1246,12 @@ esp_err_t render(const FrameView &frame, bool force = false)
     uint8_t carousel_count = 0;
     uint16_t carousel_mask = 0;
     if (frame.layer == Layer::Counter) {
-        carousel_page = ui.counter_page;
-        carousel_count = 3;
-        carousel_mask = 7;
+        carousel_mask = ui.counter_mask;
+        for (uint8_t page = 0; page < 3; ++page) {
+            if ((ui.counter_mask & (1U << page)) == 0) continue;
+            if (page == ui.counter_page) carousel_page = carousel_count;
+            ++carousel_count;
+        }
     } else if (frame.layer == Layer::Dashboard && screen != WidgetScreen::About) {
         for (const auto &entry : CODY::kWidgetScreens) {
             if (!CODY::widget_visible(ui.available_statistics, entry.id)) continue;
@@ -1057,8 +1266,8 @@ esp_err_t render(const FrameView &frame, bool force = false)
     const bool connection_changed = old.connection_revision != chrome.connection_revision;
     const bool connection_activity_changed = old.connection_activity_phase != frame.connection_activity_phase;
     const bool voice_ribbon_changed = old.voice_ribbon_at_us != frame.voice_ribbon_at_us;
-    auto &pixel_view = frame.layer == Layer::Animation ? ui.animation_preview : ui.pixel_demo;
-    const bool pixel_demo_changed = (frame.layer == Layer::Mascot || frame.layer == Layer::Animation) &&
+    auto &pixel_view = frame.layer == Layer::Animation || frame.layer == Layer::UsageAlarm || frame.layer == Layer::EventCody ? ui.animation_preview : ui.pixel_demo;
+    const bool pixel_demo_changed = (frame.layer == Layer::Mascot || frame.layer == Layer::Animation || frame.layer == Layer::UsageAlarm || frame.layer == Layer::EventCody) &&
         pixel_view.damage.count != 0;
     CODY::DamageRect selected_label_bounds{};
     uint16_t selected_label_offset = UINT16_MAX;
@@ -1156,6 +1365,15 @@ esp_err_t render(const FrameView &frame, bool force = false)
             const uint16_t background = frame.layer == Layer::Scene ? ui.scene.definition->background_rgb565 :
                 frame.layer == Layer::Birth ? ui.birth_background : 0;
             error = CODY2D::clear(strip, background);
+            if (error == ESP_OK && frame.layer == Layer::Scene) {
+                const auto art = CODY::onboarding_artwork();
+                if (art != CODY::OnboardingArtwork::None)
+                    error = draw_onboarding_art_rows(art, strip, row, left);
+            }
+            if (error == ESP_OK && model_background != CODY::ModelBackground::None) {
+                // The artwork stays below all model text and inside the content damage bounds.
+                error = CODY::draw_model_background_rows(model_background, {177, 270, 112, 112}, strip, row, left);
+            }
             if (error == ESP_OK && frame.layer == Layer::Surprise) {
                 error = draw_surprise_rows(ui.surprise_page, strip, row, left);
             } else if (error == ESP_OK && frame.layer == Layer::Branding) {
@@ -1202,8 +1420,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
             if (error == ESP_OK && frame.layer == Layer::Scene) {
                 error = CODY::draw_onboarding_navigation(strip, row, left, opacity, background);
             }
-            const bool show_back = frame.layer == Layer::Visibility ? ui.model.editor_page == 0 :
-                frame.layer == Layer::Dashboard ? ui.about_from_options && screen == WidgetScreen::About &&
+            const bool show_back = frame.layer == Layer::Dashboard ? ui.about_from_options && screen == WidgetScreen::About &&
                     ui.model.info_page == CODY::InfoPage::System : true;
             if (error == ESP_OK && frame.arrows && show_back && row < navigation_bounds.bottom &&
                 row + rows > navigation_bounds.top) {
@@ -1236,7 +1453,7 @@ esp_err_t render(const FrameView &frame, bool force = false)
     }
     if (!old.valid || old.display_revision != frame_revision || old.layer != frame.layer || old.screen != screen ||
         (content_changed &&
-         (frame.layer == Layer::Visibility || frame.layer == Layer::CodexBrowser ||
+         (frame.layer == Layer::CodexBrowser ||
           ui.contact == Target::FirstAction || ui.contact == Target::SecondAction ||
           ui.contact == Target::VoucherScroll || ui.contact == Target::VoucherDismiss))) {
         ui.contact = Target::None;
@@ -1266,10 +1483,12 @@ esp_err_t render(const FrameView &frame, bool force = false)
     old.heading_started_us = heading_started_us;
     old.heading_offset = heading_offset;
     old.heading_scrolls = heading_scrolls;
+    old.model_background = model_background;
     ui.status_retired = show_status;
     if (show_status) ui.retired_status = ui.status;
     if (frame.layer == Layer::Mascot) CODY::retire_pixel_demo(ui.pixel_demo);
-    if (frame.layer == Layer::Animation) CODY::retire_pixel_demo(ui.animation_preview);
+    if (frame.layer == Layer::Animation || frame.layer == Layer::UsageAlarm || frame.layer == Layer::EventCody)
+        CODY::retire_pixel_demo(ui.animation_preview);
     if (frame.layer == Layer::Scene) {
         ui.completed_scene = ui.scene;
         ui.scene_dirty = false;
@@ -1281,10 +1500,16 @@ esp_err_t render(const FrameView &frame, bool force = false)
 }
 
 // point: Logical position on the last fully retired page.
+// Exception: None.
 Target target_at(CODY2D::Point point)
 {
     const auto &ui = *s_ui;
     const auto layer = ui.retired.layer;
+    if (layer == Layer::ThirdParty) {
+        return ui.retired.navigation_opacity == 255 &&
+            CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous
+            ? Target::ThirdPartyBack : Target::None;
+    }
     if (layer == Layer::AboutLink) return Target::Previous;
     if (layer == Layer::Audio) {
         // The view is mutable during preparation; admit only the last retired revision.
@@ -1326,36 +1551,9 @@ Target target_at(CODY2D::Point point)
             CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::VoucherDismiss;
         return CODY::device_action_at(ui.view, point) == 1 ? Target::VoucherDismiss : Target::None;
     }
-    if (layer == Layer::Timer) {
-        if (ui.retired.navigation_opacity == 255 &&
-            CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::Previous;
-        switch (CODY::local_timer_control_at(ui.timer_view, point)) {
-        case CODY::LocalTimerControl::Decrease: return Target::TimerDecrease;
-        case CODY::LocalTimerControl::Increase: return Target::TimerIncrease;
-        case CODY::LocalTimerControl::CycleSound: return Target::TimerSound;
-        case CODY::LocalTimerControl::Start: return Target::TimerStart;
-        case CODY::LocalTimerControl::Cancel: return Target::TimerCancel;
-        case CODY::LocalTimerControl::Dismiss: return Target::TimerDismiss;
-        default: return Target::None;
-        }
-    }
-    if (ui.retired.navigation_opacity == 255 &&
-        (layer == Layer::Visibility || layer == Layer::Dashboard)) {
-        switch (CODY::lateral_navigation_at(point)) {
-        case CODY::LateralNavigation::Previous:
-            if ((layer == Layer::Visibility && ui.model.editor_page == 0) ||
-                (layer == Layer::Dashboard && ui.about_from_options &&
-                 ui.retired.screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::System))
-                return Target::Previous;
-            break;
-        case CODY::LateralNavigation::Next: break;
-        default: break;
-        }
-    }
-    if (layer == Layer::Visibility) {
-        const auto row = CODY::widget_visibility_row_at(ui.editor, point);
-        return row ? kVisibilityTargets[*row] : Target::None;
-    }
+    if (ui.retired.navigation_opacity == 255 && layer == Layer::Dashboard && ui.about_from_options &&
+        ui.retired.screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::System &&
+        CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::Previous;
     if (layer == Layer::Dashboard && ui.retired.statistics_unavailable) return Target::None;
     if (layer == Layer::Dashboard && ui.retired.screen == WidgetScreen::Credits) {
         const auto &bounds = ui.retired.voucher_bounds;
@@ -1372,38 +1570,7 @@ Target target_at(CODY2D::Point point)
         default: break;
         }
     }
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-    if (layer == Layer::Dashboard && ui.model.dashboard.voice_ready &&
-        point.x >= 73 && point.x < 393 && point.y >= 73 && point.y < 393) {
-        return Target::VoiceGesture;
-    }
-#endif
     return Target::None;
-}
-
-// target: Released setting control from the retired configuration view.
-void edit_visibility(Target target)
-{
-    auto &ui = *s_ui;
-    if (ui.model.save == Save::Pending) return;
-    const auto row = std::find(kVisibilityTargets.begin(), kVisibilityTargets.end(), target);
-    if (row != kVisibilityTargets.end()) {
-        const auto screen = ui.editor.rows[row - kVisibilityTargets.begin()].screen;
-        ui.model.draft = ui.model.widgets.visibility;
-        if (!CODY::set_widget_visibility(ui.model.draft, screen, !CODY::widget_visible(ui.model.draft, screen))) return;
-        const auto error = CODY::request_widget_visibility_save(ui.model.draft);
-        ui.model.save = error == ESP_OK ? Save::Pending : Save::Failed;
-    } else if (target == Target::Previous && ui.model.editor_page == 0) {
-        ui.model.editing = false;
-    } else if (target == Target::Previous) {
-        --ui.model.editor_page;
-        ui.model.save = Save::Idle;
-    } else if (target == Target::Next && ui.model.editor_page + 1U < CODY::kVisibilityPageCount) {
-        ++ui.model.editor_page;
-        ui.model.save = Save::Idle;
-    }
-    // The visibility presenter revisions its central content; layer changes already
-    // trigger a full repaint. A local edit must not invalidate the whole panel.
 }
 
 // ui: Owns the retired Events view, press identity and local navigation.
@@ -1450,6 +1617,11 @@ void activate_events_gesture(DeviceUi &ui)
 esp_err_t activate(Target target)
 {
     auto &ui = *s_ui;
+    if (target == Target::ThirdPartyBack) {
+        ui.third_party_open = false;
+        invalidate();
+        return ESP_OK;
+    }
     const auto layer = ui.retired.layer;
     if (target == Target::CodexBrowserBack) {
         if (layer == Layer::CodexBrowser) {
@@ -1513,8 +1685,6 @@ esp_err_t activate(Target target)
         if (std::abs(dy) >= 32 && std::abs(dy) > std::abs(dx)) {
             CODY::step_device_voucher(ui.model.vouchers, dy < 0 ? WidgetStep::Next : WidgetStep::Previous);
         }
-    } else if (layer == Layer::Visibility) {
-        edit_visibility(target);
     } else if (layer == Layer::Audio) {
         if (target == Target::AudioClose) {
             ui.audio_open = false;
@@ -1537,32 +1707,30 @@ esp_err_t activate(Target target)
             if (error != ESP_OK) ESP_LOGW(kTag, "Audio setting admission failed (%s)", esp_err_to_name(error));
             invalidate();
         }
-    } else if (layer == Layer::Timer) {
-        switch (target) {
-        case Target::Previous:
-            ui.timer_open = false;
-            invalidate();
-            break;
-        case Target::TimerDecrease: CODY::adjust_local_timer(ui.model.timer, -1); break;
-        case Target::TimerIncrease: CODY::adjust_local_timer(ui.model.timer, 1); break;
-        case Target::TimerSound: CODY::cycle_local_timer_sound(ui.model.timer); break;
-        case Target::TimerStart: {
-            const auto error = CODY::start_local_timer(ui.model.timer, esp_timer_get_time());
-            // Expiry or a route change can retire a previously admitted action.
-            if (error != ESP_OK && error != ESP_ERR_INVALID_STATE) return error;
-            if (error == ESP_OK) ui.model.effects.feedback = CODY::DeviceFeedback::TimerStarted;
-            break;
-        }
-        case Target::TimerCancel: CODY::cancel_local_timer(ui.model.timer); break;
-        case Target::TimerDismiss: CODY::dismiss_local_timer(ui.model.timer); break;
-        default: break;
-        }
     } else if (layer == Layer::AboutLink) {
         ui.model.info_page = CODY::InfoPage::VibeWare;
         invalidate();
     } else if (target == Target::Previous || target == Target::Next) {
         if (target == Target::Previous && ui.about_from_options &&
             ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::System) {
+            if (ui.about_from_boot_menu) {
+                if (ui.about_return_settings) {
+                    const auto error = CODY::return_to_options_page(ui.scene, ui.about_return_settings_page);
+                    if (error != ESP_OK) return error;
+                }
+                ui.about_from_options = false;
+                ui.about_from_boot_menu = false;
+                ui.third_party_open = ui.about_return_third_party;
+                ui.prices_open = ui.about_return_prices;
+                ui.boot_section = ui.about_return_section;
+                ui.mascot_home = ui.about_return_home;
+                ui.activity_page = ui.about_return_activity;
+                ui.model.widgets.selected_screen = ui.about_return_screen;
+                ui.model.info_page = ui.about_return_info;
+                ui.boot_menu_open = true;
+                invalidate();
+                return ESP_OK;
+            }
             const auto error = CODY::return_to_options_device(ui.scene);
             if (error != ESP_OK) return error;
             ui.about_from_options = false;
@@ -1602,36 +1770,15 @@ esp_err_t activate(Target target)
         const auto error = send ? LUNASHELL::finishVoiceInput(ui.presented_voice_session, accepted) :
             LUNASHELL::cancelVoiceInput(ui.presented_voice_session, accepted);
         if (error != ESP_OK) ESP_LOGW(kTag, "Voice action failed (%s)", esp_err_to_name(error));
-    } else if (layer == Layer::Dashboard &&
-        (target == Target::VoiceGesture || target == Target::FirstAction)) {
-        const int64_t now_us = esp_timer_get_time();
-        auto &model = ui.model;
-        if (target == Target::VoiceGesture) {
-            if (now_us - model.voice_touch_started_us > 220000) {
-                model.voice_tapped_us = 0;
-                return ESP_OK;
-            }
-            if (model.voice_tapped_us == 0 || now_us - model.voice_tapped_us > 350000) {
-                model.voice_tapped_us = now_us;
-                return ESP_OK;
-            }
-        }
-        model.voice_tapped_us = 0;
-        bool started = false;
-        const auto trigger = target == Target::VoiceGesture ?
-            LUNASHELL::VoiceInputTrigger::DoubleTap : LUNASHELL::VoiceInputTrigger::DeviceButton;
-        const auto error = LUNASHELL::requestVoiceInput(trigger, &started);
-        if (error != ESP_OK) ESP_LOGW(kTag, "Voice request unavailable (%s)", esp_err_to_name(error));
     }
 #endif
     return ESP_OK;
 }
 
-// ui: Retained audio and timer state owned by the display worker.
+// ui: Retained audio state owned by the display worker.
+// Exception: None; optional audio outcomes remain with the effects owner.
 void play_touch_cue(DeviceUi &ui)
 {
-    const auto alarm = ui.model.timer.alarm;
-    if (alarm == CODY::LocalTimerAlarm::Pending || alarm == CODY::LocalTimerAlarm::Playing) return;
     const LUNASHELL::VoiceSnapshot *voice = nullptr;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     voice = &ui.model.voice;
@@ -1644,10 +1791,9 @@ void play_touch_cue(DeviceUi &ui)
 }
 
 // ui: Display-owned effects and the current canonical voice observation.
+// Exception: None; optional audio outcomes remain with the effects owner.
 void play_preference_cue(DeviceUi &ui)
 {
-    const auto alarm = ui.model.timer.alarm;
-    if (alarm == CODY::LocalTimerAlarm::Pending || alarm == CODY::LocalTimerAlarm::Playing) return;
     const LUNASHELL::VoiceSnapshot *voice = nullptr;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     voice = &ui.model.voice;
@@ -1656,10 +1802,9 @@ void play_preference_cue(DeviceUi &ui)
 }
 
 // ui: Display-owned effects and current voice state for a confirmed bookmark.
+// Exception: None; optional audio outcomes remain with the effects owner.
 void play_bookmark_cue(DeviceUi &ui)
 {
-    const auto alarm = ui.model.timer.alarm;
-    if (alarm == CODY::LocalTimerAlarm::Pending || alarm == CODY::LocalTimerAlarm::Playing) return;
     const LUNASHELL::VoiceSnapshot *voice = nullptr;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     voice = &ui.model.voice;
@@ -1668,10 +1813,9 @@ void play_bookmark_cue(DeviceUi &ui)
 }
 
 // ui: Display-owned effects for navigation to the authenticated events list.
+// Exception: None; optional audio outcomes remain with the effects owner.
 void play_questions_cue(DeviceUi &ui)
 {
-    const auto alarm = ui.model.timer.alarm;
-    if (alarm == CODY::LocalTimerAlarm::Pending || alarm == CODY::LocalTimerAlarm::Playing) return;
     const LUNASHELL::VoiceSnapshot *voice = nullptr;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     voice = &ui.model.voice;
@@ -1680,10 +1824,9 @@ void play_questions_cue(DeviceUi &ui)
 }
 
 // ui: Display-owned effects for navigation to the PC-followed activity.
+// Exception: None; optional audio outcomes remain with the effects owner.
 void play_activity_cue(DeviceUi &ui)
 {
-    const auto alarm = ui.model.timer.alarm;
-    if (alarm == CODY::LocalTimerAlarm::Pending || alarm == CODY::LocalTimerAlarm::Playing) return;
     const LUNASHELL::VoiceSnapshot *voice = nullptr;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     voice = &ui.model.voice;
@@ -1717,8 +1860,140 @@ esp_err_t sample_touch()
         const int64_t touch_at_us = esp_timer_get_time();
         ui.model.navigation.interact(touch_at_us);
         ui.screensaver_last_touch_us = touch_at_us;
+        ui.idle_applied = false;
     }
     const CODY2D::Point point{static_cast<int16_t>(sample.x), static_cast<int16_t>(sample.y)};
+    if (ui.event_cody_active) {
+        if (pressed_edge && ui.retired.valid && ui.retired.layer == Layer::EventCody &&
+            ui.retired.display_revision == LUNASHELL_display_runtime_content_revision()) {
+            close_event_cody(ui);
+            LUNASHELL_power_manager_note_activity();
+        }
+        return ESP_OK;
+    }
+    if (ui.boot_menu_open) {
+        if (!ui.retired.valid || ui.retired.layer != Layer::BootMenu ||
+            ui.retired.display_revision != LUNASHELL_display_runtime_content_revision() ||
+            ui.retired.content_revision != ui.boot_menu.revision) {
+            ui.boot_menu_contact = CODY::BootMenuAction::None;
+            return ESP_OK;
+        }
+        if (pressed_edge) {
+            ui.boot_menu_start = ui.boot_menu_last = point;
+            ui.boot_menu_revision = ui.retired.display_revision;
+            ui.boot_menu_contact = CODY::boot_menu_action_at(ui.boot_menu, point);
+            LUNASHELL_power_manager_note_activity();
+        }
+        if (sample.pressed) { ui.boot_menu_last = point; return ESP_OK; }
+        if (!was_pressed || ui.boot_menu_revision != ui.retired.display_revision) return ESP_OK;
+        const int dx = ui.boot_menu_last.x - ui.boot_menu_start.x;
+        const int dy = ui.boot_menu_last.y - ui.boot_menu_start.y;
+        const bool back = ui.retired.navigation_opacity == 255 &&
+            CODY::lateral_navigation_at(ui.boot_menu_start) == CODY::LateralNavigation::Previous &&
+            CODY::lateral_navigation_at(ui.boot_menu_last) == CODY::LateralNavigation::Previous;
+        if (back || (std::abs(dx) >= 48 && std::abs(dx) * 2 > std::abs(dy) * 3)) {
+            ui.boot_menu_open = false;
+            ui.boot_menu_contact = CODY::BootMenuAction::None;
+            invalidate();
+            return ESP_OK;
+        }
+        const auto action = ui.boot_menu_contact;
+        ui.boot_menu_contact = CODY::BootMenuAction::None;
+        if (action == CODY::BootMenuAction::None || CODY::boot_menu_action_at(ui.boot_menu, ui.boot_menu_last) != action) return ESP_OK;
+        if (action == CODY::BootMenuAction::Settings) {
+            ui.boot_menu_open = false;
+            s_options_requested.store(true, std::memory_order_release);
+            invalidate();
+            return ESP_OK;
+        }
+        if (action == CODY::BootMenuAction::About) {
+            ui.about_return_third_party = ui.third_party_open;
+            ui.about_return_prices = ui.prices_open;
+            ui.about_return_settings = ui.scene.valid && ui.scene.definition->id == CODY::SceneId::MakeItYours;
+            if (ui.about_return_settings) ui.about_return_settings_page = CODY::onboarding_options_page_token();
+            ui.about_return_home = ui.mascot_home;
+            ui.about_return_section = ui.boot_section;
+            ui.about_return_activity = ui.activity_page;
+            ui.about_return_screen = ui.model.widgets.selected_screen;
+            ui.about_return_info = ui.model.info_page;
+        }
+        if (!CODY::onboarding_dashboard_active()) {
+            const auto error = CODY::open_device_dashboard(ui.scene);
+            if (error == ESP_ERR_NOT_FINISHED) return ESP_OK;
+            if (error != ESP_OK) return error;
+        }
+        ui.boot_menu_open = false;
+        ui.third_party_open = false;
+        ui.prices_open = false;
+        ui.audio_open = false;
+        ui.diagnostics = false;
+        ui.surprise_page = 0;
+        ui.about_from_options = false;
+        ui.mascot_home = false;
+        ui.codex_browser.route = CODY::CodexBrowserRoute::Closed;
+        ui.browser_destination = CODY::CodexBrowserDestination::None;
+        if (action == CODY::BootMenuAction::About) {
+            ui.about_from_boot_menu = true;
+            ui.about_from_options = true;
+            ui.activity_page = ActivityPage::Statistics;
+            ui.statistics_entry = false;
+            ui.model.widgets.selected_screen = WidgetScreen::About;
+            ui.model.info_page = CODY::InfoPage::System;
+        } else if (action == CODY::BootMenuAction::Events) {
+            ui.boot_section = BootSection::Events;
+            ui.activity_page = ActivityPage::Events;
+        } else {
+            ui.boot_section = BootSection::Counters;
+            ui.counter_page = 0;
+            ui.activity_page = ActivityPage::Statistics;
+        }
+        invalidate();
+        return ESP_OK;
+    }
+    if (ui.prices_open) {
+        if (!ui.retired.valid || ui.retired.layer != Layer::Prices ||
+            ui.retired.display_revision != LUNASHELL_display_runtime_content_revision() ||
+            ui.retired.content_revision != ui.prices.revision) {
+            ui.prices_touch_row = -1;
+            return ESP_OK;
+        }
+        if (pressed_edge) {
+            ui.prices_start = ui.prices_last = point;
+            ui.prices_touch_revision = ui.retired.display_revision;
+            ui.prices_touch_row = -1;
+            if (!ui.prices.detail) {
+                for (size_t i = 0; i < ui.prices.row_count; ++i)
+                    if (CODY2D::capsule_contains(ui.prices.rows[i], point)) ui.prices_touch_row = static_cast<int8_t>(i);
+            }
+            LUNASHELL_power_manager_note_activity();
+        }
+        if (sample.pressed) { ui.prices_last = point; return ESP_OK; }
+        if (!was_pressed || ui.prices_touch_revision != ui.retired.display_revision) return ESP_OK;
+        const int dx = ui.prices_last.x - ui.prices_start.x;
+        const int dy = ui.prices_last.y - ui.prices_start.y;
+        const bool back = ui.retired.navigation_opacity == 255 &&
+            CODY::lateral_navigation_at(ui.prices_start) == CODY::LateralNavigation::Previous &&
+            CODY::lateral_navigation_at(ui.prices_last) == CODY::LateralNavigation::Previous;
+        if (back || (dx >= 48 && dx * 2 > std::abs(dy) * 3 && ui.prices.detail)) {
+            if (!CODY::prices_back(ui.prices)) ui.prices_open = false;
+            invalidate();
+        } else if (std::abs(dx) >= 48 && std::abs(dx) * 2 > std::abs(dy) * 3) {
+            if (CODY::prices_move_page(ui.prices, dx < 0 ? 1 : -1)) invalidate();
+        } else if (ui.prices_touch_row >= 0 &&
+            CODY2D::capsule_contains(ui.prices.rows[static_cast<size_t>(ui.prices_touch_row)], ui.prices_last)) {
+            if (CODY::prices_select_at(ui.prices, ui.prices_last)) invalidate();
+        }
+        ui.prices_touch_row = -1;
+        return ESP_OK;
+    }
+    if (ui.usage_alarm_active) {
+        if (pressed_edge && ui.retired.valid && ui.retired.layer == Layer::UsageAlarm &&
+            ui.retired.display_revision == LUNASHELL_display_runtime_content_revision()) {
+            close_usage_alarm(ui);
+            LUNASHELL_power_manager_note_activity();
+        }
+        return ESP_OK;
+    }
     if (ui.surprise_page != 0) {
         if (pressed_edge && ui.retired.valid && ui.retired.layer == Layer::Surprise &&
             ui.retired.display_revision == LUNASHELL_display_runtime_content_revision()) {
@@ -1897,12 +2172,11 @@ esp_err_t sample_touch()
         if (std::abs(dx) >= 48 && std::abs(dx) * 2 > std::abs(dy) * 3) {
             const bool previous = dx > 0;
             if (ui.retired.layer == Layer::Counter) {
-                ui.counter_page = static_cast<uint8_t>((ui.counter_page + (previous ? 2U : 1U)) % 3U);
+                for (uint8_t visited = 0; visited < 3; ++visited) {
+                    ui.counter_page = static_cast<uint8_t>((ui.counter_page + (previous ? 2U : 1U)) % 3U);
+                    if ((ui.counter_mask & (1U << ui.counter_page)) != 0) break;
+                }
                 invalidate();
-                return ESP_OK;
-            }
-            if (ui.retired.layer == Layer::Visibility) {
-                edit_visibility(previous ? Target::Previous : Target::Next);
                 return ESP_OK;
             }
             if (ui.retired.layer == Layer::CodexBrowser) {
@@ -1925,9 +2199,10 @@ esp_err_t sample_touch()
                 }
                 return activate(previous ? Target::Previous : Target::Next);
             }
-            if (previous && (ui.retired.layer == Layer::Timer || ui.retired.layer == Layer::AboutLink))
+            if (previous && ui.retired.layer == Layer::AboutLink)
                 return activate(Target::Previous);
             if (previous && ui.retired.layer == Layer::Audio) return activate(Target::AudioClose);
+            if (previous && ui.retired.layer == Layer::ThirdParty) return activate(Target::ThirdPartyBack);
             if (previous && (ui.retired.layer == Layer::CurrentTurn || ui.retired.layer == Layer::EventReply)) {
                 return activate(ui.retired.layer == Layer::CurrentTurn &&
                     ui.browser_destination == CODY::CodexBrowserDestination::CurrentTurn
@@ -1977,6 +2252,7 @@ esp_err_t update_navigation()
     if (ui.audio_refresh_needed && !ui.audio_setting_pending && !ui.asleep &&
         !s_options_requested.load(std::memory_order_acquire) &&
         !s_home_requested.load(std::memory_order_acquire) &&
+        !s_boot_menu_requested.load(std::memory_order_acquire) &&
         !s_surprise_requested.load(std::memory_order_acquire) &&
         esp_timer_get_time() >= ui.audio_refresh_retry_us) {
         const auto error = CODY::request_audio_preferences_refresh();
@@ -1997,25 +2273,113 @@ esp_err_t update_navigation()
         const int64_t button_at_us = esp_timer_get_time();
         ui.model.navigation.interact(button_at_us);
         ui.screensaver_last_touch_us = button_at_us;
+        ui.idle_applied = false;
     }
-    esp_err_t saved = ESP_OK;
-    if (CODY::take_widget_visibility_save_result(saved)) {
-        const bool visibility_changed = ui.model.draft.screen_mask != ui.model.widgets.visibility.screen_mask ||
-            ui.model.draft.panel_mask != ui.model.widgets.visibility.panel_mask;
-        ui.model.save = saved == ESP_OK && CODY::apply_widget_visibility(ui.model.widgets, ui.model.draft)
-            ? Save::Idle : Save::Failed;
-        if (ui.model.save == Save::Idle && visibility_changed) play_preference_cue(ui);
-        // The cached editor detects Pending -> Idle/Failed and redraws its own bounds.
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    if (ui.voice_boot_route_hold) {
+        const bool active = LUNASHELL::voice_input_phase_active(ui.model.voice.input.phase);
+        if (active) ui.voice_boot_phase_seen = true;
+        const auto requested_at = s_boot_voice_requested_at_us.load(std::memory_order_acquire);
+        if (!active && (ui.voice_boot_phase_seen || requested_at <= 0 ||
+            esp_timer_get_time() - requested_at > 15000000)) {
+            ui.voice_boot_route_hold = false;
+            ui.voice_boot_phase_seen = false;
+        }
     }
-    bool can_open_options = ui.model.save != Save::Pending;
+    if (s_boot_voice_requested.load(std::memory_order_acquire)) {
+        const int64_t voice_requested_at = s_boot_voice_requested_at_us.load(std::memory_order_acquire);
+        const int64_t voice_now = esp_timer_get_time();
+        if (voice_requested_at <= 0 || voice_now < voice_requested_at || voice_now - voice_requested_at > 15000000) {
+            s_boot_voice_requested.store(false, std::memory_order_release);
+            ui.voice_boot_error_until_us = voice_now + 3000000;
+            invalidate();
+        } else if (LUNASHELL::voice_input_phase_active(ui.model.voice.input.phase)) {
+            // A running recording retains its own Send and Cancel controls.
+            s_boot_voice_requested.store(false, std::memory_order_release);
+            ESP_LOGI(kTag, "BOOT voice request ignored while recording is active");
+        } else if (!voice_route_available(ui) ||
+                   (ui.retired.layer != Layer::Dashboard && ui.retired.layer != Layer::Events &&
+                    ui.retired.layer != Layer::CurrentTurn)) {
+            // A voice request needs a completely retired dashboard before it can
+            // freeze the destination and admit the microphone.
+            const auto error = CODY::onboarding_dashboard_active() ? ESP_OK : CODY::open_device_dashboard(ui.scene);
+            if (error == ESP_ERR_NOT_FINISHED) return ESP_OK;
+            if (error != ESP_OK) {
+                s_boot_voice_requested.store(false, std::memory_order_release);
+                ui.voice_boot_error_until_us = voice_now + 3000000;
+                invalidate();
+                ESP_LOGW(kTag, "BOOT voice route unavailable (%s)", esp_err_to_name(error));
+                return ESP_OK;
+            }
+            s_options_requested.store(false, std::memory_order_release);
+            s_home_requested.store(false, std::memory_order_release);
+            s_boot_menu_requested.store(false, std::memory_order_release);
+            s_surprise_requested.store(false, std::memory_order_release);
+            ui.boot_menu_open = false;
+            ui.third_party_open = false;
+            ui.prices_open = false;
+            ui.animation_active = false;
+            if (ui.usage_alarm_active) close_usage_alarm(ui);
+            if (ui.event_cody_active) close_event_cody(ui);
+            ui.audio_open = false;
+            ui.diagnostics = false;
+            ui.surprise_page = 0;
+            ui.mascot_home = false;
+            ui.activity_page = ActivityPage::Statistics;
+            // A retained About QR page does not admit voice; leave that page
+            // before waiting for the dashboard to retire its next frame.
+            ui.about_from_options = false;
+            ui.about_from_boot_menu = false;
+            ui.model.info_page = CODY::InfoPage::System;
+            CODY::dismiss_screensaver(ui.model.screensaver, esp_timer_get_time());
+            invalidate();
+            return ESP_OK;
+        } else if (ui.retired.layer == Layer::Dashboard || ui.retired.layer == Layer::Events ||
+                   ui.retired.layer == Layer::CurrentTurn) {
+            LUNASHELL::VoiceInputAdmissionObservation admission{};
+            const auto admission_error = DeviceSnapshotService::instance().readVoiceInputAdmissionObservation(admission);
+            const auto &voice = ui.model.voice;
+            if (admission_error == ESP_OK && admission.dictation_valid && admission.dictation_error == ESP_OK &&
+                admission.dictation_enabled && (!admission.lan_ready || !voice.data_valid || voice.data_stale ||
+                voice.last_error != ESP_OK || voice.state != LUNASHELL::VoiceState::Listening)) {
+                // Standby wake may resume the screen before the LAN and AFE owners.
+                return ESP_OK;
+            }
+            s_boot_voice_requested.store(false, std::memory_order_release);
+            bool started = false;
+            const auto error = LUNASHELL::requestVoiceInput(LUNASHELL::VoiceInputTrigger::DeviceButton, &started);
+            if (error != ESP_OK || !started) {
+                ui.voice_boot_error_until_us = voice_now + 3000000;
+                invalidate();
+                ESP_LOGW(kTag, "BOOT voice request unavailable: started=%u (%s)",
+                    unsigned(started), esp_err_to_name(error));
+            } else {
+                ui.voice_boot_route_hold = true;
+                ui.voice_boot_phase_seen = false;
+            }
+        }
+    }
+#endif
+    bool can_open_options = true;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     if (can_open_options && (s_options_requested.load(std::memory_order_acquire) ||
         s_home_requested.load(std::memory_order_acquire) ||
+        s_boot_menu_requested.load(std::memory_order_acquire) ||
         s_surprise_requested.load(std::memory_order_acquire))) {
         // An ongoing recording retains its Cancel/Send controls before BOOT opens Options.
         can_open_options = !LUNASHELL::setVoiceInputRouteAvailable(false);
     }
 #endif
+    if (can_open_options && !s_home_requested.load(std::memory_order_acquire) &&
+        !s_surprise_requested.load(std::memory_order_acquire) &&
+        s_boot_menu_requested.exchange(false, std::memory_order_acq_rel)) {
+        if (ui.usage_alarm_active) close_usage_alarm(ui);
+        if (ui.event_cody_active) close_event_cody(ui);
+        ui.boot_menu_open = true;
+        ui.boot_menu_contact = CODY::BootMenuAction::None;
+        CODY::dismiss_screensaver(ui.model.screensaver, esp_timer_get_time());
+        invalidate();
+    }
     if (can_open_options && (s_home_requested.load(std::memory_order_acquire) ||
         s_surprise_requested.load(std::memory_order_acquire))) {
         // Claim the gesture independently so a concurrent third press cannot be lost.
@@ -2031,11 +2395,15 @@ esp_err_t update_navigation()
                 return ESP_OK;
             }
             s_options_requested.store(false, std::memory_order_release);
+            s_boot_menu_requested.store(false, std::memory_order_release);
+            ui.boot_menu_open = false;
+            ui.third_party_open = false;
+            ui.prices_open = false;
+            ui.boot_section = BootSection::Default;
+            if (ui.event_cody_active) close_event_cody(ui);
             ui.surprise_page = surprise ? 1 : 0;
             ui.home_swipe_active = false;
             ui.qr_touch_active = false;
-            ui.model.editing = false;
-            ui.timer_open = false;
             ui.audio_open = false;
             ui.diagnostics = false;
             ui.model.vouchers.warning_expiry = 0;
@@ -2044,6 +2412,7 @@ esp_err_t update_navigation()
             ui.browser_destination = CODY::CodexBrowserDestination::None;
             ui.mascot_home = true;
             ui.about_from_options = false;
+            ui.about_from_boot_menu = false;
             ui.options_return_valid = false;
             if (ui.activity_page == ActivityPage::Reply) ui.activity_page = ActivityPage::Events;
             invalidate();
@@ -2054,8 +2423,8 @@ esp_err_t update_navigation()
         s_options_requested.load(std::memory_order_acquire)) {
         const int64_t button_at_us = esp_timer_get_time();
         const bool in_options = ui.scene.valid && ui.scene.definition->id == CODY::SceneId::MakeItYours;
-        const bool returning_to_options = in_options || ui.about_from_options || ui.model.editing ||
-            ui.timer_open || ui.audio_open || ui.codex_browser.route != CODY::CodexBrowserRoute::Closed;
+        const bool returning_to_options = in_options || ui.about_from_options ||
+            ui.audio_open || ui.codex_browser.route != CODY::CodexBrowserRoute::Closed;
         const bool return_home = ui.mascot_home;
         const auto return_activity = ui.activity_page;
         const auto return_screen = ui.model.widgets.selected_screen;
@@ -2065,6 +2434,10 @@ esp_err_t update_navigation()
         if (error != ESP_ERR_NOT_FINISHED) {
             s_options_requested.store(false, std::memory_order_release);
             if (error != ESP_OK) return error;
+            ui.boot_menu_open = false;
+            ui.third_party_open = false;
+            ui.prices_open = false;
+            if (ui.event_cody_active) close_event_cody(ui);
             ui.surprise_page = 0;
             if (!returning_to_options) {
                 ui.options_return_valid = true;
@@ -2073,8 +2446,6 @@ esp_err_t update_navigation()
                 ui.options_return_screen = return_screen;
                 ui.options_return_info = return_info;
             }
-            ui.model.editing = false;
-            ui.timer_open = false;
             ui.audio_open = false;
             ui.model.vouchers.warning_expiry = 0;
             CODY::dismiss_screensaver(ui.model.screensaver, button_at_us);
@@ -2083,6 +2454,7 @@ esp_err_t update_navigation()
             ui.browser_destination = CODY::CodexBrowserDestination::None;
             ui.mascot_home = false;
             ui.about_from_options = false;
+            ui.about_from_boot_menu = false;
             if (!in_options && ui.scene.valid && ui.scene.definition->id == CODY::SceneId::MakeItYours) {
                 ui.model.effects.feedback = CODY::DeviceFeedback::OptionsOpened;
             }
@@ -2091,12 +2463,21 @@ esp_err_t update_navigation()
     }
     const auto request = CODY::take_widget_open_request();
     switch (request) {
+    case CODY::WidgetOpenRequest::Prices:
+        ui.prices_open = true;
+        invalidate();
+        break;
+    case CODY::WidgetOpenRequest::ThirdParty:
+        ui.third_party_open = true;
+        invalidate();
+        break;
     case CODY::WidgetOpenRequest::About: {
         const auto error = CODY::open_device_dashboard(ui.scene);
         if (error == ESP_ERR_NOT_FINISHED) break;
         if (error != ESP_OK) return error;
         ui.mascot_home = false;
         ui.about_from_options = true;
+        ui.about_from_boot_menu = false;
         ui.activity_page = ActivityPage::Statistics;
         ui.statistics_entry = false;
         ui.model.widgets.selected_screen = WidgetScreen::About;
@@ -2146,20 +2527,7 @@ esp_err_t update_navigation()
         }
         break;
     }
-    case CODY::WidgetOpenRequest::Visibility:
-        ui.audio_open = false;
-        ui.model.editor_page = 0;
-        ui.model.save = Save::Idle;
-        ui.model.editing = true;
-        invalidate();
-        break;
-    case CODY::WidgetOpenRequest::Timer:
-        ui.audio_open = false;
-        ui.timer_open = true;
-        invalidate();
-        break;
     case CODY::WidgetOpenRequest::Audio:
-        ui.timer_open = false;
         ui.audio_open = true;
         if (ui.audio_setting_error != ESP_OK && !ui.audio_setting_pending) {
             ui.audio_setting_error = ESP_OK;
@@ -2188,16 +2556,6 @@ esp_err_t update_navigation()
     if (CODY::take_preference_confirmation()) play_preference_cue(ui);
     if (changed) {
         ui.scene_dirty = true;
-        if (ui.model.editing && ui.scene.valid && ui.scene.definition->id != CODY::SceneId::MakeItYours) {
-            ui.model.editing = false;
-            invalidate();
-        }
-        if (ui.timer_open && !CODY::onboarding_dashboard_active() &&
-            (!ui.scene.valid || ui.scene.definition->id != CODY::SceneId::MakeItYours)) {
-            // Remote attention or setup can replace the view without stopping the timer.
-            ui.timer_open = false;
-            invalidate();
-        }
         if (ui.audio_open && (!ui.scene.valid || ui.scene.definition->id != CODY::SceneId::MakeItYours)) {
             ui.audio_open = false;
             invalidate();
@@ -2228,22 +2586,28 @@ esp_err_t apply_command(Command command)
     ui.last_active_us = 0;
     ui.pressed = false;
     const int64_t now_us = esp_timer_get_time();
+    ui.screensaver_last_touch_us = now_us;
+    ui.idle_eligible_since_us = -1;
+    ui.idle_applied = false;
+    synchronize_character_theme(ui);
     CODY::dismiss_screensaver(ui.model.screensaver, now_us);
     CODY::suspend_companion_shake(ui.model.shake, now_us);
     if (command == Command::Ready || command == Command::Wake) ui.model.navigation.interact(now_us);
     FrameView frame{};
     if (command == Command::Ready) {
-        const auto error = CODY::start_device_setup(ui.scene, ui.first_boot);
+        const auto error = CODY::start_device_setup(ui.scene, ui.first_boot, ui.tour_step);
         if (error != ESP_OK) return error;
         select_statistics();
         ui.statistics_entry = false;
         ui.activity_page = ActivityPage::Events;
-        ui.mascot_home = true;
+        ui.mascot_home = ui.tour_step == 5U;
         ui.pixel_demo.showcase.reset(static_cast<uint32_t>(now_us));
         ui.audio_refresh_needed = true;
         ui.audio_refresh_retry_us = 0;
     }
     if (command == Command::Sleep || command == Command::Shutdown) {
+        if (ui.usage_alarm_active) close_usage_alarm(ui);
+        if (ui.event_cody_active) close_event_cody(ui);
         if (ui.animation_active) CODY::reset_muse_animation(0);
         ui.animation_active = false;
         set_audio_demand(false);
@@ -2331,6 +2695,7 @@ esp_err_t update_and_draw(int64_t now_us)
     auto &ui = *s_ui;
     LUNASHELL::CodyOptionsObservation counter_options{};
     const auto counter_error = DeviceSnapshotService::instance().readCodyOptionsObservation(counter_options);
+    synchronize_character_theme(ui);
     if (counter_error == ESP_OK && counter_options.preferences.counter_mode_valid &&
         ui.counter_mode_enabled != counter_options.preferences.counter_mode_enabled) {
         ui.counter_mode_enabled = counter_options.preferences.counter_mode_enabled;
@@ -2341,6 +2706,73 @@ esp_err_t update_and_draw(int64_t now_us)
         }
         invalidate();
     }
+    if (counter_error == ESP_OK && counter_options.preferences.weekly_alarm_valid &&
+        counter_options.preferences.weekly_alarm_error == ESP_OK &&
+        (counter_options.preferences.weekly_alarm_enabled || ui.usage_alarm_state.weekly.initialized || ui.usage_alarm_active)) {
+        const auto link_error = DeviceSnapshotService::instance().readCodexTechnicalObservation(ui.model.dashboard.context);
+        const auto &link = ui.model.dashboard.context.link;
+        bool peer_ready = link_error == ESP_OK && link.data_valid && link.retained_link_present &&
+            !link.pending_pairing_present && !link.command_pending && link.paired_pc_id[0] != '\0' &&
+            strnlen(link.paired_pc_id, sizeof(link.paired_pc_id)) < sizeof(link.paired_pc_id);
+        if (link_error == ESP_OK && link.data_valid && !link.retained_link_present) {
+            ui.usage_alarm_state.weekly = {};
+            ui.usage_alarm_peer[0] = '\0';
+            if (ui.usage_alarm_active) close_usage_alarm(ui);
+        } else if (peer_ready && std::strcmp(ui.usage_alarm_peer, link.paired_pc_id) != 0) {
+            ui.usage_alarm_state.weekly = {};
+            std::snprintf(ui.usage_alarm_peer, sizeof(ui.usage_alarm_peer), "%s", link.paired_pc_id);
+            if (ui.usage_alarm_active) close_usage_alarm(ui);
+        }
+        LUNASHELL::CodexWeeklyLimitSnapshot weekly{};
+        LUNASHELL::ClockSnapshot clock{};
+        const auto weekly_error = DeviceSnapshotService::instance().readCodexWeeklyLimit(weekly);
+        const auto clock_error = DeviceSnapshotService::instance().readClockObservation(clock);
+        if (peer_ready) {
+            const auto confirmation = DeviceSnapshotService::instance().readCodexTechnicalObservation(ui.model.dashboard.context);
+            const auto &confirmed = ui.model.dashboard.context.link;
+            peer_ready = confirmation == ESP_OK && confirmed.data_valid && confirmed.retained_link_present &&
+                !confirmed.pending_pairing_present && !confirmed.command_pending &&
+                std::strncmp(ui.usage_alarm_peer, confirmed.paired_pc_id, sizeof(ui.usage_alarm_peer)) == 0;
+        }
+        if ((peer_ready && weekly_error == ESP_OK && clock_error == ESP_OK) || !counter_options.preferences.weekly_alarm_enabled) {
+            CODY::UsageAlarmNotice notice{};
+            CODY::UsageAlarmOptions options{};
+            options.enabled = counter_options.preferences.weekly_alarm_enabled;
+            const auto alarm_error = CODY::observe_usage_alarms(ui.usage_alarm_state, options, weekly, clock, notice);
+            if (alarm_error != ESP_OK) ESP_LOGE(kTag, "Weekly alarm observation failed (%s)", esp_err_to_name(alarm_error));
+            if (notice.sequence != 0 && ui.event_cody_active) close_event_cody(ui);
+            if (!options.enabled && ui.usage_alarm_active) close_usage_alarm(ui);
+            if (ui.usage_alarm_active && !ui.usage_alarm_presented &&
+                notice.sequence != ui.usage_alarm_notice.sequence) close_usage_alarm(ui);
+            const bool eligible_layer = ui.retired.valid && (ui.retired.layer == Layer::Mascot ||
+                ui.retired.layer == Layer::Dashboard || ui.retired.layer == Layer::Counter);
+            if (alarm_error == ESP_OK && notice.sequence != 0 && !ui.usage_alarm_active && eligible_layer &&
+                !ui.asleep && !ui.pressed && !ui.animation_active && !ui.diagnostics && !ui.audio_open &&
+                !CODY::device_effects_require_attention(ui.model.effects) && ui.model.battery_banner.sequence == 0) {
+                ui.usage_alarm_notice = notice;
+                ui.usage_alarm_active = true;
+                ui.usage_alarm_presented = false;
+                ui.usage_alarm_started_us = now_us;
+                std::snprintf(ui.usage_alarm_title, sizeof(ui.usage_alarm_title), "WEEKLY %u%%",
+                    static_cast<unsigned>(notice.threshold_percent));
+                auto &preview = ui.animation_preview;
+                preview.manual = true;
+                preview.manual_playing = true;
+                preview.manual_pose = CODY::PixelAvatarPose::Error;
+                preview.manual_symbol = CODY::MuseSymbol::Exclamation;
+                preview.manual_working = false;
+                preview.manual_elapsed_us = 0;
+                preview.manual_needs_compose = true;
+                CODY::dismiss_screensaver(ui.model.screensaver, now_us);
+                invalidate();
+            }
+        } else if (ui.usage_alarm_active && !ui.usage_alarm_presented) close_usage_alarm(ui);
+    } else if (ui.usage_alarm_active && !ui.usage_alarm_presented) {
+        close_usage_alarm(ui);
+    }
+    if (ui.usage_alarm_active && ui.usage_alarm_presented && now_us - ui.usage_alarm_started_us >= 6000000)
+        close_usage_alarm(ui);
+    if (ui.event_cody_active && now_us - ui.event_cody_started_us >= 3000000) close_event_cody(ui);
     const int64_t delta = ui.last_active_us == 0 ? 0 : now_us - ui.last_active_us;
     ui.awake_us += delta;
     ui.last_active_us = now_us;
@@ -2355,13 +2787,66 @@ esp_err_t update_and_draw(int64_t now_us)
     if (error == ESP_OK) error = DeviceSnapshotService::instance().readVoiceObservation(ui.model.voice);
 #endif
     if (error != ESP_OK) return error;
+    LUNASHELL::CodyIdleObservation idle{};
+    const auto idle_error = DeviceSnapshotService::instance().readCodyIdleObservation(idle);
+    if (idle_error == ESP_OK && idle.valid && idle.last_error == ESP_OK &&
+        (!ui.idle_policy.valid || ui.idle_policy.show_muse != idle.show_muse ||
+         ui.idle_policy.delay_seconds != idle.delay_seconds)) {
+        ui.idle_policy = idle;
+        ui.idle_eligible_since_us = -1;
+        ui.idle_applied = false;
+    } else if (idle_error != ESP_OK || !idle.valid || idle.last_error != ESP_OK) {
+        ui.idle_policy.valid = false;
+    }
+    bool idle_eligible = ui.idle_policy.valid && !ui.asleep && !ui.pressed && !ui.boot_menu_open &&
+        !ui.animation_active && !ui.usage_alarm_active && !ui.event_cody_active && !ui.audio_open && !ui.diagnostics &&
+        CODY::onboarding_dashboard_active() && ui.retired.valid &&
+        (ui.retired.layer == Layer::Counter || ui.retired.layer == Layer::Mascot || ui.retired.layer == Layer::Dashboard) &&
+        ui.model.screensaver.phase != CODY::ScreensaverPhase::Visible &&
+        !CODY::device_effects_require_attention(ui.model.effects) && ui.model.battery_banner.sequence == 0;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    idle_eligible = idle_eligible && !voice_visible(now_us);
+#endif
+    if (!idle_eligible) {
+        ui.idle_eligible_since_us = -1;
+        ui.idle_applied = false;
+    } else {
+        if (ui.idle_eligible_since_us < 0 || now_us < ui.idle_eligible_since_us)
+            ui.idle_eligible_since_us = now_us;
+        const int64_t idle_since = std::max(ui.idle_eligible_since_us, ui.screensaver_last_touch_us);
+        if (!ui.idle_applied && now_us >= idle_since &&
+            now_us - idle_since >= static_cast<int64_t>(ui.idle_policy.delay_seconds) * 1000000LL) {
+            ui.idle_applied = true;
+            ui.boot_section = ui.idle_policy.show_muse ? BootSection::Events : BootSection::Counters;
+            ui.mascot_home = ui.idle_policy.show_muse;
+            if (!ui.idle_policy.show_muse) ui.activity_page = ActivityPage::Statistics;
+            invalidate();
+        }
+    }
     const auto navigation = CODY::update_device_navigation(ui.model, now_us);
     // Acquisition may have published a new IMU sample during the scene or
     // snapshot update. Compare it against a timestamp taken after the read.
     const int64_t frame_now_us = esp_timer_get_time();
+    if (!ui.pressed) {
+        LUNASHELL::CodyParallaxObservation preference{};
+        const auto preference_error = DeviceSnapshotService::instance().readCodyParallaxObservation(preference);
+        const auto level = preference_error == ESP_OK && preference.valid && preference.last_error == ESP_OK &&
+            preference.level <= 3 ? static_cast<CODY::ParallaxLevel>(preference.level) : CODY::ParallaxLevel::Off;
+        const bool active = !ui.asleep && ui.retired.valid &&
+            (ui.retired.layer == Layer::Mascot || ui.retired.layer == Layer::BootMenu ||
+             (ui.retired.layer == Layer::Scene && CODY::onboarding_main_menu_active()));
+        if (CODY::update_parallax(ui.parallax, ui.model.motion.imu, navigation.motion_error,
+                ui.model.motion.rendering_rotation_degrees, active, level, frame_now_us)) {
+            ui.boot_menu.artwork_x = ui.parallax.x;
+            ui.boot_menu.artwork_y = ui.parallax.y;
+            if (++ui.boot_menu.revision == 0) ++ui.boot_menu.revision;
+            CODY::set_onboarding_menu_parallax(ui.parallax.x, ui.parallax.y);
+            if (ui.retired.layer == Layer::Scene && CODY::onboarding_main_menu_active()) ui.scene_dirty = true;
+        }
+    }
     observe_chrome_motion(ui, frame_now_us, navigation.motion_error);
     bool may_return_home = navigation.shaken && !ui.mascot_home && CODY::onboarding_dashboard_active() &&
-        !ui.model.editing && !ui.timer_open && !ui.audio_open && !ui.diagnostics;
+        !ui.audio_open && !ui.diagnostics;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     may_return_home = may_return_home && !voice_visible(now_us);
 #endif
@@ -2381,6 +2866,8 @@ esp_err_t update_and_draw(int64_t now_us)
     const auto animation_result = LUNASHELL::takeCodexAnimation(animation);
     esp_err_t animation_outcome = ESP_OK;
     if (animation_result == ESP_OK) {
+        if (ui.usage_alarm_active) close_usage_alarm(ui);
+        if (ui.event_cody_active) close_event_cody(ui);
         // Account for the visible interval before changing the playback state.
         auto &preview = ui.animation_preview;
         if (ui.animation_active && preview.visible && ui.awake_us >= preview.observed_active_us) {
@@ -2461,6 +2948,47 @@ esp_err_t update_and_draw(int64_t now_us)
     FrameView frame{};
     error = prepare_current_view(frame, frame_now_us, navigation.motion_error);
     if (error == ESP_OK) error = render(frame);
+    const auto &effects = ui.model.effects;
+    if (error == ESP_OK && effects.event_visual_sequence != ui.event_visual_seen) {
+        ui.event_visual_seen = effects.event_visual_sequence;
+        LUNASHELL::CodyEventVisualObservation preference{};
+        const auto preference_error = DeviceSnapshotService::instance().readCodyEventVisualObservation(preference);
+        const bool eligible_layer = ui.retired.valid && (ui.retired.layer == Layer::Mascot ||
+            ui.retired.layer == Layer::Dashboard || ui.retired.layer == Layer::Counter);
+        if (preference_error == ESP_OK && preference.valid && preference.last_error == ESP_OK && preference.enabled &&
+            effects.event_online && effects.event_visual_at_us > 0 && frame_now_us >= effects.event_visual_at_us &&
+            frame_now_us - effects.event_visual_at_us <= 1000000 && eligible_layer && !ui.pressed &&
+            !ui.asleep && !ui.boot_menu_open && !ui.animation_active && !ui.usage_alarm_active &&
+            !ui.event_cody_active && !ui.audio_open && !ui.diagnostics &&
+            (!CODY::device_effects_require_attention(effects) ||
+             effects.event.kind == LUNASHELL::CodexEventKind::ReplyReady) && ui.model.battery_banner.sequence == 0) {
+            ui.event_cody_active = true;
+            ui.event_cody_started_us = frame_now_us;
+            ui.event_cody_kind = effects.event_visual_kind;
+            auto &preview = ui.animation_preview;
+            preview.manual = true;
+            preview.manual_playing = true;
+            preview.manual_pose = effects.event_visual_kind == LUNASHELL::CodexEventKind::ChecksFailed
+                ? CODY::PixelAvatarPose::Error : CODY::PixelAvatarPose::Reply;
+            preview.manual_symbol = effects.event_visual_kind == LUNASHELL::CodexEventKind::ChecksFailed
+                ? CODY::MuseSymbol::Exclamation : CODY::MuseSymbol::Heart;
+            preview.manual_working = false;
+            preview.manual_elapsed_us = 0;
+            preview.manual_needs_compose = true;
+            invalidate();
+        }
+    }
+    if (error == ESP_OK && ui.usage_alarm_active && !ui.usage_alarm_presented && ui.retired.valid &&
+        ui.retired.layer == Layer::UsageAlarm) {
+        CODY::acknowledge_usage_alarm(ui.usage_alarm_state, ui.usage_alarm_notice);
+        ui.usage_alarm_presented = true;
+        ui.usage_alarm_started_us = esp_timer_get_time();
+        const LUNASHELL::VoiceSnapshot *voice = nullptr;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        voice = &ui.model.voice;
+#endif
+        (void)CODY::play_pet_cue(ui.model.effects, ui.usage_alarm_notice.cue, voice);
+    }
     if (error == ESP_OK && ui.retired.valid && ui.retired.layer == Layer::CodexBrowser &&
         ui.codex_browser.bookmark_sound_pending) {
         ui.codex_browser.bookmark_sound_pending = false;
@@ -2583,19 +3111,21 @@ esp_err_t update_and_draw(int64_t now_us)
 
 // ui: Display-owned audio outcome and canonical voice observation.
 // cue: One startup transition whose sound has not yet been admitted.
-// Returns false only when another cue currently owns the shared audio mailbox.
+// Returns false while the first-boot voice observation or audio mailbox is pending.
 bool try_startup_pet_cue(DeviceUi &ui, CODY::PetCue cue)
 {
     const LUNASHELL::VoiceSnapshot *voice = nullptr;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     const auto observation_error = DeviceSnapshotService::instance().readVoiceObservation(ui.model.voice);
     if (observation_error != ESP_OK) {
+        if (cue == CODY::PetCue::FirstBootMelody) return false;
         ESP_LOGW(kTag, "Startup pet cue voice observation failed (%s)", esp_err_to_name(observation_error));
         return true;
     }
     voice = &ui.model.voice;
 #endif
     const auto error = CODY::play_pet_cue(ui.model.effects, cue, voice);
+    if (cue == CODY::PetCue::FirstBootMelody && error == ESP_ERR_NOT_FINISHED) return false;
     return error != ESP_OK || ui.model.effects.pet_audio_status.state != LUNASHELL_CUE_DROPPED_BUSY;
 }
 
@@ -2612,11 +3142,21 @@ esp_err_t advance_branding(DeviceUi &ui)
         if (static_cast<Command>(request & 0xffU) != Command::Ready) return ESP_OK;
     } else if (ui.boot_ding_pending) {
         const auto now_us = esp_timer_get_time();
-        if (now_us >= ui.boot_ding_deadline_us) {
-            ESP_LOGW(kTag, "Boot ding was not admitted before its deadline");
+        if (ui.first_boot_melody && ui.model.effects.boot_cue_requested &&
+            ui.model.effects.boot_audio_error != ESP_OK) {
+            // A failed restored output policy must not start the first-run melody.
             ui.boot_ding_pending = false;
-        } else if (try_startup_pet_cue(ui, CODY::PetCue::BootDing)) {
+        } else if (now_us >= ui.boot_ding_deadline_us) {
+            ESP_LOGW(kTag, "Startup music or ding was not admitted before its deadline");
             ui.boot_ding_pending = false;
+        } else if (try_startup_pet_cue(ui, ui.first_boot_melody ? CODY::PetCue::FirstBootMelody : CODY::PetCue::BootDing)) {
+            ui.boot_ding_pending = false;
+            const auto &status = ui.model.effects.pet_audio_status;
+            if (ui.first_boot_melody && status.cue_id == static_cast<uint32_t>(CODY::PetCue::FirstBootMelody) &&
+                status.state == LUNASHELL_CUE_DISPATCHED && status.request_sequence != 0) {
+                ui.first_boot_melody_sequence = status.request_sequence;
+                ui.first_boot_melody_deadline_us = now_us + 8000000LL;
+            }
         }
     }
     if (!starting && esp_timer_get_time() < ui.branding_due_us) {
@@ -2625,6 +3165,22 @@ esp_err_t advance_branding(DeviceUi &ui)
     const uint16_t next = starting ? 0 : static_cast<uint16_t>(ui.branding_frame + 1U);
     if (next == VIBEWARE_BOOT_FRAME_COUNT) {
         if (ui.boot_ding_pending) return ESP_OK;
+        if (ui.first_boot_melody_sequence != 0) {
+            lunashell_audio_cue_status_t status{};
+            const uint32_t cue_id = static_cast<uint32_t>(CODY::PetCue::FirstBootMelody);
+            const auto status_error = LUNASHELL_audio_get_cue_status(ui.first_boot_melody_sequence, cue_id, &status);
+            const bool active = status_error == ESP_OK &&
+                (status.state == LUNASHELL_CUE_DISPATCHED || status.state == LUNASHELL_CUE_PLAYING);
+            if (active && esp_timer_get_time() < ui.first_boot_melody_deadline_us) return ESP_OK;
+            if (active) {
+                const auto cancel_error = LUNASHELL_audio_cancel_cue(ui.first_boot_melody_sequence, cue_id);
+                ESP_LOGW(kTag, "First-boot melody exceeded its deadline; cancel=%s", esp_err_to_name(cancel_error));
+            } else if (status_error != ESP_OK || status.state == LUNASHELL_CUE_FAILED) {
+                ESP_LOGW(kTag, "First-boot melody did not complete: observation=%s playback=%s",
+                    esp_err_to_name(status_error), esp_err_to_name(status.last_error));
+            }
+            ui.first_boot_melody_sequence = 0;
+        }
         ui.branding_phase = BrandingPhase::Inactive;
         ui.birth_active = ui.birth_pending;
         ESP_LOGI(kTag, "Boot disk animation completed: %u frames retired", VIBEWARE_BOOT_FRAME_COUNT);
@@ -2639,6 +3195,17 @@ esp_err_t advance_branding(DeviceUi &ui)
         ui.branding_due_us = esp_timer_get_time() + VIBEWARE_boot_frames[next].duration_ms * 1000LL;
         if (starting) {
             ui.branding_phase = BrandingPhase::Playing;
+            if (ui.first_boot_melody) {
+                // A successful visible frame precedes consuming the one-shot key;
+                // audio is never attempted when that durable write fails.
+                const auto music_error = CODY::persist_first_boot_music_pending(false);
+                if (music_error != ESP_OK) {
+                    ui.model.effects.boot_cue_requested = true;
+                    ui.model.effects.boot_audio_error = music_error;
+                    ESP_LOGW(kTag, "First-boot melody omitted: one-shot persistence failed (%s)",
+                        esp_err_to_name(music_error));
+                }
+            }
             ui.boot_ding_pending = true;
             ui.boot_ding_deadline_us = esp_timer_get_time() + kStartupCueWaitUs;
             ESP_LOGI(kTag, "Boot disk visible cycle started after service readiness");
@@ -2691,10 +3258,10 @@ esp_err_t advance_birth_intro(DeviceUi &ui)
     frame.layer = Layer::Birth;
     const auto error = render(frame, true);
     if (error != ESP_OK) return error;
-    if (ui.birth_frame == 0) {
+    if (ui.birth_frame == 0 && !ui.first_boot_melody) {
         ui.birth_rise_pending = true;
         ui.birth_rise_deadline_us = esp_timer_get_time() + kStartupCueWaitUs;
-    } else if (ui.birth_frame == kBirthWelcomeFrame) {
+    } else if (ui.birth_frame == kBirthWelcomeFrame && !ui.first_boot_melody) {
         (void)try_startup_pet_cue(ui, CODY::PetCue::BirthGreeting);
     }
     ++ui.birth_frame;
@@ -2702,19 +3269,8 @@ esp_err_t advance_birth_intro(DeviceUi &ui)
     return ESP_OK;
 }
 
-// ui: Worker-owned timer and retained navigation state.
-// now_us: Monotonic time before processing any potentially overdue touch release.
-void advance_local_timer(DeviceUi &ui, int64_t now_us)
-{
-    if (CODY::update_local_timer(ui.model.timer, now_us) && CODY::onboarding_dashboard_active() &&
-        !ui.model.editing && !ui.diagnostics) {
-        ui.timer_open = true;
-        ui.model.navigation.interact(now_us);
-        invalidate();
-    }
-}
-
 // context: Unused; the task exclusively owns native navigation and presentation.
+// Exception: Publishes terminal display failures through the snapshot owner.
 void device_ui_worker(void *context)
 {
     (void)context;
@@ -2753,7 +3309,6 @@ void device_ui_worker(void *context)
             s_command_result.store(result, std::memory_order_relaxed);
             s_ack.store(request, std::memory_order_release);
         }
-        advance_local_timer(ui, esp_timer_get_time());
         if (!s_ready.load(std::memory_order_acquire) || ui.asleep ||
             !LUNASHELL_display_runtime_writes_allowed()) {
             vTaskDelay(pdMS_TO_TICKS(kPollMs));
@@ -2767,7 +3322,8 @@ void device_ui_worker(void *context)
             wait_ms = static_cast<uint32_t>(CODY::kScreensaverFrameUs / 1000);
         } else if (animating) {
             wait_ms = 33;
-        } else if (ui.retired.valid && (ui.retired.layer == Layer::Mascot || ui.retired.layer == Layer::Animation)) {
+        } else if (ui.retired.valid && (ui.retired.layer == Layer::Mascot || ui.retired.layer == Layer::Animation ||
+            ui.retired.layer == Layer::UsageAlarm || ui.retired.layer == Layer::EventCody)) {
             const int64_t remaining_us = std::max<int64_t>(0, ui.muse_frame_due_us - esp_timer_get_time());
             wait_ms = static_cast<uint32_t>((remaining_us + 999) / 1000);
         }
@@ -2777,7 +3333,6 @@ void device_ui_worker(void *context)
             break;
         }
         if (s_command.load(std::memory_order_acquire) != 0) continue;
-        advance_local_timer(ui, esp_timer_get_time());
         if (wait == ESP_OK || ui.pressed) error = sample_touch();
         if (error == ESP_OK) error = update_and_draw(esp_timer_get_time());
         if (error == ESP_ERR_NOT_FINISHED) error = ESP_OK;
@@ -2824,15 +3379,16 @@ extern "C" esp_err_t CODY_companion_start(void)
             esp_err_to_name(startup_volume_error));
     }
     s_ui->first_boot = settings.effective_first_boot;
+    s_ui->tour_step = settings.onboarding_tour_step;
     s_ui->birth_pending = settings.birth_intro_pending && esp_reset_reason() != ESP_RST_DEEPSLEEP;
+    // The first visible boot frame consumes this separate one-shot marker before
+    // audio admission, keeping ordinary sounds on later restarts or birth replays.
+    s_ui->first_boot_melody = settings.first_boot_music_pending && esp_reset_reason() != ESP_RST_DEEPSLEEP;
     s_ui->setup_progress_pending = settings.setup_progress_pending;
     static constexpr char welcome[] = "Welcome!";
     const CODY2D::TextSpan welcome_text{welcome, sizeof(welcome) - 1U};
     error = CODY::prepare_styled_title(welcome_text, {73, 356, 320, 40}, s_ui->birth_welcome, 3, true);
     if (error != ESP_OK) return error;
-    CODY::WidgetVisibility visibility{};
-    s_ui->model.settings_error = CODY::load_widget_visibility(visibility);
-    if (s_ui->model.settings_error == ESP_OK) CODY::apply_widget_visibility(s_ui->model.widgets, visibility);
     FrameView frame{};
     const bool show_branding = esp_reset_reason() != ESP_RST_DEEPSLEEP;
     if (show_branding) s_ui->branding_phase = BrandingPhase::AwaitingReady;
@@ -2852,7 +3408,11 @@ extern "C" esp_err_t CODY_companion_start(void)
         ESP_LOGI(kTag, "Boot disk first frame retired; awaiting service readiness");
     }
     if (error == ESP_OK) error = LUNASHELL_power_manager_register_display_lifecycle(prepare_lifecycle);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    if (error == ESP_OK) error = LUNASHELL_power_manager_register_boot_options(queue_boot_voice);
+#else
     if (error == ESP_OK) error = LUNASHELL_power_manager_register_boot_options(queue_options);
+#endif
     if (error == ESP_OK) error = LUNASHELL_power_manager_register_boot_home(queue_boot_home);
 #if CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
     if (error == ESP_OK) error = LUNASHELL_power_manager_register_offline_farewell(prepare_offline_standby);

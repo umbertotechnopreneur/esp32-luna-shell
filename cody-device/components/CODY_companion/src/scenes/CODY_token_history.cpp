@@ -201,7 +201,7 @@ esp_err_t draw_plot(const TokenHistoryPresentation &presentation, CODY2D::Surfac
             }
         } else if (bin.y == kBaseline) {
             // A real zero is a green mark on the baseline. Missing samples are below it.
-            fill_clipped(strip, first_row, first_column, {x, kBaseline, width, 2}, trace);
+            fill_clipped(strip, first_row, first_column, {x, kBaseline, width, 3}, trace);
         } else {
             fill_clipped(strip, first_row, first_column,
                 {x, bin.y, width, static_cast<uint16_t>(kBaseline - bin.y)}, histogram);

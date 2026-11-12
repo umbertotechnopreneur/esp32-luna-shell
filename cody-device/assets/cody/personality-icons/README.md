@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Cody manga personality symbols
 
 Fifteen standalone bitmap symbols share one fixed catalog across Pearl Mist, Aurora
@@ -69,3 +71,7 @@ The implementation and performance limits are documented in
 [personality rendering](../../../../docs/cody/personality-icons.md).
 Physical readability remains unverified until observed on the device. Execution
 authorization follows [AGENTS.md](../../../../AGENTS.md).
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

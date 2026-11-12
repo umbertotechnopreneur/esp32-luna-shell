@@ -15,6 +15,8 @@ extern const uint8_t cody_pet_jump_start[] asm("_binary_cody_pet_jump_start");
 extern const uint8_t cody_pet_jump_end[] asm("_binary_cody_pet_jump_end");
 extern const uint8_t cody_pet_surprise_start[] asm("_binary_cody_pet_surprise_start");
 extern const uint8_t cody_pet_surprise_end[] asm("_binary_cody_pet_surprise_end");
+extern const uint8_t cody_first_boot_music_start[] asm("_binary_cody_first_boot_music_start");
+extern const uint8_t cody_first_boot_music_end[] asm("_binary_cody_first_boot_music_end");
 }
 
 namespace CODY {
@@ -34,14 +36,17 @@ esp_err_t pet_audio_clip(PetCue cue, PetAudioClip &clip)
     case PetCue::Tap: first = cody_pet_tap_start; last = cody_pet_tap_end; break;
     case PetCue::Jump: first = cody_pet_jump_start; last = cody_pet_jump_end; break;
     case PetCue::Surprise: first = cody_pet_surprise_start; last = cody_pet_surprise_end; break;
+    case PetCue::FirstBootMelody: first = cody_first_boot_music_start; last = cody_first_boot_music_end; break;
     default:
         ESP_LOGE("CODY_pet_audio", "Unknown pet cue=%lu", static_cast<unsigned long>(cue));
         return ESP_ERR_INVALID_ARG;
     }
     const auto begin = reinterpret_cast<uintptr_t>(first);
     const auto end = reinterpret_cast<uintptr_t>(last);
+    constexpr size_t kFirstBootSamples = 73600U; // 4.6 seconds at the shared 16 kHz rate.
     if (end <= begin || begin % alignof(int16_t) != 0 || (end - begin) % sizeof(int16_t) != 0 ||
-        end - begin > 32000U * sizeof(int16_t)) {
+        (cue == PetCue::FirstBootMelody ? end - begin != kFirstBootSamples * sizeof(int16_t) :
+         end - begin > 32000U * sizeof(int16_t))) {
         ESP_LOGE("CODY_pet_audio", "Invalid pet audio geometry for cue=%lu", static_cast<unsigned long>(cue));
         return ESP_ERR_INVALID_SIZE;
     }

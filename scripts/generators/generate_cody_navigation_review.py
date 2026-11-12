@@ -82,18 +82,14 @@ REVIEW = (
         Screen("System", "about", index=0), Screen("Memory", "about", index=1),
         Screen("Firmware", "about", index=2), Screen("Project QR", "about", index=3),
     ), ("Keep in About", "Show only for diagnostics", "Change the return target")),
-    ReviewPage("Options and visibility", "BOOT opens Options. Home restores the dashboard. Codex stats opens the first enabled page with data.", (
+    ReviewPage("Options and data", "BOOT opens Options. The statistics carousel includes pages with available data.", (
         Screen("Options / Tools", "options", index=0), Screen("Options / Preferences", "options", index=1),
-        Screen("Options / Device", "options", index=2), Screen("Visible screens", "visibility"),
+        Screen("Options / Device", "options", index=2),
     ), ("Keep on the first page", "Move to an advanced page", "Hide by default")),
     ReviewPage("Display and behavior", "Studio settings are session-only. Firmware has saved settings and voice is build-dependent.", (
         Screen("Display", "display"), Screen("Behavior", "behavior"),
         Screen("More behavior", "more_behavior"), Screen("Screensaver", "screensaver"),
     ), ("Keep a dedicated screen", "Show only in this build", "Change the setting labels")),
-    ReviewPage("Timer and device actions", "The timer is local. Restart retains setup. Factory reset clears saved setup after explicit confirmation.", (
-        Screen("Timer setup", "timer"), Screen("Timer running", "timer", index=1),
-        Screen("Timer finished", "timer", index=2), Screen("Restart confirmation", "restart"),
-    ), ("Keep on Options", "Show only when a timer exists", "Change the confirmation flow")),
     ReviewPage("Recovery and local information", "The project QR belongs to About. Factory reset is a separate, destructive action.", (
         Screen("Factory reset confirmation", "factory_reset"), Screen("Connections", "connections", "lan"),
         Screen("Offline guide", "quick_guide", index=2),
@@ -159,10 +155,6 @@ def capture(screen, questions):
         preview.route = "widgets"
         preview.page = PAGES.index("About")
         preview.info.page = tuple(InfoPage)[screen.index]
-    elif screen.route == "timer" and screen.index:
-        preview.local_timer.start(NOW - 65 if screen.index == 1 else NOW - 305)
-        if screen.index == 2:
-            preview.local_timer.observe(NOW)
     elif screen.route == "screensaver":
         preview.route = "widgets"
         preview.screensaver.enabled = True
@@ -258,7 +250,7 @@ def screen_page(surface, page, questions, number):
 
 STATES = (
     ("No saved Wi-Fi / no IP", "Local controls and provisioning. Saved statistics only if a prior valid record exists."),
-    ("Wi-Fi and LAN, no Internet, PC absent", "Timer, settings and available saved statistics. The PC link is required for remote events."),
+    ("Wi-Fi and LAN, no Internet, PC absent", "Settings and available saved statistics. The PC link is required for remote events."),
     ("Wi-Fi and LAN, no Internet, CCP current", "Local pairing and protocol traffic can work. Codex cloud work needs its own service access."),
     ("Internet, PC missing or Codex closed", "Internet alone does not supply chat activity. A linked broker can show PC linked."),
     ("Internet, CCP and Codex current", "Fresh Codex observations and admitted events. Missing or stale fields retain their own status."),

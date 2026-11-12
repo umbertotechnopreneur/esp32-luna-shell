@@ -2380,6 +2380,13 @@ esp_err_t DeviceSnapshotService::initialize()
     if (aggregate != ESP_OK) {
         return aggregate;
     }
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION && CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
+    // The catalog is optional and never blocks or changes hardware initialization.
+    const esp_err_t catalog_error = start_openrouter_catalog();
+    if (catalog_error != ESP_OK) {
+        ESP_LOGW(TAG, "OpenRouter catalog worker unavailable (%s)", esp_err_to_name(catalog_error));
+    }
+#endif
     ESP_LOGI(
         TAG,
         "Selected hardware owners initialized; initial snapshot is an explicit startup stage"
@@ -3601,6 +3608,58 @@ esp_err_t DeviceSnapshotService::readMotionPowerObservation(
     age_measured_sample(copy.character_touch, now_us, ttl_us);
     // Match the full snapshot: the touch producer publishes its activity atomically.
     copy.touch_last_activity_at_us = touchActivityObservation().last_activity_at_us;
+    observation = copy;
+    return ESP_OK;
+}
+
+// observation: Receives only the settings owner's compact idle policy.
+// Exception: Returns the original snapshot lock or release failure.
+esp_err_t DeviceSnapshotService::readCodyIdleObservation(CodyIdleObservation &observation) const
+{
+    const auto error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "idle policy read");
+    if (error != ESP_OK) return error;
+    const auto copy = s_snapshot.cody_idle;
+    const auto release = give_snapshot_mutex("idle policy read");
+    if (release != ESP_OK) return release;
+    observation = copy;
+    return ESP_OK;
+}
+
+// observation: Receives the settings owner's compact event-visual policy.
+// Exception: Returns the original snapshot lock or release failure.
+esp_err_t DeviceSnapshotService::readCodyEventVisualObservation(CodyEventVisualObservation &observation) const
+{
+    const auto error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "event visual policy read");
+    if (error != ESP_OK) return error;
+    const auto copy = s_snapshot.cody_event_visual;
+    const auto release = give_snapshot_mutex("event visual policy read");
+    if (release != ESP_OK) return release;
+    observation = copy;
+    return ESP_OK;
+}
+
+// observation: Receives the separately published parallax policy.
+// Exception: Returns the original snapshot lock or release failure.
+esp_err_t DeviceSnapshotService::readCodyParallaxObservation(CodyParallaxObservation &observation) const
+{
+    const auto error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "parallax policy read");
+    if (error != ESP_OK) return error;
+    const auto copy = s_snapshot.cody_parallax;
+    const auto release = give_snapshot_mutex("parallax policy read");
+    if (release != ESP_OK) return release;
+    observation = copy;
+    return ESP_OK;
+}
+
+// observation: Receives the separately published character-theme preference.
+// Exception: Returns the original snapshot lock or release failure.
+esp_err_t DeviceSnapshotService::readCodyCharacterThemeObservation(CodyCharacterThemeObservation &observation) const
+{
+    const auto error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, "character theme read");
+    if (error != ESP_OK) return error;
+    const auto copy = s_snapshot.cody_character_theme;
+    const auto release = give_snapshot_mutex("character theme read");
+    if (release != ESP_OK) return release;
     observation = copy;
     return ESP_OK;
 }

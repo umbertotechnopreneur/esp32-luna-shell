@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Documentation
 
 Choose the task first. Each guide has one owner; commands, installation and wire
@@ -12,7 +14,7 @@ formats stay in their canonical guides.
 | Select a firmware profile, feature or build mode | [Toolchain and profiles](bsp/toolchain-and-profiles.md) |
 | Build, generate assets, capture logs or run an authorized check | [Public console](../scripts/README.md) |
 | Install CCP and review its hooks | [CCP installation and operation](../cody-desktop/plugins/cody-codex-plugin/README.md) |
-| Understand the Cody relay, Dot reachability and publication boundaries | [Cody remote integration](cody/remote-integration.md) |
+| Understand the Cody relay, Dot reachability and publication boundaries | [Cody remote integration](cody/runtime.md#remote-connections) |
 | Preview the interface on Windows | [Simulator](../cody-device/simulator/windows/README.md) |
 
 ## Three documentation areas
@@ -64,3 +66,6 @@ PDF generation, front matter and the Obsidian mirror. [Console guide](../scripts
 | [done.md](../done.md) | Latest validation round only |
 | [lessons.md](../lessons.md) | Causes and practical lessons from recurring errors |
 
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

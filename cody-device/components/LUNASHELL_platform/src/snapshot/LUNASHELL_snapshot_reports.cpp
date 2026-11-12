@@ -141,6 +141,34 @@ esp_err_t DeviceSnapshotService::reportCodyPreferences(const CodyPreferencesSnap
     return error;
 }
 
+// observation: Exact settings-owner readback or failure, independent of other preferences.
+// Exception: Returns the original snapshot publication error.
+esp_err_t DeviceSnapshotService::reportCodyIdleObservation(const CodyIdleObservation &observation)
+{
+    return update_snapshot([&](DeviceSnapshot &snapshot) { snapshot.cody_idle = observation; });
+}
+
+// observation: Exact settings-owner result, including any persistence error.
+// Exception: Returns the original snapshot publication error.
+esp_err_t DeviceSnapshotService::reportCodyEventVisualObservation(const CodyEventVisualObservation &observation)
+{
+    return update_snapshot([&](DeviceSnapshot &snapshot) { snapshot.cody_event_visual = observation; });
+}
+
+// observation: Exact settings-owner parallax readback or failure.
+// Exception: Returns the original snapshot publication error.
+esp_err_t DeviceSnapshotService::reportCodyParallaxObservation(const CodyParallaxObservation &observation)
+{
+    return update_snapshot([&](DeviceSnapshot &snapshot) { snapshot.cody_parallax = observation; });
+}
+
+// observation: Exact settings-owner character-theme readback or failure.
+// Exception: Returns the original snapshot publication error.
+esp_err_t DeviceSnapshotService::reportCodyCharacterThemeObservation(const CodyCharacterThemeObservation &observation)
+{
+    return update_snapshot([&](DeviceSnapshot &snapshot) { snapshot.cody_character_theme = observation; });
+}
+
 // operation: Actual request or terminal write result; contains no sensor values or secrets.
 // Exception: Returns publication/ordering errors separately from the persisted operation error.
 esp_err_t DeviceSnapshotService::reportCharacterLookSave(const CharacterLookSaveSnapshot &operation)

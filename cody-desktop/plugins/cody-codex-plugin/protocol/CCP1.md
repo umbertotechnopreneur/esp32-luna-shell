@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # CCP1 local pairing protocol
 
 ## vNext version boundary
@@ -1135,3 +1137,7 @@ view or five minutes without a command ends the transient session.
 `applied` means the display owner applied the command and completed rendering. `rejected`
 carries the actual error. Timeout or lost ACK is ambiguous and is not replayed.
 This is a visual preview, never a synthetic hardware observation or Codex state.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

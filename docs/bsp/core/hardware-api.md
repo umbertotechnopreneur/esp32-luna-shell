@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Hardware API contract
 
 `cody-device/components/LUNASHELL_platform` defines the shared consumer boundary without
@@ -110,3 +112,7 @@ failure, or inapplicable request cannot carry it forward.
 
 Because this board has no card-detect pin, a failed initialization is
 `card/transport unconfirmed`, not proof that the card is physically absent.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

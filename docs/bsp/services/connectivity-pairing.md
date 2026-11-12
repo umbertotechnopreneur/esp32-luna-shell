@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Shared Wi-Fi / BLE pairing lifecycle
 
 Luna and Cody use the same radio and session owners. Pairing is an optional
@@ -123,3 +125,7 @@ Exercise first provisioning through the phone's final status, wrong password,
 missing AP, cancellation, retry, timeout, telemetry handoff, standby/wake and
 HTTP access over the LAN. The [active work](../../../TODO.md) tracks outstanding
 device observations.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

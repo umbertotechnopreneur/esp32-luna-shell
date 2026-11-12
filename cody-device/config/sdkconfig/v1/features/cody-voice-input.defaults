@@ -1,0 +1,3 @@
+# Enable Cody's bounded microphone capture and authenticated PC handoff.
+# Loaded after wake-word and speech defaults only for the Cody wake-word variant.
+CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT=y

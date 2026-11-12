@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Cody state protocol 1
 
 This is the implementation contract for `CODY-NEXT-02`. It defines
@@ -430,3 +432,7 @@ Phase 11 must exercise malformed lengths/JSON, foreign bindings, replay, reverse
 clocks, hash failure, missing chunks, lost commit ACK, epoch changes, partial
 snapshots, pool exhaustion, journal overflow and unresolved retention. The
 authored examples include expected outcomes; they have not been executed.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

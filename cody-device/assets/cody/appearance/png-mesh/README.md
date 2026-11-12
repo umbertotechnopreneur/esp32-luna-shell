@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Painted cloud / triangle-mesh appearance study
 
 This opt-in Windows simulator appearance study replaces only the cloud body and its
@@ -64,3 +66,7 @@ pose/navigation clearance and broader validation remain open.
 ## Exact image-generation prompt
 
 Use case: style-transfer. Asset type: transparent 2D game character body texture, to be deformed by a triangle mesh on an embedded display. Input image 1 is the silhouette/proportion guide ONLY: the front-facing cloud mascot in the middle of the black simulator screen. Input image 2 is the painted cloud STYLE reference, not its wide triangular silhouette. Create ONE isolated cloud body with real transparent background, no face: REMOVE eyes, eyebrows, nose, mouth, cheeks, buttons, text, black background and all interface. Keep image 1's recognizable outline and aspect ratio approximately 1.43 width/height: one high rounded central crown, mid-height left shoulder, a smaller upper-right shoulder, broad side lobes, a gently scalloped rounded underside with small feet. Subject centered, fully visible, occupying about 82% of square canvas width. Inside that same outline paint soft ivory cloud volume in the style of image 2: warm pale cream sunlight from upper left, luminous rounded bulges, cool desaturated blue-grey shadows underneath and at actual contour lobe junctions, fine painterly grain and a few subtle cloud curls. Shadows MUST describe the actual outline lobes; no tiled spheres, no pearls, no cauliflower, no craters, no repetitive pillows. Every large outside lobe is one coherent shaded cloud volume. Keep the middle face region broad, smooth, light and unmarked for separately rendered animated eyes and mouth. Fine scalloped edges with clean soft alpha, not fuzzy smoke. No drop shadow outside the cloud. No checkerboard pattern baked in. No ground, no props, no lettering, no face whatsoever. This is final painted sprite artwork, not a screenshot.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

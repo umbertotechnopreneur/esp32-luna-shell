@@ -131,9 +131,6 @@ std::atomic<uint32_t> s_ui_quiescence_requested_sequence{0};
 std::atomic<uint32_t> s_ui_quiescence_acknowledged_sequence{0};
 std::atomic<int32_t> s_ui_quiescence_result{ESP_ERR_INVALID_STATE};
 std::atomic<uint32_t> s_activity_sequence{0};
-#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-std::atomic_bool s_local_timer_wake_requested{false};
-#endif
 std::atomic_bool s_leg_mode_enabled{false};
 std::atomic_bool s_leg_wake_enabled{true};
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
@@ -409,8 +406,6 @@ const char *device_state_reason_name(LUNASHELL::DeviceStateReason reason)
         return "codex-notification";
     case LUNASHELL::DeviceStateReason::CodexOffline:
         return "codex-offline";
-    case LUNASHELL::DeviceStateReason::LocalTimer:
-        return "local-timer";
     }
     return "unknown";
 }
@@ -2748,45 +2743,12 @@ void queue_leg_sound(const LegMotionReading &motion, int64_t now_us)
 }
 #endif
 
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-// input: Bounded canonical voice projection; never a second microphone read.
-bool voice_input_is_active(const LUNASHELL::VoiceInputObservation &input)
-{
-    return LUNASHELL::voice_input_phase_active(input.phase);
-}
-#endif
-
 // standby: True for the same short-button sleep action, false for an explicit input wake.
 // reason: Actual physical power/touch/motion input, not a shutdown recovery or Codex notice.
-// Exception: Returns the first real wake/admission error; voice failure never rolls back an awake device.
+// Exception: Returns the original standby transition error.
 esp_err_t wake_from_user_input(bool standby, LUNASHELL::DeviceStateReason reason)
 {
-    const bool was_standby = s_state == LUNASHELL::DeviceOperatingState::Standby;
-    const bool was_offline_standby = s_codex_offline_standby;
-    const esp_err_t wake_error = set_standby(standby, reason);
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-    if (!standby && was_standby && !was_offline_standby && s_state == LUNASHELL::DeviceOperatingState::Active &&
-        !s_shutdown_in_progress && (reason == LUNASHELL::DeviceStateReason::PowerButton ||
-        reason == LUNASHELL::DeviceStateReason::BootButton || reason == LUNASHELL::DeviceStateReason::Touch ||
-        reason == LUNASHELL::DeviceStateReason::ImuMotion)) {
-        // This optional action follows a completed physical wake only. Internal
-        // recovery and farewell calls continue to use set_standby directly.
-        LUNASHELL::VoiceSnapshot voice{};
-        static_assert(sizeof(voice) <= 256, "Wake voice admission must remain a bounded power-task projection");
-        esp_err_t voice_error = LUNASHELL::DeviceSnapshotService::instance().readVoiceObservation(voice);
-        if (voice_error == ESP_OK && !voice_input_is_active(voice.input)) {
-            voice_error = LUNASHELL::requestVoiceInput(LUNASHELL::VoiceInputTrigger::StandbyWake);
-        }
-        if (voice_error != ESP_OK) {
-            ESP_LOGE(kTag, "Optional standby-wake recording admission failed (%s)", esp_err_to_name(voice_error));
-            return wake_error != ESP_OK ? wake_error : voice_error;
-        }
-    }
-#else
-    (void)was_standby;
-    (void)was_offline_standby;
-#endif
-    return wake_error;
+    return set_standby(standby, reason);
 }
 
 // No parameters: a completed physical short click toggles standby through the power owner.
@@ -3256,7 +3218,13 @@ void power_task(void *argument)
         }
         if (boot_event == ButtonEvent::LongPress) {
             if (s_boot_options_request.load(std::memory_order_acquire) != nullptr) {
-                const esp_err_t button_error = handle_boot_press(true);
+                esp_err_t button_error = ESP_OK;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+                if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
+                    button_error = set_standby(false, LUNASHELL::DeviceStateReason::BootButton);
+                }
+#endif
+                if (button_error == ESP_OK) button_error = handle_boot_press(true);
                 if (button_error != ESP_OK) {
                     ESP_LOGE(kTag, "BOOT Options handling failed (%s)", esp_err_to_name(button_error));
                 }
@@ -3543,22 +3511,6 @@ void power_task(void *argument)
                 }
             }
         }
-#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-        if (s_local_timer_wake_requested.exchange(false, std::memory_order_acq_rel) && !s_shutdown_in_progress) {
-            constexpr auto reason = LUNASHELL::DeviceStateReason::LocalTimer;
-            esp_err_t timer_error = ESP_ERR_INVALID_STATE;
-            if (s_state == LUNASHELL::DeviceOperatingState::Standby) {
-                // A local alarm wakes even offline standby, without starting voice capture.
-                timer_error = set_standby(false, reason);
-            } else if (s_state == LUNASHELL::DeviceOperatingState::Active) {
-                reset_codex_offline_grace();
-                timer_error = restore_active_policy(reason, false);
-            }
-            if (timer_error != ESP_OK) {
-                ESP_LOGE(kTag, "Local timer wake failed (%s)", esp_err_to_name(timer_error));
-            }
-        }
-#endif
         // Let the ordinary acquisition path consume a new IRQ before parking it.
         // A raw IRQ never becomes a fabricated touch sample or activity timestamp.
         // Do not enter inactivity standby between the press edge and shutdown.
@@ -4032,26 +3984,6 @@ extern "C" esp_err_t LUNASHELL_power_manager_note_codex_notification(void)
     s_activity_reason.store(LUNASHELL::DeviceStateReason::CodexNotification, std::memory_order_relaxed);
     s_activity_sequence.fetch_add(1, std::memory_order_release);
     return ESP_OK;
-}
-
-// No parameters: records the due timer independently of physical and CCP activity.
-// Exception: Returns INVALID_STATE if startup is incomplete or shutdown closed admission.
-extern "C" esp_err_t LUNASHELL_power_manager_request_local_timer_wake(void)
-{
-#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
-    if (s_initialized.load(std::memory_order_acquire)) {
-        portENTER_CRITICAL(&s_shutdown_admission_mux);
-        const bool admitted = !s_shutdown_admission_closed;
-        if (admitted) s_local_timer_wake_requested.store(true, std::memory_order_release);
-        portEXIT_CRITICAL(&s_shutdown_admission_mux);
-        if (admitted) return ESP_OK;
-    }
-    constexpr esp_err_t error = ESP_ERR_INVALID_STATE;
-#else
-    constexpr esp_err_t error = ESP_ERR_NOT_SUPPORTED;
-#endif
-    ESP_LOGE(kTag, "Local timer wake rejected (%s)", esp_err_to_name(error));
-    return error;
 }
 
 // No parameters: only the CCP owner calls this after validating the paired sender and literal code.

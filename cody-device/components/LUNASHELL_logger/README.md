@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # LUNASHELL_logger
 
 Canonical console, bounded RAM and removable-storage logging, with the existing
@@ -23,3 +25,7 @@ its ready frame to make that memory available for DMA. Archival errors remain
 optional startup failures; the actual renderer still reports admission failures.
 The live logging buffers remain internal and cache-safe. Repeated finish requests
 retain the first operation's result, and a timeout leaves ownership with the writer.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

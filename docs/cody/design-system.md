@@ -1,4 +1,10 @@
-# Cody device design system
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
+# Cody design system
+
+**VibeWare · Cody Companion**
+
+**Author:** Umberto Giacobbi · **Created:** 2026-11-11 · **Updated:** 2026-11-12 · **Revision:** 1.0
 
 This is the shared visual and interaction language for the native Cody device
 UI and its Studio preview. Apply it to new screens and to revisions of existing
@@ -71,3 +77,7 @@ through the actual prior route, including pairing cleanup when applicable.
 **Settings > Device > About** opens the existing System, Memory,
 Firmware, VibeWare and project QR pages. Hardware data must come from the
 canonical snapshot and must retain unavailable, stale and error states.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

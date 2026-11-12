@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Luna Shell
 
 Luna Shell is the LVGL/Brookesia interface. System Super owns system lifecycle
@@ -46,5 +48,9 @@ Use the [console](../../scripts/README.md) for operations and the root
 [work records](../README.md#current-work) for current gates and evidence.
 
 The remote relay probe belongs to the Cody Companion profile. See
-[Cody remote integration](../cody/remote-integration.md) for the shared hardware
+[Cody remote integration](../cody/runtime.md#remote-connections) for the shared hardware
 boundary and the separate local and remote paths.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

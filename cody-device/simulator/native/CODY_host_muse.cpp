@@ -1,6 +1,7 @@
 #include "CODY_pixel_avatar.hpp"
 #include "CODY_muse_showcase.hpp"
 #include "CODY_pixel_demo.hpp"
+#include "CODY_muse_themes.hpp"
 
 #include <cstddef>
 
@@ -13,6 +14,14 @@
 namespace {
 CODY::MuseShowcase s_showcase{};
 CODY::PixelDemoMotionState s_motion{};
+uint8_t s_theme = 0;
+}
+
+// theme: Stable Studio theme identity; an invalid identity selects Classic.
+// Exception: None; this serialized host preview never changes device settings.
+CODY_HOST_EXPORT void cody_host_muse_theme(uint32_t theme)
+{
+    s_theme = theme < CODY::kMuseCharacterThemes.size() ? static_cast<uint8_t>(theme) : 0;
 }
 
 // seed: Artistic seed for a new scenario, with zero selecting startup defaults.
@@ -94,8 +103,10 @@ CODY_HOST_EXPORT esp_err_t cody_host_muse_pose_frame(uint32_t pose, uint32_t tim
     uint32_t pose_ms, uint32_t reaction_ms, float audio_level, uint32_t working,
     uint32_t side, uint16_t *pixels, size_t count)
 {
+    CODY::MuseVisualStyle style{};
+    style.character_theme = s_theme;
     return render_muse_pose(pose, time_ms, pose_ms, reaction_ms, audio_level, working,
-        side, pixels, count, {});
+        side, pixels, count, style);
 }
 
 // pose: Numeric PixelAvatarPose value.
@@ -136,6 +147,7 @@ CODY_HOST_EXPORT esp_err_t cody_host_muse_face_frame(uint32_t pose, uint32_t tim
         return ESP_ERR_INVALID_ARG;
     }
     CODY::MuseVisualStyle style{};
+    style.character_theme = s_theme;
     style.face.left_eye = static_cast<CODY::MuseEyeStyle>(left_eye);
     style.face.right_eye = static_cast<CODY::MuseEyeStyle>(right_eye);
     style.face.mouth = static_cast<CODY::MuseMouthStyle>(mouth);
@@ -168,6 +180,7 @@ CODY_HOST_EXPORT esp_err_t cody_host_muse_frame(uint32_t time_ms, uint32_t react
     }
     const auto pose = s_showcase.sample(time_ms);
     CODY::MuseVisualStyle style{};
+    style.character_theme = s_theme;
     style.symbol.symbol = pose.symbol;
     CODY::apply_pixel_demo_motion(style, s_motion);
     return render_muse_pose(static_cast<uint32_t>(pose.pose), time_ms,

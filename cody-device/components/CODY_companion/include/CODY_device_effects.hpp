@@ -14,7 +14,7 @@ namespace CODY {
 
 inline constexpr int64_t kVoiceResultDwellUs = 3000000;
 
-enum class DeviceFeedback : uint8_t { None, OptionsOpened, TimerStarted };
+enum class DeviceFeedback : uint8_t { None, OptionsOpened };
 
 // Recent request identities prevent navigation, refresh and reconnect from replaying notices.
 struct DeviceEventSoundRecord {
@@ -66,6 +66,9 @@ struct DeviceEffectsModel {
     esp_err_t pairing_error = ESP_ERR_INVALID_STATE;
     esp_err_t last_error = ESP_OK;
     int64_t last_tick_us = 0;
+    int64_t event_visual_at_us = 0;
+    uint32_t event_visual_sequence = 0;
+    LUNASHELL::CodexEventKind event_visual_kind = LUNASHELL::CodexEventKind::None;
     int64_t connection_lost_at_us = 0;
     int64_t wifi_edge_since_us = 0;
     int64_t voice_session_us = 0;
@@ -100,7 +103,7 @@ esp_err_t play_device_boot_cue(DeviceEffectsModel &model);
 // model: Retains the pet cue's actual shared-worker admission outcome.
 // cue: Explicit visual or boot event, never an inferred Codex action.
 // voice: Current voice observation, or null when voice input is excluded.
-// Exception: Returns the original asset, preparation or audio-owner error.
+// Exception: Returns original owner errors or NOT_FINISHED while first-boot voice state is unknown.
 esp_err_t play_pet_cue(DeviceEffectsModel &model, PetCue cue, const LUNASHELL::VoiceSnapshot *voice);
 
 // model: Retains optional admission errors from the shared audio owner.

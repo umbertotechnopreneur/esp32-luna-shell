@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Cody Companion
 
 Native, English-only interface for Codex. The device profile uses `CODY2D`
@@ -59,3 +61,7 @@ preview uses the same showcase and renderer.
 
 On first import of an external library or prebuilt binary, verify its official
 source and version before use.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

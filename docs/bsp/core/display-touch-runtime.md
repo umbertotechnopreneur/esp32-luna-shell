@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Standalone display and touch runtime
 
 ## Profile and hardware ownership
@@ -113,3 +115,7 @@ An explicitly requested lock workflow uses `scripts/device.ps1 update-lock
 belongs under `artifacts/`. Build/check and physical display/touch/rotation/
 DMA/standby/radio workflows require their own authorization under
 [AGENTS](../../../AGENTS.md).
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

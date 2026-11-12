@@ -189,9 +189,9 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
         const bool enabled = (view->enabled_controls & (1U << index)) != 0;
         const uint16_t color = enabled ? (index < 2 ? kCyan : kMint) : kMuted;
         auto error = fill_rows(strip, first_row, first_column,
-            {static_cast<uint16_t>(bounds.x + 10), static_cast<uint16_t>(bounds.y + 19), 20, 2}, color);
+            {static_cast<uint16_t>(bounds.x + 12), static_cast<uint16_t>(bounds.y + 18), 16, 3}, color);
         if (error == ESP_OK && (index & 1U) != 0) error = fill_rows(strip, first_row, first_column,
-            {static_cast<uint16_t>(bounds.x + 19), static_cast<uint16_t>(bounds.y + 10), 2, 20}, color);
+            {static_cast<uint16_t>(bounds.x + 18), static_cast<uint16_t>(bounds.y + 12), 3, 16}, color);
         if (error != ESP_OK) return result("draw audio adjustment", error);
     }
     return result("draw Close", UI::draw_text_action(view->close, strip, first_row, first_column));
@@ -320,10 +320,15 @@ esp_err_t prepare_audio_view(const LUNASHELL::AudioSnapshot &audio, esp_err_t re
             level.state == MicrophoneLevelState::Current ? kWhite : kMuted, view.captions[3U + channel * 2U]);
     }
     view.close = {kClose, {}, 0, 0, true};
-    view.close.corner_radius = 28;
-    UI::apply_control_colors(view.close, UI::kContentSecondary);
-    if (error == ESP_OK) error = UI::prepare_button(view.close, body_font, "Close", kWhite, 28,
-        UI::kContentSecondary);
+    view.close.icon = CODY2D::ActionIcon::Close;
+    view.close.icon_color = kCyan;
+    // Center the icon and caption as one group while keeping the original touch rectangle.
+    const CODY2D::Rect close_text{static_cast<uint16_t>(kClose.x + 28U), kClose.y,
+        static_cast<uint16_t>(kClose.width - 28U), kClose.height};
+    if (error == ESP_OK) error = UI::prepare_text(body_font, "Close", close_text, kWhite, view.close.caption, 28);
+    if (error == ESP_OK) view.close.icon_center = {
+        static_cast<int16_t>(view.close.caption.origin.x - 16),
+        static_cast<int16_t>(kClose.y + kClose.height / 2U)};
     if (error != ESP_OK) return result("prepare Audio", error);
     view.levels = levels;
     view.playback_volume = volume;

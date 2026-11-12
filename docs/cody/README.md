@@ -1,87 +1,33 @@
-# Cody
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
 
-The `cody-companion` profile is a native `CODY2D` terminal for Codex. Its
-device model projects account, network, battery and build data. The display
-consumes those projections. The shared BSP and platform services own acquisition,
-persistence, power and authenticated transport.
+# Cody Companion
 
-## Find the relevant contract
+**VibeWare · Cody Companion**
 
-| Task | Guide |
-| --- | --- |
-| First boot, dashboard, Options, questions and recovery | [Navigation](navigation.md) |
-| Retained screen sources, original codes and Muse/Tools mapping | [Screen catalog](screen-catalog.md) |
-| vNext development phases, dependencies and acceptance gates | [Development plan](../../planned-todo.md#cody-next---domain-model-and-muse-implementation-plan) |
-| vNext entities, evidence, capacities and lifecycle rules | [Domain model](domain-model.md) |
-| Hardware, pet and assistant status ownership | [Status models](domain-model.md#hardware-pet-and-assistant-status-models) |
-| vNext JSON, negotiation, bounded transport and recovery | [State protocol](../../cody-desktop/plugins/cody-codex-plugin/protocol/CODY_STATE_V1.md) |
-| All device routes at a glance | [A4 navigation map](device-navigation-map-a4.pdf) |
-| Display coordinates, action controls and QR | [Layout](layout.md) |
-| Local Wi-Fi text entry and secret handling | [Text entry](navigation.md#native-text-entry) |
-| Clock presentation and cue policy | [Clock presentation](runtime.md#clock-presentation) |
-| Power and standby | [Power management](../bsp/services/power-management.md) |
-| Native display transfers | [Display and touch runtime](../bsp/core/display-touch-runtime.md) |
+**Author:** Umberto Giacobbi · **Created:** 2026-10-11 · **Updated:** 2026-11-12 · **Revision:** 1.0
 
-Installation and PC operation belong to the [CCP guide](../../cody-desktop/plugins/cody-codex-plugin/README.md).
-Packet formats and authentication belong to [CCP1](../../cody-desktop/plugins/cody-codex-plugin/protocol/CCP1.md).
-Windows controls and synthetic scenarios belong to the [simulator guide](../../cody-device/simulator/windows/README.md).
-The Italian product-strategy Word and PDF files are historical product
-documents, not current build or device-verification references; their voice
-statements must be read against the feature-profile boundaries below.
-Use the [A4 navigation map](device-navigation-map-a4.pdf) for the dashboard and
-Options. The saved Counter mode can show its three data pages on Home after the
-VibeWare animation; with Counter mode off, Home shows the Muse avatar.
+Cody is a little companion for your desk and your work with Codex. It brings a playful face, useful updates and a touch of VibeWare to a round screen.
 
-On the first cold start after installation or factory reset, Cody shows the
-[Muse birth concept](muse-birth-oobe.png): white fades to black, Muse fades in,
-and `Welcome!` appears. The source uses a separate persistent pending flag,
-cleared after the introduction's frames retire; factory reset clears the owned
-settings namespace. An interrupted introduction remains pending. The optional
-existing boot-rise sound follows the device audio policy. Physical display,
-sound, timing and reset behavior still require device verification.
+## Start here
 
-## Profile and services
+- [Getting around Cody](navigation.md): setup, controls, questions and recovery.
+- [Meet Cody](behavior.md): personality, movement and sound.
+- [Cody's expressions](personality-icons.md): how visual cues help Cody communicate.
+- [Behind the experience](runtime.md): what is in the source, what is planned and where to find the code.
+- [Screen layout](layout.md), [design system](design-system.md) and [screen catalog](screen-catalog.md): design contracts and screen identities for contributors.
 
-Select the physical board independently of the Cody profile. The Waveshare
-1.75 GPS prototype uses 16 MB flash and supports removable microSD storage.
-The aluminum-cased 1.75C uses 32 MB flash and has no removable-card slot;
-its external RTC and removable-storage services are disabled. Cody on 1.75C
-shows no SD status or free-space rows. Use native USB for live firmware logs.
-Board wiring and available peripherals are listed in the
-[hardware guide](../bsp/boards/purchased-amoled-comparison.md).
-The [project introduction](../../README.md#the-little-round-thing) explains the choice of device.
+Prefer pictures? Explore the [navigation atlas](cody-navigation-atlas-v1.pdf), [connection atlas](cody-ccp-connection-atlas-v1.pdf), [pairing quickstart](cody-ccp-pairing-quickstart-a5-v1.pdf), [planning atlas](cody-planning-atlas-v1.pdf) and [navigation map](device-navigation-map-a4.pdf). The Italian strategy documents are historical, not proof of current features.
 
-Cody uses the shared power, battery, IMU, speaker, Wi-Fi and BLE provisioning
-owners. The default image includes the Muse avatar and, when no feature or board
-configuration is specified, selects English `tts-flash` synthesis. The explicit
-`none` variant omits synthesis and microphone acquisition. The optional
-`wake-word` feature enables the microphone, audio front end and existing Sophia
-listener for standby wake alongside English flash TTS; it excludes the separate
-Codex voice-input owner. Their combined behavior needs physical verification.
-Activity classification is not available in the Cody profile.
+Cody is an evolving project. Source-level features can depend on the hardware, build and connection, and may still need real-device verification. Current work and outstanding checks live in [TODO.md](../../TODO.md); longer-term ideas live in [planned-todo.md](../../planned-todo.md).
 
-The saved-profile startup policy is authoritative; the Cody profile sets
-`CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT=n`. Development replay requires explicit
-configuration. The compiled HTTP service defaults to disabled. The VibeWare
-startup art, UI fonts and saved settings use internal flash. Removable-card
-user data and mirrored logs apply only to SD-capable boards such as the GPS
-prototype; they are not an internal-flash logging fallback on 1.75C.
+Document creation dates use the earliest available Git history for each file. Revision 1.0 marks this consolidated editorial edition, rather than a count of earlier Git changes.
 
-Consumers read canonical projections with validity, original timestamps and real
-errors. Only acquisition owners read hardware. Shared contracts are in
-[BSP](../bsp/README.md); source ownership is in the
-[component README](../../cody-device/components/CODY_companion/README.md).
+Cody Companion is an independent project, not affiliated with or endorsed by Espressif or Waveshare. Third-party names and marks belong to their owners; see [notices](../../THIRD_PARTY_NOTICES.md).
 
-## Independence and trademarks
+## This is VibeWare
 
-I am not affiliated with, sponsored by, or employed by Espressif or Waveshare.
-Cody Companion is an independent project and is not endorsed or certified by
-either company. Third-party names, trademarks, logos and images belong to their
-respective owners; their use identifies the relevant products and does not imply
-a partnership. See the [license and attribution notices](../../THIRD_PARTY_NOTICES.md).
+Made with curiosity, personality and a love of technology. Discover the [VibeWare manifesto](https://umbertogiacobbi.biz/vibeware/manifesto?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=cody-docs-manifesto), [VibeWare on GitHub](https://github.com/umbertotechnopreneur/VibeWare) and [Umberto Giacobbi](https://umbertogiacobbi.biz/?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=cody-docs-author). [Terms](https://umbertogiacobbi.biz/terms/?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=cody-docs-terms) · [Privacy](https://umbertogiacobbi.biz/privacy/?utm_source=github&utm_medium=referral&utm_campaign=esp32-luna-shell&utm_content=cody-docs-privacy)
 
-## Remaining work
+---
 
-Current release gates are in [TODO.md](../../TODO.md). Testing, generation,
-simulation and physical operations use the public console and the authorization
-rules in [AGENTS.md](../../AGENTS.md).
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

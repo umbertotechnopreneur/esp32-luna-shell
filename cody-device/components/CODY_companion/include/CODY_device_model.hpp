@@ -5,7 +5,6 @@
 #include "CODY_account_dashboard.hpp"
 #include "CODY_battery_alerts.hpp"
 #include "CODY_device_effects.hpp"
-#include "CODY_local_timer.hpp"
 #include "CODY_pet_service.hpp"
 #include "CODY_screensaver.hpp"
 #include "CODY_companion_gestures.hpp"
@@ -45,8 +44,6 @@ struct DeviceDashboardData {
     bool voice_ready = false;
 };
 
-enum class VisibilitySave : uint8_t { Idle, Pending, Failed };
-
 // Exact UTC instants identify warnings; the read-only list keeps every reported row.
 // This bounded, volatile state is deliberately absent from the saved account schema.
 struct VoucherModel {
@@ -62,10 +59,8 @@ static_assert(sizeof(VoucherModel) <= 96, "Voucher cards and dismissal identitie
 
 struct DeviceModel {
     DeviceEffectsModel effects{};
-    LocalTimerModel timer{};
     ScreensaverModel screensaver{};
     WidgetRouteState widgets{};
-    WidgetVisibility draft{};
     DeviceDashboardData dashboard{};
     VoucherModel vouchers{};
     LUNASHELL::DiagnosticsObservation diagnostics{};
@@ -78,16 +73,12 @@ struct DeviceModel {
     CompanionShakeState shake{};
     LUNASHELL::MotionPowerObservation motion{};
     TokenHistoryInterval interval = TokenHistoryInterval::FiveHours;
-    uint8_t editor_page = 0;
-    VisibilitySave save = VisibilitySave::Idle;
-    esp_err_t settings_error = ESP_OK;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     LUNASHELL::VoiceSnapshot voice{};
     CODY2D::Point voice_touch_start{};
     int64_t voice_touch_started_us = 0;
     int64_t voice_tapped_us = 0;
 #endif
-    bool editing = false;
 };
 
 // data: Receives independent pet, hardware, assistant and legacy account observations.

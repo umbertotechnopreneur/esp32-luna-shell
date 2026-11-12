@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Cody boot and Codex action sounds
 
 The current set uses nine recordings from the owner's purchased local SFX
@@ -113,3 +115,7 @@ reminder timing have not been physically observed.
 The replacement soft bell and quieter single reminder were included in Release
 `cody-196-gda3e03ad`, built and flashed on COM10 on 16 October 2026. This delivery
 does not establish perceived speaker loudness or sound quality.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

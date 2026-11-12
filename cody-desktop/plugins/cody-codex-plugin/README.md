@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # CCP - Cody's Codex Plugin
 
 **CCP** connects Cody to Codex over the local LAN. The Windows/Linux Python service
@@ -602,3 +604,7 @@ These use labelled synthetic fixtures. The simulator suite includes temporary
 loopback UDP without LAN broadcast, personal state, windows or real chats.
 Follow [AGENTS.md](../../../AGENTS.md) before execution. Pending checks and physical
 acceptance are tracked in [TODO.md](../../../TODO.md).
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

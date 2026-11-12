@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Desktop simulators
 
 I use these previews to explore the 466 × 466 circular UI and the behavior described
@@ -61,18 +63,17 @@ during floppy boot and black standby. The status and navigation controls fade
 after inactivity and return on touch or simulated motion. The numeric battery
 setting is prepared in the renderer but has no settings control yet.
 
-The dashboard and Options page arrows fade after ten seconds. A touch reveals
-them again. **Tools** contains **Connections**, **Codex stats** and **Timer**;
-**Preferences** contains **Visible screens**, **Display** and **Behavior**;
+Dashboard navigation controls fade after ten seconds. A touch reveals them
+again. **Tools** contains **Connections** and **Codex stats**;
+**Preferences** contains **Display** and **Behavior**;
 **Device** holds **Restart device**, **Factory reset**, **Quick guide** and an
-**About** action. The menu has no Home footer. Back returns to the preceding
-page, and a short BOOT press returns to Muse Home. The guide previews the three
+**About** action. Settings menus use horizontal swipes to move between pages
+or return to their parent; position marks show the active page. A short BOOT
+press returns to Muse Home. The guide previews the three
 fixed instruction pages and their lateral arrows. Restart replays the boot and
-preserves settings and the simulator association. Timer previews duration and
-sound selection, a running countdown and the finished state. Audible playback
-and hardware wake belong to the device. Brightness starts at 80%; brightness,
-orientation and visibility choices affect this preview session. **Visible screens**
-groups the nine configurable pages into three sets of full-width rows.
+preserves settings and the simulator association. Brightness starts at 80%; brightness
+and orientation choices affect this preview session. Menu labels remain on one
+line and are ellipsized when they do not fit their row.
 
 **About** contains **System**, **Memory** and **Firmware**, followed by the
 VibeWare logo and a QR linking to the GitHub repository. A tap on the QR returns
@@ -81,17 +82,33 @@ to VibeWare; there is no Open link action. System identifies its uptime as
 firmware metadata: those sections show unavailable states, without host
 measurements or invented numeric bars.
 
-The ten-page carousel has Device, Reset countdown, Context, Codex limits, Today,
+The carousel can contain Device, Reset countdown, Context, Codex limits, Today,
 Last 7 days, Token history, Credits, Codex account and About. Info and its QR
-are child pages, not additional items in that cycle. The loopback endpoint supplies authenticated link and Context
-observations. The account usage pages show their empty states, with a clock
-glyph in place of the countdown and token plot. The Device page separates
+are child pages, not additional items in that cycle. The loopback endpoint supplies
+authenticated link and Context observations; pages without supported, current
+data are excluded from the carousel. The Device page separates
 Codex, Wi-Fi and battery status. Firmware version, build date, battery readings
 and dictation have no source in this preview. The device-first window does not
 duplicate the firmware effects controller in Python or establish audible output
 on the physical device.
 
-**Behavior > More behavior > Screensaver** enables the optional globe after
+Counter mode uses the same Context presentation, with the measured remaining
+tokens, bar, context window and current compaction state when available. It
+excludes Context when neither current capacity nor current compaction is
+available, and excludes Model when the model observation is missing or stale.
+Studio does not expose account allowance data, so it cannot display the reset
+counter. When no Counter page has data, Studio shows Device instead. Page marks
+and horizontal swipes include only the available pages.
+For a fresh, recognized model identity, the Model page uses its retained Terra,
+Sol, Luna or Astra master as a faint background when the file is available;
+unsupported identities have none.
+
+The third Behavior page includes Alarms and its Weekly usage switch. In Studio
+this preference lasts only for the preview session. The loopback source does not
+publish weekly account allowance or its reset time, so Studio cannot trigger a
+weekly alarm, animation or sound; it never substitutes fabricated usage data.
+
+**Behavior** followed by a left swipe exposes **Screensaver**, which enables the optional globe after
 fifteen idle seconds on the dashboard. It is Off by default. This is a small
 procedural preview at eight frames per second, not a firmware performance
 measurement. A touch only dismisses it; shake returns Home. Options, pairing
@@ -452,7 +469,7 @@ coverage oracle on small masks. The Luna suite covers fixtures, actions, redacti
 and loopback transport. Current acceptance gates are in [TODO.md](../../../TODO.md).
 For interpreters, paths and packaging, see the [console](../../../scripts/README.md);
 for the device, see the [runtime](../../../docs/cody/runtime.md) and
-[rendering](../../../docs/cody/rendering.md) contracts.
+[rendering](../../../docs/cody/runtime.md#experiments-and-source) contracts.
 
 `cody-runtime` includes regression definitions for the shared C++ modules;
 `simulator` includes aging, RTC, publication errors and native JSON. The presence
@@ -497,3 +514,7 @@ The unchanged floppy source, original MIT notice and provenance are under
 `simulator/windows/assets/branding/`. Cody Studio also retains its project and
 personal-site links. Browser launch failures are retained and reported to the
 host console. These source changes do not establish an interactive UI check.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

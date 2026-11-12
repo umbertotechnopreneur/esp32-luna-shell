@@ -1,5 +1,6 @@
 /*
  * Copyright (c) Meta Platforms, Inc. and affiliates.
+ * Modified by the Cody project; see ORIGIN.md for the local changes.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -31,6 +32,15 @@
 
 #define MUSE_PX_W 64
 #define MUSE_PX_H 64
+
+/* Cody palette handoff identities; numeric values are checked in muse_pixel.c. */
+enum {
+    MUSE_PX_OUTLINE = 1, MUSE_PX_OUTLINE_SOFT = 2,
+    MUSE_PX_FUR_DARK = 3, MUSE_PX_FUR_MID = 4, MUSE_PX_FUR_LIGHT = 5, MUSE_PX_FUR_HIGHLIGHT = 6,
+    MUSE_PX_RIM = 7, MUSE_PX_FACE_DARK = 8, MUSE_PX_FACE = 9, MUSE_PX_FACE_LIGHT = 10,
+    MUSE_PX_IRIS = 11, MUSE_PX_BROW = 13, MUSE_PX_BLUSH = 14, MUSE_PX_BLUSH_DARK = 15,
+    MUSE_PX_MOUTH = 16, MUSE_PX_STATE_ACCENT = 25, MUSE_PX_HEART = 27,
+};
 
 typedef enum {
     MUSE_SYMBOL_NONE, MUSE_SYMBOL_QUESTION, MUSE_SYMBOL_EXCLAMATION,

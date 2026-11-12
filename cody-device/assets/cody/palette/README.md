@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Cody palettes
 
 `theme.json` is the central semantic color reference for Cody's device UI and
@@ -21,3 +23,7 @@ owns geometry and timing. Regenerate cody-theme and cody-rig after editing them.
 `palette256.json` is the separate indexed artwork palette used by retained rig,
 scene and personality assets. Its fixed slots and quantization semantics are not
 replaced by the semantic theme.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

@@ -10,8 +10,9 @@
 #include <cstring>
 
 #include "LUNASHELL_device_snapshot.hpp"
-#include "CODY_flat_menu_row.hpp"
+#include "CODY_flat_menu.hpp"
 #include "CODY_page_marks.hpp"
+#include "CODY_screen_content.hpp"
 #include "scene_data.hpp"
 
 namespace CODY {
@@ -584,29 +585,38 @@ esp_err_t add_line(CodexBrowser &browser, const char *text, const CODY2D::MonoFo
 
 // browser: Last prepared panel.
 // index: Fixed button slot, separately tracked for touch.
-// bounds: Complete rounded button within the circular safe square.
+// bounds: Complete touch area within the circular safe square.
 // action: Semantic target for this button.
 // caption: Static English button caption.
+// icon: Existing semantic glyph, or None for a text-only action.
 // Exception: Preserves native glyph preparation errors.
 esp_err_t add_button(CodexBrowser &browser, uint8_t index, CODY2D::Rect bounds,
-                     CodexBrowserControl action, const char *caption)
+                     CodexBrowserControl action, const char *caption, Icon icon = Icon::None)
 {
     auto &control = browser.controls[index];
     control.bounds = bounds;
-    control.top_color = Theme::codex_browser_action_top;
-    control.bottom_color = Theme::controls_secondary_bottom;
-    control.corner_radius = 16;
-    control.border_color = Theme::codex_browser_action_border;
     browser.actions[index] = action;
     const auto &font = SceneData::body_font;
     const CODY2D::TextSpan span{caption, static_cast<uint16_t>(std::strlen(caption))};
     uint32_t width = 0;
     const auto error = CODY2D::measure_text_width(font, span, width);
     if (error != ESP_OK) return error;
-    if (width > bounds.width || font.height > bounds.height) return ESP_ERR_INVALID_SIZE;
+    constexpr uint16_t kFooterIconSize = 16;
+    constexpr uint16_t kFooterIconGap = 1;
+    const uint16_t content_height = static_cast<uint16_t>(font.height +
+        (icon == Icon::None ? 0U : kFooterIconSize + kFooterIconGap));
+    if (width > bounds.width || content_height > bounds.height) return ESP_ERR_INVALID_SIZE;
+    const auto top = static_cast<uint16_t>(bounds.y + (bounds.height - content_height) / 2U);
+    if (icon != Icon::None) {
+        control.icon = icon;
+        control.icon_color = kCyan;
+        control.icon_center = {static_cast<int16_t>(bounds.x + bounds.width / 2U),
+            static_cast<int16_t>(top + kFooterIconSize / 2U)};
+    }
     return CODY2D::prepare_text_line(font, span, {
         static_cast<int16_t>(bounds.x + (bounds.width - width) / 2U),
-        static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2U)}, kWhite, control.caption);
+        static_cast<int16_t>(top + (icon == Icon::None ? 0U : kFooterIconSize + kFooterIconGap))},
+        kWhite, control.caption);
 }
 
 // browser: Captured page from one canonical generation.
@@ -647,10 +657,10 @@ esp_err_t prepare_layout(CodexBrowser &browser)
         const bool resume = page.resume.valid();
         const CODY2D::Rect statistics = resume ? CODY2D::Rect{87, 350, 116, 42} : CODY2D::Rect{91, 350, 138, 42};
         const CODY2D::Rect events = resume ? CODY2D::Rect{211, 350, 80, 42} : CODY2D::Rect{237, 350, 138, 42};
-        error = add_button(browser, 3, statistics, {Action::Statistics}, "Statistics");
-        if (error == ESP_OK) error = add_button(browser, 4, events, {Action::Events}, "Events");
+        error = add_button(browser, 3, statistics, {Action::Statistics}, "Statistics", Icon::Statistics);
+        if (error == ESP_OK) error = add_button(browser, 4, events, {Action::Events}, "Events", Icon::Clock);
         if (error == ESP_OK && resume) {
-            error = add_button(browser, 5, {299, 350, 80, 42}, {Action::Resume, page.resume.value}, "Saved");
+            error = add_button(browser, 5, {299, 350, 80, 42}, {Action::Resume, page.resume.value}, "Saved", Icon::Check);
         }
     } else if (browser.route == Route::PendingQuestions) {
         // Canonical previews are read-only; only signed Events can send a reply.
@@ -683,22 +693,22 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
 {
     if (!state) return ESP_ERR_INVALID_ARG;
     const auto &browser = *static_cast<const CodexBrowser *>(state);
-    for (size_t index = 0; index < browser.controls.size(); ++index) {
-        const auto &control = browser.controls[index];
-        if (control.bounds.width == 0) continue;
-        const auto error = index < browser.page.count ?
-            draw_flat_menu_row(control, 30, strip, row, column) :
-            UI::draw_text_action(control, strip, row, column);
-        if (error != ESP_OK) return error;
-    }
+    auto error = FlatMenu::draw(browser.controls.data(), browser.controls.size(), browser.page.count,
+        strip, row, column);
+    if (error != ESP_OK) return error;
     for (uint8_t index = 0; index < browser.line_count; ++index) {
         const auto &line = browser.lines[index].line;
-        const auto error = index == 0 ? ESP_OK :
-            CODY2D::draw_text_rows(line, line.text.length, strip, row, column);
+        if (index == 1 && browser.page.note[0] != '\0') {
+            ScreenHeader header{};
+            header.description = &line;
+            error = ScreenContent::draw_decoration(header, strip, row, column);
+        } else {
+            error = index == 0 ? ESP_OK : CODY2D::draw_text_rows(line, line.text.length, strip, row, column);
+        }
         if (error != ESP_OK) return error;
     }
     if (browser.paging_hint.valid) {
-        const auto error = CODY2D::draw_text_rows(browser.paging_hint, browser.paging_hint.text.length,
+        error = CODY2D::draw_text_rows(browser.paging_hint, browser.paging_hint.text.length,
             strip, row, column);
         if (error != ESP_OK) return error;
     }
@@ -806,13 +816,13 @@ esp_err_t prepare_codex_browser(CodexBrowser &browser, int64_t now_us, SceneCont
             if (++browser.revision == 0) ++browser.revision;
         }
     }
-    content = {};
-    content.bounds = kBounds;
-    content.state = &browser;
-    content.revision = browser.revision;
+    ScreenHeader header{};
+    header.title = browser.lines[0].line.text;
+    header.title_bounds = {73, 89, 320, 44};
+    const auto error = ScreenContent::attach(content, kBounds, &browser, browser.revision, draw_rows, header);
+    if (error != ESP_OK) return error;
     content.control_revision = browser.revision;
-    content.draw_rows = draw_rows;
-    return prepare_styled_title(browser.lines[0].line.text, {73, 89, 320, 44}, content.heading, 3, true);
+    return ESP_OK;
 }
 
 // browser: Captured panel used by the last successfully retired frame.

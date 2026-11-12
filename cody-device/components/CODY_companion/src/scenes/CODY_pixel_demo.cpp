@@ -281,7 +281,7 @@ bool observe_pixel_demo_touch(PixelDemoView &view, CODY2D::Point point,
         view.touch_sampled_us = sampled_at_us;
         view.touch_revision = display_revision;
         view.touch_candidate = view.visible && view.retired_valid && sampled_at_us > 0 &&
-            view.retired_viewport.contains(point.x, point.y);
+            (view.fixed_touch_bounds ? view.viewport : view.retired_viewport).contains(point.x, point.y);
         if (view.touch_candidate) view.last_interaction_us = view.elapsed_us;
         return false;
     }

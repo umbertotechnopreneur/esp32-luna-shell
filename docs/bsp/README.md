@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # BSP and shared services
 
 This area documents the physical-device boundary shared by Cody and Luna Shell.
@@ -55,3 +57,7 @@ The [1.75 GPS hardware inventory](boards/waveshare-esp32s3-touch-amoled-1.75/har
 [display geometry](boards/waveshare-esp32s3-touch-amoled-1.75/display-geometry.md)
 and [power reference](boards/waveshare-esp32s3-touch-amoled-1.75/power-reference.md)
 describe the original board.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

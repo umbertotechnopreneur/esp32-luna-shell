@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Cody cloud/title scene assets
 
 `scenes.json` is the English-only authoring source for reusable standalone
@@ -75,3 +77,7 @@ pairing, unavailable updates and real error codes remain distinguishable.
 Regenerate scene definitions through the public cody-scenes generator after
 explicit authorization. Firmware compilation, simulator execution and physical
 display/touch validation require separate authorization.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

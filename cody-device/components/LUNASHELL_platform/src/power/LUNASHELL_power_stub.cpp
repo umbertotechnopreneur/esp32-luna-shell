@@ -114,13 +114,6 @@ extern "C" esp_err_t LUNASHELL_power_manager_note_codex_notification(void)
     return ESP_ERR_NOT_SUPPORTED;
 }
 
-// No parameters: this profile has no power owner to wake for an alarm.
-// Exception: Always returns ESP_ERR_NOT_SUPPORTED.
-extern "C" esp_err_t LUNASHELL_power_manager_request_local_timer_wake(void)
-{
-    return ESP_ERR_NOT_SUPPORTED;
-}
-
 // No parameters: excluded power profile cannot admit a Codex restart.
 // Exception: Always returns ESP_ERR_NOT_SUPPORTED.
 extern "C" esp_err_t LUNASHELL_power_manager_request_codex_restart(void)

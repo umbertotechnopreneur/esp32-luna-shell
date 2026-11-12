@@ -76,6 +76,7 @@ struct MuseVisualStyle {
     MuseParticleStyle particles{};
     MuseSymbolStyle symbol{};
     float pose_transition_seconds = 0.28f; // Valid range 0..3 seconds.
+    uint8_t character_theme = 0; // Stable character theme ID; unknown IDs use Classic.
 };
 
 } // namespace CODY

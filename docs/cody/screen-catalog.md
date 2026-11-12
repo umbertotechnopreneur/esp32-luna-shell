@@ -1,4 +1,10 @@
-# Retained screen catalog
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
+# Cody screen catalog
+
+**VibeWare · Cody Companion**
+
+**Author:** Umberto Giacobbi · **Created:** 2026-11-10 · **Updated:** 2026-11-12 · **Revision:** 1.0
 
 This is the `CODY-NEXT-00` source inventory. Retain implementations in place,
 including inactive presenters and versioned assets. This catalog is their reuse
@@ -74,8 +80,8 @@ identify the owning journey; exact current controls remain in navigation.md.
 | atlas-v1:25 / check-log | Former log route | AT | No current entry | Retired design; E; never reuse code |
 | atlas-v1:26 / question-notice | Codex needs you | ON + SC; event/inbox owner | Question -> queue/choices; Back retains question | Active when admitted; S |
 | atlas-v1:27 / question-choice | Choose / Review reply | ON + SC; stable choice identity | Choice -> full detail -> explicit Send; Back reverses selection | Active when admitted; S |
-| atlas-v1:28 / voice-capture | Preparing / Listening | UI + DV; voice owner | Record voice/double tap/wake -> Send or Cancel | Retained voice-input source; excluded from current wake-only variant; S |
-| atlas-v1:29 / voice-delivery | Sending / delivery result | UI + DV; voice transport | End capture -> receipt/failure/unconfirmed -> retained caller | Retained voice-input source; excluded from current wake-only variant; S |
+| atlas-v1:28 / voice-capture | Preparing / Listening | UI + DV; voice owner | Record voice/double tap/wake -> Send or Cancel | Included in Cody wake-word variant; physical validation pending; S |
+| atlas-v1:29 / voice-delivery | Sending / delivery result | UI + DV; voice transport | End capture -> receipt/failure/unconfirmed -> retained caller | Included in Cody wake-word variant; physical validation pending; S |
 | atlas-v1:30 / transcript-review | Review transcript | AT | Proposed transcription -> review | Retained design only; E |
 | atlas-v1:31 / reply-delivered | Reply sent | ON + SC; recipient acknowledgement | Confirmed recipient -> Done/caller | Active when confirmed; S |
 | atlas-v1:32 / link-lost | Link unavailable | ON + SC; link health | Lost link -> recovery; question identity retained | Active/conditional; S |
@@ -111,8 +117,8 @@ identify the owning journey; exact current controls remain in navigation.md.
 | widget-v1:Credits=6, Account=7 | `CODY_account_dashboard.cpp` | Carousel; voucher scroll/neighbor; account data | Active source |
 | widget-v1:Context=8, About=9 | `CODY_home_dashboard.cpp`, `CODY_system_info.cpp` | Carousel or Options > Device > About -> child info/previous page | Active source |
 | ui-v1:info-system, info-memory, info-firmware, vibeware, project-qr | `CODY_system_info.cpp`, `InfoPage` | About -> next/Back; diagnostics, build metadata, branding and repository QR | Active source |
-| ui-v1:visible-screens | `CODY_widget_visibility_view.cpp` | Options -> settings owner -> previous route | Active source |
-| ui-v1:timer | `CODY_local_timer_view.cpp`, `CODY_local_timer.cpp` | Options -> timer; Close preserves active countdown | Active source |
+| ui-v1:visible-screens | Retired | Pages are selected automatically according to available data | Retired; identity preserved |
+| ui-v1:timer | Retired | Local countdown screen removed from Options and runtime | Retired; identity preserved |
 | ui-v1:diagnostics, memory-detail | `CODY_debug_views.cpp`, UI diagnostics layer | Debug/Release entry -> overview -> retained route | Active source |
 | ui-v1:screensaver | `CODY_screensaver.cpp` | Enabled idle policy -> first-touch dismissal | Active source, setting initially disabled |
 | ui-v1:activity-events, current-turn, reply, statistics | CP; UI `ActivityPage` | Activity navigation -> event/detail/statistics | Active source, canonical selected-chat projection only |
@@ -143,11 +149,10 @@ Those numbers are not atlas codes and must not be converted by array position.
 `VoiceInputTrigger::DeviceButton` and calls `LUNASHELL::requestVoiceInput`.
 The same owner admits DoubleTap, WakeWord and StandbyWake. This is start/Send/
 Cancel behavior; it does not establish hold-to-record/release-to-send semantics.
-The default lightweight profile omits microphone acquisition. The current
-`wake-word` variant enables Sophia for standby wake, but explicitly disables the
-separate Codex voice-input owner. The capture route below describes that retained
-owner when an explicitly supported configuration enables it; the wake-only variant
-does not establish voice capture or delivery.
+The default lightweight profile omits microphone acquisition. The Cody
+`wake-word` variant enables Sophia, speech synthesis and the Codex voice-input
+owner. A supported PC connection is required, and physical capture and delivery
+remain to be verified.
 
 `LUNASHELL_voice_input.cpp` serializes capture with `s_mutex`, obtains admission
 and destination through DeviceSnapshotService, freezes the chat digest/title,
@@ -197,3 +202,7 @@ Font sources: Muse's `montserrat.ttf` and `unscii.ttf` are retained in
 font README explicitly says the full JetBrains Mono source is not packaged.
 Retain committed generated fonts without assuming that a full rebake is possible.
 No assets or PDFs are regenerated by this catalog.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

@@ -7,6 +7,7 @@ from functools import lru_cache
 import json
 from math import isqrt
 from pathlib import Path
+import re
 from secrets import randbits
 import time
 import tkinter as tk
@@ -17,10 +18,9 @@ from PIL import Image, ImageChops, ImageDraw, ImageEnhance, ImageFilter, ImageFo
 
 from cody_animation_transport import AnimationTransport
 from cody_ccp_event_view import EventView
-from cody_ccp_simulator import LinkState, SimulatorEndpoint, SimulatorSnapshot
+from cody_ccp_simulator import LinkState, SimulatorEndpoint, SimulatorSnapshot, interactions
 from cody_device_state import (
-    INFO_PAGES, InfoPage, LocalTimerModel, LocalTimerPhase, ScreensaverModel, SystemInfoModel, SystemInfoObservation,
-    TIMER_MAX_MINUTES, TIMER_MIN_MINUTES,
+    INFO_PAGES, InfoPage, ScreensaverModel, SystemInfoModel, SystemInfoObservation,
 )
 from cody_fake_audio import FakeAudioDriver
 from cody_muse_preview import DISPLAY_SIZE as MUSE_SIZE, NO_REACTION, SCREEN_OFFSETS_MS, MusePose, NativeMusePreview
@@ -52,16 +52,16 @@ OPTIONS_ROW_WIDTH = 280
 OPTIONS_ROW_HEIGHT = 72
 SETTINGS_ROW_STEP = 58
 SETTINGS_ROW_HEIGHT = 56
-OPTIONS_PAGE_COUNT = 3
+OPTIONS_PAGE_COUNT = 4
 QUICK_GUIDE = (
     ("Buttons", ACCENT, (
-        ("HOLD BOOT 2S", "Options / tap: Home"), ("POWER", "Standby or wake"), ("HOLD PWR 3S", "Power off"),
+        ("HOLD BOOT 2S", "Settings / tap: Menu"), ("POWER", "Standby or wake"), ("HOLD PWR 3S", "Power off"),
     ), None),
     ("Touch", studio_rgb("device_ui", "guide_touch"), (
         ("SWIPE", "Change pages"), ("SWIPE DOWN", "Home from top edge"), ("DOUBLE TAP", "Record on stats"),
     ), "Dictation On + Codex link"),
     ("Offline", studio_rgb("device_ui", "guide_offline"), (
-        ("SAVED STATS", "Last update in UTC"), ("TIMER", "Works without PC"), ("BATTERY", "About 17 hours"),
+        ("SAVED STATS", "Last update in UTC"), ("SETTINGS", "Work without PC"), ("BATTERY", "About 17 hours"),
     ), None),
 )
 NAVIGATION_IDLE_SECONDS = 10
@@ -95,8 +95,6 @@ PAGES = (
 # Fixed demonstration fixtures, never reported as scanned radio observations.
 SIMULATED_WIFI_NETWORKS = (("SIMULATED Home", -42), ("SIMULATED Office", -63), ("SIMULATED Guest", -78))
 WIFI_NETWORKS_PER_PAGE = 3
-VISIBILITY_ROWS = 3
-VISIBILITY_PAGE_COUNT = (len(PAGES) - 1 + VISIBILITY_ROWS - 1) // VISIBILITY_ROWS
 ABOUT_INFO = "Scan for more info"
 ABOUT_URL = "https://github.com/umbertotechnopreneur/esp32-luna-shell"
 # QR Model 2 for the same ESP BLE Provisioning Play Store URL as the firmware.
@@ -409,6 +407,64 @@ def vibeware_about_logo():
     return logo
 
 
+@lru_cache(maxsize=4)
+# name: Known model's master filename without the extension.
+# Exception: Missing or unreadable artwork raises OSError and is not cached.
+def model_background(name):
+    path = Path(__file__).resolve().parents[2] / "assets/cody/model-identities/source" / (name + ".png")
+    with Image.open(path) as source:
+        art = source.convert("RGBA").resize((64, 64), Image.Resampling.LANCZOS)
+    art.putalpha(art.getchannel("A").point(lambda alpha: 48 if alpha >= 64 else 0))
+    return art.resize((240, 240), Image.Resampling.NEAREST)
+
+
+@lru_cache(maxsize=8)
+# index: Reading-order index of the retained four-cell menu master.
+# enabled: Whether the current route admits this control.
+# Exception: Missing or unreadable artwork propagates to the preview owner.
+def boot_menu_art(index, enabled):
+    path = Path(__file__).resolve().parents[2] / "assets/cody/boot-menu-icons/source/atlas.png"
+    with Image.open(path) as source:
+        atlas = source.convert("RGBA")
+    side = atlas.width // 2
+    x, y = index % 2 * side, index // 2 * side
+    image = atlas.crop((x, y, x + side, y + side)).resize((32, 32), Image.Resampling.LANCZOS)
+    alpha = image.getchannel("A").point(lambda value: (255 if enabled else 96) if value >= 64 else 0)
+    color = image.convert("RGB").quantize(colors=15, method=Image.Quantize.MEDIANCUT,
+                                          dither=Image.Dither.NONE).convert("RGB")
+    red, green, blue = color.split()
+    color = Image.merge("RGB", (red.point(lambda value: (value >> 3) * 255 // 31),
+                                 green.point(lambda value: (value >> 2) * 255 // 63),
+                                 blue.point(lambda value: (value >> 3) * 255 // 31))).convert("RGBA")
+    color.putalpha(alpha)
+    return color.resize((24, 24), Image.Resampling.NEAREST)
+
+
+@lru_cache(maxsize=1)
+# No parameters: read the same ordered, firmware-owned character theme catalog.
+# Exception: Missing or malformed catalog remains a visible Studio error.
+def character_themes():
+    path = Path(__file__).resolve().parents[2] / "components/CODY_companion/include/CODY_muse_themes.hpp"
+    source = path.read_text(encoding="utf-8")
+    records = re.findall(r'\{"([A-Za-z]+)",\s*0x([0-9a-fA-F]{6}),\s*0x([0-9a-fA-F]{6}),\s*0x([0-9a-fA-F]{6}),\s*0x([0-9a-fA-F]{6})\}', source)
+    if len(records) != 8 or len({entry[0] for entry in records}) != 8 or records[0][0] != "Classic":
+        raise ValueError("Cody character theme catalog is unavailable or malformed")
+    return tuple((name, tuple(int(value, 16) for value in colors)) for name, *colors in records)
+
+
+@lru_cache(maxsize=1)
+# No parameters: use only the firmware-configured Codex model identities.
+# Exception: Missing or malformed catalog is surfaced without inventing entries.
+def configured_price_models():
+    path = Path(__file__).resolve().parents[2] / "components/LUNASHELL_platform/include/LUNASHELL_openrouter_catalog.hpp"
+    source = path.read_text(encoding="utf-8")
+    section = re.search(r'kOpenRouterCodexModels\s*\{\{(.*?)\}\}', source, re.DOTALL)
+    models = re.findall(r'"(openai/[a-z0-9.\-]+)"', section.group(1)) if section else []
+    if len(models) != 9 or len(set(models)) != len(models):
+        raise ValueError("Configured Codex model list is unavailable or malformed")
+    return tuple(models)
+
+
 # draw: Logical framebuffer receiving one outline symbol.
 # icon: Semantic outline icon used by the setup screens.
 # center: Logical icon center.
@@ -423,6 +479,22 @@ def setup_icon(draw, icon, center, size, color):
         draw.ellipse((x - edge, y - edge, x + edge, y + edge), outline=color, width=stroke)
         draw.line(((x, y - edge // 2), (x, y), (x + edge // 2, y + edge // 3)),
                   fill=color, width=stroke, joint="curve")
+    elif icon == "gear":
+        edge = half * 2 // 3
+        draw.ellipse((x - edge, y - edge, x + edge, y + edge), outline=color, width=stroke)
+        draw.ellipse((x - stroke, y - stroke, x + stroke, y + stroke), fill=color)
+        for dx, dy in ((0, -1), (1, 0), (0, 1), (-1, 0)):
+            draw.line((x + dx * edge, y + dy * edge, x + dx * half, y + dy * half), fill=color, width=stroke)
+    elif icon == "account":
+        radius = half // 3
+        draw.ellipse((x - radius, y - half + stroke, x + radius, y - half + stroke + 2 * radius),
+                     outline=color, width=stroke)
+        draw.arc((x - half + stroke, y - half // 4, x + half - stroke, y + half * 3 // 2),
+                 190, 350, fill=color, width=stroke)
+    elif icon == "statistics":
+        for index, height in enumerate((half // 2, half, half * 3 // 2)):
+            bar_x = x - half + stroke + index * (half - stroke)
+            draw.line((bar_x, y + half - stroke, bar_x, y + half - stroke - height), fill=color, width=stroke)
     elif icon in ("wifi", "offline"):
         for radius in (half, half * 2 // 3, half // 3):
             cy = y + half // 2
@@ -489,6 +561,50 @@ def setup_icon(draw, icon, center, size, color):
         draw.line(((x - side + 2, y - 2), (x - side + 2, y + side),
                    (x + side - 2, y + side), (x + side - 2, y - 2)),
                   fill=color, width=stroke, joint="curve")
+
+
+class FlatMenuRow:
+    """Shared single-line, background-free Settings row with a complete hit target."""
+
+    @staticmethod
+    # draw: Logical preview canvas.
+    # name: Complete row identity and optional status separated by two spaces.
+    # action: Callback or None when disabled.
+    # top: Logical row top; the touch rectangle remains 280 pixels wide.
+    # icon: Existing Studio glyph name.
+    # color: Semantic color used for an enabled icon.
+    # text_left: Shared caption and divider inset.
+    # targets: Active preview hit-target mapping.
+    # icon_offset: Bounded artwork-only parallax; hit targets and text stay fixed.
+    # Exception: Original drawing and font errors propagate to the preview owner.
+    def draw(draw, name, action, top, icon, color, text_left, targets, icon_offset=(0, 0)):
+        box = (93, top, 373, top + SETTINGS_ROW_HEIGHT)
+        parts = name.split("  ", 1)
+        face = system_font(20)
+        caption = parts[0]
+        width = 373 - text_left
+        if draw.textlength(caption, font=face) > width:
+            while caption and draw.textlength(caption + "...", font=face) > width:
+                caption = caption[:-1]
+            caption += "..."
+        setup_icon(draw, icon, (text_left - 30 + icon_offset[0], top + 28 + icon_offset[1]),
+                   28, color if action else MUTED)
+        draw.text((text_left, top + (15 if len(parts) > 1 else 28)), caption,
+                  font=face, fill=FOREGROUND, anchor="lm")
+        if len(parts) > 1:
+            value = parts[1]
+            value_face = font(18)
+            if draw.textlength(value, font=value_face) > width:
+                while value and draw.textlength(value + "...", font=value_face) > width:
+                    value = value[:-1]
+                value += "..."
+            draw.text((text_left, top + 42), value, font=value_face,
+                      fill=WIFI_CONNECTION_COLOR if action and value != "N/A" and
+                      "unavailable" not in value.lower() else MUTED, anchor="lm")
+        draw.line((text_left, top + SETTINGS_ROW_HEIGHT - 2, 373, top + SETTINGS_ROW_HEIGHT - 2),
+                  fill=studio_rgb("device_ui", "row_separator"), width=2)
+        if action is not None:
+            targets[name] = (box, action)
 
 
 def rotate(image, rotation):
@@ -569,7 +685,6 @@ class DeviceStudioWindow:
         self.options_page = 0
         self.about_from_options = False
         self.quick_guide_page = 0
-        self.visibility_page = 0
         self.standby = False
         self.touch = None
         self.gesture = None
@@ -629,7 +744,7 @@ class DeviceStudioWindow:
         self.layout = PreviewLayout.fit(SIZE + 24, SIZE + 24, False)
         controls = ttk.Frame(root, style="Studio.TFrame")
         controls.pack(padx=12, pady=12)
-        ttk.Button(controls, text="BOOT / Home", command=self.home).pack(side="left", padx=4)
+        ttk.Button(controls, text="BOOT / Menu", command=self.open_quick_menu).pack(side="left", padx=4)
         ttk.Button(controls, text="BOOT 2s / Options", command=self.options).pack(side="left", padx=4)
         ttk.Button(controls, text="PWR / Standby", command=self.toggle_standby).pack(side="left", padx=4)
         ttk.Button(controls, text="Simulate shake", command=self.shake).pack(side="left", padx=4)
@@ -695,13 +810,37 @@ class DeviceStudioWindow:
         self.device_rotation = 0
         self.auto_rotate = True
         self.history_window = 1
-        self.visible = set(PAGES)
         self.brightness = 80
         self.shake_to_wake = False
         # Preview-only switch; this does not alter a connected device.
         self.sofia_enabled = True
         self.counter_mode_enabled = True
         self.counter_page = 0
+        self.counter_pages = ()
+        self.quick_menu_open = False
+        self.quick_counters_open = False
+        self.quick_about_return = False
+        self.quick_menu_origin_route = "mascot"
+        # Studio-only idle choices; the simulated power owner stays independent.
+        self.idle_display_muse = False
+        self.idle_delay_seconds = 60
+        self.cody_on_events = False
+        self.parallax_level = 0
+        self.parallax_offset = (0, 0)
+        self.character_theme = 0
+        self.character_theme_page = 0
+        self.model_prices_page = 0
+        self.model_price_selected = None
+        self.idle_display_override = None
+        self.idle_eligible_since = None
+        self.idle_applied = False
+        self.event_reaction_seen = ()
+        self.event_reaction_id = ""
+        self.event_reaction_kind = None
+        self.event_reaction_started = 0.0
+        self.event_reaction_until = 0.0
+        # Studio currently has no weekly account observation or persistent preference store.
+        self.weekly_alarm_enabled = False
         self.show_assistant_quota_ring = True
         self.show_battery_ring = True
         self.auto_time = True
@@ -715,8 +854,6 @@ class DeviceStudioWindow:
         self.quiet_edit_minute = 0
         self.info = SystemInfoModel()
         self.screensaver = ScreensaverModel()
-        self.local_timer = LocalTimerModel()
-        self.timer_return = "options"
 
     # self: Preview window playing the standard startup animation.
     def start_boot(self):
@@ -757,6 +894,10 @@ class DeviceStudioWindow:
     def open(self, route):
         if route != self.route:
             self.qr_chrome_until = 0.0
+        self.event_reaction_until = 0.0
+        self.idle_display_override = None
+        self.idle_eligible_since = None
+        self.idle_applied = False
         if self.route is WifiSetupRoute.HOME_PASSWORD and route is not self.route:
             self.clear_simulated_wifi_secret()
         if route != "mascot":
@@ -771,11 +912,6 @@ class DeviceStudioWindow:
     def open_connections(self):
         self.connections_return = self.route
         self.open("connections")
-
-    # self: Studio navigation owner opening the first group of visibility rows.
-    def open_visibility(self):
-        self.visibility_page = 0
-        self.open("visibility")
 
     # self: Studio navigation owner.
     # previous: Actual caller when leaving the phone guide with Back.
@@ -901,17 +1037,40 @@ class DeviceStudioWindow:
             if self.route is WifiSetupRoute.HOME_PASSWORD:
                 self.clear_simulated_wifi_secret()
             self.about_from_options = False
+            self.quick_about_return = False
+            self.quick_menu_open = False
+            self.quick_counters_open = False
             self.open("mascot")
+
+    # self: Studio owner opening the short-BOOT overlay without replacing its route.
+    # Exception: No hardware settings or observations are changed.
+    def open_quick_menu(self):
+        if self.boot is None and self.birth_preview_started_at is None and not self.standby and not self.event_visible:
+            self.event_reaction_until = 0.0
+            if not self.quick_menu_open:
+                self.quick_menu_origin_route = self.route
+            self.quick_menu_open = True
+            self.screensaver.active = False
+            self.touch = None
+            self.gesture = None
+            self.targets.clear()
+            self.acknowledged = ()
+            self.last_navigation = self.screensaver_idle_since = time.monotonic()
+            self.idle_eligible_since = None
+            self.idle_applied = False
 
     # self: Active Studio preview receiving the long BOOT Options shortcut.
     def options(self):
         if self.boot is None and self.birth_preview_started_at is None and not self.standby and not self.event_visible:
+            self.quick_menu_open = False
+            self.quick_counters_open = False
             self.show_options_page(0)
 
     # self: Studio navigation owner.
     # page: Options menu page reached by the lateral arrows or BOOT.
     def show_options_page(self, page):
         self.about_from_options = False
+        self.quick_about_return = False
         self.options_page = page
         self.touch = None
         self.targets.clear()
@@ -931,7 +1090,7 @@ class DeviceStudioWindow:
     def move_quick_guide(self, step):
         page = self.quick_guide_page + step
         if page < 0:
-            self.show_options_page(OPTIONS_PAGE_COUNT - 1)
+            self.show_options_page(2)
         elif page < len(QUICK_GUIDE):
             self.quick_guide_page = page
             self.touch = None
@@ -939,20 +1098,13 @@ class DeviceStudioWindow:
             self.acknowledged = ()
             self.last_navigation = time.monotonic()
 
-    # self: Studio navigation owner retaining the actual Options or dashboard caller.
-    def open_local_timer(self):
-        self.timer_return = self.route
-        self.touch = None
-        self.targets.clear()
-        self.acknowledged = ()
-        self.open("timer")
-
     # self: Preview power owner; standby cancels screensaver without changing its preference.
     def toggle_standby(self):
         if self.boot is not None or self.birth_preview_started_at is not None:
             return
         self.standby = not self.standby
         if self.standby:
+            self.event_reaction_until = 0.0
             if self.route is WifiSetupRoute.HOME_PASSWORD:
                 self.clear_simulated_wifi_secret()
             self.hide_mascot()
@@ -998,52 +1150,64 @@ class DeviceStudioWindow:
         if self.boot is not None or self.birth_preview_started_at is not None or self.standby:
             return
         self.last_navigation = time.monotonic()
-        if self.route == "mascot":
+        if self.route in ("mascot", "options") or self.quick_menu_open or self.idle_display_override == "muse":
             self.motion_direction = direction
             self.motion_until = self.last_navigation + 0.45
 
     # self: Local navigation owner retaining the typed Info subpage.
     # step: Previous (-1) or next (1) action admitted by a visible arrow.
+    # Exception: Propagates invalid navigation requests from the Info model.
     def move(self, step):
         self.qr_chrome_until = 0.0
-        if self.route == "visibility":
-            if step < 0 and self.visibility_page == 0:
-                self.back()
+        if PAGES[self.page] == "About":
+            if self.info.page is InfoPage.SYSTEM and step < 0 and self.about_from_options:
+                if self.quick_about_return:
+                    self.quick_about_return = False
+                    self.about_from_options = False
+                    self.open(self.quick_menu_origin_route)
+                    self.open_quick_menu()
+                    return
+                self.show_options_page(2)
                 return
-            self.visibility_page = min(VISIBILITY_PAGE_COUNT - 1, self.visibility_page + step)
-        else:
-            if PAGES[self.page] == "About":
-                if self.info.page is InfoPage.SYSTEM and step < 0 and self.about_from_options:
-                    self.show_options_page(OPTIONS_PAGE_COUNT - 1)
-                    return
-                if self.info.move(step):
-                    self.touch = None
-                    self.last_navigation = time.monotonic()
-                    return
-                if step > 0:
-                    return
-            choices = self.available_pages
-            if self.page in choices:
-                self.page = choices[(choices.index(self.page) + step) % len(choices)]
-            self.chat_title_key = None
-            self.info.page = InfoPage.SYSTEM
-            self.touch = None
+            if self.info.move(step):
+                self.touch = None
+                self.last_navigation = time.monotonic()
+                return
+            if step > 0:
+                return
+        choices = self.available_pages
+        if self.page in choices:
+            self.page = choices[(choices.index(self.page) + step) % len(choices)]
+        self.chat_title_key = None
+        self.info.page = InfoPage.SYSTEM
+        self.touch = None
         self.last_navigation = time.monotonic()
 
     # self: Active Studio preview returning to the calling route or menu page.
+    # Exception: Propagates failures from the selected parent route.
     def back(self):
         if self.boot is None and self.birth_preview_started_at is None and not self.standby and not self.event_visible:
-            if self.route == "timer" and self.timer_return == "widgets":
+            if self.quick_menu_open:
+                self.quick_menu_open = False
                 self.touch = None
                 self.targets.clear()
                 self.acknowledged = ()
-                self.open("widgets")
+                self.last_navigation = time.monotonic()
+            elif self.quick_counters_open:
+                self.quick_counters_open = False
+                self.idle_display_override = None
+                self.touch = None
+                self.targets.clear()
+                self.acknowledged = ()
+                self.last_navigation = time.monotonic()
             elif self.route == "connections":
                 if self.connections_return == "options":
                     self.show_options_page(self.options_page)
                 else:
                     self.open(self.connections_return)
-            elif self.route in ("visibility", "display", "behavior", "restart", "factory_reset", "timer"):
+            elif self.route == "model_prices" and self.model_price_selected is not None:
+                self.model_price_selected = None
+            elif self.route in ("display", "behavior", "restart", "factory_reset", "third_party", "model_prices"):
                 self.show_options_page(self.options_page)
             elif self.route == "display_rings":
                 self.open("display")
@@ -1055,11 +1219,19 @@ class DeviceStudioWindow:
                 self.open("behavior")
             elif self.route == "behavior_more":
                 self.open("more_behavior")
+            elif self.route == "idle_display":
+                self.open("more_behavior")
+            elif self.route == "personalization":
+                self.show_options_page(1)
+            elif self.route == "character_themes":
+                self.open("personalization")
             elif self.route == "quiet_hours":
                 self.open("behavior_more")
             elif self.route == "quiet_editor":
                 self.open("quiet_hours")
             elif self.route == "synth_voice":
+                self.open("behavior_more")
+            elif self.route == "alarms":
                 self.open("behavior_more")
             elif self.route is WifiSetupRoute.HOME_CHOICES:
                 self.open(self.wifi_choices_return)
@@ -1141,8 +1313,6 @@ class DeviceStudioWindow:
                 route = "connections"
             elif not snapshot.network_ready:
                 route = WifiSetupRoute.OFFLINE
-        self.local_timer = LocalTimerModel()
-        self.timer_return = "options"
         self.info = SystemInfoModel()
         self.reboot_preview(route, pending_pairing)
 
@@ -1161,9 +1331,15 @@ class DeviceStudioWindow:
     # self: Preview boot owner resetting only transient navigation and input state.
     # route: Startup route selected from the actual post-reset preview state.
     # pending_pairing: Whether a durable commissioning candidate survived restart.
+    # Exception: Propagates failures from the boot preview owner.
     def reboot_preview(self, route, pending_pairing=False):
-        self.visibility_page = self.options_page = 0
+        self.options_page = 0
         self.about_from_options = False
+        self.quick_menu_open = False
+        self.quick_counters_open = False
+        self.event_reaction_seen = ()
+        self.event_reaction_id = ""
+        self.event_reaction_until = 0.0
         self.pairing_attempted = pending_pairing
         self.event_visible = self.standby = False
         self.connections_return = "widgets"
@@ -1189,7 +1365,7 @@ class DeviceStudioWindow:
         self.touch = None
         self.open("widgets")
 
-    # self: Open About directly from Device options without depending on visibility settings.
+    # self: Open About directly from Device options.
     def open_about(self):
         self.page = PAGES.index("About")
         self.info.page = InfoPage.SYSTEM
@@ -1197,17 +1373,6 @@ class DeviceStudioWindow:
         self.screensaver.active = False
         self.touch = None
         self.open("widgets")
-
-    # self: Preview owner applying visibility while retaining valid top-level and child routes.
-    # page: Configurable dashboard identity from the selected row.
-    def change_visibility(self, page):
-        if page in self.visible:
-            self.visible.remove(page)
-            if PAGES[self.page] == page:
-                self.page = 0
-                self.info.page = InfoPage.SYSTEM
-        else:
-            self.visible.add(page)
 
     def change_interval(self):
         self.history_window = (self.history_window + 1) % len(HISTORY_WINDOWS)
@@ -1238,10 +1403,16 @@ class DeviceStudioWindow:
     def toggle_counter_mode(self):
         self.counter_mode_enabled = not self.counter_mode_enabled
         self.counter_page = 0
+        self.counter_pages = ()
         self.animation_scene = None
         if self.events:
             self.events.hide()
         self.event_visible = False
+
+    # self: Change only the Studio session's simulated weekly alarm preference.
+    # Exception: No physical device or account data is read or changed.
+    def toggle_weekly_alarm(self):
+        self.weekly_alarm_enabled = not self.weekly_alarm_enabled
 
     # self: Isolated Studio preview holding the simulated local-time schedule.
     # start: True edits the start; false edits the end of the interval.
@@ -1704,89 +1875,172 @@ class DeviceStudioWindow:
 
     # self: Studio preview owning Options and its categories.
     # draw: Logical canvas before rotation.
-    # rows: Visible captions and actions, with at most four entries per page.
-    def draw_option_rows(self, draw, rows):
-        for index, (name, action) in enumerate(rows):
-            top = OPTIONS_ROW_TOP + index * SETTINGS_ROW_STEP
-            box = (93, top, 373, top + SETTINGS_ROW_HEIGHT)
-            parts = name.split("  ", 1)
-            icon = "phone" if "Orientation" in name or "rotate" in name else "motion"
-            setup_icon(draw, icon, (111, top + 28), 28, SETUP_ACCENT if action else MUTED)
-            draw.text((141, top + (15 if len(parts) > 1 else 28)), parts[0],
-                      font=system_font(17 if len(parts[0]) > 18 else 20), fill=FOREGROUND, anchor="lm")
-            if len(parts) > 1:
-                draw.text((141, top + 42), parts[1], font=font(18),
-                          fill=WIFI_CONNECTION_COLOR if action else MUTED, anchor="lm")
-            draw.line((141, top + SETTINGS_ROW_HEIGHT - 2, 373, top + SETTINGS_ROW_HEIGHT - 2),
-                      fill=studio_rgb("device_ui", "row_separator"), width=2)
-            if action is not None:
-                self.targets[name] = (box, action)
+    # rows: Visible (label, action) tuples, optionally followed by icon and color.
+    # text_left: Logical caption inset shared by all rows in this page.
+    # icon_offset: Optional artwork-only parallax in logical pixels.
+    # Exception: Original drawing and font errors propagate to the preview owner.
+    def draw_option_rows(self, draw, rows, text_left=141, icon_offset=(0, 0)):
+        for index, row in enumerate(rows):
+            name, action = row[:2]
+            icon = row[2] if len(row) > 2 else ("phone" if "Orientation" in name or "rotate" in name else "motion")
+            color = row[3] if len(row) > 3 else SETUP_ACCENT
+            FlatMenuRow.draw(draw, name, action, OPTIONS_ROW_TOP + index * SETTINGS_ROW_STEP,
+                             icon, color, text_left, self.targets, icon_offset)
 
-    # self: Studio preview of the current group of three configurable screens.
-    # draw: Logical canvas before rotation.
-    # now: Monotonic time for the shared arrow fade.
-    def draw_visibility(self, draw, now):
-        self.screen_title(draw, "Visible screens", OPTIONS_TITLE_TOP)
-        start = 1 + self.visibility_page * VISIBILITY_ROWS
-        for index, page in enumerate(PAGES[start:start + VISIBILITY_ROWS]):
-            visible = page in self.visible
-            top = OPTIONS_ROW_TOP + index * OPTIONS_ROW_STEP
-            box = (93, top, 373, top + OPTIONS_ROW_HEIGHT)
-            setup_icon(draw, "phone", (126, top + 36), 28, SETUP_ACCENT)
-            draw.text((156, top + 23), page, font=system_font(19), fill=FOREGROUND, anchor="lm")
-            draw.text((156, top + 50), "Visible" if visible else "Hidden",
-                      font=font(18), fill=WIFI_CONNECTION_COLOR if visible else MUTED, anchor="lm")
-            draw.line((141, top + OPTIONS_ROW_HEIGHT - 2, 373, top + OPTIONS_ROW_HEIGHT - 2),
-                      fill=studio_rgb("device_ui", "row_separator"), width=2)
-            self.targets[page] = (box, lambda selected=page: self.change_visibility(selected))
-        page_marks(draw, self.visibility_page, VISIBILITY_PAGE_COUNT)
+    # self: Preview route owner entering the data-filtered counter carousel temporarily.
+    # Exception: No persisted preference or physical device state is changed.
+    def open_quick_counters(self):
+        self.quick_menu_open = False
+        self.quick_counters_open = True
+        self.idle_display_override = None
+        self.counter_page = 0
+        self.touch = None
+        self.targets.clear()
+        self.acknowledged = ()
+        self.last_navigation = time.monotonic()
+
+    # self: Open About without losing the quick menu's previous route.
+    # Exception: No physical settings are changed by this preview navigation.
+    def open_quick_about(self):
+        self.quick_menu_open = False
+        self.quick_counters_open = False
+        self.quick_about_return = True
+        self.open_about()
+
+    # self: Preview overlay; the underlying route remains unchanged.
+    # image: Logical preview framebuffer.
+    # draw: Logical preview canvas.
+    # snapshot: Current simulated observation, never a fabricated inbox.
+    # now: Current monotonic frame time.
+    # Exception: Original drawing and font errors propagate to the preview owner.
+    def draw_quick_menu(self, image, draw, snapshot, now):
+        self.screen_title(draw, "Menu", 75)
+        admitted = not isinstance(self.route, WifiSetupRoute)
+        counter_route = self.route in ("mascot", "widgets", "options", "display", "display_rings", "display_time",
+                                       "behavior", "more_behavior", "behavior_more", "quiet_hours", "quiet_editor",
+                                       "synth_voice", "alarms", "idle_display", "third_party", "model_prices", "personalization",
+                                       "character_themes")
+        rows = (("Settings", self.options if admitted else None, (153, 110, 313, 174)),
+                ("Events", None, (74, 190, 225, 254)),
+                ("Counters", self.open_quick_counters if admitted and counter_route else None, (241, 190, 392, 254)),
+                ("About", self.open_quick_about if admitted and counter_route else None, (153, 280, 313, 344)))
+        for index, (caption, action, bounds) in enumerate(rows):
+            x0, y0, x1, y1 = bounds
+            icon = boot_menu_art(index, action is not None)
+            image.paste(icon, ((x0 + x1) // 2 - 12 + self.parallax_offset[0],
+                               y0 + 2 + self.parallax_offset[1]), icon)
+            draw.text(((x0 + x1) // 2, y0 + 45), caption, font=font(20),
+                      fill=FOREGROUND if action else MUTED, anchor="mm")
+            if action is not None:
+                self.targets[caption] = (bounds, action)
         opacity = self.navigation_opacity(now)
-        if opacity > 0 and self.visibility_page == 0:
+        if opacity > 0:
             self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
 
+    # self: Toggle only the Studio session's post-inactivity presentation.
+    # Exception: No firmware setting or power policy is changed.
+    def toggle_idle_display(self):
+        self.idle_display_muse = not self.idle_display_muse
+
+    # self: Cycle the explicit firmware-supported inactivity delays in Studio.
+    # Exception: No firmware setting or power policy is changed.
+    def cycle_idle_delay(self):
+        delays = (15, 30, 60, 120, 300)
+        self.idle_delay_seconds = delays[(delays.index(self.idle_delay_seconds) + 1) % len(delays)]
+
+    # self: Toggle only Studio's optional reaction to observed check results.
+    # Exception: No physical setting or remote operation is changed.
+    def toggle_cody_on_events(self):
+        self.cody_on_events = not self.cody_on_events
+
+    # self: Cycle only the simulated artwork motion intensity.
+    # Exception: No physical IMU or preference is accessed.
+    def cycle_parallax(self):
+        self.parallax_level = (self.parallax_level + 1) % 4
+
+    # self: Open the first page of the firmware-owned theme catalog.
+    # Exception: No physical preference is changed.
+    def open_character_themes(self):
+        self.character_theme_page = 0
+        self.open("character_themes")
+
+    # self: Open configured model identities with no synthetic price quotes.
+    # Exception: No external connection is made by this preview action.
+    def open_model_prices(self):
+        self.model_prices_page = 0
+        self.model_price_selected = None
+        self.open("model_prices")
+
+    # self: Select one catalog identity in this Studio session only.
+    # theme_id: Zero-based identity in the firmware's ordered catalog.
+    # Exception: Rejects identities outside the actual catalog.
+    def select_character_theme(self, theme_id):
+        if not 0 <= theme_id < len(character_themes()):
+            raise ValueError("Cody character theme identity is invalid")
+        self.character_theme = theme_id
+        self.setup_mascot = None
+        self.animation_frame = None
+        self.touch = None
+        self.targets.clear()
+        self.acknowledged = ()
+
+    # self: Draw four session-only choices and their four real palette swatches.
+    # draw: Logical preview canvas.
+    # Exception: Propagates catalog and rendering failures.
+    def draw_character_themes(self, draw):
+        self.screen_title(draw, "Themes", OPTIONS_TITLE_TOP)
+        entries = character_themes()
+        for row, theme_id in enumerate(range(self.character_theme_page * 4, self.character_theme_page * 4 + 4)):
+            name, colors = entries[theme_id]
+            top = OPTIONS_ROW_TOP + row * SETTINGS_ROW_STEP
+            if theme_id == self.character_theme:
+                setup_icon(draw, "check", (111, top + 28), 24, WIFI_CONNECTION_COLOR)
+            draw.text((141, top + 28), name, font=system_font(20), fill=FOREGROUND, anchor="lm")
+            for index, color in enumerate(colors):
+                x = 286 + 20 * index
+                draw.rectangle((x, top + 18, x + 14, top + 32), fill=f"#{color:06x}")
+            draw.line((141, top + SETTINGS_ROW_HEIGHT - 2, 373, top + SETTINGS_ROW_HEIGHT - 2),
+                      fill=studio_rgb("device_ui", "row_separator"), width=2)
+            self.targets[name] = ((93, top, 373, top + SETTINGS_ROW_HEIGHT),
+                                  lambda selected=theme_id: self.select_character_theme(selected))
+        page_marks(draw, self.character_theme_page, 2)
+
     # self: Studio preview owning the active menu page and touch targets.
-    # image: Logical framebuffer receiving the gradient footer.
+    # image: Logical framebuffer retained by the preview renderer.
     # draw: Logical canvas before rotation.
-    # now: Monotonic frame time for the lateral arrow fade.
+    # now: Monotonic frame time for the retained page.
+    # Exception: Original drawing and font errors propagate to the preview owner.
     def draw_options(self, image, draw, now):
-        self.screen_title(draw, ("TOOLS", "PREFERENCES", "DEVICE")[self.options_page], OPTIONS_TITLE_TOP)
+        self.screen_title(draw, ("TOOLS", "PREFERENCES", "DEVICE", "DEVICE")[self.options_page], OPTIONS_TITLE_TOP)
         if self.options_page == 0:
             rows = (
                 ("Connections", self.open_connections),
                 ("Codex stats", self.open_statistics),
-                ("Timer", self.open_local_timer),
             )
         elif self.options_page == 1:
             rows = (
-                ("Visible screens", self.open_visibility),
                 ("Display", lambda: self.open("display")),
                 ("Behavior", lambda: self.open("behavior")),
+                ("Cody", lambda: self.open("personalization")),
             )
-        else:
+        elif self.options_page == 2:
             rows = (
                 ("Restart device", lambda: self.open("restart")),
                 ("Factory reset", lambda: self.open("factory_reset")),
                 ("Quick guide", self.open_quick_guide),
                 ("About", self.open_about),
             )
-        icons = (("link", "motion", "clock"), ("qr", "phone", "motion"),
-                 ("retry", "offline", "phone", "link"))[self.options_page]
+        else:
+            rows = (("Third party", lambda: self.open("third_party")),
+                    ("Model prices", self.open_model_prices))
+        icons = (("link", "motion"), ("phone", "motion", "account"),
+                 ("retry", "offline", "phone", "link"), ("account", "statistics"))[self.options_page]
         colors = (studio_rgb("codex_connection"), studio_rgb("device_ui", "guide_offline"),
                   studio_rgb("setup_warning"), studio_rgb("codex_connection"))
-        for index, ((name, action), icon) in enumerate(zip(rows, icons)):
-            top = OPTIONS_ROW_TOP + index * SETTINGS_ROW_STEP
-            box = (93, top, 373, top + SETTINGS_ROW_HEIGHT)
-            setup_icon(draw, icon, (126, top + 28), 28, colors[index])
-            words = name.split(" ", 1) if name in ("Visible screens", "Factory reset", "Quick guide", "Restart device") else (name,)
-            for line, title in enumerate(words):
-                baseline = top + 28 if len(words) == 1 else top + 15 + line * 24
-                draw.text((156, baseline), title, font=system_font(21), fill=FOREGROUND, anchor="lm")
-            draw.line((141, top + SETTINGS_ROW_HEIGHT - 2, 373, top + SETTINGS_ROW_HEIGHT - 2), fill=studio_rgb("device_ui", "row_separator"), width=2)
-            self.targets[name] = (box, action)
+        self.draw_option_rows(draw,
+            tuple((name, action, icon, colors[index]) for index, ((name, action), icon)
+                  in enumerate(zip(rows, icons))), 156, self.parallax_offset)
         page_marks(draw, self.options_page, OPTIONS_PAGE_COUNT)
-        opacity = self.navigation_opacity(now)
-        if opacity > 0 and self.options_page == 0:
-            self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
 
     # self: Studio preview of the three fixed guide pages.
     # image: Logical framebuffer receiving the gradient footer.
@@ -1807,39 +2061,7 @@ class DeviceStudioWindow:
             setup_icon(draw, "check", (111, 351), 24, WIFI_CONNECTION_COLOR)
             draw.text((141, 351), "OK", font=font(20), fill=FOREGROUND, anchor="lm")
             draw.line((141, 364, 373, 364), fill=studio_rgb("device_ui", "row_separator"), width=2)
-            self.targets["OK"] = ((93, 336, 373, 366), lambda: self.show_options_page(OPTIONS_PAGE_COUNT - 1))
-
-    # self: Studio preview drawing its independently retained timer state.
-    # draw: Logical canvas before rotation.
-    # now: Monotonic frame time used for the timer digits and Back fade.
-    def draw_local_timer(self, draw, now):
-        timer = self.local_timer
-        minutes, seconds = divmod(timer.remaining_seconds(now), 60)
-        self.screen_title(draw, "Timer", 93)
-        status = {
-            LocalTimerPhase.IDLE: "Set duration",
-            LocalTimerPhase.RUNNING: "Time remaining",
-            LocalTimerPhase.FINISHED: "Time is up",
-        }[timer.phase]
-        finished = timer.phase is LocalTimerPhase.FINISHED
-        label(draw, status, 150, 18, ACCENT if finished else MUTED)
-        label(draw, f"{minutes:02d}:{seconds:02d}", 184, 40, ACCENT if finished else FOREGROUND)
-        if timer.phase is LocalTimerPhase.IDLE:
-            decrease = (lambda: timer.adjust(-1)) if timer.duration_minutes > TIMER_MIN_MINUTES else None
-            increase = (lambda: timer.adjust(1)) if timer.duration_minutes < TIMER_MAX_MINUTES else None
-            self.button(draw, "- 1 min", 247, decrease, width=154, height=60, secondary=True, center_x=150)
-            self.button(draw, "+ 1 min", 247, increase, width=154, height=60, secondary=True, center_x=316)
-            self.button(draw, f"Sound: {timer.sound.value}", 321, timer.cycle_sound,
-                        width=154, height=60, secondary=True, center_x=150, caption_size=18)
-            self.button(draw, "Start", 321, lambda: timer.start(time.monotonic()),
-                        width=154, height=60, center_x=316)
-        elif finished:
-            self.button(draw, "OK", 321, timer.dismiss, width=240, height=60)
-        else:
-            self.button(draw, "Cancel", 321, timer.cancel, width=240, height=60, secondary=True)
-        opacity = self.navigation_opacity(now)
-        if opacity > 0:
-            self.sidebar(draw, -1, self.back if opacity == 1 else None, opacity)
+            self.targets["OK"] = ((93, 336, 373, 366), lambda: self.show_options_page(2))
 
     # self: Studio preview routing cancellation or confirmed restart to its owner.
     # image: Logical framebuffer receiving the gradient footer.
@@ -1847,7 +2069,7 @@ class DeviceStudioWindow:
     def draw_restart(self, image, draw):
         self.screen_title(draw, "Restart device", OPTIONS_TITLE_TOP)
         screen_subtitle(draw, "Keeps Wi-Fi/settings", 155)
-        screen_subtitle(draw, "Stops active timer", 184)
+        screen_subtitle(draw, "Restart Cody", 184)
         self.draw_confirmation_rows(draw, "Restart device", self.restart_device)
         self.sidebar(draw, -1, self.back)
 
@@ -1956,19 +2178,65 @@ class DeviceStudioWindow:
                                             (76, 99, 81, 103), (103, 99, 108, 103)):
                 draw.rectangle((left, top, right, bottom), fill=ACCENT)
 
+    @staticmethod
+    # snapshot: Current followed-chat technical metadata and its receipt age.
+    # Exception: Invalid source projection attributes remain visible to the caller.
+    def context_observation(snapshot):
+        technical = snapshot.technical if snapshot.technical_valid else None
+        receipt_age = snapshot.technical_age_ms
+        if not (technical and snapshot.state is LinkState.CONNECTED and snapshot.chat and
+                technical.chat == snapshot.chat and receipt_age is not None and receipt_age >= 0):
+            return None, None, None
+        usage_age = technical.usage_age_ms
+        usage_current = usage_age is not None and 0 <= usage_age and usage_age + receipt_age < 120000
+        capacity = technical.context_capacity if usage_current else None
+        used = technical.context_used if usage_current else None
+        if capacity is not None and capacity <= 0:
+            capacity = None
+        if used is not None and used < 0:
+            used = None
+        compaction = None
+        if (technical.compaction.value in {"active", "refreshed", "orphaned", "interrupted"} and
+                technical.compaction_age_ms is not None and 0 <= technical.compaction_age_ms and
+                technical.compaction_age_ms + receipt_age < 120000):
+            compaction = {
+                "active": "Compacting", "refreshed": "Context refreshed",
+                "orphaned": "Partially observed", "interrupted": "Interrupted",
+            }[technical.compaction.value]
+        elif technical.compaction.value == "none" and capacity is not None:
+            compaction = "Not compacting"
+        return capacity, used, compaction
+
+    @staticmethod
+    # snapshot: Current loopback observation for the device-visible Counter pages.
+    # Exception: Invalid source projection attributes remain visible to the caller.
+    def available_counter_pages(snapshot):
+        capacity, _, compaction = DeviceStudioWindow.context_observation(snapshot)
+        technical = snapshot.technical if snapshot.technical_valid else None
+        receipt_age = snapshot.technical_age_ms
+        model_current = bool(technical and snapshot.state is LinkState.CONNECTED and snapshot.chat and
+            technical.chat == snapshot.chat and technical.model and technical.model_age_ms is not None and
+            receipt_age is not None and 0 <= technical.model_age_ms and 0 <= receipt_age and
+            technical.model_age_ms + receipt_age < 120000)
+        # Studio does not publish an account allowance; never invent a reset page.
+        pages = []
+        if capacity is not None or compaction is not None:
+            pages.append(1)
+        if model_current:
+            pages.append(2)
+        return tuple(pages)
+
     # self: Studio owns the latest data-qualified navigation list.
     # snapshot: Current loopback telemetry. Account observations are not implemented in Studio.
+    # Exception: Propagates invalid source projection attributes.
     def update_available_pages(self, snapshot):
-        technical = snapshot.technical if snapshot.technical_valid else None
-        context = technical is not None and (
-            (technical.context_capacity or 0) > 0 or technical.compaction.value in {
-                "active", "refreshed", "orphaned", "interrupted",
-            })
+        capacity, _, compaction = self.context_observation(snapshot)
+        context = capacity is not None or compaction is not None
         supported = {"Device", "About"}
         if context:
             supported.add("Context")
         self.available_pages = tuple(index for index, page in enumerate(PAGES)
-                                     if page in self.visible and page in supported)
+                                     if page in supported)
         if self.route == "widgets" and self.page not in self.available_pages and not (
                 self.about_from_options and PAGES[self.page] == "About"):
             self.page = 0
@@ -1980,9 +2248,10 @@ class DeviceStudioWindow:
     # text: Complete heading, without truncating or changing font size.
     # top: Heading top edge.
     # width: Fixed viewport width inside the admitted display chord.
+    # Exception: Original font and drawing errors propagate to the preview owner.
     def screen_title(self, draw, text, top=82, width=320):
         text = str(text)
-        key = (self.route, self.page, self.options_page, self.visibility_page,
+        key = (self.route, self.page, self.options_page,
                self.quick_guide_page, text, top, width)
         now = self.frame_time
         if key != self.heading_key:
@@ -2025,22 +2294,10 @@ class DeviceStudioWindow:
     # draw: Logical canvas before rotation.
     # snapshot: Coherence-qualified loopback observation for the followed chat.
     # now: Monotonic frame time for the title viewport.
+    # Exception: Original drawing and source projection errors reach the preview owner.
     def draw_context(self, draw, snapshot, now):
         self.draw_chat_title(draw, snapshot, 128, now)
-        technical = snapshot.technical if snapshot.technical_valid else None
-        capacity = technical.context_capacity if technical else None
-        used = technical.context_used if technical else None
-        compaction = None
-        if technical is not None:
-            state = technical.compaction.value
-            if state == "active" and technical.compaction_age_ms is not None:
-                age = technical.compaction_age_ms + (snapshot.technical_age_ms or 0)
-                compaction = "Compacting" if age <= 120000 else "Stale"
-            else:
-                compaction = {
-                    "refreshed": "Context refreshed", "orphaned": "Partially observed",
-                    "interrupted": "Interrupted", "stale": "Stale",
-                }.get(state)
+        capacity, used, compaction = self.context_observation(snapshot)
         if capacity and used is not None and 0 <= used <= capacity:
             remaining = capacity - used
             label(draw, "TOKENS REMAINING", 154, 18)
@@ -2063,43 +2320,52 @@ class DeviceStudioWindow:
             label(draw, "COMPACTION", top + 3, 18, MUTED)
             label(draw, compaction, top + 30, 20, ACCENT)
 
+    # image: Logical framebuffer receiving the optional model artwork.
     # draw: Logical preview canvas for the selected simulated counter page.
     # snapshot: Loopback observation; unavailable fields stay unavailable.
     # now: Monotonic time for the shared title scroller.
-    def draw_counter(self, draw, snapshot, now):
+    # Exception: Original drawing and source projection errors reach the preview owner.
+    def draw_counter(self, image, draw, snapshot, now):
         self.hide_mascot()
+        self.counter_pages = self.available_counter_pages(snapshot)
+        if self.counter_page not in self.counter_pages:
+            self.counter_page = self.counter_pages[0] if self.counter_pages else None
+        if self.counter_page is None:
+            self.draw_device_summary(draw, snapshot, now, show_options=False)
+            return
         technical = snapshot.technical if snapshot.technical_valid else None
-        coherent = bool(technical and snapshot.chat and technical.chat == snapshot.chat and
-                        snapshot.state is LinkState.CONNECTED)
-        model = technical.model if coherent and technical.model else "Model unavailable"
-        self.screen_title(draw, ("Codex reset", "Context", model)[self.counter_page], 82)
-        if self.counter_page == 0:
-            setup_icon(draw, "clock", (CENTER, 210), 58, SETUP_AMBER)
-            label(draw, "Codex usage unavailable", 263, 19, SETUP_AMBER)
-        elif self.counter_page == 1:
-            used = technical.context_used if coherent else None
-            capacity = technical.context_capacity if coherent else None
-            if capacity and used is not None and 0 <= used <= capacity:
-                label(draw, f"Used {used:,}", 160, 22)
-                label(draw, f"Free {capacity - used:,}", 215, 25, ACCENT)
-                label(draw, f"Window {capacity:,}", 271, 20)
-            else:
-                label(draw, "Unavailable", 195, 24)
-                label(draw, "No current data", 244, 18, MUTED)
+        model = technical.model if technical else ""
+        model_art = {"gpt-6.1-terra": "terra", "gpt-6.1-sol": "sol", "gpt-6-sol": "sol",
+                     "gpt-6-luna": "luna", "gpt-6-astra": "astra"}.get(model)
+        if self.counter_page == 2 and model_art:
+            try:
+                art = model_background(model_art)
+            except OSError:
+                art = None
+            if art is not None:
+                image.paste(art, (113, 115), art)
+        self.screen_title(draw, "Context" if self.counter_page == 1 else model, 82)
+        if self.counter_page == 1:
+            self.draw_context(draw, snapshot, now)
         else:
-            band = technical.cost_band.value if coherent else "unknown"
-            label(draw, "Current model" if model != "Model unavailable" else "Model unavailable", 155, 20)
+            cost_current = (technical.cost_age_ms is not None and technical.cost_valid_for_ms is not None and
+                snapshot.technical_age_ms is not None and 0 <= technical.cost_age_ms and
+                0 <= snapshot.technical_age_ms and
+                technical.cost_age_ms + snapshot.technical_age_ms < technical.cost_valid_for_ms)
+            band = technical.cost_band.value if cost_current else "unknown"
+            label(draw, "Current model", 155, 20)
             label(draw, {"economy": "Economy", "balanced": "Balanced", "expensive": "Expensive"}.get(
                 band, "Price unavailable"), 228, 21, ACCENT)
             label(draw, "Standard reference", 274, 16, MUTED)
-        label(draw, "SIMULATED", 344, 14, MUTED)
-        page_marks(draw, self.counter_page, 3)
+            label(draw, "SIMULATED", 344, 14, MUTED)
+        if len(self.counter_pages) > 1:
+            page_marks(draw, self.counter_pages.index(self.counter_page), len(self.counter_pages), 435, compact=True)
 
     # self: Studio owns the current loopback endpoint and Options shortcut.
     # draw: Logical canvas before display rotation.
     # snapshot: Current SIMULATED connection and authenticated activity projection.
     # now: Monotonic frame time for the title viewport.
-    def draw_device_summary(self, draw, snapshot, now):
+    def draw_device_summary(self, draw, snapshot, now, show_options=True):
         self.screen_title(draw, "Device", 82)
         observed = snapshot.source == "SIMULATED" and snapshot.state is not LinkState.STOPPED
         linked = (observed and snapshot.network_ready and snapshot.state is LinkState.CONNECTED
@@ -2143,7 +2409,8 @@ class DeviceStudioWindow:
             draw.text((371, y), value, fill=color, font=font(18), anchor="rm")
         if codex_open and snapshot.activity_valid:
             self.draw_chat_title(draw, snapshot, 291, now)
-        self.button(draw, "Options", 330, self.options, width=260, height=50, caption_size=20)
+        if show_options:
+            self.button(draw, "Options", 330, self.options, width=260, height=50, caption_size=20)
 
     # self: Studio preview owning the selected dashboard page.
     # image: Logical framebuffer receiving visual artwork.
@@ -2202,7 +2469,7 @@ class DeviceStudioWindow:
         if self.setup_mascot is not None:
             return
         muse = self.avatar_preview()
-        mascot = muse.face_image(MusePose.IDLE, 1000, 1000).resize((128, 128), Image.Resampling.NEAREST)
+        mascot = muse.face_image(MusePose.IDLE, 1000, 1000, theme=self.character_theme).resize((128, 128), Image.Resampling.NEAREST)
         red, green, blue = mascot.split()
         visible = ImageChops.lighter(red, ImageChops.lighter(green, blue))
         mascot.putalpha(visible.point(lambda value: 255 if value else 0))
@@ -2319,7 +2586,7 @@ class DeviceStudioWindow:
         muse.motion(*self.motion_acceleration, self.motion_sample_at_us, now_us, self.rotation, True)
         image.paste(studio_rgb("device_ui", "canvas_black"), (0, 0, SIZE, SIZE))
         if self.animation_scene is None:
-            mascot = muse.image(elapsed_ms, reaction_ms)
+            mascot = muse.image(elapsed_ms, reaction_ms, theme=self.character_theme)
         else:
             self.advance_animation_clock(now)
             _, _, pose, symbol, working = self.animation_scene
@@ -2328,11 +2595,59 @@ class DeviceStudioWindow:
                 pose_ms = min(pose_ms, 1020)
             if self.animation_playing or self.animation_frame is None:
                 self.animation_frame = muse.face_image(pose, int(self.animation_elapsed_ms), pose_ms,
-                                                       symbol=symbol, working=working)
+                                                       symbol=symbol, working=working, theme=self.character_theme)
             mascot = self.animation_frame
-        image.paste(mascot, (MUSE_OFFSET, MUSE_OFFSET))
+        image.paste(mascot, (MUSE_OFFSET + self.parallax_offset[0], MUSE_OFFSET + self.parallax_offset[1]))
         # The full Home target keeps the mascot's existing tap interaction.
         self.targets["Mascot"] = ((0, 0, SIZE, SIZE), self.pet_mascot)
+
+    # self: Studio preview owner observing only authenticated, fresh notifications.
+    # snapshot: Current isolated loopback event and its real request identity.
+    # now: Monotonic time used for a bounded, three-second presentation.
+    # Exception: No notification, account data or audio event is fabricated.
+    def observe_event_reaction(self, snapshot, now):
+        payload = snapshot.event_payload
+        request_id = snapshot.request_id
+        is_notification = bool(payload and request_id and payload.kind in
+                               (interactions.EventKind.NOTICE, interactions.EventKind.PR_PENDING,
+                                interactions.EventKind.REPLY_READY, interactions.EventKind.CHECKS_FAILED,
+                                interactions.EventKind.CHECKS_PASSED))
+        if self.event_reaction_until and (not is_notification or request_id != self.event_reaction_id or
+                                          self.standby or self.quick_menu_open):
+            self.event_reaction_until = 0.0
+        if not is_notification or request_id in self.event_reaction_seen:
+            return
+        # Remember even blocked or stale observations so enabling later never replays them.
+        self.event_reaction_seen = (self.event_reaction_seen + (request_id,))[-8:]
+        eligible = (self.cody_on_events and snapshot.event_fresh and snapshot.event_error == 0 and
+                    snapshot.event_state == "pending" and not self.standby and not self.event_visible and
+                    not self.quick_menu_open and self.touch is None and self.gesture is None and
+                    not self.screensaver.active and self.animation_scene is None and
+                    not self.about_from_options and (self.route in ("mascot", "widgets") or self.quick_counters_open))
+        if eligible:
+            self.event_reaction_id = request_id
+            self.event_reaction_kind = payload.kind
+            self.event_reaction_started = now
+            self.event_reaction_until = now + 3.0
+
+    # self: Studio owner drawing the native avatar above the retained underlying route.
+    # image: Logical preview framebuffer.
+    # now: Monotonic clock from the same observed notification.
+    # Exception: Original native avatar loading or rendering error propagates.
+    def draw_event_reaction(self, image, now):
+        elapsed = max(0, int((now - self.event_reaction_started) * 1000))
+        failed = self.event_reaction_kind == interactions.EventKind.CHECKS_FAILED
+        mascot = self.avatar_preview().face_image(MusePose.ERROR if failed else MusePose.REPLY,
+                                                  elapsed, elapsed, symbol=2 if failed else 5,
+                                                  theme=self.character_theme)
+        mascot = mascot.resize((240, 240), Image.Resampling.NEAREST)
+        raised = (elapsed // 180) % 2 != 0
+        image.paste(mascot, (113, 140 if raised else 154))
+        title = {interactions.EventKind.CHECKS_FAILED: "CHECKS FAILED",
+                 interactions.EventKind.CHECKS_PASSED: "CHECKS PASSED",
+                 interactions.EventKind.REPLY_READY: "REPLY READY",
+                 interactions.EventKind.PR_PENDING: "PULL REQUEST"}.get(self.event_reaction_kind, "NOTICE")
+        self.screen_title(ImageDraw.Draw(image), title, 85)
 
     # self: Preview owner excluding hidden time and retiring the visible touch reaction.
     def hide_mascot(self):
@@ -2367,23 +2682,57 @@ class DeviceStudioWindow:
         draw = ImageDraw.Draw(image)
         self.targets = {}
         event_was_visible = self.event_visible
+        self.observe_event_reaction(snapshot, now)
         self.event_visible = False
         waking = not self.counter_mode_enabled and self.route == "mascot" and self.muse_elapsed_ms < 1500
         if self.mascot_was_waking and not waking and self.route == "mascot":
             # Start Home's idle period once, after the initial wake completes.
             self.screensaver_idle_since = now
         self.mascot_was_waking = waking
-        event_active = (not self.counter_mode_enabled and not self.standby and not waking and self.events and
+        reaction_active = self.event_reaction_until > now
+        handled_event = bool(self.event_reaction_id and snapshot.request_id == self.event_reaction_id and
+                             snapshot.event_payload and snapshot.event_payload.kind in
+                             (interactions.EventKind.NOTICE, interactions.EventKind.PR_PENDING,
+                              interactions.EventKind.REPLY_READY, interactions.EventKind.CHECKS_FAILED,
+                              interactions.EventKind.CHECKS_PASSED))
+        event_active = (not handled_event and not self.counter_mode_enabled and not self.standby and not waking and self.events and
                         self.events.visible(snapshot, self.endpoint))
         if self.events and not event_active:
             self.events.hide()
         if event_was_visible and not event_active:
             self.screensaver_idle_since = now
         project_link = PAGES[self.page] == "About" and self.info.page is InfoPage.PROJECT_LINK
-        saver_route = ((self.route == "mascot" and not waking) or
+        saver_route = (self.quick_counters_open or (self.route == "mascot" and not waking) or
                        (self.route == "widgets" and not project_link))
-        self.screensaver.observe(not self.standby and not event_active and saver_route,
+        self.screensaver.observe(not self.standby and not event_active and not reaction_active and not self.quick_menu_open and saver_route,
                                  now - self.screensaver_idle_since)
+        idle_eligible = (not self.standby and not event_active and not reaction_active and not self.screensaver.active and
+                         not self.quick_menu_open and self.touch is None and self.gesture is None and
+                         self.animation_scene is None and saver_route and
+                         not self.about_from_options)
+        if not idle_eligible:
+            self.idle_eligible_since = None
+            self.idle_applied = False
+        else:
+            if self.idle_eligible_since is None:
+                self.idle_eligible_since = now
+            idle_since = max(self.idle_eligible_since, self.screensaver_idle_since)
+            if not self.idle_applied and now - idle_since >= self.idle_delay_seconds:
+                self.idle_display_override = "muse" if self.idle_display_muse else "counters"
+                self.idle_applied = True
+        parallax_surface = (not self.standby and not event_active and not reaction_active and
+                            not self.screensaver.active and self.animation_scene is None and
+                            (self.quick_menu_open or self.route == "options" or
+                             self.idle_display_override == "muse" or
+                             (self.route == "mascot" and not self.counter_mode_enabled and
+                              self.idle_display_override != "counters")))
+        if parallax_surface and self.parallax_level and now < self.motion_until:
+            elapsed = max(0.0, now - (self.motion_until - 0.45))
+            envelope = max(0.0, min(1.0, elapsed / 0.12, (0.45 - elapsed) / 0.20))
+            limit = self.parallax_level * 2
+            self.parallax_offset = tuple(round(-direction * limit * envelope) for direction in self.motion_direction)
+        else:
+            self.parallax_offset = (0, 0)
         if self.standby:
             self.hide_mascot()
             image.paste(studio_rgb("device_ui", "canvas_black"), (0, 0, SIZE, SIZE))
@@ -2401,11 +2750,18 @@ class DeviceStudioWindow:
             # status line already identify Studio; reserve this area for chrome.
             event_background = image.getpixel((CENTER, 20))
             ImageDraw.Draw(image).rectangle((183, 22, 282, 46), fill=event_background)
+        elif reaction_active:
+            self.draw_event_reaction(image, now)
         elif self.screensaver.active:
             self.hide_mascot()
             image = render_screensaver(int((now - self.screensaver_idle_since - 15.0) * 25)).copy()
-        elif self.counter_mode_enabled and self.route in ("mascot", "widgets") and not self.about_from_options:
-            self.draw_counter(draw, snapshot, now)
+        elif self.quick_menu_open:
+            self.hide_mascot()
+            self.draw_quick_menu(image, draw, snapshot, now)
+        elif self.idle_display_override == "muse":
+            self.draw_mascot(image, now)
+        elif self.idle_display_override == "counters" or self.quick_counters_open or (self.counter_mode_enabled and self.route in ("mascot", "widgets") and not self.about_from_options):
+            self.draw_counter(image, draw, snapshot, now)
         elif self.route == "mascot":
             self.draw_mascot(image, now)
             if self.safe_guide:
@@ -2417,16 +2773,12 @@ class DeviceStudioWindow:
                 self.draw_connections(draw, snapshot, code, now)
             elif self.route == "options":
                 self.draw_options(image, draw, now)
-            elif self.route == "timer":
-                self.draw_local_timer(draw, now)
             elif self.route == "restart":
                 self.draw_restart(image, draw)
             elif self.route == "factory_reset":
                 self.draw_factory_reset(image, draw)
             elif self.route == "quick_guide":
                 self.draw_quick_guide(image, draw)
-            elif self.route == "visibility":
-                self.draw_visibility(draw, now)
             elif self.route == "display":
                 self.screen_title(draw, "Display", OPTIONS_TITLE_TOP)
                 self.draw_option_rows(draw, (
@@ -2434,10 +2786,8 @@ class DeviceStudioWindow:
                     ("Auto-rotate  " + ("On" if self.auto_rotate else "Off"), self.change_auto_rotation),
                     ("Orientation  Auto" if self.auto_rotate else f"Orientation  {self.rotation} deg",
                      None if self.auto_rotate else self.change_orientation),
-                    ("More...", lambda: self.open("display_rings")),
                 ))
                 page_marks(draw, 0, 3)
-                self.sidebar(draw, -1, self.back)
             elif self.route == "display_rings":
                 self.screen_title(draw, "Display & time", OPTIONS_TITLE_TOP)
                 page_marks(draw, 1, 3)
@@ -2448,53 +2798,87 @@ class DeviceStudioWindow:
                     ("Next restart" if self.birth_preview_queued else "Replay intro",
                      None if self.birth_preview_queued else self.schedule_birth_preview),
                 ))
-                self.sidebar(draw, -1, self.back)
             elif self.route == "display_time":
                 self.screen_title(draw, "Time", OPTIONS_TITLE_TOP)
                 page_marks(draw, 2, 3)
-                rows = (("Auto time", "On" if self.auto_time else "Off", self.change_auto_time),
-                        ("Sync time", "SIMULATED / unavailable", self.request_simulated_time_sync))
-                for index, (name, status, action) in enumerate(rows):
-                    top = OPTIONS_ROW_TOP + index * SETTINGS_ROW_STEP
-                    setup_icon(draw, "clock", (111, top + 28), 28, SETUP_AMBER)
-                    draw.text((141, top + 15), name, font=system_font(20), fill=FOREGROUND, anchor="lm")
-                    draw.text((141, top + 42), status, font=font(14 if index == 1 else 18),
-                              fill=MUTED if index == 1 else WIFI_CONNECTION_COLOR, anchor="lm")
-                    draw.line((141, top + SETTINGS_ROW_HEIGHT - 2, 373, top + SETTINGS_ROW_HEIGHT - 2),
-                              fill=studio_rgb("device_ui", "row_separator"), width=2)
-                    self.targets[name] = ((93, top, 373, top + SETTINGS_ROW_HEIGHT), action)
+                self.draw_option_rows(draw, (
+                    ("Auto time  " + ("On" if self.auto_time else "Off"), self.change_auto_time, "clock", SETUP_AMBER),
+                    ("Sync time  SIMULATED / unavailable", self.request_simulated_time_sync, "clock", SETUP_AMBER),
+                ))
                 if self.simulated_time_notice:
                     label(draw, self.simulated_time_notice, 318, 15, MUTED)
-                self.sidebar(draw, -1, self.back)
             elif self.route == "behavior":
                 self.screen_title(draw, "Behavior", OPTIONS_TITLE_TOP)
                 self.draw_option_rows(draw, (("Dictation  N/A", None),
                     ("Shake standby/wake  " + ("On" if self.shake_to_wake else "Off"), self.change_shake_to_wake),
-                    ("Sounds  N/A", None), ("More...", lambda: self.open("more_behavior"))))
-                self.sidebar(draw, -1, self.back)
+                    ("Sounds  N/A", None)))
+                page_marks(draw, 0, 3)
             elif self.route == "more_behavior":
-                self.screen_title(draw, "More behavior", OPTIONS_TITLE_TOP)
+                self.screen_title(draw, "Behavior", OPTIONS_TITLE_TOP)
                 self.draw_option_rows(draw, (("Sofia  " + ("On" if self.sofia_enabled else "Off"),
                                              lambda: setattr(self, "sofia_enabled", not self.sofia_enabled)),
                     ("Screensaver  " + ("On" if self.screensaver.enabled else "Off"), self.screensaver.toggle),
-                    ("Audio  N/A", None), ("More...", lambda: self.open("behavior_more"))))
-                page_marks(draw, 0, 2)
-                self.sidebar(draw, -1, self.back)
+                    ("Audio  N/A", None),
+                    ("Idle display", lambda: self.open("idle_display"), "clock", SETUP_AMBER)))
+                page_marks(draw, 1, 3)
             elif self.route == "behavior_more":
-                self.screen_title(draw, "More behavior", OPTIONS_TITLE_TOP)
+                self.screen_title(draw, "Behavior", OPTIONS_TITLE_TOP)
                 self.draw_option_rows(draw, (("Counter mode  " + ("On" if self.counter_mode_enabled else "Off"),
                                              self.toggle_counter_mode),
                     ("Quiet hours", lambda: self.open("quiet_hours")),
-                    ("Synth Voice", lambda: self.open("synth_voice"))))
-                page_marks(draw, 1, 2)
-                self.sidebar(draw, -1, self.back)
+                    ("Synth Voice", lambda: self.open("synth_voice")),
+                    ("Alarms", lambda: self.open("alarms"), "clock", SETUP_AMBER)))
+                page_marks(draw, 2, 3)
+            elif self.route == "alarms":
+                self.screen_title(draw, "Alarms", OPTIONS_TITLE_TOP)
+                self.draw_option_rows(draw, (("Weekly usage  " + ("On" if self.weekly_alarm_enabled else "Off"),
+                                             self.toggle_weekly_alarm, "clock", SETUP_AMBER),))
+                label(draw, "Weekly data unavailable", 270, 16, MUTED)
+            elif self.route == "idle_display":
+                self.screen_title(draw, "Idle display", OPTIONS_TITLE_TOP)
+                delay = {15: "15s", 30: "30s", 60: "60s", 120: "2min", 300: "5min"}[self.idle_delay_seconds]
+                self.draw_option_rows(draw, (
+                    ("After inactivity  " + ("Cody" if self.idle_display_muse else "Counters"),
+                     self.toggle_idle_display, "motion", SETUP_ACCENT),
+                    ("Delay  " + delay, self.cycle_idle_delay, "clock", SETUP_AMBER),
+                    ("Cody on events  " + ("On" if self.cody_on_events else "Off"),
+                     self.toggle_cody_on_events, "motion", SETUP_ACCENT),
+                    ("Parallax  " + ("Off", "Low", "Medium", "High")[self.parallax_level],
+                     self.cycle_parallax, "motion", SETUP_ACCENT),
+                ))
+            elif self.route == "third_party":
+                self.screen_title(draw, "Third party", OPTIONS_TITLE_TOP)
+                for index, text in enumerate(("ESP-IDF", "Waveshare BSP", "Muse Gadget SDK")):
+                    label(draw, text, 150 + index * 34, 20)
+                label(draw, "See project repository", 300, 18, MUTED)
+                label(draw, "THIRD_PARTY_NOTICES.md", 330, 18, MUTED)
+            elif self.route == "model_prices":
+                self.screen_title(draw, "Model prices", OPTIONS_TITLE_TOP)
+                label(draw, "OpenRouter USD/M", 145, 18, MUTED)
+                label(draw, "Updated: N/A", 174, 18, MUTED)
+                models = configured_price_models()
+                if self.model_price_selected is None:
+                    for row, model in enumerate(models[self.model_prices_page * 3:self.model_prices_page * 3 + 3]):
+                        caption = model.removeprefix("openai/") + "  N/A"
+                        FlatMenuRow.draw(draw, caption,
+                            lambda selected=model: setattr(self, "model_price_selected", selected),
+                            198 + row * 60, "statistics", SETUP_ACCENT, 141, self.targets)
+                    page_marks(draw, self.model_prices_page, (len(models) + 2) // 3, 400, compact=True)
+                else:
+                    label(draw, self.model_price_selected.removeprefix("openai/"), 204, 18, SETUP_ACCENT)
+                    for index, caption in enumerate(("Input: N/A", "Output: N/A", "Cache: N/A", "Context: N/A")):
+                        label(draw, caption, 234 + index * 28, 18, MUTED)
+            elif self.route == "personalization":
+                self.screen_title(draw, "Personalization", OPTIONS_TITLE_TOP)
+                self.draw_option_rows(draw, (("Themes", self.open_character_themes, "account", SETUP_ACCENT),))
+            elif self.route == "character_themes":
+                self.draw_character_themes(draw)
             elif self.route == "quiet_hours":
                 self.screen_title(draw, "Quiet hours", OPTIONS_TITLE_TOP)
                 self.draw_option_rows(draw, (("Quiet hours  " + ("On" if self.quiet_hours_enabled else "Off"), self.toggle_quiet_hours),
                     ("Start  " + self.quiet_hours_start, lambda: self.edit_quiet_hours(True)),
                     ("End  " + self.quiet_hours_end, lambda: self.edit_quiet_hours(False))))
                 label(draw, "SIMULATED", 345, 14, MUTED)
-                self.sidebar(draw, -1, self.back)
             elif self.route == "quiet_editor":
                 self.screen_title(draw, "Start" if self.quiet_edit_start else "End", OPTIONS_TITLE_TOP)
                 hour = f"Hour  -   {self.quiet_edit_hour:02d}   +"
@@ -2508,18 +2892,17 @@ class DeviceStudioWindow:
                     self.targets[caption + " plus"] = ((233, top, 373, top + SETTINGS_ROW_HEIGHT),
                         lambda selected=hours: self.adjust_quiet_time(selected, 1))
                 label(draw, "SIMULATED", 345, 14, MUTED)
-                self.sidebar(draw, -1, self.back)
             elif self.route == "synth_voice":
                 self.screen_title(draw, "Synth Voice", OPTIONS_TITLE_TOP)
                 self.draw_option_rows(draw, (("Enable Synth Voice  N/A", None),
                                              ("Voice volume  N/A", None),
                                              ("Voice type  N/A", None)))
-                self.sidebar(draw, -1, self.back)
             else:
                 self.draw_widget(image, draw, snapshot, now)
             if self.safe_guide:
                 draw.rectangle((73, 73, 392, 392), outline=studio_rgb("device_ui", "guide_outline"))
-        qr_visible = (not event_active and not self.screensaver.active and
+        qr_visible = (not event_active and not self.screensaver.active and not self.quick_menu_open and
+                      not self.quick_counters_open and
                       ((wifi_setup and self.route in (WifiSetupRoute.INSTALL_APP,
                        WifiSetupRoute.HOME_PLATFORM_QR, WifiSetupRoute.HOME_PAIR)) or
                        (self.route == "widgets" and project_link)))
@@ -2578,7 +2961,7 @@ class DeviceStudioWindow:
             avatar = self.avatar_preview().face_image(
                 MusePose.REPLY if greeting else MusePose.IDLE, phase,
                 greeting_ms if greeting else phase,
-                reaction_ms=greeting_ms if greeting else NO_REACTION)
+                reaction_ms=greeting_ms if greeting else NO_REACTION, theme=self.character_theme)
             avatar = avatar.resize((256, 256), Image.Resampling.NEAREST)
             avatar = ImageEnhance.Brightness(avatar).enhance(min(1.0, phase / 2150))
             image.paste(avatar, (105, 72))
@@ -2594,8 +2977,6 @@ class DeviceStudioWindow:
     # Original source and drawing failures remain visible in the existing status surface.
     def tick(self):
         now = time.monotonic()
-        if self.local_timer.observe(now) and self.route == "widgets" and not self.event_visible:
-            self.open_local_timer()
         self.info.observation = SystemInfoObservation(studio_uptime_seconds=int(now - self.started_at))
         try:
             snapshot, code = self.observe()
@@ -2634,7 +3015,9 @@ class DeviceStudioWindow:
             self.canvas.coords(self.image, self.layout.left, self.layout.top)
             self.canvas.itemconfigure(self.image, image=self.photo)
             self.acknowledged = tuple(self.targets)
-        animated = self.boot or self.birth_preview_started_at is not None or self.screensaver.active or (self.route == "mascot" and not self.standby)
+        animated = (self.boot or self.birth_preview_started_at is not None or self.screensaver.active or
+                    self.event_reaction_until > now or
+                    ((self.route == "mascot" or self.idle_display_override == "muse") and not self.standby))
         self.timer = self.root.after(40 if animated else 100, self.tick)
 
     def point(self, event):
@@ -2654,13 +3037,20 @@ class DeviceStudioWindow:
 
     # self: Preview input owner; a screensaver-dismiss touch cannot trigger hidden controls.
     # event: Tk pointer event transformed into the logical device coordinate system.
+    # Exception: Propagates pointer transformation and preview input errors.
     def press(self, event):
         point = self.point(event)
         self.gesture = None
+        if self.event_reaction_until > time.monotonic():
+            if point is not None:
+                self.event_reaction_until = 0.0
+                self.screensaver_idle_since = time.monotonic()
+            return
         if self.boot is not None or self.birth_preview_started_at is not None or self.standby:
             return
         if point is not None:
             self.screensaver_idle_since = time.monotonic()
+            self.idle_applied = False
         if point is not None and self.screensaver.active:
             self.screensaver.active = False
             self.last_navigation = time.monotonic()
@@ -2669,8 +3059,9 @@ class DeviceStudioWindow:
             self.acknowledged = ()
             return
         if point is not None:
-            self.gesture = (self.route, self.page, self.visibility_page, self.options_page,
-                            self.quick_guide_page, point, self.displayed_rotation(), self.event_visible)
+            self.gesture = (self.route, self.page, self.options_page,
+                            self.quick_guide_page, point, self.displayed_rotation(), self.event_visible,
+                            self.counter_page, self.counter_pages)
             if point[1] < 73:
                 # The top edge belongs to the global Home gesture, not a control below it.
                 self.touch = None
@@ -2681,14 +3072,15 @@ class DeviceStudioWindow:
             self.events.press(point, self.observe()[0], self.endpoint)
         elif point is not None:
             name, _ = self.action_at(point)
-            self.touch = (self.route, self.page, self.visibility_page, point, name)
+            self.touch = (self.route, self.page, point, name)
             self.touch_pressed_at = self.last_navigation = time.monotonic()
 
     # self: Preview input owner retaining the original gesture identity.
     # event: Tk pointer sample in the same transformed device coordinate system.
+    # Exception: Propagates pointer transformation and preview input errors.
     def drag(self, event):
         point = self.point(event)
-        if self.gesture is not None and self.gesture[5][1] < 73:
+        if self.gesture is not None and self.gesture[4][1] < 73:
             return
         if self.event_visible:
             if point is not None:
@@ -2697,7 +3089,7 @@ class DeviceStudioWindow:
         elif self.touch is not None:
             if point is not None:
                 self.last_navigation = self.screensaver_idle_since = time.monotonic()
-            origin = self.touch[3]
+            origin = self.touch[2]
             if point is None or sum((end - start) ** 2 for start, end in zip(origin, point)) >= 144:
                 self.touch = None
 
@@ -2713,10 +3105,11 @@ class DeviceStudioWindow:
         self.last_navigation = self.screensaver_idle_since = time.monotonic()
         try:
             if gesture is not None:
-                route, page, visibility, options, guide, origin, rotation, event_visible = gesture
-                unchanged = (route, page, visibility, options, guide, rotation, event_visible) == (
-                    self.route, self.page, self.visibility_page, self.options_page,
-                    self.quick_guide_page, self.displayed_rotation(), self.event_visible)
+                route, page, options, guide, origin, rotation, event_visible, counter_page, counter_pages = gesture
+                unchanged = (route, page, options, guide, rotation, event_visible, counter_page, counter_pages) == (
+                    self.route, self.page, self.options_page,
+                    self.quick_guide_page, self.displayed_rotation(), self.event_visible,
+                    self.counter_page, self.counter_pages)
                 dx, dy = point[0] - origin[0], point[1] - origin[1]
                 if origin[1] < 73:
                     if unchanged and dy >= 60 and dy * 2 > abs(dx) * 3:
@@ -2727,8 +3120,16 @@ class DeviceStudioWindow:
                     return
                 if unchanged and not self.event_visible and abs(dx) >= 48 and abs(dx) * 2 > abs(dy) * 3:
                     step = 1 if dx < 0 else -1
-                    if self.counter_mode_enabled and self.route in ("mascot", "widgets") and not self.about_from_options:
-                        self.counter_page = (self.counter_page + step) % 3
+                    if self.quick_menu_open:
+                        self.back()
+                        return
+                    if self.idle_display_override == "muse":
+                        return
+                    if self.idle_display_override == "counters" or (self.idle_display_override != "muse" and
+                            (self.quick_counters_open or (self.counter_mode_enabled and self.route in ("mascot", "widgets") and not self.about_from_options))):
+                        if self.counter_pages and self.counter_page in self.counter_pages:
+                            index = self.counter_pages.index(self.counter_page)
+                            self.counter_page = self.counter_pages[(index + step) % len(self.counter_pages)]
                         return
                     if self.route == "options":
                         page = self.options_page + step
@@ -2740,11 +3141,35 @@ class DeviceStudioWindow:
                     if self.route == "quick_guide":
                         self.move_quick_guide(step)
                         return
+                    if self.route == "character_themes":
+                        page = self.character_theme_page + step
+                        if 0 <= page < 2:
+                            self.character_theme_page = page
+                            self.touch = None
+                            self.targets.clear()
+                            self.acknowledged = ()
+                        elif step < 0:
+                            self.back()
+                        return
+                    if self.route == "model_prices" and self.model_price_selected is None:
+                        pages = (len(configured_price_models()) + 2) // 3
+                        page = self.model_prices_page + step
+                        if 0 <= page < pages:
+                            self.model_prices_page = page
+                            self.touch = None
+                            self.targets.clear()
+                            self.acknowledged = ()
+                        elif step < 0:
+                            self.back()
+                        return
                     if self.route == "display" and step > 0:
                         self.open("display_rings")
                         return
                     if self.route == "display_rings" and step > 0:
                         self.open("display_time")
+                        return
+                    if self.route == "behavior" and step > 0:
+                        self.open("more_behavior")
                         return
                     if self.route == "more_behavior" and step > 0:
                         self.open("behavior_more")
@@ -2758,14 +3183,14 @@ class DeviceStudioWindow:
                             self.wifi_network_scroll_elapsed = 0.0
                             self.wifi_network_scroll_last_draw = None
                         return
-                    if self.route in ("visibility", "widgets"):
+                    if self.route == "widgets":
                         self.move(step)
                         return
                     if self.route is WifiSetupRoute.HOME_INTRO and step > 0:
                         self.open(WifiSetupRoute.HOME_PAIR)
                         return
-                    if step < 0 and self.route in ("display", "display_rings", "display_time", "behavior", "more_behavior", "behavior_more", "quiet_hours", "quiet_editor", "synth_voice",
-                                                  "connections", "timer", "restart", "factory_reset",
+                    if step < 0 and self.route in ("display", "display_rings", "display_time", "behavior", "more_behavior", "behavior_more", "quiet_hours", "quiet_editor", "synth_voice", "alarms", "idle_display", "third_party", "model_prices", "personalization",
+                                                  "connections", "restart", "factory_reset",
                                                   WifiSetupRoute.INSTALL_APP, WifiSetupRoute.HOME_PLATFORM_QR,
                                                   WifiSetupRoute.HOME_PAIR):
                         self.back()
@@ -2773,9 +3198,9 @@ class DeviceStudioWindow:
             if self.event_visible:
                 self.events.release(point, self.observe()[0], self.endpoint)
                 return
-            if not touch or touch[:3] != (self.route, self.page, self.visibility_page):
+            if not touch or touch[:2] != (self.route, self.page):
                 return
-            _, _, _, origin, pressed = touch
+            _, _, origin, pressed = touch
             if sum((end - start) ** 2 for start, end in zip(origin, point)) >= 144:
                 return
             name, action = self.action_at(point)

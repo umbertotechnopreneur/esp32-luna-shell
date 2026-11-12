@@ -85,9 +85,10 @@ function Assert-WakeWordVariant {
 # ProjectRoot is the checkout owning the reviewed partition table and model.
 # Feature is the explicit selector; a mismatched cached configuration is rejected.
 # Board identifies the physical board whose partition table must be selected.
+# Profile identifies the product whose voice-input contract is selected.
 # Throws for leaked engine/model selection, missing PSRAM capabilities or renderer-core overlap.
 function Assert-WakeWordConfiguration {
-    param([string]$SdkconfigText, [string]$ProjectRoot, [string]$Feature,
+    param([string]$SdkconfigText, [string]$ProjectRoot, [string]$Feature, [string]$Profile,
         [ValidateSet('waveshare-esp32s3-touch-amoled-1.75','waveshare-esp32s3-touch-amoled-1.75c')]
         [string]$Board = 'waveshare-esp32s3-touch-amoled-1.75')
 
@@ -98,8 +99,8 @@ function Assert-WakeWordConfiguration {
         LUNASHELL_BUILD_WAKE_WORD_SOPHIA = $wakeEnabled
         LUNASHELL_BUILD_WAKE_WORD_STANDBY_LISTENING = $wakeEnabled
     }
-    # The selected wake-word profile is a local wake-only experience.
-    $expectedFlags.LUNASHELL_BUILD_ENABLE_VOICE_INPUT = $false
+    # Only Cody's wake-word variant admits voice capture and PC handoff.
+    $expectedFlags.LUNASHELL_BUILD_ENABLE_VOICE_INPUT = $wakeEnabled -and $Profile -ceq 'cody-companion'
     if ($wakeEnabled) {
         $expectedFlags.LUNASHELL_BUILD_ENABLE_POWER_INPUTS = $true
         $expectedFlags.LUNASHELL_BUILD_VOICE_CAPTURE_AVAILABLE = $true

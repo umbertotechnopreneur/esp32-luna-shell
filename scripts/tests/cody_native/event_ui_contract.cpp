@@ -19,6 +19,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <initializer_list>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -489,8 +490,8 @@ void check_reply_ready_notice()
             "typed reply readiness uses a readonly notification route");
         auto scene = prepare(Route::CodexNotice, SceneId::CodexNotice);
         require(std::string(scene.title.text.characters, scene.title.text.length) == "Chat waiting" &&
-            scene.title.color == 0x5FF9 && scene.title.origin.y == 150,
-            "one mint Chat waiting headline replaces From Codex");
+            scene.title.origin.y == 150,
+            "one Chat waiting headline replaces From Codex");
         require(s_view.line_count >= 2 && s_view.line_count <= 4,
             "complete bounded chat title and one subordinate context line fit the notice");
         std::string displayed_title;
@@ -531,8 +532,18 @@ void check_reply_ready_notice()
         std::vector<uint16_t> full(466U * 466U);
         require(draw_scene_rows(scene, {full.data(), 466, 466, 466, static_cast<uint32_t>(full.size())}, 0, 0) == ESP_OK,
             "the complete reply-ready view draws through the native production compositor");
-        require(std::find(full.begin(), full.end(), 0x5FF9) != full.end(),
-            "the mint headline is present in actual native pixels");
+        const uint16_t heading_colors[] = {Theme::text_heading_gradient_0, Theme::text_heading_gradient_1,
+            Theme::text_heading_gradient_2, Theme::text_heading_gradient_3, Theme::text_heading_gradient_4,
+            Theme::text_heading_gradient_5, Theme::text_heading_gradient_6};
+        bool heading_visible = false;
+        for (uint16_t y = scene.title.bounds.y; y < scene.title.bounds.y + scene.title.bounds.height; ++y) {
+            for (uint16_t x = scene.title.bounds.x; x < scene.title.bounds.x + scene.title.bounds.width; ++x) {
+                const uint16_t pixel = full[y * 466U + x];
+                heading_visible = heading_visible || std::find(std::begin(heading_colors),
+                    std::end(heading_colors), pixel) != std::end(heading_colors);
+            }
+        }
+        require(heading_visible, "the shared violet headline is present in actual native pixels");
         const auto &first_title_line = s_view.lines[0];
         const auto dot_center_x = first_title_line.origin.x - P::kChatWaitingDotGap - P::kChatWaitingDotSize / 2;
         const auto dot_center_y = first_title_line.origin.y + first_title_line.font->height / 2;

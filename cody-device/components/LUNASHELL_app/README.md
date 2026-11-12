@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Luna app
 
 Full diagnostic UI on Brookesia System Core and declarative GUI documents.
@@ -25,3 +27,7 @@ shell has its own source list and does not adopt document lifecycle ownership.
 See [display/touch](../../../docs/bsp/core/display-touch-runtime.md),
 [snapshots](../../../docs/bsp/core/device-snapshot.md) and
 [pairing](../../../docs/bsp/services/connectivity-pairing.md).
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

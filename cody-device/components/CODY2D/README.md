@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # CODY2D
 
 Small RGB565 raster, path, text and control primitives for standalone Cody.
@@ -31,7 +33,7 @@ Consumers own surfaces, images, touch samples and display transfers.
 
 Dirty planning, OOBE and display submission belong to consumers. The companion
 can raster directly into panel byte order; this does not establish a measured
-CPU/FPS improvement. See [Cody rendering](../../../docs/cody/rendering.md).
+CPU/FPS improvement. See [Cody rendering](../../../docs/cody/runtime.md#experiments-and-source).
 
 ## Provenance
 
@@ -41,3 +43,7 @@ derive from the user-owned `esp32_biagio_animatro` component in
 `src/esp32_biagio_animatro_rgb565.cpp`). CODY2D adds explicit capacity, strict
 bounds, fixed quantization and bounded path/text/control/RLE operations.
 Biagio artwork, robot rig, face state machine and animation engine are not imported.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Leg Edition motion cues
 
 These are original, short notification cues synthesized with FFmpeg. They are
@@ -16,3 +18,7 @@ The current firmware synthesizes the equivalent cues on demand to avoid SD
 read races while the storage service owns mount/unmount. The WAVs are not yet
 loaded from the SD card. They are movement reminders, not a calibrated
 weight-bearing or medical-safety alarm.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

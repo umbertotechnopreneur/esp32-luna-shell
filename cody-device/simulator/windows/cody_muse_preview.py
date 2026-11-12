@@ -52,6 +52,9 @@ class NativeMusePreview:
         self.reset_native = library.cody_host_muse_reset
         self.reset_native.argtypes = (ctypes.c_uint32,)
         self.reset_native.restype = None
+        self.theme_native = library.cody_host_muse_theme
+        self.theme_native.argtypes = (ctypes.c_uint32,)
+        self.theme_native.restype = None
         self.reset_motion_native = library.cody_host_muse_motion_reset
         self.reset_motion_native.argtypes = ()
         self.reset_motion_native.restype = None
@@ -100,8 +103,10 @@ class NativeMusePreview:
     # self: Studio owner calling the native renderer from its serialized UI thread.
     # time_ms: Active animation time since startup.
     # reaction_ms: Time since the last accepted touch, or NO_REACTION.
+    # theme: Stable Studio character theme ID; unknown IDs use Classic.
     # Raises RuntimeError if the production renderer rejects the output surface.
-    def image(self, time_ms, reaction_ms=NO_REACTION):
+    def image(self, time_ms, reaction_ms=NO_REACTION, theme=0):
+        self.theme_native(theme)
         error = self.render(time_ms, reaction_ms, self.pixels, len(self.pixels))
         if error:
             raise RuntimeError(f"Muse avatar raster rejected: esp_err_t=0x{error & 0xffffffff:08x}")
@@ -128,13 +133,15 @@ class NativeMusePreview:
     # gaze_x: Authored horizontal gaze from -1 to 1.
     # gaze_y: Authored vertical gaze from -1 to 1.
     # eye_openness: Authored eye openness from zero to one.
+    # theme: Stable Studio character theme ID; unknown IDs use Classic.
     # Raises RuntimeError for invalid native selectors or composition values.
     def face_image(self, pose, time_ms, pose_ms, left_eye=MuseEyeStyle.AUTOMATIC,
                    right_eye=MuseEyeStyle.AUTOMATIC, mouth=MuseMouthStyle.AUTOMATIC,
                    talking_openness=0.5, symbol=0, reaction_ms=NO_REACTION,
                    audio_level=0.0, working=False, body_x=0.0, body_y=0.0,
                    left_hand_x=0.0, left_hand_y=0.0, right_hand_x=0.0, right_hand_y=0.0,
-                   gaze_x=0.0, gaze_y=0.0, eye_openness=1.0):
+                   gaze_x=0.0, gaze_y=0.0, eye_openness=1.0, theme=0):
+        self.theme_native(theme)
         error = self.render_face(pose, time_ms, pose_ms, reaction_ms, audio_level, int(working),
                                  DISPLAY_SIZE, self.pixels, len(self.pixels), left_eye, right_eye,
                                  mouth, talking_openness, symbol, body_x, body_y,

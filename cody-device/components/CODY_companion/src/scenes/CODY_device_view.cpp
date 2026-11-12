@@ -50,7 +50,6 @@ constexpr uint16_t kDivider = Theme::dashboard_track;
 constexpr DamageRect kOverviewBounds{73, 79, 393, 380};
 constexpr CODY2D::Rect kOverviewHeading{73, 79, 320, 58};
 constexpr CODY2D::Rect kOverviewChat{73, 291, 320, 28};
-constexpr CODY2D::Rect kOverviewRecord{103, 330, 260, 50};
 
 struct OverviewRowLayout {
     const char *label;
@@ -347,7 +346,7 @@ esp_err_t prepare_device_home(DeviceView &view, DeviceFrameContent &frame, const
     }
 
     bool same = overview.valid && overview.battery_level == level && overview.chat == chat &&
-        overview.record.enabled == data.voice_ready;
+        !overview.record.enabled;
     for (size_t index = 0; same && index < overview.rows.size(); ++index) {
         const auto &row = overview.rows[index];
         same = row.icon == statuses[index].icon && row.color == statuses[index].color &&
@@ -387,8 +386,6 @@ esp_err_t prepare_device_home(DeviceView &view, DeviceFrameContent &frame, const
     }
     if (error == ESP_OK) error = prepare_line(overview.chat.data(), SceneData::body_font,
         kOverviewChat, kMuted, overview.chat_line);
-    if (error == ESP_OK) error = prepare_action(data.voice_ready ? "Record voice" : "",
-        kOverviewRecord, true, overview.record);
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Device overview layout failed (%s)", esp_err_to_name(error));
         return error;
@@ -635,7 +632,7 @@ esp_err_t prepare_device_dashboard(DeviceView &view, DeviceFrameContent &frame,
         return prepare_token_history(interval, data.intervals, title_font, body_font, view.history, frame.content, &data.history_local);
     }
     if (screen == WidgetScreen::Reset) {
-        const bool saved = data.saved.weekly_observed_utc > 0;
+        const bool saved = device_saved_page_epoch(data, screen) > 0;
         return view.countdown.prepare(saved ? data.saved.weekly : data.weekly, data.clock, now_us,
             title_font, body_font, frame.content, &data.reset_local, saved);
     }

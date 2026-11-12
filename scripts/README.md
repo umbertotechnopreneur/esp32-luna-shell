@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Development console
 
 Use `scripts/device.ps1` from PowerShell at the repository root for firmware,
@@ -176,8 +178,8 @@ and the [CCP guide](../cody-desktop/plugins/cody-codex-plugin/README.md) for ins
 Ordinary firmware leaves TTS disabled. `-Feature tts-sd` selects English,
 Italian, Mandarin and Cantonese on microSD; `-Feature tts-flash` embeds English.
 Both remain available for `full` with isolated configuration, build output and
-dependencies. The Cody device panel rejects these speech-synthesis selections;
-its current `-Feature wake-word` configuration provides Sophia wake only.
+dependencies. The Cody `-Feature wake-word` configuration combines Sophia,
+English flash speech and voice capture for handoff to the paired PC.
 
 `tts-sd` enables the diagnostic `CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN`: after
 mandatory startup, it queues one fixed Italian phrase dated 5 October 2026.
@@ -252,7 +254,7 @@ build files use a private per-operation directory and are removed at exit.
 Verify the official source and version of new external build inputs before use.
 The release workflow and actual Azure runtime and SMB behavior still need
 acceptance. An HTTP check requires separate authorization and reports its
-execution host. [Remote integration](../docs/cody/remote-integration.md)
+execution host. [Remote integration](../docs/cody/runtime.md#remote-connections)
 
 ## PDF authoring
 
@@ -328,3 +330,7 @@ reparse points. Close active simulators/monitors before another writer.
 Versioned `assets/**/generated` and downloaded `managed_components/` are inputs.
 Default outputs are `artifacts/logs/<action>.log`, `artifacts/serial/capture.log`
 and `artifacts/reports/size.<format>`.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

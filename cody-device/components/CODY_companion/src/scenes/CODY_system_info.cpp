@@ -1,4 +1,5 @@
 #include "CODY_system_info.hpp"
+#include "CODY_screen_content.hpp"
 #include "CODY_title_style.hpp"
 #include "CODY_typography.hpp"
 #include "CODY_theme_generated.hpp"
@@ -438,7 +439,11 @@ esp_err_t draw_icon(const View &view, CODY2D::Surface strip, uint16_t first_row,
     if (first_row >= bounds.y + bounds.height || first_row + strip.height <= bounds.y ||
         first_column >= bounds.x + bounds.width || first_column + strip.width <= bounds.x) { return ESP_OK; }
     if (view.values.page == InfoPage::Firmware) {
-        return CODY2D::draw_action_icon_rows(CODY2D::ActionIcon::Gear, bounds, kCyan, strip, first_row, first_column);
+        ScreenHeader header{};
+        header.icon = CODY2D::ActionIcon::Gear;
+        header.icon_bounds = bounds;
+        header.icon_color = kCyan;
+        return ScreenContent::draw_decoration(header, strip, first_row, first_column);
     }
     struct Segment { uint8_t x1, y1, x2, y2; };
     // Authored 24-pixel outlines reuse the native antialiased stroke raster.
@@ -533,17 +538,16 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
 
 // view: Prepared persistent page owner.
 // content: Receives only immutable callback data and its presentation revision.
+// Exception: Preserves native caption preparation errors.
 esp_err_t attach_content(const View &view, SceneContent &content)
 {
-    content = {};
-    content.bounds = kBounds;
-    content.state = &view;
-    content.revision = view.revision;
-    content.draw_rows = draw_rows;
-    if (view.values.page == InfoPage::VibeWare) return ESP_OK;
-    const auto &line = view.captions[0].line;
-    return prepare_styled_title(line.text,
-        {static_cast<uint16_t>(view.icon_bounds.x + 38), 79, line.bounds.width, 46}, content.heading, 3, true);
+    ScreenHeader header{};
+    if (view.values.page != InfoPage::VibeWare) {
+        const auto &line = view.captions[0].line;
+        header.title = line.text;
+        header.title_bounds = {static_cast<uint16_t>(view.icon_bounds.x + 38), 79, line.bounds.width, 46};
+    }
+    return ScreenContent::attach(content, kBounds, &view, view.revision, draw_rows, header);
 }
 
 } // namespace

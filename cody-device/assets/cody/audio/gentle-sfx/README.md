@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Cody gentle SFX listening candidates
 
 Ten short excerpts from the local SONY Loops archive: one eye-close candidate
@@ -52,3 +54,7 @@ not an independent inspection of the licence documents; the previous precautiona
 asset-commit block is removed. Use selected Cody assets under the package terms.
 Repository licensing does not relicense the external source sample packs.
 These ten candidates still require a listening review and have no firmware trigger.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

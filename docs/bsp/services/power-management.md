@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Power acquisition, standby and wake
 
 The power owner controls inactivity and resource transitions. Optional services
@@ -252,7 +254,8 @@ rechecks link/setup/input state before stopping services. This transaction close
 radios without deleting pairing and ignores movement and queued Codex-notification
 wake. The wake-word build retains Sophia listening during this software standby;
 otherwise voice acquisition pauses. Touch, Power or a fresh Sophia detection when
-enabled restores ordinary ownership. The wake-only build never starts dictation.
+enabled restores ordinary ownership. The Cody wake-word variant also enables
+voice capture and handoff; the full Luna wake-word variant remains wake-only.
 An already dark
 standby can shed its retained services at the same deadline without a visible
 farewell. Active-state recovery grants a fresh grace period, and transition errors
@@ -376,3 +379,7 @@ The [Waveshare power reference](../boards/waveshare-esp32s3-touch-amoled-1.75/po
 records datasheet ranges and shared rails. Disabling GNSS firmware does not
 disconnect its supply. Standby, wake and board current require physical acceptance
 for the selected build mode.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

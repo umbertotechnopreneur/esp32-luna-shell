@@ -1,4 +1,10 @@
-# Cody layout on the Waveshare round display
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
+# Cody screen layout
+
+**VibeWare · Cody Companion**
+
+**Author:** Umberto Giacobbi · **Created:** 2026-10-11 · **Updated:** 2026-11-13 · **Revision:** 1.0
 
 Use the [Cody design system](design-system.md) for the shared palette,
 typography, menu and navigation conventions.
@@ -12,6 +18,13 @@ describe the current 466 x 466 adapter; they are not requirements of every futur
 
 Software standby blanks the display while the device model retains the current
 route. Logical placement, clipping and wake use the selected orientation.
+
+The onboarding button guide places its 136 x 136 button-press illustration at
+(237,145), beside seven short BOOT and PWR instruction rows beginning at
+(93,130). The image and captions stay within the safe square; page marks and
+the optional Skip tour action retain their existing lower positions. Voice-input
+builds describe the BOOT hold as voice input, and other builds describe Settings.
+Physical legibility and touch behavior remain to be verified.
 
 Use the central [73,393) square as a baseline. Expand into the circle only with
 local-chord admission of artwork, controls and complete hit bounds. Keep QR
@@ -39,10 +52,9 @@ no typewriter timing or character audio.
 | Connections actions | 54-pixel glyphs at (148,219) and (318,219), with 140 × 168 touch areas |
 | Check relay, when configured | Text-only footer at (123,366,220,52). The latest check replaces the Connections hint at y=136. |
 | Options and category rows | Up to four rows at x=93, width 280, height 56, y=130/188/246/304. Destinations and settings use flat rows with semantic icons and separators. |
-| Visible screens | Three rows at x=93, width 280, height 72, y=130/210/290, with the name and visibility stacked and page/save status below |
-| Options menu | Swipe between pages; lateral Back on the first page returns to the opening route |
+| BOOT quick menu | Four separate icon-and-label targets arranged radially for Settings, Events, Counters and About |
+| Options menu | Swipe between pages; page marks show the current position |
 | Restart / factory reset confirmation | Cancel at (93,250,280,56), confirmation at (93,310,280,56); both use icon-and-separator rows |
-| Visibility toggle | (113,226,240,52) |
 | Ordinary single action | (113,352,240,72) |
 | Compact Skin footer | (123,390,220,44) |
 | Numbered reply / pending-question rows | (73,256,320,60) and (73,328,320,60) |
@@ -53,20 +65,20 @@ Coverage is clipped to the rounded control; complete hit bounds remain admitted.
 
 Device-first Options uses named Tools, Preferences and Device pages with three
 page marks below the rows. Section headings use a distinctive pixel font;
-long destination labels can occupy two lines. Destinations and settings share
+long destination labels are ellipsized on one line. Destinations and settings share
 flat icon-and-divider rows. Behavior and Display show the canonical setting
-value on the second line. Actions such as About, More, Replay intro, Synth Voice
+value on the second line. Actions such as About, Replay intro, Synth Voice
 and Retry use the same rows. Restart and factory reset retain separate confirmation
 screens; their choices are admitted only after a complete released touch.
 Other known multipage views use the same page marks; the dashboard uses compact
 marks below its content. Cursor-based views do not invent an unknown page count.
 
-**Preferences > Display > More... > Replay intro** schedules the Muse birth
+**Preferences > Display**, swipe to the next page, then **Replay intro** schedules Cody's birth
 introduction for the next restart. A confirmed write changes the row to
 **Next restart**. This action preserves settings and pairing, and does not
 restart the device. A failed write is shown with an explicit retry action.
 
-**Preferences > Behavior > More behavior > More... > Quiet hours** controls
+**Preferences > Behavior**, swipe to the third page, then **Quiet hours** controls
 the saved quiet-hours switch, start and end in local wall time. Selecting an
 endpoint opens an editor: tap the left or right half of the Hour or Minute row
 to decrement or increment that component, then select Save. Minutes have
@@ -114,7 +126,7 @@ Firmware and Studio use the same native color policy. Device-first presents a
 complete frame; the legacy Studio inspector retains its animated reveal.
 
 A typed `ReplyReady` notification uses the compact character at (233,92), scale
-42, and one mint `Chat waiting` headline at y=150. The originating chat's complete
+42, and one violet `Chat waiting` headline at y=150. The originating chat's complete
 bounded title occupies up to three body rows at y=214/242/270. A red dot sits
 beside its first line and appears with that line. When its owner has
 no admitted title, the body says `Open the other chat in Codex`; it never repeats
@@ -166,7 +178,7 @@ cleanup path before leaving. The setup journey has no Home icon. Status and
 lateral navigation on other pages reappear on touch or measured motion.
 The compact status uses actual clock, Wi-Fi RSSI, Bluetooth and battery observations;
 its numeric battery percentage can be suppressed by the renderer, with a settings
-control deferred. When Counter mode is off, Muse remains full-size on Home;
+control deferred. When Counter mode is off, Cody remains full-size on Home;
 when enabled, Counter mode presents its three data pages instead.
 
 The existing recovery entry retains the prior device-first pairing screens below.
@@ -240,7 +252,7 @@ Codex command footer. Returning devices resume Home during optional connection
 failure, and an explicit Later choice completes first setup through the settings
 owner. Setup and pending remote questions retain their routes.
 
-The selected [context-arc proposal](ui-proposals/20261014/02-context-arc.png)
+The selected context-arc proposal
 is implemented with native text and antialiased strokes. The dashboard damage
 envelope is (40,268)-(426,393); actual ink follows the local circular chords,
 not the entire enclosing rectangle. Tokens show a large Free value, secondary
@@ -357,14 +369,6 @@ The amber `Saved` timestamp uses UTC. The saved percentage remains a historical
 value, and the live perimeter requires a current weekly observation. An expired
 window requires a fresh reset observation before showing a new countdown.
 
-## Local timer
-
-Options opens Timer with a large minutes and seconds readout. The duration
-controls occupy two 154 x 60 touch areas at y=247. Sound and Start use the same
-pair at y=321. Running and finished timers use a centered 240 x 60 touch area for
-the Cancel or OK text action. The lateral Back target returns to the previous view. The
-finished page distinguishes a pending, muted or unavailable alarm.
-
 ## Codex statistics
 
 The two graphite lateral chevrons reuse the Settings targets at (10,203) and
@@ -439,7 +443,7 @@ to VibeWare.
 
 ## Optional screensaver
 
-Options > Behavior > More behavior contains the Screensaver setting, initially
+Options > Behavior, on the second swipe page, contains the Screensaver setting, initially
 Off, and a row opening Synth Voice. Availability of speech controls depends on
 the selected firmware feature; see [navigation](navigation.md#dashboard-and-options).
 After
@@ -505,3 +509,7 @@ scene fonts keep their fixed advances. No bitmap regeneration or new font import
 is required for this spacing change. Source preparation does not establish
 physical quality. Rendering and retired-frame damage include old/new content
 and action bounds.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

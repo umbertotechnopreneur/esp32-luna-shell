@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Expensive model notification
 
 The short plink comes from **Kenney, Interface Sounds 1.0**, `Audio/pluck_001.ogg`,
@@ -26,3 +28,7 @@ Panel rotation, taps and temporary source loss do not create another event.
 Playback keeps the existing volume, quiet-hours, recording and busy admission.
 Digital asset checks and host playback do not prove physical speaker volume
 or successful audible delivery.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

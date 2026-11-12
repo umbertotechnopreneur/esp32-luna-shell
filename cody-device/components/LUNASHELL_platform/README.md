@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # LUNASHELL_platform
 
 Hardware acquisition and shared device services. Consumers read measured state
@@ -19,3 +21,7 @@ Public headers stay in `include/`. Root CMake, Kconfig and the component manifes
 retain the existing feature gates and component identity. Disabled-feature
 implementations live beside their owners; BSP, managed dependencies and generated
 assets are outside this source tree.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

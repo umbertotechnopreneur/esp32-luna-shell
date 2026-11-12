@@ -14,6 +14,7 @@ enum class PetCue : uint32_t {
     Tap = 0x50450004U,
     Jump = 0x50450005U,
     Surprise = 0x50450006U,
+    FirstBootMelody = 0x50450007U,
 };
 
 struct PetAudioClip {

@@ -1,12 +1,13 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Optional wake-on-word
 
 The shared Luna platform can recognize **Sophia** locally with ESP-SR 2.4.6
 and `wn9_sophia_tts_v1`. Jarvis (`wn9_jarvis_tts`) and Computer
 (`wn9_computer_tts`) are packaged but inactive; there is no user selector.
-The power owner wakes a settled software standby. The current wake-word build
-selects wake-only operation: it does not start one-way voice capture or Codex
-dictation. The separate voice-input implementation remains available for a
-future build configuration; see [Cody voice input](../../cody/runtime.md#one-way-voice-input-source-increment).
+The power owner wakes a settled software standby. The Cody wake-word variant
+also includes one-way voice capture and handoff to the paired PC; the full Luna
+variant remains wake-only. See [Cody voice input](../../cody/runtime.md#one-way-voice-input-source-increment).
 The model does not recognize **Cody**, transcribe speech or accept commands.
 
 On Cody, **Preferences → Behavior → More behavior → Sofia** controls whether
@@ -23,7 +24,8 @@ Use `-Feature wake-word` with `-Profile cody-companion` or `-Profile full` throu
 folder and canonical dependency lock. Other profile/feature combinations fail
 at the catalog boundary instead of silently selecting another product.
 
-The Cody wake-word variant also selects the English flash speech synthesizer;
+The Cody wake-word variant also selects the English flash speech synthesizer and
+the Cody voice-input owner;
 the full Luna wake-word variant remains recognition-only. The Italian boot
 test stays disabled. Existing SD contents are not installed, rewritten or
 removed by selecting this firmware variant. The reviewed recognition weights
@@ -295,3 +297,7 @@ does not establish recognition accuracy, continuous listening or electrical wake
 - [Espressif AFE initialization and fetch contract](https://docs.espressif.com/projects/esp-sr/en/latest/esp32s3/audio_front_end/README.html).
 - [Espressif model partition and packing workflow](https://docs.espressif.com/projects/esp-sr/en/latest/esp32s3/flash_model/README.html).
 - [Pinned ESP-SR 2.4.6 model source](https://github.com/espressif/esp-sr/tree/cfdbb52172d4f1b3e5f7469d6c3c6e5dd0738143/model/wakenet_model).
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

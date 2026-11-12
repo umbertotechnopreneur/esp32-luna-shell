@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Canonical device assets
 
 This directory is the canonical repository for assets used by the round
@@ -44,3 +46,7 @@ the additive provenance fields on the next intentional regeneration.
 
 The original external logo and SFX archives remain untouched. Only selected
 inputs are copied here so every derivative can be regenerated and audited.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

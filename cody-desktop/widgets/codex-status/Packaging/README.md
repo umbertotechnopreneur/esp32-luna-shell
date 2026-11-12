@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Local installers
 
 Source/package target: **0.4.1**. Architecture: Windows x64 / Ubuntu amd64. Packages are generated on demand and removed by an explicit clean.
@@ -53,3 +55,7 @@ Use `-WhatIf` to inspect that cleanup first. The builder uses `-KeepDeliverables
 The WiX compiler is staged temporarily as version 5.0.2; no global compiler installation or WiX 7 license settings are modified. Windows installers use deterministic component identities and a stable upgrade code. Debian packages use the documented ar/ustar format and include file checksums, dependency metadata and Unix file modes.
 
 The packages are local unsigned builds. Report package creation, Windows installation and native Ubuntu execution separately in the current task; do not retain historical validation or scan files. No native Ubuntu installation is claimed here.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

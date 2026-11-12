@@ -12,5 +12,9 @@ Cody also exposes a seeded animation reset for authored scenarios. It resets
 palette blending, gaze and blink, speech gestures and hand transitions without
 changing the default startup sequence. The seed is only for artistic behavior.
 The GCC/Clang printf annotation is guarded for the Windows Studio compiler.
+Cody exports checked semantic palette slots for its optional character themes;
+the Cody adapter recolors the copied frame after rendering. Theme zero leaves
+the upstream palette unchanged. Mode glows and original state colors remain
+owned by Muse; character appearance stays separate from the device UI palette.
 
 The bundled [Apache 2.0 license](LICENSE) applies to the imported source.

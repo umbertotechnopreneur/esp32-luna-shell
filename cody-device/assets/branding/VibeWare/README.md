@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # VibeWare boot identity
 
 The approved transparent floppy-insertion GIF is preserved unchanged in
@@ -33,3 +35,7 @@ The Windows previews use the preserved GIF, generated placement/timing and exact
 RGB565 color expansion. They remain visibly synthetic. The provided manifesto
 reference is [VibeWare manifesto](https://umbertogiacobbi.biz/vibeware/manifesto);
 its content is not quoted or inferred by this feature.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

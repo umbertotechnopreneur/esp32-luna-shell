@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Canonical device snapshot
 
 `LUNASHELL::DeviceSnapshotService` is the application boundary between physical
@@ -182,3 +184,7 @@ transitions without requiring hardware.
 BOOT release guard, canonical viewport matrix, centered route surfaces,
 circular-safe padding bindings, and expanding scroll containers without
 requiring hardware.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

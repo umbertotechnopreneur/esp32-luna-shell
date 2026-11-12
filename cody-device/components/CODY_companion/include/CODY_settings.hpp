@@ -19,15 +19,13 @@
 #include <cstdint>
 
 namespace CODY {
-struct WidgetVisibility;
-
 enum class PreferenceId : uint8_t {
     ShakeWake = 0, AutoRotate = 1, Sounds = 2, Orientation = 3, Brightness = 5,
     Dictation = 6, Screensaver = 7, SynthEnabled = 8, SynthVolume = 9, SynthVoice = 10,
     AssistantQuotaRing = 11, BatteryRing = 12, AutoTime = 13,
     PlaybackVolume = 15, MicrophoneGain = 16,
     QuietEnabled = 14, QuietStart = 17, QuietEnd = 18,
-    Sofia = 19, CounterMode = 20,
+    Sofia = 19, CounterMode = 20, WeeklyAlarm = 21, IdleMode = 22, IdleDelay = 23, EventCody = 24, Parallax = 25, CharacterTheme = 26,
 };
 
 // No parameters: loads exact persisted values, creating only genuinely absent keys.
@@ -47,21 +45,13 @@ esp_err_t reconcile_audio_preferences();
 // Exception: Returns the original NVS, codec, readback or snapshot-publication error.
 esp_err_t reconcile_audio_output_preference();
 
-// visibility: Receives the validated preference after a confirmed read or first initialization.
-// Exception: Returns the original storage error or ESP_ERR_INVALID_RESPONSE for an invalid record.
-// Call from the settings worker or startup owner.
-esp_err_t load_widget_visibility(WidgetVisibility &visibility);
-
-// visibility: Explicit visibility choice with stable screen and child masks.
-// Exception: Returns validation, storage or readback failure without repairing a rejected record.
-// Call from the settings worker or startup owner.
-esp_err_t persist_widget_visibility(const WidgetVisibility &visibility);
-
 struct OnboardingSettings {
     bool persisted_first_boot = false;
     bool force_first_boot = false;
     bool effective_first_boot = false;
     bool birth_intro_pending = false;
+    bool first_boot_music_pending = false;
+    uint8_t onboarding_tour_step = 5;
     bool setup_progress_pending = false;
 };
 
@@ -75,6 +65,14 @@ esp_err_t persist_first_boot(bool first_boot);
 // pending: Whether the first-run Muse introduction still needs to retire.
 // Exception: Returns the original write/readback error or a readback mismatch.
 esp_err_t persist_birth_intro_pending(bool pending);
+
+// pending: Whether the one-time first-boot music has yet to be admitted for an attempt.
+// Exception: Returns the original storage or readback error.
+esp_err_t persist_first_boot_music_pending(bool pending);
+
+// step: Guide pages 0..4 or 6; 5 retains its existing completed/skipped meaning.
+// Exception: Returns the original persistence or readback error.
+esp_err_t persist_onboarding_tour_step(uint32_t step);
 
 // pending: Whether the initial Wi-Fi and Codex connection milestone remains outstanding.
 // Exception: Returns the original write/readback error or a readback mismatch.

@@ -349,7 +349,8 @@
         "config/sdkconfig/v1/features/connectivity.defaults",
         "config/sdkconfig/v1/profiles/cody-companion.defaults",
         "config/sdkconfig/v1/features/wake-word.defaults",
-        "config/sdkconfig/v1/features/tts-flash.defaults"
+        "config/sdkconfig/v1/features/tts-flash.defaults",
+        "config/sdkconfig/v1/features/cody-voice-input.defaults"
       ],
       "component_roots": [
         "main",

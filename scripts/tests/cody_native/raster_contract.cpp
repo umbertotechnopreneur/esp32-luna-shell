@@ -1842,8 +1842,26 @@ void check_cost_badge_contract()
         require(CODY::draw_activity_identity(identity, tile, row, 0) == ESP_OK, "Home badge strip uses logical native coordinates");
     }
     require(full_pixels == tiled_pixels, "Home badge and timer have complete-frame/strip parity");
-    require(full_pixels[343 * size + 87] != 0 && full_pixels[343 * size + 158] != 0,
-        "the visible red chip occupies its dedicated left slot beside the compaction timer");
+    bool red_caption_visible = false;
+    bool timer_pixels_visible = false;
+    bool clear_left_margin = true;
+    for (uint16_t y = CODY::kActivityCostRowBounds.y;
+         y < CODY::kActivityCostRowBounds.y + CODY::kActivityCostRowBounds.height; ++y) {
+        for (uint16_t x = CODY::kActivityCostRowBounds.x;
+             x < CODY::kActivityCostRowBounds.x + CODY::kActivityCostRowBounds.width; ++x) {
+            const uint16_t pixel = full_pixels[y * size + x];
+            const unsigned red = (pixel >> 11U) & 31U;
+            const unsigned green = (pixel >> 5U) & 63U;
+            const unsigned blue = pixel & 31U;
+            if (x < CODY::kActivityCostRowBounds.x + CODY::kActivityCostChipWidth &&
+                red > 0 && red * 2U > green && red > blue) red_caption_visible = true;
+            if (x >= CODY::kActivityCostRowBounds.x + CODY::kActivityCostChipWidth && pixel != 0)
+                timer_pixels_visible = true;
+            if (x < CODY::kActivityCostRowBounds.x + 8U && pixel != 0) clear_left_margin = false;
+        }
+    }
+    require(red_caption_visible && timer_pixels_visible && clear_left_margin,
+        "the red cost text and timer share the row without a filled chip background");
 
     const int64_t baseline = identity.started_at_us;
     require(CODY::set_activity_model_cost(identity, CODY::SceneData::body_font, technical.model,

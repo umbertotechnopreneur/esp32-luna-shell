@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Muse typefaces
 
 Muse Gadget SDK revision d0a65abf70a99647aacea18ed8a0159a824fabe7 supplies
@@ -14,3 +16,7 @@ license is included from that release. Cody can use these sources to bake
 glyph coverage for its native CODY2D font format.
 
 On first import, verify the official source and version before use.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Pearl-jelly artwork
 
 The approved 08 / GELATINA PERLATA concept supplies the front-facing face-free
@@ -37,7 +39,7 @@ Runtime `CODY_companion_set_face_deformation()` /
 Disabling jelly excludes textures/mapping state. No sensor acquisition belongs here.
 
 Current renderer/face/damage/memory contracts:
-[rendering](../../../../../docs/cody/rendering.md).
+[rendering](../../../../../docs/cody/runtime.md#experiments-and-source).
 Selection/persistence: [onboarding](../../../../../docs/cody/navigation.md).
 40-ms scheduling and synthetic GIF playback are targets, not measured device FPS.
 Host captures, flashing and old measurements do not validate current physical
@@ -52,3 +54,7 @@ Use case: precise-object-edit. Asset type: production transparent PNG body sprit
 ### 2. Complete silhouette and padding
 
 Use case: precise-object-edit. This image is already the desired face-free pearlescent jelly cloud body. Change ONLY framing: place the COMPLETE same cloud, including every left/right lobe and both small lower feet, fully inside a square transparent canvas with at least 8 percent of canvas width as transparent margin on EACH side. Reconstruct any tiny clipped left/right edge smoothly if necessary. Do not crop any contour, edge highlight or foot. Preserve exactly the body shape, colors, large creamy highlights, aqua crown, lavender base and smooth opaque milky center. Do not add face features, cheeks, text, border, shadow, black matte or checkerboard. Real alpha transparency outside the cloud. The output is the same body sprite, safely padded for deformation.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

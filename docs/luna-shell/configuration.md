@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Board build configuration
 
 For mandatory display and touch without the Luna UI, use the dedicated
@@ -116,3 +118,7 @@ access needs explicit authorization for the requested operation.
 
 The `board-services` check covers the shell lifecycle and build cleanup.
 Hardware acceptance is tracked in [open work](../../TODO.md).
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

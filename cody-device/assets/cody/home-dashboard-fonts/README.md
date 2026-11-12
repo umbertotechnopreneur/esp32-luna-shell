@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Cody Dashboard Sans
 
 Independent Home dashboard fonts derived from the repository's Telex Regular
@@ -15,3 +17,7 @@ contains 20px printable ASCII for complete Home status headings. `value_font` co
 periods and the thousands suffix. All three use measured fixed cells and 4bpp coverage
 with the existing native renderer. Generation does not validate device rendering,
 firmware footprint or stack headroom.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

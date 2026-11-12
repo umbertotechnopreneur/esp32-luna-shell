@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # OpenAI Usage
 
 Two native desktop clients in the existing `E:/tools` repository:
@@ -152,3 +154,7 @@ Before first introducing an external library or prebuilt binary, run one explici
 - [Adwaita appearance and system preferences](https://gnome.pages.gitlab.gnome.org/libadwaita/doc/main/styles-and-appearance.html)
 
 Mockups and ImageGen prompts are design source assets. Their numbers are illustrative, not account telemetry.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

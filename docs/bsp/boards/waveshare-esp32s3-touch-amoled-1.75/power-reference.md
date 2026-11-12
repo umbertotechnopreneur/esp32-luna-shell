@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Hardware inventory: consumption and sleep wakeup
 
 The values below apply to the **Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS**
@@ -157,3 +159,7 @@ inserted card, attached TOFs, wake-source configuration and firmware identity.
 [schematic]: https://files.waveshare.com/wiki/ESP32-S3-Touch-AMOLED-1.75/ESP32-S3-Touch-AMOLED-1.75.pdf
 [resources]: https://docs.waveshare.com/ESP32-S3-Touch-AMOLED-1.75/Resources-And-Documents
 [sleep]: https://docs.espressif.com/projects/esp-idf/en/v6.0/esp32s3/api-reference/system/sleep_modes.html
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

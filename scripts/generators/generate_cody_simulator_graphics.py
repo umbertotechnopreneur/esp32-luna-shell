@@ -171,13 +171,10 @@ def main(argv=None):
             return
     # Retire provenance before rebuilding so a failed compiler cannot expose old output.
     manifest_path.unlink(missing_ok=True)
-    try:
-        result = subprocess.run(muse_command, cwd=ROOT, capture_output=True, text=True, timeout=240)
-        if result.returncode != 0:
-            raise RuntimeError(f"Muse C compilation failed ({result.returncode}):\n{result.stdout}{result.stderr}")
-        run_stage(command, output, "compile")
-    finally:
-        muse_object.unlink(missing_ok=True)
+    result = subprocess.run(muse_command, cwd=ROOT, capture_output=True, text=True, timeout=240)
+    if result.returncode != 0:
+        raise RuntimeError(f"Muse C compilation failed ({result.returncode}):\n{result.stdout}{result.stderr}")
+    run_stage(command, output, "compile")
     manifest = {"schema": "cody.host-graphics.v1", "inputs": inputs,
                 "command": commands, "library_sha256": digest(library)}
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

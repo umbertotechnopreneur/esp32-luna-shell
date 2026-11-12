@@ -2,11 +2,26 @@
 
 This file tracks open implementation and acceptance. See [planned-todo.md](planned-todo.md) for deferred work and development history. Apply [AGENTS.md](AGENTS.md) to each operation. Activating work does not authorize builds, tests, simulator runs, asset generation or device operations.
 
+## First-run tour
+
+- With separate authorization, build and verify the first-boot melody, normal
+  restart ding, sound-off and quiet-hours suppression, interrupted playback,
+  birth replay and one-shot persistence/readback failure. Measure flash and
+  audio/memory headroom; the first-boot melody is 4.6 seconds at 16 kHz mono.
+- Complete separately authorized source builds and size checks for the added
+  indexed artwork. Verify first-run and returning-device migration, page resume,
+  skip and storage failures, button instructions in both voice configurations,
+  Sofia availability, QR scanning, and navigation on the physical device.
+- The Sofia screen explains availability; an interactive recognition exercise
+  and explicit voice-preference choice are not yet implemented in the tour.
+  The button and touch pages explain the controls but do not require a practice
+  gesture or provide exercise-specific success feedback.
+
 ## Codex actions from Cody
 
 - Continue the existing Codex interaction flows described in the
-  [batched device action plan](docs/cody/codex-actions-plan.md). Voice and
-  usage-screen changes are deferred by the owner.
+  [device action direction](docs/cody/runtime.md#the-road-ahead). Voice input
+  changes remain separately scoped by the owner.
   Verify public Desktop capabilities before enabling chat input, work control
   or desktop focus; keep unsupported and unconfirmed outcomes explicit.
 - Select and audition the owner's SFX. Complete static review and separately
@@ -19,7 +34,7 @@ Work is tracked on `feat/cody-vNext`. Keep the status below aligned with the [ph
 | Phase | State and remaining work |
 | --- | --- |
 | CODY-NEXT-00 | [Screen inventory](docs/cody/screen-catalog.md) accepted at G01/G02. Route and hardware acceptance remain in 09/11. |
-| CODY-NEXT-01 | [Domain contract](docs/cody/domain-model.md) reviewed at G01/G02. Compile headers and verify memory layout and runtime behavior. |
+| CODY-NEXT-01 | Domain contract reviewed at G01/G02; see the [domain types](cody-device/components/CODY_domain/include/CODY_domain_types.hpp) and [state protocol](cody-desktop/plugins/cody-codex-plugin/protocol/CODY_STATE_V1.md). Compile headers and verify memory layout and runtime behavior. |
 | CODY-NEXT-02 | [Protocol, schema and examples](cody-desktop/plugins/cody-codex-plugin/protocol/CODY_STATE_V1.md) reviewed at G01/G02. Execute the schema, compile helpers and verify the live protocol. |
 | CODY-NEXT-14 | Portable store, firmware/host composition, Muse frame boundary and Waveshare descriptor wired. Review current-target capacity, OS boundaries and scenario integration before G01. |
 | CODY-NEXT-03 | Broker restores stable records and history under a new epoch and serves bounded state-v1 pages. Complete question correlation and executed acceptance. |
@@ -47,6 +62,18 @@ After integration and static review, obtain fresh authorization per exact comman
 
 ## Cody layout refinement
 
+- Validate the shared flat menu and screen presenters, single-line settings labels,
+  data-qualified statistics and swipe navigation on the device and in Studio.
+- Verify bounded IMU-driven parallax on Home, Cody and the BOOT menu; measure
+  readability, power and memory at each setting before enabling it by default.
+- Verify the eight Cody character themes and their saved selection at every
+  supported rotation; preserve room for future personalization options.
+- Verify weekly alarm thresholds, frame acknowledgement, sound policy, pairing
+  changes and reset behavior. A same-PC account change with the same reset cannot
+  be distinguished until an authoritative account identity is available.
+- Complete direct device refresh of the public OpenRouter reference catalog.
+  OpenRouter prices are indicative and distinct from official OpenAI prices and
+  Codex credits; retain source time, freshness and errors and do not infer fields.
 - Check Options cards, Behavior rows, saved-PC icon actions and full SSIDs at every rotation, including missing, stale and unsupported network names. Check Connections action admission, passive Wi-Fi animation and provisioning at all rotations, with a 32-byte SSID or lost IP.
 - Check Account and Token activity empty states. Exercise Credits with zero, one, equal-date and multiple-date vouchers, local midnight and vertical swipes.
 - With Sophia and double tap, verify dictation countdowns and start/send/close sounds. Exercise cancellation, destination changes, unsupported titles and repeated LAN loss before START, during PCM and temporarily after END. Confirm a real Windows WAV queue receipt.
@@ -71,10 +98,10 @@ After integration and static review, obtain fresh authorization per exact comman
 
 Confirm Dot's supported surface and stable chat/reply IDs. Persist unread state per reply in the relay, independently of delivery receipts. Show a red dot, offer explicit Mark as read on authorized surfaces and schedule quiet, rate-limited reminders. Verify new reply, device reminder and exact-reply clearance from either surface. A later reply stays unread after an earlier read or a display receipt.
 
-## Offline statistics and local timer
+## Offline statistics
 
 - With the PC off, verify saved statistics, UTC timestamp and countdown. On reconnect, check that fresh data supersedes saved data. Cover cold boot with and without valid time, expiry, pairing changes, factory reset and storage failures.
-- Verify Timer controls, background countdown, software standby wake, both alarms, quiet hours, Sounds Off and overlapping voice/audio. Confirm Restart preserves pairing, preferences and statistics and Factory reset requires confirmation.
+- Confirm Restart preserves pairing, preferences and statistics and Factory reset requires confirmation.
 
 ## Device information, effects and idle presentation
 
@@ -88,7 +115,7 @@ Confirm Dot's supported surface and stable chat/reply IDs. Persist unread state 
   measure latency, stack headroom and memory on the device when authorized.
 - Run authorized focused host checks. On the round display, verify System, Memory, Firmware, terminal project QR, CPU baseline after standby and unavailable/failed readings.
 - Verify event sounds with Sounds on/off, quiet hours, microphone failure, voice capture, standby, battery thresholds and concurrent notices. Measure stack headroom and check for duplicate or late playback after navigation/reconnect.
-- Check the optional 15-second globe, brightness pulse and pause at minimum, first-touch consumption, interruptions and dim/standby deadlines. Check Options/Visible screens during held touches and settings writes against idle display work and CPU.
+- Check the optional 15-second globe, brightness pulse and pause at minimum, first-touch consumption, interruptions and dim/standby deadlines. Check Options during held touches and settings writes against idle display work and CPU.
 - Reload the plugin and verify context across tool working directories and consecutive 15-minute account counters. Verify the Ready-gated floppy cycle and boot audio on cold boot and software restart, including quiet hours and ordinary standby wake.
 
 ## Codex reset countdown
@@ -97,7 +124,7 @@ On the board, exercise PWR standby/wake, BOOT Options, Options to Codex stats, e
 
 ## WIDGET-STATE-01 - Widget state acceptance
 
-Verify Visible screens saves, reloads and recovers from read/write failures. Skip hidden statistics pages and retain Device when all are hidden. Resume the selected page after standby or remote attention, checking arrow fade and touch cancellation on rotation/wake. Shake returns to Reset, the first enabled statistics page or Device when none are enabled. Verify Codex reconnect changes freshness independently of visibility.
+Verify statistics pages appear only with available data and retain Device when none are available. Resume the selected page after standby or remote attention, checking touch cancellation on rotation/wake. Shake returns to the first available statistics page or Device. Verify Codex reconnect updates freshness and page availability.
 
 ## Companion source selection, typography and desktop controls
 

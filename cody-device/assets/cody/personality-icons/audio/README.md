@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Cody symbol and connectivity sounds
 
 Seventeen original effects use analytic synthesis without external recordings,
@@ -40,3 +42,7 @@ Regenerate through the sole public CLI:
 
 `manifest.json` retains recipes, durations, hashes and reel offsets. Compilation,
 host checks, listening and device playback verification remain pending.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

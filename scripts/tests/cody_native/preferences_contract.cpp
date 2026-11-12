@@ -15,6 +15,7 @@
  * VBWR E */
 
 #include "CODY_settings.hpp"
+#include "LUNASHELL_clock.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_settings.hpp"
@@ -58,6 +59,10 @@ struct Fixture {
     esp_err_t publication_error = ESP_OK;
     unsigned publication_calls = 0;
     LUNASHELL::CodyOptionsObservation observation;
+    LUNASHELL::CodyIdleObservation idle;
+    LUNASHELL::CodyEventVisualObservation event_visual;
+    LUNASHELL::CodyParallaxObservation parallax;
+    LUNASHELL::CodyCharacterThemeObservation character_theme;
     LUNASHELL::CodyPreferencesSnapshot attempted_publication;
     std::string preferred_name;
     int64_t time_us = 1'000'000;
@@ -416,6 +421,36 @@ esp_err_t DeviceSnapshotService::reportCodyPreferences(const CodyPreferencesSnap
     return ESP_OK;
 }
 
+// The host projection preserves each separately published observation and the
+// same injected read/publication failures as the existing options projection.
+#define HOST_OBSERVATION(Name, Type, field) \
+    esp_err_t DeviceSnapshotService::read##Name(Type &observation) const \
+    { \
+        if (fixture.projection_error != ESP_OK) return fixture.projection_error; \
+        observation = fixture.field; \
+        return ESP_OK; \
+    } \
+    esp_err_t DeviceSnapshotService::report##Name(const Type &observation) \
+    { \
+        if (fixture.publication_error != ESP_OK) return fixture.publication_error; \
+        fixture.field = observation; \
+        return ESP_OK; \
+    }
+
+HOST_OBSERVATION(CodyIdleObservation, CodyIdleObservation, idle)
+HOST_OBSERVATION(CodyEventVisualObservation, CodyEventVisualObservation, event_visual)
+HOST_OBSERVATION(CodyParallaxObservation, CodyParallaxObservation, parallax)
+HOST_OBSERVATION(CodyCharacterThemeObservation, CodyCharacterThemeObservation, character_theme)
+#undef HOST_OBSERVATION
+
+// Clock persistence is outside this host contract. Fail closed instead of
+// fabricating a successful durable clock update.
+esp_err_t apply_remote_clock_preferences(ClockRemoteOperation, int, int, int, int,
+                                         ClockPreferences &, bool &)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 } // namespace LUNASHELL
 
 // No parameters: deterministic synthetic time for host publication ordering.
@@ -434,6 +469,23 @@ extern "C" esp_err_t LUNASHELL_audio_set_user_sounds_enabled(bool enabled)
         fixture.sounds_enabled = enabled;
     }
     return fixture.sound_error;
+}
+
+// Hardware gain and output-volume operations are outside these sound-gate
+// tests. Do not report a codec readback that the fixture did not perform.
+extern "C" esp_err_t LUNASHELL_audio_set_user_output_volume(uint8_t, uint8_t *)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+extern "C" esp_err_t LUNASHELL_audio_set_user_input_gain(uint8_t, uint8_t *)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
+extern "C" void LUNASHELL_audio_update_cody_output_policy(esp_err_t)
+{
+    // The host has no audio startup gate.
 }
 
 // enabled: Actual wake policy request made by the real settings implementation.

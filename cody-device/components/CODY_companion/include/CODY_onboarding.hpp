@@ -24,7 +24,6 @@
 
 namespace CODY {
 
-struct WidgetVisibility;
 enum class PreferenceId : uint8_t;
 
 // No parameters: create one bounded action worker before the renderer starts.
@@ -70,10 +69,21 @@ void request_saved_setup_startup();
 
 // scene: Display-owned startup frame, admitted after Wi-Fi and pairing services start.
 // first_boot: Effective local setup setting from the existing persistence owner.
-esp_err_t start_device_setup(SceneFrame &scene, bool first_boot);
+// tour_step: Persisted first-run tour page or completion, independent of connectivity setup.
+esp_err_t start_device_setup(SceneFrame &scene, bool first_boot, uint8_t tour_step);
+
+enum class OnboardingArtwork : uint8_t { None, Welcome, Sofia };
+// No parameters: current guide background, independent of sensor state.
+OnboardingArtwork onboarding_artwork();
 
 // No parameters: true when the ordinary connection or activity route can show the dashboard.
 bool onboarding_dashboard_active();
+
+// No parameters: true only on a top-level Settings menu, not a subpage.
+bool onboarding_main_menu_active();
+
+// x, y: Decorative pixel offsets; text and original touch controls remain fixed.
+void set_onboarding_menu_parallax(int8_t x, int8_t y);
 
 // No parameters: true when the native Tools menu may host a Codex child.
 bool onboarding_codex_tools_active();
@@ -136,6 +146,13 @@ esp_err_t open_companion_options(SceneFrame &scene);
 // Exception: Returns the original route or content preparation error.
 esp_err_t return_to_options_tools(SceneFrame &scene);
 
+// No parameters: opaque current options page identity for a temporary overlay.
+uint8_t onboarding_options_page_token();
+
+// scene: Restored settings route; token is a previously captured page identity.
+// Exception: Returns invalid tokens or the original route/presentation error.
+esp_err_t return_to_options_page(SceneFrame &scene, uint8_t token);
+
 // scene: Return to the Device section after opening About from Options.
 // Exception: Returns the original route or content preparation error.
 esp_err_t return_to_options_device(SceneFrame &scene);
@@ -148,7 +165,7 @@ esp_err_t open_device_dashboard(SceneFrame &scene);
 esp_err_t open_device_home(SceneFrame &scene);
 
 enum class WidgetOpenRequest : uint8_t {
-    None, Home, Statistics, Visibility, Timer, CodexBrowser, Audio, About, ReturnFromOptions
+    None, Home, Statistics, CodexBrowser, Audio, About, ThirdParty, Prices, ReturnFromOptions
 };
 
 // available: True after this device has received the broker's authenticated Events projection.
@@ -160,14 +177,6 @@ esp_err_t open_onboarding_inbox_question(const char *request_id);
 
 // No parameters: consumes one released Options selection owned by the display task.
 WidgetOpenRequest take_widget_open_request();
-
-// visibility: Exact validated draft selected by the local visibility editor.
-// Exception: Returns invalid values or mailbox/route admission errors before persistence starts.
-esp_err_t request_widget_visibility_save(const WidgetVisibility &visibility);
-
-// error: Receives the original persistence result only for the current presentation generation.
-// Unrelated mailbox results remain available to the onboarding route owner.
-bool take_widget_visibility_save_result(esp_err_t &error);
 
 // No parameters: consume one successfully changed local preference.
 bool take_preference_confirmation();

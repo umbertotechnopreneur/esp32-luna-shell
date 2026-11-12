@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Audio ownership
 
 One shared codec/transport owner handles playback, capture, standby and the voice
@@ -14,3 +16,7 @@ replayed. No extra audio task, transport owner or unbounded queue is introduced.
 
 Canonical clock policy, saved codec volume and real operation errors are preserved.
 Stubs represent audio/AFE features excluded by the selected build.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

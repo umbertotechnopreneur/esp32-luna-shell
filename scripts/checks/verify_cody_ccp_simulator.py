@@ -256,6 +256,7 @@ class SimulatorProtocolTests(unittest.TestCase):
     # Raises AssertionError for event loss, hidden counters, wrong compaction color or invented refresh.
     def test_hook_lifecycle_reaches_authenticated_native_panels(self):
         from cody_simulator import CodyRenderer
+        from cody_semantic_palette import device_rgb565
         from scripts.common.cody_rig_contract import contour_defaults
         owner = protocol.ActivityStore()
         source = Mock()
@@ -294,10 +295,17 @@ class SimulatorProtocolTests(unittest.TestCase):
             image = renderer.draw_scene(scene, debug=False, navigation_visible=False).convert("RGB")
             if elapsed_us == 9000000:
                 expected = Image.new("RGB", (466, 466), (0, 0, 0))
-                renderer.scene_painter.paint_text(expected, "Token details", 170, body=True)
-                bounds = (73, 170, 393, 195)
+                # The heading now uses the shared styled title; verify the actual
+                # data rows rather than comparing it to the old body-font title.
+                font = renderer.scene_painter.font["body_font"]
+                for row, label in enumerate(("Input 18000", "Output 432", "Total 247381")):
+                    width = (len(label) - 1) * font["advance"] + font["width"]
+                    renderer.scene_painter.paint_text(expected, label, 238 + row * 25,
+                        device_rgb565("firmware", "technical_panels", "muted"), body=True,
+                        center_x=73 + (width + 1) // 2, max_width=320)
+                bounds = (73, 238, 393, 313)
                 self.assertEqual(image.crop(bounds).tobytes(), expected.crop(bounds).tobytes(),
-                    "The active panel clock must expose the native Input/Output page")
+                    "The active panel clock must expose native Input, Output and Total rows")
             header = image.crop((73, 160, 393, 205))
             self.assertIsNotNone(header.getbbox())
             orange = sum(1 for red, green, blue in header.getdata()

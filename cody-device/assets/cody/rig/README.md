@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Cody authored rig
 
 `../cody.yaml` is the canonical front-facing character graph: named entities,
@@ -34,5 +36,9 @@ Asset preparation does not execute firmware or prove pixel/performance parity.
 their visual output is not a native implementation claim. The
 [PNG mesh study](../appearance/png-mesh/README.md) retains its own provenance.
 Current rig, response, AA, pearl and memory contracts are in
-[rendering](../../../../docs/cody/rendering.md); open evidence is in
+[rendering](../../../../docs/cody/runtime.md#experiments-and-source); open evidence is in
 [TODO](../../../../TODO.md).
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

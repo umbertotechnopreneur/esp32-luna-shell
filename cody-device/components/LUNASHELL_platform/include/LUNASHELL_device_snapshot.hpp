@@ -34,6 +34,7 @@
 #include "LUNASHELL_voice_input.hpp"
 #include "LUNASHELL_activity.hpp"
 #include "LUNASHELL_battery_endurance.hpp"
+#include "LUNASHELL_openrouter_catalog.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -945,7 +946,6 @@ enum class DeviceStateReason : uint8_t {
     Inactivity,
     CodexNotification,
     CodexOffline,
-    LocalTimer,
 };
 
 // A local reset request stays pending until reboot or a terminal failure.
@@ -1071,6 +1071,9 @@ struct CodyPreferencesSnapshot : ComponentSnapshot {
     bool counter_mode_enabled = false;
     bool counter_mode_valid = false;
     esp_err_t counter_mode_error = ESP_ERR_INVALID_STATE;
+    bool weekly_alarm_enabled = false;
+    bool weekly_alarm_valid = false;
+    esp_err_t weekly_alarm_error = ESP_ERR_INVALID_STATE;
     bool assistant_quota_ring_enabled = false;
     bool assistant_quota_ring_valid = false;
     esp_err_t assistant_quota_ring_error = ESP_ERR_INVALID_STATE;
@@ -1106,7 +1109,41 @@ struct CodyOptionsObservation {
     bool brightness_valid = false;
 };
 
+// Independent readback-confirmed idle display policy; no full options copy is required.
+struct CodyIdleObservation {
+    uint16_t delay_seconds = 0;
+    bool show_muse = false;
+    bool valid = false;
+    esp_err_t last_error = ESP_ERR_INVALID_STATE;
+};
+static_assert(sizeof(CodyIdleObservation) <= 8, "Idle policy must remain a compact projection");
+
+struct CodyEventVisualObservation {
+    bool enabled = false;
+    bool valid = false;
+    esp_err_t last_error = ESP_ERR_INVALID_STATE;
+};
+static_assert(sizeof(CodyEventVisualObservation) <= 8, "Event visual policy must remain compact");
+
+struct CodyParallaxObservation {
+    uint8_t level = 0;
+    bool valid = false;
+    esp_err_t last_error = ESP_ERR_INVALID_STATE;
+};
+static_assert(sizeof(CodyParallaxObservation) <= 8, "Parallax policy must remain compact");
+
+struct CodyCharacterThemeObservation {
+    uint8_t theme = 0;
+    bool valid = false;
+    esp_err_t last_error = ESP_ERR_INVALID_STATE;
+};
+static_assert(sizeof(CodyCharacterThemeObservation) <= 8, "Character theme must remain compact");
+
 struct DeviceSnapshot {
+    CodyIdleObservation cody_idle{};
+    CodyEventVisualObservation cody_event_visual{};
+    CodyParallaxObservation cody_parallax{};
+    CodyCharacterThemeObservation cody_character_theme{};
     BatteryEnduranceSnapshot battery_endurance;
     ActivitySnapshot activity;
     CodexEventSnapshot codex_event;
@@ -1355,6 +1392,30 @@ public:
     // observation: Coherent, bounded options projection; assigned only after a successful read.
     // Exception: Returns the original snapshot lock/release error.
     esp_err_t readCodyOptionsObservation(CodyOptionsObservation &observation) const;
+    // observation: Receives the separately published idle policy under the snapshot lock.
+    // Exception: Returns the original synchronization error.
+    esp_err_t readCodyIdleObservation(CodyIdleObservation &observation) const;
+    // observation: Settings-owner policy with independent validity and original error.
+    // Exception: Returns the original snapshot publication error.
+    esp_err_t reportCodyIdleObservation(const CodyIdleObservation &observation);
+    // observation: Receives the event-visual policy from the snapshot owner.
+    // Exception: Returns the original snapshot synchronization error.
+    esp_err_t readCodyEventVisualObservation(CodyEventVisualObservation &observation) const;
+    // observation: Readback-confirmed event-visual policy or its original error.
+    // Exception: Returns the original snapshot publication error.
+    esp_err_t reportCodyEventVisualObservation(const CodyEventVisualObservation &observation);
+    // observation: Receives the separately published parallax setting.
+    // Exception: Returns the original snapshot synchronization error.
+    esp_err_t readCodyParallaxObservation(CodyParallaxObservation &observation) const;
+    // observation: Readback-confirmed parallax level or its original error.
+    // Exception: Returns the original snapshot publication error.
+    esp_err_t reportCodyParallaxObservation(const CodyParallaxObservation &observation);
+    // observation: Receives the canonical character-theme preference.
+    // Exception: Returns the original synchronization error.
+    esp_err_t readCodyCharacterThemeObservation(CodyCharacterThemeObservation &observation) const;
+    // observation: Readback-confirmed theme or its original settings error.
+    // Exception: Returns the original snapshot publication error.
+    esp_err_t reportCodyCharacterThemeObservation(const CodyCharacterThemeObservation &observation);
     // observation: Bounded canonical interaction; no radio, sensor or transcript reads.
     // Exception: Returns the original canonical snapshot lock/read failure.
     esp_err_t readCodexEventObservation(CodexEventSnapshot &observation) const;
@@ -1392,6 +1453,16 @@ public:
     // technical: Authenticated owner-produced projection; no prompts or transcript content.
     // Exception: Returns the original canonical publication error.
     esp_err_t reportCodexTechnical(const CodexTechnicalSnapshot &technical);
+
+    // status: Bounded published OpenRouter catalog state; no catalog copy on the stack.
+    // Exception: Reports owner initialization or synchronization failure.
+    esp_err_t readOpenRouterCatalogStatus(OpenRouterCatalogStatus &status) const;
+    // generation: Previously observed generation, or zero to read the current one.
+    // offset, output, capacity: Caller-owned page of at most kOpenRouterCatalogPageMax entries;
+    // written is the copied count. Values are OpenRouter base quotes in USD per token.
+    // Exception: A changed generation is rejected so pages cannot silently mix versions.
+    esp_err_t readOpenRouterCatalogPage(uint32_t generation, size_t offset,
+        OpenRouterModelQuote *output, size_t capacity, size_t &written) const;
     // limit: Current authenticated allowance, aged against source and LAN freshness.
     // Exception: Returns the original canonical lock or release error.
     esp_err_t readCodexWeeklyLimit(CodexWeeklyLimitSnapshot &limit) const;

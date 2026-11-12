@@ -1530,7 +1530,7 @@ function Invoke-ProfileConfiguration(
     Assert-FirmwareBuildModeConfiguration `
         -SdkconfigText (Get-Content -Raw -LiteralPath $ProfileSdkconfigPath) -BuildMode $BuildMode
     Assert-WakeWordConfiguration -SdkconfigText (Get-Content -Raw -LiteralPath $ProfileSdkconfigPath) `
-        -ProjectRoot $FirmwareRoot -Feature $Feature -Board $Board
+        -ProjectRoot $FirmwareRoot -Feature $Feature -Board $Board -Profile $Profile
 }
 
 # No parameters: fingerprint the selected profile, mode, defaults and generated configuration.
@@ -1571,7 +1571,7 @@ function Get-SdkconfigDefaultsState {
     Assert-FirmwareBuildModeConfiguration `
         -SdkconfigText (Get-Content -Raw -LiteralPath $generatedSdkconfig) -BuildMode $BuildMode
     Assert-WakeWordConfiguration -SdkconfigText (Get-Content -Raw -LiteralPath $generatedSdkconfig) `
-        -ProjectRoot $FirmwareRoot -Feature $Feature -Board $Board
+        -ProjectRoot $FirmwareRoot -Feature $Feature -Board $Board -Profile $Profile
     $sdkconfigHash = (
         Get-FileHash -LiteralPath $generatedSdkconfig -Algorithm SHA256
     ).Hash.ToLowerInvariant()

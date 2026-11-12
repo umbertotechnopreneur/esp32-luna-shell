@@ -2537,6 +2537,9 @@ extern "C" esp_err_t LUNASHELL_audio_submit(const lunashell_audio_request_t *req
     const bool wave_valid = request->wave >= LUNASHELL_AUDIO_WAVE_PCM && request->wave <= LUNASHELL_AUDIO_WAVE_NOISE;
     const bool long_clip = boot || pet || (codex && request->kind == LUNASHELL_CODEX_CUE_NOTICE &&
         request->repetitions == 1);
+    // Boot presentation can own one five-second first-run melody; other cues keep their bounds.
+    const uint32_t max_clip_ms = boot ? 5000U : long_clip ? 2000U : 350U;
+    const uint32_t max_sequence_ms = boot ? 5000U : 2500U;
     const uint64_t clip_ms_units = static_cast<uint64_t>(request->sample_count) * 1000U;
     const uint64_t total_ms_units = clip_ms_units * request->repetitions +
         static_cast<uint64_t>(request->gap_ms) * (request->repetitions > 0 ? request->repetitions - 1U : 0U) *
@@ -2544,8 +2547,8 @@ extern "C" esp_err_t LUNASHELL_audio_submit(const lunashell_audio_request_t *req
     const bool sequence_valid = request->sample_rate_hz >= 8000 && request->sample_rate_hz <= 48000 &&
         request->repetitions >= 1 && request->repetitions <= 5 && request->gap_ms <= 200 &&
         (request->repetitions != 1 || request->gap_ms == 0) &&
-        (explicit_pcm || (clip_ms_units <= static_cast<uint64_t>(long_clip ? 2000U : 350U) * request->sample_rate_hz &&
-            total_ms_units <= static_cast<uint64_t>(2500U) * request->sample_rate_hz));
+        (explicit_pcm || (clip_ms_units <= static_cast<uint64_t>(max_clip_ms) * request->sample_rate_hz &&
+            total_ms_units <= static_cast<uint64_t>(max_sequence_ms) * request->sample_rate_hz));
     if (!channel_valid || !kind_valid || !wave_valid || request->cue_id == 0 || request->sample_count == 0 ||
         request->sample_count > UINT32_MAX || request->gain > 1000 || request->attack_frames > request->sample_count ||
         request->release_frames > request->sample_count ||

@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Removable storage
 
 Owns card acquisition, mount/health lifecycle, filesystem observations and explicit
@@ -44,3 +46,7 @@ that this board has no SD card-detect pin.
 Wake logs report `storage_resume`, the service transition result. Only canonical
 mounted/status/write observations establish actual SD availability; successful
 service resumption does not establish that an unmounted card has initialized.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

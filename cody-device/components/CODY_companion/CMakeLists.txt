@@ -43,7 +43,6 @@ idf_component_register(
         "src/runtime/CODY_device_model.cpp"
         "src/runtime/CODY_device_effects.cpp"
         "src/runtime/CODY_pet_audio.cpp"
-        "src/runtime/CODY_local_timer.cpp"
         "src/model/CODY_battery_alerts.cpp"
         "src/scenes/CODY_scene.cpp"
         "src/scenes/CODY_onboarding.cpp"
@@ -51,8 +50,8 @@ idf_component_register(
         "src/scenes/CODY_codex_panels.cpp"
         "src/scenes/CODY_codex_browser.cpp"
         "src/scenes/CODY_system_info.cpp"
-        "src/scenes/CODY_local_timer_view.cpp"
         "src/scenes/CODY_audio_view.cpp"
+        "src/scenes/CODY_prices_view.cpp"
         "src/scenes/CODY_text_entry.cpp"
         "src/scenes/CODY_screensaver.cpp"
         "src/scenes/CODY_reset_countdown.cpp"
@@ -66,7 +65,6 @@ idf_component_register(
         "../../assets/cody/audio/codex-actions/generated/codex_audio_assets.cpp"
         "src/scenes/CODY_account_dashboard.cpp"
         "src/scenes/CODY_token_history.cpp"
-        "src/scenes/CODY_widget_visibility_view.cpp"
         "src/diagnostics/CODY_debug_views.cpp"
         "src/diagnostics/CODY_status_overlay.cpp"
         "../../assets/cody/scenes/generated/scene_font.cpp"
@@ -134,10 +132,40 @@ _binary_cody_device_boot_rise_end:
     file(GENERATE OUTPUT "${cody_pet_assembly}" CONTENT "${cody_pet_assembly_content}")
     set_source_files_properties("${cody_pet_assembly}" PROPERTIES OBJECT_DEPENDS "${cody_pet_pcm_files}")
     target_sources(${COMPONENT_LIB} PRIVATE "${cody_pet_assembly}")
+
+    # First-boot music is a separate immutable clip; regular boot cues remain intact.
+    set(cody_first_boot_pcm "${PROJECT_DIR}/assets/cody/audio/onboarding/generated/boot-melody.pcm16le")
+    set(cody_first_boot_assembly "${CMAKE_CURRENT_BINARY_DIR}/cody_first_boot_music.S")
+    file(GENERATE OUTPUT "${cody_first_boot_assembly}" CONTENT
+".section .rodata.cody_first_boot_music,\"a\",@progbits
+.balign 4
+.global _binary_cody_first_boot_music_start
+_binary_cody_first_boot_music_start:
+.incbin \"${cody_first_boot_pcm}\"
+.global _binary_cody_first_boot_music_end
+_binary_cody_first_boot_music_end:
+")
+    set_source_files_properties("${cody_first_boot_assembly}" PROPERTIES OBJECT_DEPENDS "${cody_first_boot_pcm}")
+    target_sources(${COMPONENT_LIB} PRIVATE "${cody_first_boot_assembly}")
 endif()
 
-# Embed authored display images as immutable RGB565 bytes in flash.
+# Embed indexed onboarding images and separate RGB565 surprise images in flash.
 if(NOT CMAKE_BUILD_EARLY_EXPANSION)
+    foreach(name IN ITEMS welcome sofia button)
+        set(asset "${PROJECT_DIR}/assets/cody/onboarding/generated/${name}.rgb565")
+        set(assembly "${CMAKE_CURRENT_BINARY_DIR}/cody_onboarding_${name}.S")
+        file(GENERATE OUTPUT "${assembly}" CONTENT
+".section .rodata.cody_onboarding_${name},\"a\",@progbits
+.balign 4
+.global cody_onboarding_${name}_start
+cody_onboarding_${name}_start:
+.incbin \"${asset}\"
+.global cody_onboarding_${name}_end
+cody_onboarding_${name}_end:
+")
+        set_source_files_properties("${assembly}" PROPERTIES OBJECT_DEPENDS "${asset}")
+        target_sources(${COMPONENT_LIB} PRIVATE "${assembly}")
+    endforeach()
     foreach(name IN ITEMS portrait vietnam italy)
         set(asset "${PROJECT_DIR}/assets/cody/surprise/${name}.rgb565")
         set(assembly "${CMAKE_CURRENT_BINARY_DIR}/cody_surprise_${name}.S")

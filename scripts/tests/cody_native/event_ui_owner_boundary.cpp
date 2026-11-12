@@ -149,16 +149,27 @@ esp_err_t persist_companion_preference(PreferenceId, uint32_t)
     unexpected_owner(__func__);
 }
 
-// Unnamed visibility: Widget preferences stay outside event layout coverage.
-// Exception: Aborts on an unexpected settings write.
-esp_err_t persist_widget_visibility(const WidgetVisibility &)
+// Unnamed first_boot: No first-boot preference is saved.
+// Exception: Aborts instead of claiming a settings write.
+esp_err_t persist_first_boot(bool)
 {
     unexpected_owner(__func__);
 }
 
-// Unnamed first_boot: No first-boot preference is saved.
-// Exception: Aborts instead of claiming a settings write.
-esp_err_t persist_first_boot(bool)
+// These settings owners are outside the event presentation fixture.
+esp_err_t persist_birth_intro_pending(bool)
+{
+    unexpected_owner(__func__);
+}
+
+esp_err_t reconcile_audio_preferences()
+{
+    unexpected_owner(__func__);
+}
+
+// Unnamed step: Tour persistence is outside event presentation coverage.
+// Exception: Aborts instead of fabricating a successful settings write.
+esp_err_t persist_onboarding_tour_step(uint32_t)
 {
     unexpected_owner(__func__);
 }
@@ -247,6 +258,38 @@ esp_err_t DeviceSnapshotService::readCodyOptionsObservation(CodyOptionsObservati
     unexpected_owner(__func__);
 }
 
+// These observations belong to device settings and clock flows, which this
+// event layout fixture deliberately does not emulate.
+esp_err_t DeviceSnapshotService::readCodexPresenceStatus(CodexPresenceStatus &) const
+{
+    unexpected_owner(__func__);
+}
+
+esp_err_t DeviceSnapshotService::readCodyIdleObservation(CodyIdleObservation &) const
+{
+    unexpected_owner(__func__);
+}
+
+esp_err_t DeviceSnapshotService::readCodyEventVisualObservation(CodyEventVisualObservation &) const
+{
+    unexpected_owner(__func__);
+}
+
+esp_err_t DeviceSnapshotService::readCodyParallaxObservation(CodyParallaxObservation &) const
+{
+    unexpected_owner(__func__);
+}
+
+esp_err_t DeviceSnapshotService::readCodyCharacterThemeObservation(CodyCharacterThemeObservation &) const
+{
+    unexpected_owner(__func__);
+}
+
+esp_err_t DeviceSnapshotService::readClockObservation(ClockSnapshot &) const
+{
+    unexpected_owner(__func__);
+}
+
 // Unnamed observation: Saved-network identity belongs to setup, outside this fixture.
 // Exception: Aborts instead of manufacturing device or Wi-Fi observations.
 esp_err_t DeviceSnapshotService::readDeviceStatusObservation(DeviceStatusObservation &) const
@@ -287,6 +330,12 @@ esp_err_t DeviceSnapshotService::reportCharacterLookSave(const CharacterLookSave
     unexpected_owner(__func__);
 }
 } // namespace LUNASHELL
+
+// No parameters: the fixture cannot request clock synchronization from a PC.
+extern "C" esp_err_t LUNASHELL_codex_request_pc_time(void)
+{
+    unexpected_owner(__func__);
+}
 
 // No parameters: Restart is outside event layout coverage.
 // Exception: Aborts instead of invoking the physical power owner.
@@ -418,7 +467,7 @@ uint32_t ulTaskNotifyTake(bool, uint32_t)
 
 // Unnamed task: No production worker is notified in this layout check.
 // Exception: Aborts if an asynchronous owner operation is admitted.
-void xTaskNotifyGive(TaskHandle_t)
+BaseType_t xTaskNotifyGive(TaskHandle_t)
 {
     unexpected_owner(__func__);
 }

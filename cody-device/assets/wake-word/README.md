@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Wake-word models
 
 The model directory contains unmodified Espressif weights for
@@ -28,3 +30,7 @@ folder and is included by ESP-SR in the normal authorized firmware flash flow.
 When intentionally replacing weights, perform an explicitly authorized clean
 feature build so the upstream packer cannot retain its previous image.
 See [wake-on-word architecture](../../../docs/bsp/services/wake-on-word.md).
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

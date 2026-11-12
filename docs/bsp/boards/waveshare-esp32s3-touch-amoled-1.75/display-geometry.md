@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Waveshare circular display geometry
 
 This is the nominal geometry of the current Waveshare ESP32-S3 Touch AMOLED
@@ -65,3 +67,7 @@ owns the atomic hardware transform and redraw requirement.
 
 These are source geometry and mathematical bounds, not bezel measurements,
 physical touch calibration or a claim that all application routes conform.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

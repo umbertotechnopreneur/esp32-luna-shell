@@ -303,15 +303,16 @@ void update_device_statistics(DeviceDashboardData &data)
 }
 
 // data: Aged canonical token intervals.
-// interval: Window requiring at least one measured bucket.
+// interval: Window requiring at least one current measured bucket, including zero.
+// Exception: None; unavailable and stale sources are not admitted.
 bool device_history_has_data(const DeviceDashboardData &data, TokenHistoryInterval interval)
 {
     const auto &samples = data.intervals;
     int64_t first_epoch = 0;
     int64_t last_epoch = 0;
-    const bool current = samples.data_valid && samples.last_error == ESP_OK &&
-        samples.health == LUNASHELL::DeviceHealth::Ready;
-    if ((!current && !samples.data_stale) ||
+    const bool current = samples.initialized && samples.data_valid && !samples.data_stale &&
+        samples.last_error == ESP_OK && samples.health == LUNASHELL::DeviceHealth::Ready;
+    if (!current ||
         !token_history_utc_range(interval, samples, first_epoch, last_epoch)) return false;
     const auto first = static_cast<uint32_t>(first_epoch / 900);
     const auto count = static_cast<uint32_t>((last_epoch - first_epoch) / 900) + 1;

@@ -23,7 +23,7 @@
   reservations through standby/errors. Rearm only after SDK closure. Report closure
   and re-reservation failures separately. Assembly offsets cannot size allocations.
 - Profile completed stationary frames by stage, payload and CPU. Shorten captions
-  without shrinking hit targets. See [rendering](docs/cody/rendering.md).
+  without shrinking hit targets. See [rendering](docs/cody/runtime.md#experiments-and-source).
 
 ## Power, wake and acquisition
 

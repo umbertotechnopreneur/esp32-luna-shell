@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Luna Shell UI guidelines
 
 ## Current circular board
@@ -161,3 +163,7 @@ destructive confirmation, and a one-shot permission bound to the observed CID
 fields plus capacity. A poisoned or incomplete cleanup always takes display
 priority over format-required, ready, or unconfirmed state and shows the exact
 cleanup stage and error.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

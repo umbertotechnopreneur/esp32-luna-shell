@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Waveshare 1.75 GPS and 1.75C board support
 
 [![Component Registry](https://components.espressif.com/components/waveshare/esp32_s3_touch_amoled_1_75/badge.svg)](https://components.espressif.com/components/waveshare/esp32_s3_touch_amoled_1_75)
@@ -8,3 +10,7 @@ the firmware console's `-Board` option. The shared driver uses the selected
 board's pin assignments, panel reset and audio clock. See the
 [board comparison](../../../docs/bsp/boards/purchased-amoled-comparison.md) and
 [firmware console](../../../scripts/README.md).
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

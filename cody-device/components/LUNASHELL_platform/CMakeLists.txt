@@ -66,6 +66,13 @@ set(LUNASHELL_platform_requires
     LUNASHELL_logger
 )
 
+# ESP-IDF discovers REQUIRES before CONFIG_* values are available. Use the
+# selected component roots to admit the Cody network client's dependency early.
+set(_lunashell_profile_roots "$ENV{LUNASHELL_PROFILE_COMPONENT_ROOTS}")
+if("CODY_companion" IN_LIST _lunashell_profile_roots AND "esp_wifi" IN_LIST _lunashell_profile_roots)
+    list(APPEND LUNASHELL_platform_requires esp_http_client)
+endif()
+
 set(LUNASHELL_platform_uses_waveshare_bsp OFF)
 if(CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY OR
    CONFIG_LUNASHELL_BUILD_ENABLE_TOUCH OR
@@ -142,12 +149,15 @@ endif()
 
 if(CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION AND
    CONFIG_LUNASHELL_BUILD_ENABLE_WIFI AND CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX)
-    list(APPEND LUNASHELL_platform_requires mbedtls)
+    list(APPEND LUNASHELL_platform_requires mbedtls espressif__cjson)
     list(APPEND LUNASHELL_platform_srcs
+        "src/network/LUNASHELL_openrouter_catalog.cpp"
         "src/network/LUNASHELL_codex_state_wire.cpp"
         "src/network/LUNASHELL_codex_state_saved.cpp"
         "src/network/LUNASHELL_codex_recovery_saved.cpp"
     )
+else()
+    list(APPEND LUNASHELL_platform_srcs "src/network/LUNASHELL_openrouter_catalog_stub.cpp")
 endif()
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_PROVISIONING)

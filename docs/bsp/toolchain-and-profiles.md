@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Toolchain, boards and firmware profiles
 
 The supported SDK is ESP-IDF 6.0.2. Luna selects official ESP-Brookesia 0.8
@@ -187,3 +189,7 @@ physical operations follow [AGENTS.md](../../AGENTS.md). Keep only the latest
 round in [done.md](../../done.md) and current gates in [TODO.md](../../TODO.md).
 A successful build does not prove boot,
 display/touch, service behavior or current consumption on a physical device.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)

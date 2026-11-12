@@ -1,3 +1,5 @@
+<img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
+
 # Boot greeting auditions
 
 Three short vocal candidates from the read-only local SFX archive, shaped with
@@ -60,3 +62,7 @@ source sample packs. The source archive remains read-only.
 
 Local asset preparation does not establish playback, perceived loudness or
 successful deployment.
+
+---
+
+**VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)
