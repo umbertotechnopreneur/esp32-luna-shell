@@ -21,8 +21,9 @@ complete title observation, plus TECH from the same source projection.
 
 CCP1 connects one physical Cody device to one local Cody's Codex Plugin (CCP)
 runtime. It provides bounded UDP commissioning, liveness, selected chat
-activity and semantic question/answer exchange. It does not transport full chat
-transcripts or audio.
+activity and semantic question/answer exchange. When speech is enabled, it also
+transports the selected final assistant answer as encrypted text; it does not
+transport full chat transcripts or audio.
 
 ## Activity and event wire format
 
@@ -32,8 +33,8 @@ and [authenticated envelope owner](../mcp/ccp_server.py). Pairing and the fresh
 READY/COMMITTED handshake retain their existing contract.
 
 ```text
-CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=5|events=3|current=<32hex>|state=<device-state>|event_select=<32hex>|proof=<64hex>
-HMAC input: find-events-activity-v6|<device>|<pc>|<nonce>|<current>|<state>|<event_select>
+CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=5|events=3|current=<32hex>|state=<device-state>|event_select=<32hex>|speech=<0 or 1>|speech_ack=<- or event-id:index>|proof=<64hex>
+HMAC input: find-events-activity-speech-v1|<device>|<pc>|<nonce>|<current>|<state>|<event_select>|<speech>|<speech_ack>
 ```
 
 `event_select` is all zeroes unless explicitly selecting another pending question.
@@ -73,14 +74,40 @@ characters**. Datagram caps are **EVENT 4,096**, **ACTIVITY 2,048**, **TECH 1,02
 and **512 bytes for other packets**. There is no fragmentation or silent text
 truncation; schema 1, unknown kinds and contradictory/trailing fields are rejected.
 
-`ReplyReady=8` is native-lifecycle-only: the first genuine background-chat `Stop`
+`ReplyReady=8` is native-lifecycle-only: the first genuine accepted chat `Stop`
 may enqueue it once per turn; public notification tools cannot manufacture it.
 Its title is `Chat waiting`, and its body is the complete current native chat title
 when it fits 63 ASCII bytes, otherwise `Open the other chat in Codex`. The existing
 title owner performs one exact read-only index lookup for an eligible physical
-recipient, with session/turn/checkout revalidation and no transcript read or focus
-change. This event carries no choices or check progress and never implies task
+recipient, with session/turn/checkout revalidation and no focus change. This
+event carries no choices or check progress and never implies task
 success. Native approvals continue on the PC.
+
+For a physical paired recipient whose authenticated FIND advertises `speech=1`
+(sounds and Synth Voice enabled), the broker asks its existing configured
+App Server owner for the exact hook thread and turn. It requires a completed
+turn and one uniquely identified `agentMessage` with `phase=final_answer`;
+titles, commentary, other turns and ambiguous results are never substituted.
+The broker does not start an App Server for this lookup. An unavailable owner,
+unsupported API, invalid content or excessive size produces the visible notice
+`Voice unavailable; open Codex`. Newlines and tabs become spaces, unsupported
+controls are rejected, and the complete response is divided on UTF-8 boundaries
+into at most 64 segments of at most 400 bytes, without truncation. Reply text is
+held only in memory and is discarded on opt-out, expiry or broker restart.
+
+An opted-in ReplyReady carrying text uses EVENT binary schema 3. The normal
+schema 2 fields are followed by big-endian u16 segment index, total and plaintext
+byte count, a random 12-byte IV, ciphertext and 16-byte AES-256-GCM tag. Index is
+zero-based and the count is 1..64. The AES key is HMAC-SHA256 of the active link
+key over ASCII `cody-reply-speech-v1|<device>`; AAD is ASCII
+`cody-reply-speech-v1|<device>|<event-id>|<index>|<total>`. The usual EVENT HMAC
+also binds the entire encrypted payload to the current FIND nonce. Only a fresh
+authenticated FIND/READY/COMMITTED exchange with speech enabled can receive it.
+The device sends `speech_ack=<event-id>:<index>` only after that segment actually
+finishes playing. The broker repeats the current segment until that ACK, then
+advances exactly one segment; it refreshes the 180-second per-segment expiry on
+handoff, bounded by a one-hour overall lifetime. Dismissal, opt-out, expiry and
+restarts can interrupt speech and never imply completion.
 
 `ApprovalOnPc=3` carries the complete current originating chat title in its
 body, up to 255 printable ASCII bytes. The same title acquisition owner reads

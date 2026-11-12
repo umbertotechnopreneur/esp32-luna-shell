@@ -125,21 +125,13 @@ All operations enter through `scripts/device.ps1`. Run only the operations curre
 authorized by the user; tests still require their individual announced commands and
 fresh approval under AGENTS.md.
 
-```powershell
-./scripts/device.ps1 generate -Generator activity-environment
-./scripts/device.ps1 generate -Generator activity-model -PythonExecutable 'E:\ESP32 Luna Shell\artifacts\python\activity\env\Scripts\python.exe'
-./scripts/device.ps1 update-lock -Profile cody-companion -Feature wake-word -ActivityClassifier
-./scripts/device.ps1 build -Profile cody-companion -Feature wake-word -ActivityClassifier -Jobs 8
-```
+The observer and model-generation sources remain experimental. The current public
+console rejects both `-ActivityClassifier` and `-ActivityCapture` with the
+`cody-companion` profile, including its `wake-word` variant. Do not use older Cody
+activity build commands as if they were supported. A future supported composition
+requires an explicit profile, dependency review and its own authorization.
 
-The activity switch currently requires Cody's `wake-word` feature so the experimental
-build retains Sophia. It isolates sdkconfig/build outputs under
-`artifacts/build-cody-companion-wake-word-activity-debug` and a separate dependency
-lock. `-ActivityCapture` additionally isolates a capture build and logs real samples;
-it is optional and adds logging load. Local model artifacts survive shared transient
-cleanup. A selected build with missing model artifacts fails explicitly.
-
-For an already built/flashed capture variant, select the currently identified port
+For a separately supported capture variant, select the currently identified port
 and capture without reset. Annotate one known activity/placement per capture; never
 claim a capture's user label is a model prediction:
 

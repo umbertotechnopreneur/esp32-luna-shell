@@ -13,5 +13,4 @@ The files are upstream subsets of the LVGL 9.5.0 font sources. The Montserrat
 license is included from that release. Cody can use these sources to bake
 glyph coverage for its native CODY2D font format.
 
-On first import, verify the official source and version, then run a targeted
-Microsoft Defender scan of the download and extracted inputs before use.
+On first import, verify the official source and version before use.

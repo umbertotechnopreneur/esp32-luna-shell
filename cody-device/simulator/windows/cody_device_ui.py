@@ -61,7 +61,7 @@ QUICK_GUIDE = (
         ("SWIPE", "Change pages"), ("SWIPE DOWN", "Home from top edge"), ("DOUBLE TAP", "Record on stats"),
     ), "Dictation On + Codex link"),
     ("Offline", studio_rgb("device_ui", "guide_offline"), (
-        ("SAVED STATS", "Last update in UTC"), ("TIMER", "Works without PC"), ("RESTART", "Keeps settings"),
+        ("SAVED STATS", "Last update in UTC"), ("TIMER", "Works without PC"), ("BATTERY", "About 17 hours"),
     ), None),
 )
 NAVIGATION_IDLE_SECONDS = 10
@@ -698,6 +698,10 @@ class DeviceStudioWindow:
         self.visible = set(PAGES)
         self.brightness = 80
         self.shake_to_wake = False
+        # Preview-only switch; this does not alter a connected device.
+        self.sofia_enabled = True
+        self.counter_mode_enabled = True
+        self.counter_page = 0
         self.show_assistant_quota_ring = True
         self.show_battery_ring = True
         self.auto_time = True
@@ -1229,6 +1233,15 @@ class DeviceStudioWindow:
             messagebox.showerror("SIMULATED quiet hours", "Start and end must differ.", parent=self.root)
             return
         self.quiet_hours_enabled = not self.quiet_hours_enabled
+
+    # self: Change only the Studio session's simulated counter preference.
+    def toggle_counter_mode(self):
+        self.counter_mode_enabled = not self.counter_mode_enabled
+        self.counter_page = 0
+        self.animation_scene = None
+        if self.events:
+            self.events.hide()
+        self.event_visible = False
 
     # self: Isolated Studio preview holding the simulated local-time schedule.
     # start: True edits the start; false edits the end of the interval.
@@ -2050,6 +2063,38 @@ class DeviceStudioWindow:
             label(draw, "COMPACTION", top + 3, 18, MUTED)
             label(draw, compaction, top + 30, 20, ACCENT)
 
+    # draw: Logical preview canvas for the selected simulated counter page.
+    # snapshot: Loopback observation; unavailable fields stay unavailable.
+    # now: Monotonic time for the shared title scroller.
+    def draw_counter(self, draw, snapshot, now):
+        self.hide_mascot()
+        technical = snapshot.technical if snapshot.technical_valid else None
+        coherent = bool(technical and snapshot.chat and technical.chat == snapshot.chat and
+                        snapshot.state is LinkState.CONNECTED)
+        model = technical.model if coherent and technical.model else "Model unavailable"
+        self.screen_title(draw, ("Codex reset", "Context", model)[self.counter_page], 82)
+        if self.counter_page == 0:
+            setup_icon(draw, "clock", (CENTER, 210), 58, SETUP_AMBER)
+            label(draw, "Codex usage unavailable", 263, 19, SETUP_AMBER)
+        elif self.counter_page == 1:
+            used = technical.context_used if coherent else None
+            capacity = technical.context_capacity if coherent else None
+            if capacity and used is not None and 0 <= used <= capacity:
+                label(draw, f"Used {used:,}", 160, 22)
+                label(draw, f"Free {capacity - used:,}", 215, 25, ACCENT)
+                label(draw, f"Window {capacity:,}", 271, 20)
+            else:
+                label(draw, "Unavailable", 195, 24)
+                label(draw, "No current data", 244, 18, MUTED)
+        else:
+            band = technical.cost_band.value if coherent else "unknown"
+            label(draw, "Current model" if model != "Model unavailable" else "Model unavailable", 155, 20)
+            label(draw, {"economy": "Economy", "balanced": "Balanced", "expensive": "Expensive"}.get(
+                band, "Price unavailable"), 228, 21, ACCENT)
+            label(draw, "Standard reference", 274, 16, MUTED)
+        label(draw, "SIMULATED", 344, 14, MUTED)
+        page_marks(draw, self.counter_page, 3)
+
     # self: Studio owns the current loopback endpoint and Options shortcut.
     # draw: Logical canvas before display rotation.
     # snapshot: Current SIMULATED connection and authenticated activity projection.
@@ -2323,12 +2368,12 @@ class DeviceStudioWindow:
         self.targets = {}
         event_was_visible = self.event_visible
         self.event_visible = False
-        waking = self.route == "mascot" and self.muse_elapsed_ms < 1500
+        waking = not self.counter_mode_enabled and self.route == "mascot" and self.muse_elapsed_ms < 1500
         if self.mascot_was_waking and not waking and self.route == "mascot":
             # Start Home's idle period once, after the initial wake completes.
             self.screensaver_idle_since = now
         self.mascot_was_waking = waking
-        event_active = (not self.standby and not waking and self.events and
+        event_active = (not self.counter_mode_enabled and not self.standby and not waking and self.events and
                         self.events.visible(snapshot, self.endpoint))
         if self.events and not event_active:
             self.events.hide()
@@ -2359,6 +2404,8 @@ class DeviceStudioWindow:
         elif self.screensaver.active:
             self.hide_mascot()
             image = render_screensaver(int((now - self.screensaver_idle_since - 15.0) * 25)).copy()
+        elif self.counter_mode_enabled and self.route in ("mascot", "widgets") and not self.about_from_options:
+            self.draw_counter(draw, snapshot, now)
         elif self.route == "mascot":
             self.draw_mascot(image, now)
             if self.safe_guide:
@@ -2427,13 +2474,19 @@ class DeviceStudioWindow:
                 self.sidebar(draw, -1, self.back)
             elif self.route == "more_behavior":
                 self.screen_title(draw, "More behavior", OPTIONS_TITLE_TOP)
-                self.draw_option_rows(draw, (("Screensaver  " + ("On" if self.screensaver.enabled else "Off"), self.screensaver.toggle),
+                self.draw_option_rows(draw, (("Sofia  " + ("On" if self.sofia_enabled else "Off"),
+                                             lambda: setattr(self, "sofia_enabled", not self.sofia_enabled)),
+                    ("Screensaver  " + ("On" if self.screensaver.enabled else "Off"), self.screensaver.toggle),
                     ("Audio  N/A", None), ("More...", lambda: self.open("behavior_more"))))
+                page_marks(draw, 0, 2)
                 self.sidebar(draw, -1, self.back)
             elif self.route == "behavior_more":
                 self.screen_title(draw, "More behavior", OPTIONS_TITLE_TOP)
-                self.draw_option_rows(draw, (("Quiet hours", lambda: self.open("quiet_hours")),
+                self.draw_option_rows(draw, (("Counter mode  " + ("On" if self.counter_mode_enabled else "Off"),
+                                             self.toggle_counter_mode),
+                    ("Quiet hours", lambda: self.open("quiet_hours")),
                     ("Synth Voice", lambda: self.open("synth_voice"))))
+                page_marks(draw, 1, 2)
                 self.sidebar(draw, -1, self.back)
             elif self.route == "quiet_hours":
                 self.screen_title(draw, "Quiet hours", OPTIONS_TITLE_TOP)
@@ -2674,6 +2727,9 @@ class DeviceStudioWindow:
                     return
                 if unchanged and not self.event_visible and abs(dx) >= 48 and abs(dx) * 2 > abs(dy) * 3:
                     step = 1 if dx < 0 else -1
+                    if self.counter_mode_enabled and self.route in ("mascot", "widgets") and not self.about_from_options:
+                        self.counter_page = (self.counter_page + step) % 3
+                        return
                     if self.route == "options":
                         page = self.options_page + step
                         if 0 <= page < OPTIONS_PAGE_COUNT:
@@ -2689,6 +2745,9 @@ class DeviceStudioWindow:
                         return
                     if self.route == "display_rings" and step > 0:
                         self.open("display_time")
+                        return
+                    if self.route == "more_behavior" and step > 0:
+                        self.open("behavior_more")
                         return
                     if self.route is WifiSetupRoute.HOME_NETWORKS:
                         pages = (len(SIMULATED_WIFI_NETWORKS) + WIFI_NETWORKS_PER_PAGE - 1) // WIFI_NETWORKS_PER_PAGE

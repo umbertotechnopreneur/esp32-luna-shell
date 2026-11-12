@@ -50,8 +50,10 @@ esp_err_t set_personality_audio_suspended(bool suspended);
 // enabled: Explicit session gate, independent of visibility; cannot override YAML disabled policy.
 // Exception: Returns the original retained owner error.
 esp_err_t set_personality_audio_enabled(bool enabled);
+// sequence: Exact sequence assigned to the admitted cue.
+// cue: Stable identity originally submitted with the sequence.
 // status: Receives the coherent retained completion/outcome and original error.
 // Exception: Returns the original retained owner error.
-esp_err_t get_personality_audio_status(PersonalityAudioStatus &status);
+esp_err_t get_personality_audio_status(uint32_t sequence, PersonalityCue cue, PersonalityAudioStatus &status);
 
 } // namespace CODY

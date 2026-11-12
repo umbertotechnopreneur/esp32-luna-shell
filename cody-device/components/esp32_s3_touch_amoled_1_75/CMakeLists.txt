@@ -120,11 +120,12 @@ idf_component_register(
 )
 
 # Profile roots admit the board dependencies before project Kconfig is loaded.
+idf_component_optional_requires(PUBLIC espressif__usb espressif__esp_io_expander_tca9554)
 if(CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY)
-    idf_component_optional_requires(PRIVATE esp_driver_spi esp_lcd_co5300 esp_lcd_panel_io_additions)
+    idf_component_optional_requires(PRIVATE esp_driver_spi espressif__esp_lcd_co5300 espressif__esp_lcd_panel_io_additions)
 endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO)
-    idf_component_optional_requires(PUBLIC esp_driver_i2s esp_codec_dev)
+    idf_component_optional_requires(PUBLIC esp_driver_i2s espressif__esp_codec_dev)
 endif()
 if(NOT CMAKE_BUILD_EARLY_EXPANSION AND CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE)
     # The catalog admits FAT/SD before Kconfig; expose the BSP's SD types publicly.

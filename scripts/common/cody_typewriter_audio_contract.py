@@ -104,24 +104,28 @@ def check_typewriter_audio_source(root: Path) -> None:
     assert "TYPEWRITER_MAX_AGE_US = 150000" in owner
 
     worker = function_body(owner, "typewriter_worker")
-    playback = function_body(owner, "play_typewriter_tap_locked")
+    mixer = function_body(owner, "cue_worker")
+    mixer_admission = function_body(owner, "LUNASHELL_audio_submit")
+    current_cue = function_body(owner, "cue_current_locked")
     shared_playback = function_body(owner, "play_pcm16_owned")
     generic_entry = function_body(owner, "LUNASHELL_audio_play_pcm16")
     user_cue_entry = function_body(owner, "LUNASHELL_audio_play_user_cue_pcm16")
     assert "play_pcm16_owned(" in generic_entry and "nullptr, completed" in generic_entry
     assert "play_pcm16_owned(" in user_cue_entry and "&user_sounds_revision, *completed" in user_cue_entry
-    assert "clock_cue_policy(clock)" in worker
-    assert "ClockCuePolicy::Allowed" in worker and "readClockObservation(clock)" in worker
-    assert "xSemaphoreTake(mutex, 0)" in worker and "TYPEWRITER_MAX_AGE_US" in worker
-    assert "claim_typewriter_event(event)" in worker
-    assert "observed_us - event.requested_at_us" in worker and "volume_percent, event)" in worker
-    assert "typewriter_event_current(event)" in playback and "s_standby.load" in playback
-    assert "esp_codec_dev_get_out_vol" in playback and "volume_percent == 0" in playback
-    assert "esp_codec_dev_set_out_vol" not in playback
-    assert "write_speaker_pcm_locked(" in playback and "write_speaker_pcm_locked(" in shared_playback
+    assert "claim_typewriter_event(event)" in worker and "typewriter_event_current(event)" in worker
+    assert "observed_us - event.requested_at_us" in worker and "TYPEWRITER_MAX_AGE_US" in worker
+    assert "LUNASHELL_audio_submit(&request, &status)" in worker
+    assert "LUNASHELL_AUDIO_FEEDBACK_TOUCH" in worker and "LUNASHELL_AUDIO_FEEDBACK_GLYPH" in worker
+    assert "event.generation" in worker and "now - age" in worker
+    assert "esp_codec_dev_write(" not in worker and "write_speaker_pcm_locked(" not in worker
+    assert "requested_at_us" in mixer_admission and "TYPEWRITER_MAX_AGE_US" in mixer_admission
+    assert "s_feedback_touch_generation.load" in current_cue and "s_feedback_glyph_generation.load" in current_cue
+    assert "feedback_generation" in current_cue and "LUNASHELL_audio_user_sounds_enabled()" in current_cue
+    assert "clock_cue_policy(clock)" in mixer and "readClockObservation(clock)" in mixer
+    assert "render_audio_mix(" in mixer and "write_speaker_pcm_locked(" in mixer
+    assert "LUNASHELL_audio_submit(&request, &status)" in shared_playback
     assert "user_sound_request_current(*user_sounds_revision)" in shared_playback
-    assert "esp_codec_dev_write(" not in playback
-    assert "s_typewriter_last_error.load" in admission
+    assert "s_typewriter_last_error.exchange" in admission
     retained_fault = function_body(owner, "retain_typewriter_failure")
     assert "s_typewriter_last_error.exchange" in retained_fault and "ESP_LOGE" in retained_fault
     # The canonical failure publication must follow, not live inside, log coalescing.

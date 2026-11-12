@@ -21,6 +21,12 @@
 
 
 #include "LUNASHELL_platform.h"
+#include "LUNASHELL_audio_mixer.hpp"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+#include "LUNASHELL_audio_stream.hpp"
+#include "LUNASHELL_audio_resampler.hpp"
+#endif
+#include "LUNASHELL_audio_controls.h"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_clock.hpp"
 #include "LUNASHELL_audio_sequence.hpp"
@@ -30,16 +36,22 @@
 #include <atomic>
 #include <climits>
 #include <cstdlib>
+#include <cmath>
+#include <mutex>
 
 #include "bsp/esp-bsp.h"
 #include "esp_codec_dev.h"
 #include "esp_attr.h"
 #include "esp_log.h"
+#include "esp_memory_utils.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
-#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+#include "LUNASHELL_voice_capture_guard.hpp"
+#endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS || CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 #include "driver/i2s_common.h"
 #endif
 
@@ -60,6 +72,8 @@ constexpr size_t VOICE_REFERENCE_CHUNK_SAMPLES = VOICE_SAMPLE_RATE_HZ / 50U;
 esp_codec_dev_handle_t s_speaker;
 esp_codec_dev_handle_t s_microphone;
 uint32_t s_speaker_sample_rate_hz;
+// Zero means there is no fully configured output stream to admit a producer.
+std::atomic<uint32_t> s_output_transport_rate{0};
 uint32_t s_microphone_sample_rate_hz;
 std::atomic_bool s_initialized;
 bool s_initialization_attempted;
@@ -76,10 +90,19 @@ uint8_t s_microphone_channel_count;
 bool s_speaker_open;
 bool s_microphone_open;
 std::atomic_bool s_standby;
+std::atomic_bool s_standby_transition;
+std::atomic<uint32_t> s_audio_lifecycle_generation{0};
 // Bit zero is admission; the other bits change on every actual preference transition.
 // One atomic word keeps request revisions coherent before any worker exists.
 std::atomic<uint32_t> s_user_sounds_state{1U};
+// Opted in by Cody startup only; ESP_OK means its initial saved policy is ready.
+std::atomic_bool s_cody_output_policy_armed{false};
+std::atomic<esp_err_t> s_cody_output_policy_error{ESP_OK};
 std::atomic_bool s_audio_state_poisoned;
+// The owner retains driver-accepted policy; the settings owner persists it.
+// esp_codec_dev 1.5.11 getters expose driver state, not physical register readback.
+std::atomic<uint8_t> s_user_output_volume{90};
+std::atomic<uint8_t> s_user_input_gain{24};
 StaticSemaphore_t s_audio_mutex_control;
 SemaphoreHandle_t s_audio_mutex;
 
@@ -87,8 +110,6 @@ constexpr uint32_t TYPEWRITER_INTERVAL_US = 50000;
 constexpr uint32_t TYPEWRITER_MAX_AGE_US = 150000;
 constexpr uint32_t TYPEWRITER_EVENT = 1U;
 constexpr uint32_t TYPEWRITER_STACK_BYTES = 4096;
-constexpr uint32_t TYPEWRITER_MAX_TRANSPORT_RATE_HZ = 48000;
-constexpr size_t TYPEWRITER_MAX_TRANSPORT_SAMPLES = 1200;
 struct TypewriterCue {
     const int16_t *samples = nullptr;
     size_t sample_count = 0;
@@ -116,8 +137,22 @@ struct TypewriterMailbox {
 };
 TypewriterMailbox s_typewriter_mailbox;
 portMUX_TYPE s_typewriter_mailbox_mux = portMUX_INITIALIZER_UNLOCKED;
+std::atomic<uint32_t> s_feedback_glyph_generation{0};
+std::atomic<uint32_t> s_feedback_touch_generation{0};
 // No parameters: cancels any symbol dispatch before the codec changes lifecycle ownership.
 void invalidate_personality_events();
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+// No parameters: identifies the mixer task to reject blocking self-submission.
+bool on_cue_worker();
+esp_err_t ensure_cue_worker();
+#endif
+
+// No parameters: preserve Luna's existing policy until Cody explicitly opts in.
+esp_err_t cody_output_policy_error()
+{
+    return s_cody_output_policy_armed.load(std::memory_order_acquire)
+        ? s_cody_output_policy_error.load(std::memory_order_acquire) : ESP_OK;
+}
 
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
 // revision: Opaque Sounds gate token captured by one logical cue request.
@@ -128,7 +163,7 @@ bool user_sound_request_current(uint32_t revision)
 #endif
 std::atomic<esp_err_t> s_typewriter_last_error{ESP_OK};
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
-EXT_RAM_BSS_ATTR std::array<int16_t, TYPEWRITER_MAX_TRANSPORT_SAMPLES> s_typewriter_transport_samples;
+std::array<int16_t, 400> s_typewriter_touch_samples{};
 #endif
 
 // No parameters: cancels scene and touch cues before the transport enters standby.
@@ -138,6 +173,8 @@ void invalidate_typewriter_events()
     s_typewriter_mailbox.pending = false;
     ++s_typewriter_mailbox.generation;
     ++s_typewriter_mailbox.touch_generation;
+    s_feedback_glyph_generation.store(s_typewriter_mailbox.generation, std::memory_order_release);
+    s_feedback_touch_generation.store(s_typewriter_mailbox.touch_generation, std::memory_order_release);
     portEXIT_CRITICAL(&s_typewriter_mailbox_mux);
 }
 
@@ -238,6 +275,7 @@ esp_err_t close_streams()
             s_speaker_open = false;
             s_speaker_sample_rate_hz = 0;
             s_speaker_channel_count = 0;
+            s_output_transport_rate.store(0, std::memory_order_release);
         } else {
             ESP_LOGE(TAG, "Closing speaker stream failed (%d)", result);
             error = static_cast<esp_err_t>(result);
@@ -299,6 +337,7 @@ esp_err_t configure_speaker_stream(uint32_t sample_rate_hz)
         }
     }
     s_speaker_open = false;
+    s_output_transport_rate.store(0, std::memory_order_release);
     esp_codec_dev_sample_info_t sample = {
         .bits_per_sample = 16,
         .channel = 1,
@@ -315,6 +354,15 @@ esp_err_t configure_speaker_stream(uint32_t sample_rate_hz)
     }
     s_speaker_sample_rate_hz = sample_rate_hz;
     s_speaker_channel_count = 1;
+    const int volume_error = esp_codec_dev_set_out_vol(s_speaker, s_user_output_volume.load(std::memory_order_acquire));
+    if (volume_error != ESP_CODEC_DEV_OK) {
+        ESP_LOGE(TAG, "Restoring user output volume after open failed: %d", volume_error);
+        const int close_error = esp_codec_dev_close(s_speaker);
+        if (close_error == ESP_CODEC_DEV_OK) s_speaker_open = false;
+        else { s_audio_state_poisoned.store(true, std::memory_order_release); ESP_LOGE(TAG, "Speaker close after volume failure: %d", close_error); }
+        return static_cast<esp_err_t>(volume_error);
+    }
+    s_output_transport_rate.store(sample_rate_hz, std::memory_order_release);
     return ESP_OK;
 #endif
 }
@@ -385,6 +433,14 @@ esp_err_t configure_microphone_stream(uint32_t sample_rate_hz, uint8_t channel_c
     }
     s_microphone_sample_rate_hz = sample_rate_hz;
     s_microphone_channel_count = channel_count;
+    const int gain_error = esp_codec_dev_set_in_gain(s_microphone, static_cast<float>(s_user_input_gain.load(std::memory_order_acquire)));
+    if (gain_error != ESP_CODEC_DEV_OK) {
+        ESP_LOGE(TAG, "Restoring user input gain after open failed: %d", gain_error);
+        const int close_error = esp_codec_dev_close(s_microphone);
+        if (close_error == ESP_CODEC_DEV_OK) s_microphone_open = false;
+        else { s_audio_state_poisoned.store(true, std::memory_order_release); ESP_LOGE(TAG, "Microphone close after gain failure: %d", close_error); }
+        return static_cast<esp_err_t>(gain_error);
+    }
     return ESP_OK;
 #endif
 }
@@ -535,7 +591,7 @@ esp_err_t prepare_voice_route_locked()
         error = configure_speaker_stream(VOICE_SAMPLE_RATE_HZ);
     }
     if (error == ESP_OK) {
-        const int volume_result = esp_codec_dev_set_out_vol(s_speaker, 90);
+        const int volume_result = esp_codec_dev_set_out_vol(s_speaker, s_user_output_volume.load(std::memory_order_acquire));
         const int mute_result = esp_codec_dev_set_out_mute(s_speaker, true);
         if (volume_result != ESP_CODEC_DEV_OK || mute_result != ESP_CODEC_DEV_OK) {
             const int result = volume_result != ESP_CODEC_DEV_OK
@@ -559,7 +615,7 @@ esp_err_t prepare_voice_route_locked()
         );
     }
     if (error == ESP_OK) {
-        const int gain_result = esp_codec_dev_set_in_gain(s_microphone, 24.0F);
+        const int gain_result = esp_codec_dev_set_in_gain(s_microphone, static_cast<float>(s_user_input_gain.load(std::memory_order_acquire)));
         if (gain_result != ESP_CODEC_DEV_OK) {
             ESP_LOGE(
                 TAG,
@@ -586,6 +642,24 @@ esp_err_t prepare_voice_route_locked()
 #endif
 
 }  // namespace
+
+// No parameters: Cody calls this once before any of its startup cues are admitted.
+extern "C" void LUNASHELL_audio_begin_cody_output_policy(void)
+{
+    s_cody_output_policy_error.store(ESP_ERR_NOT_FINISHED, std::memory_order_relaxed);
+    s_cody_output_policy_armed.store(true, std::memory_order_release);
+    invalidate_typewriter_events();
+    invalidate_personality_events();
+}
+
+// error: Original initial output-policy result, updated after snapshot publication.
+// Once open, this startup gate does not change during later playback or settings edits.
+extern "C" void LUNASHELL_audio_update_cody_output_policy(esp_err_t error)
+{
+    if (!s_cody_output_policy_armed.load(std::memory_order_acquire) ||
+        s_cody_output_policy_error.load(std::memory_order_acquire) == ESP_OK) return;
+    s_cody_output_policy_error.store(error, std::memory_order_release);
+}
 
 // enabled: Explicit Sounds admission preference; persistence belongs to the settings owner.
 // No worker, codec or volume operation is attempted, including before audio initialization.
@@ -737,7 +811,7 @@ extern "C" esp_err_t LUNASHELL_audio_init(void)
         error = configure_speaker_stream(22050);
     }
     if (error == ESP_OK) {
-        const int volume_result = esp_codec_dev_set_out_vol(s_speaker, 90);
+        const int volume_result = esp_codec_dev_set_out_vol(s_speaker, s_user_output_volume.load(std::memory_order_acquire));
         const int mute_result = esp_codec_dev_set_out_mute(s_speaker, true);
         if (volume_result != ESP_CODEC_DEV_OK || mute_result != ESP_CODEC_DEV_OK) {
             ESP_LOGE(
@@ -755,7 +829,7 @@ extern "C" esp_err_t LUNASHELL_audio_init(void)
         error = configure_microphone_stream(22050, LUNASHELL_audio_input_channel_count());
     }
     if (error == ESP_OK) {
-        const int gain_result = esp_codec_dev_set_in_gain(s_microphone, 24.0F);
+        const int gain_result = esp_codec_dev_set_in_gain(s_microphone, static_cast<float>(s_user_input_gain.load(std::memory_order_acquire)));
         if (gain_result != ESP_CODEC_DEV_OK) {
             ESP_LOGE(TAG, "Microphone codec gain policy failed: result=%d", gain_result);
             error = ESP_FAIL;
@@ -821,6 +895,143 @@ extern "C" esp_err_t LUNASHELL_audio_init(void)
 }
 
 namespace {
+// input: True selects ES7210 gain; false selects ES8311 output volume.
+// write: True applies and verifies the requested value; false reads the current codec.
+// requested: Validated target value, used only for writes.
+// applied: Receives the driver's reported value on success; no hardware readback is claimed.
+// Exception: Returns busy, lifecycle, codec, readback or rollback failure.
+esp_err_t access_user_audio_control(bool input, bool write, uint8_t requested, uint8_t *applied)
+{
+    if (applied == nullptr || (write && ((!input && requested > 100) ||
+        (input && (requested > 30 || requested % 3 != 0))))) {
+        ESP_LOGE(TAG, "User audio control arguments rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+#if CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
+    if (input) return ESP_ERR_NOT_SUPPORTED;
+#endif
+#if !CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+    if (!input) return ESP_ERR_NOT_SUPPORTED;
+#endif
+    esp_err_t error = LUNASHELL_audio_init();
+    if (error != ESP_OK) return error;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+    // Do not delay the AFE feed behind a playback/codec lock. The settings
+    // worker may retry after the current RX buffer has retired.
+    std::unique_lock<std::mutex> voice_guard(LUNASHELL::voice_capture_guard(), std::defer_lock);
+    if (input && !voice_guard.try_lock()) return ESP_ERR_NOT_FINISHED;
+#endif
+    SemaphoreHandle_t mutex = audio_mutex();
+    if (mutex == nullptr) return ESP_ERR_NO_MEM;
+    // Settings must not delay startup or a live capture/playback owner. The
+    // caller retains the busy result and can retry when the route is available.
+    if (xSemaphoreTake(mutex, 0) != pdTRUE) return ESP_ERR_NOT_FINISHED;
+    if (s_standby.load(std::memory_order_acquire) || s_audio_state_poisoned.load(std::memory_order_acquire) ||
+        (input ? !s_microphone_open : !s_speaker_open)) {
+        audio_unlock(mutex);
+        return ESP_ERR_INVALID_STATE;
+    }
+    int previous = -1;
+    int current = -1;
+    int result = ESP_CODEC_DEV_OK;
+    if (input) {
+#if !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
+        float gain = -1;
+        result = esp_codec_dev_get_in_gain(s_microphone, &gain);
+        if (result == ESP_CODEC_DEV_OK && std::isfinite(gain) && gain >= 0 && gain <= 30 &&
+            std::fabs(gain - std::round(gain)) < 0.01f && static_cast<int>(gain) % 3 == 0) previous = static_cast<int>(gain);
+#endif
+    } else {
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+        result = esp_codec_dev_get_out_vol(s_speaker, &previous);
+#endif
+    }
+    if (result != ESP_CODEC_DEV_OK) error = static_cast<esp_err_t>(result);
+    else if (previous < 0 || previous > (input ? 30 : 100)) error = ESP_ERR_INVALID_RESPONSE;
+    current = previous;
+    if (error == ESP_OK && write) {
+        if (input) {
+#if !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
+            result = esp_codec_dev_set_in_gain(s_microphone, static_cast<float>(requested));
+            float gain = -1;
+            if (result == ESP_CODEC_DEV_OK) result = esp_codec_dev_get_in_gain(s_microphone, &gain);
+            current = std::isfinite(gain) && gain >= 0 && gain <= 30 && std::fabs(gain - std::round(gain)) < 0.01f
+                ? static_cast<int>(gain) : -1;
+#endif
+        } else {
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+            result = esp_codec_dev_set_out_vol(s_speaker, requested);
+            if (result == ESP_CODEC_DEV_OK) result = esp_codec_dev_get_out_vol(s_speaker, &current);
+#endif
+        }
+        if (result != ESP_CODEC_DEV_OK) error = static_cast<esp_err_t>(result);
+        else if (current != requested) error = ESP_ERR_INVALID_RESPONSE;
+        if (error != ESP_OK) {
+            int rollback = ESP_CODEC_DEV_OK;
+            if (input) {
+#if !CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
+                rollback = esp_codec_dev_set_in_gain(s_microphone, static_cast<float>(previous));
+                float restored = -1;
+                if (rollback == ESP_CODEC_DEV_OK) rollback = esp_codec_dev_get_in_gain(s_microphone, &restored);
+                if (rollback == ESP_CODEC_DEV_OK && (!std::isfinite(restored) ||
+                    std::fabs(restored - static_cast<float>(previous)) >= 0.01f)) rollback = ESP_FAIL;
+#endif
+            } else {
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+                rollback = esp_codec_dev_set_out_vol(s_speaker, previous);
+                int restored = -1;
+                if (rollback == ESP_CODEC_DEV_OK) rollback = esp_codec_dev_get_out_vol(s_speaker, &restored);
+                if (rollback == ESP_CODEC_DEV_OK && restored != previous) rollback = ESP_FAIL;
+#endif
+            }
+            if (rollback != ESP_CODEC_DEV_OK) {
+                s_audio_state_poisoned.store(true, std::memory_order_release);
+                ESP_LOGE(TAG, "Audio control rollback failed: input=%u error=%d", input, rollback);
+            }
+        } else if (input) {
+            s_user_input_gain.store(requested, std::memory_order_release);
+        } else {
+            s_user_output_volume.store(requested, std::memory_order_release);
+        }
+    }
+    audio_unlock(mutex);
+    if (error == ESP_OK) *applied = static_cast<uint8_t>(current);
+    else ESP_LOGE(TAG, "User audio control %s failed: input=%u (%s)", write ? "write" : "read", input, esp_err_to_name(error));
+    return error;
+}
+} // namespace
+
+// percent: Exact 0..100 output selection.
+// applied: Receives the driver's reported value only after the request succeeds.
+// Exception: Returns original argument, busy, lifecycle or codec failure.
+extern "C" esp_err_t LUNASHELL_audio_set_user_output_volume(uint8_t percent, uint8_t *applied)
+{
+    return access_user_audio_control(false, true, percent, applied);
+}
+
+// applied: Receives the codec driver's current volume selection.
+// Exception: Returns original argument, busy, lifecycle or codec failure.
+extern "C" esp_err_t LUNASHELL_audio_read_user_output_volume(uint8_t *applied)
+{
+    return access_user_audio_control(false, false, 0, applied);
+}
+
+// gain_db: ES7210 gain from zero to 30 dB in exact 3-dB steps.
+// applied: Receives the driver's reported value only after the request succeeds.
+// Exception: Returns original argument, busy, lifecycle or codec failure.
+extern "C" esp_err_t LUNASHELL_audio_set_user_input_gain(uint8_t gain_db, uint8_t *applied)
+{
+    return access_user_audio_control(true, true, gain_db, applied);
+}
+
+// applied: Receives the driver-reported shared input gain.
+// Exception: Returns original argument, busy, lifecycle or codec failure.
+extern "C" esp_err_t LUNASHELL_audio_read_user_input_gain(uint8_t *applied)
+{
+    return access_user_audio_control(true, false, 0, applied);
+}
+
+namespace {
 // samples: Immutable PCM at the actual transport sample rate.
 // sample_count: Exact count, already validated by the public owner.
 // sample_rate_hz: Actual clock shared with the microphone when open.
@@ -839,6 +1050,9 @@ esp_err_t write_speaker_pcm_locked(const int16_t *samples, size_t sample_count,
     }
     size_t offset = 0;
     while (offset < sample_count) {
+        // All PCM paths, including speech and feedback, hold the codec mutex here.
+        const esp_err_t policy_error = cody_output_policy_error();
+        if (policy_error != ESP_OK) return policy_error;
         if (user_sounds_revision != nullptr && !user_sound_request_current(*user_sounds_revision)) {
             return ESP_OK; // Intentional cancellation is separate from real operation errors.
         }
@@ -884,69 +1098,6 @@ esp_err_t write_speaker_pcm_locked(const int16_t *samples, size_t sample_count,
     return ESP_OK;
 }
 
-#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
-// samples: Immutable prerecorded mono PCM16 at its authored rate.
-// sample_count: Validated source length; no source asset is modified.
-// source_rate_hz: Authored sample rate, admitted for bounded conversion.
-// transport_rate_hz: Existing duplex clock, unchanged while AFE captures.
-// volume_percent: Admitted codec volume for canonical playback reports.
-// user_sounds_revision: Optional Sounds token; null preserves explicit generic PCM playback.
-// completed: Receives true only if every converted chunk was submitted successfully.
-// Exception: Returns real format, codec, AEC reference or publication errors.
-esp_err_t write_prerecorded_pcm_locked(const int16_t *samples, size_t sample_count,
-    uint32_t source_rate_hz, uint32_t transport_rate_hz, int volume_percent,
-    const uint32_t *user_sounds_revision, bool &completed)
-{
-    completed = false;
-    if (source_rate_hz == transport_rate_hz) {
-        return write_speaker_pcm_locked(samples, sample_count, transport_rate_hz, volume_percent,
-            0, user_sounds_revision, &completed);
-    }
-    if (source_rate_hz < 8000 || source_rate_hz > 48000 || transport_rate_hz != VOICE_SAMPLE_RATE_HZ ||
-        sample_count > SIZE_MAX / transport_rate_hz) {
-        ESP_LOGE(TAG, "Prerecorded conversion rejected: source=%lu transport=%lu samples=%u",
-            static_cast<unsigned long>(source_rate_hz), static_cast<unsigned long>(transport_rate_hz),
-            static_cast<unsigned>(sample_count));
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-    const size_t output_samples = sample_count * transport_rate_hz / source_rate_hz;
-    if (output_samples == 0) {
-        ESP_LOGE(TAG, "Prerecorded conversion has no output samples");
-        return ESP_ERR_INVALID_SIZE;
-    }
-    ESP_LOGI(TAG, "Prerecorded transport conversion: %lu -> %lu Hz; samples=%u -> %u",
-        static_cast<unsigned long>(source_rate_hz), static_cast<unsigned long>(transport_rate_hz),
-        static_cast<unsigned>(sample_count), static_cast<unsigned>(output_samples));
-    size_t offset = 0;
-    while (offset < output_samples) {
-        // The speaker mutex also owns this bounded scratch buffer. Feed the same
-        // converted PCM to the speaker and AEC; never change the capture clock.
-        const size_t chunk_samples = std::min(VOICE_REFERENCE_CHUNK_SAMPLES, output_samples - offset);
-        for (size_t index = 0; index < chunk_samples; ++index) {
-            const uint64_t position = static_cast<uint64_t>(offset + index) * source_rate_hz;
-            const size_t source = position / transport_rate_hz;
-            const uint32_t fraction = position % transport_rate_hz;
-            const size_t next = std::min(source + 1, sample_count - 1);
-            const int64_t interpolated =
-                static_cast<int64_t>(samples[source]) * (transport_rate_hz - fraction) +
-                static_cast<int64_t>(samples[next]) * fraction;
-            s_typewriter_transport_samples[index] = static_cast<int16_t>(interpolated / transport_rate_hz);
-        }
-        bool chunk_completed = false;
-        const esp_err_t error = write_speaker_pcm_locked(s_typewriter_transport_samples.data(),
-            chunk_samples, transport_rate_hz, volume_percent, 0, user_sounds_revision, &chunk_completed);
-        if (error != ESP_OK) {
-            return error;
-        }
-        if (!chunk_completed) {
-            return ESP_OK;
-        }
-        offset += chunk_samples;
-    }
-    completed = true;
-    return ESP_OK;
-}
-#endif
 #endif
 
 // error: Original failure; a secondary publication failure cannot replace it.
@@ -992,132 +1143,70 @@ static esp_err_t play_pcm16_owned(
 {
     completed = false;
 #if !CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
-    (void)samples;
-    (void)sample_count;
-    (void)sample_rate_hz;
-    (void)volume_percent;
-    (void)user_sounds_revision;
+    (void)samples; (void)sample_count; (void)user_sounds_revision;
     LUNASHELL_hardware_report_speaker(false, ESP_ERR_NOT_SUPPORTED);
     return reject_playback("Disabled playback route", ESP_ERR_NOT_SUPPORTED, sample_rate_hz, volume_percent);
 #else
-    if (samples == nullptr || sample_count == 0 || sample_rate_hz < 50) {
-        ESP_LOGE(TAG, "PCM playback rejected: samples=%p count=%u rate=%lu (%s)",
-            samples, static_cast<unsigned>(sample_count), static_cast<unsigned long>(sample_rate_hz),
-            esp_err_to_name(ESP_ERR_INVALID_ARG));
-        return reject_playback("Playback PCM format", ESP_ERR_INVALID_ARG, sample_rate_hz, volume_percent);
+    if (on_cue_worker()) return reject_playback("Playback reentrancy", ESP_ERR_INVALID_STATE, sample_rate_hz, volume_percent);
+    if (samples == nullptr || sample_count == 0 || sample_count > UINT32_MAX ||
+        sample_rate_hz < 8000 || sample_rate_hz > 48000 || volume_percent < 0 || volume_percent > 100)
+        return reject_playback("Playback format", ESP_ERR_INVALID_ARG, sample_rate_hz, volume_percent);
+    if (user_sounds_revision != nullptr && !user_sound_request_current(*user_sounds_revision)) return ESP_OK;
+    auto error = cody_output_policy_error();
+    if (error == ESP_OK) error = LUNASHELL_audio_init();
+    if (error != ESP_OK) return reject_playback("Playback admission", error, sample_rate_hz, volume_percent);
+    const unsigned master = s_user_output_volume.load(std::memory_order_acquire);
+    if (master == 0 || volume_percent == 0) {
+        return user_sounds_revision != nullptr ? ESP_OK :
+            reject_playback("Playback muted", ESP_ERR_INVALID_STATE, sample_rate_hz, volume_percent);
     }
-    if (volume_percent < 0 || volume_percent > 100) {
-        ESP_LOGE(
-            TAG,
-            "Playback volume %d outside [0, 100]",
-            volume_percent
-        );
-        return reject_playback("Playback volume", ESP_ERR_INVALID_ARG, sample_rate_hz, volume_percent);
-    }
-    if (user_sounds_revision != nullptr && !user_sound_request_current(*user_sounds_revision)) {
-        return ESP_OK; // This cue was suppressed without codec I/O.
-    }
-    esp_err_t error = LUNASHELL_audio_init();
-    if (error != ESP_OK) {
-        return reject_playback("Playback initialization", error, sample_rate_hz, volume_percent);
-    }
-    SemaphoreHandle_t mutex = audio_mutex();
-    if (mutex == nullptr) {
-        return reject_playback("Playback mutex allocation", ESP_ERR_NO_MEM, sample_rate_hz, volume_percent);
-    }
-    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(AUDIO_LOCK_TIMEOUT_MS)) != pdTRUE) {
-        return reject_playback("Playback mutex acquisition", ESP_ERR_TIMEOUT, sample_rate_hz, volume_percent);
-    }
-
-    // Standby may have won this mutex after the initialization fast path returned.
-    // Playback cannot reopen a suspended or indeterminate route under that owner.
-    if (s_standby.load(std::memory_order_acquire) ||
-        s_audio_state_poisoned.load(std::memory_order_acquire)) {
-        audio_unlock(mutex);
-        return reject_playback("Playback lifecycle ownership", ESP_ERR_INVALID_STATE,
-            sample_rate_hz, volume_percent);
-    }
-    if (user_sounds_revision != nullptr && !user_sound_request_current(*user_sounds_revision)) {
-        audio_unlock(mutex);
-        return ESP_OK;
-    }
-
-    uint32_t transport_rate_hz = sample_rate_hz;
-#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
-    if (s_microphone_open) {
-        transport_rate_hz = s_microphone_sample_rate_hz;
-    }
-#endif
-    error = configure_speaker_stream(transport_rate_hz);
-    if (error == ESP_OK) {
-        const int volume_result =
-            esp_codec_dev_set_out_vol(s_speaker, volume_percent);
-        if (volume_result != ESP_CODEC_DEV_OK) {
-            ESP_LOGE(
-                TAG,
-                "Setting playback volume failed: requested=%d codec_result=%d",
-                volume_percent,
-                volume_result
-            );
-            error = static_cast<esp_err_t>(volume_result);
+    // The shared hardware volume remains at the user's master; relative source gain
+    // approximates a quieter requested percentage without changing other voices.
+    const auto relative_gain = static_cast<uint16_t>(std::min<unsigned>(1000U,
+        static_cast<unsigned>(volume_percent) * 1000U / master));
+    constexpr uint32_t kBlockingPcmCue = 0x50434d01U;
+    const lunashell_audio_request_t request{samples, sample_count, sample_rate_hz, kBlockingPcmCue,
+        user_sounds_revision == nullptr ? LUNASHELL_AUDIO_SYSTEM : LUNASHELL_AUDIO_USER_PCM,
+        LUNASHELL_CODEX_CUE_NOTICE, 1, 0, LUNASHELL_AUDIO_WAVE_PCM, 0, relative_gain,
+        0, 0, 0, user_sounds_revision == nullptr ? 0U : *user_sounds_revision, true, 0, 0};
+    lunashell_audio_cue_status_t status{};
+    error = LUNASHELL_audio_submit(&request, &status);
+    if (error != ESP_OK) return error;
+    if (status.state == LUNASHELL_CUE_SUPPRESSED)
+        return user_sounds_revision != nullptr ? ESP_OK :
+            reject_playback("Playback suppressed", ESP_ERR_INVALID_STATE, sample_rate_hz, volume_percent);
+    if (status.state != LUNASHELL_CUE_DISPATCHED || status.request_sequence == 0)
+        return reject_playback("Playback mixer busy", ESP_ERR_NOT_FINISHED, sample_rate_hz, volume_percent);
+    // A pinned terminal record owns the borrowed source until the worker has
+    // finished reading it. On timeout request cancellation, then keep waiting
+    // for that exact terminal acknowledgement before allowing the caller to reuse PCM.
+    const int64_t deadline = esp_timer_get_time() +
+        static_cast<int64_t>((static_cast<uint64_t>(sample_count) * 1000000ULL) / sample_rate_hz) + 5000000LL;
+    bool timed_out = false;
+    bool observation_error_logged = false;
+    for (;;) {
+        const auto observation_error = LUNASHELL_audio_get_cue_status(status.request_sequence, kBlockingPcmCue, &status);
+        if (observation_error == ESP_OK && status.state != LUNASHELL_CUE_DISPATCHED &&
+            status.state != LUNASHELL_CUE_PLAYING) break;
+        if (observation_error != ESP_OK && !observation_error_logged) {
+            ESP_LOGE(TAG, "Pinned playback status unavailable (%s)", esp_err_to_name(observation_error));
+            observation_error_logged = true;
         }
-    }
-    if (error == ESP_OK) {
-        const int unmute_result =
-            esp_codec_dev_set_out_mute(s_speaker, false);
-        if (unmute_result != ESP_CODEC_DEV_OK) {
-            ESP_LOGE(
-                TAG,
-                "Unmuting speaker failed: codec_result=%d",
-                unmute_result
-            );
-            error = static_cast<esp_err_t>(unmute_result);
+        if (!timed_out && esp_timer_get_time() >= deadline) {
+            timed_out = true;
+            const auto cancel_error = LUNASHELL_audio_cancel_cue(status.request_sequence, kBlockingPcmCue);
+            if (cancel_error != ESP_OK) ESP_LOGE(TAG, "Playback cancellation failed (%s)", esp_err_to_name(cancel_error));
         }
+        vTaskDelay(pdMS_TO_TICKS(10) + 1U);
     }
-    if (error == ESP_OK) {
-        // The PA is enabled by the official BSP codec interface; allow its output to settle.
-        vTaskDelay(pdMS_TO_TICKS(100));
-#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
-        error = write_prerecorded_pcm_locked(samples, sample_count, sample_rate_hz, transport_rate_hz,
-            volume_percent, user_sounds_revision, completed);
-#else
-        error = write_speaker_pcm_locked(samples, sample_count, transport_rate_hz, volume_percent,
-            0, user_sounds_revision, &completed);
-#endif
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-    const int mute_result = esp_codec_dev_set_out_mute(s_speaker, true);
-    if (mute_result != ESP_CODEC_DEV_OK) {
-        ESP_LOGE(TAG, "Muting speaker after playback failed (%d)", mute_result);
-        if (error == ESP_OK) {
-            error = static_cast<esp_err_t>(mute_result);
-        }
-    }
-    audio_unlock(mutex);
-
-    const esp_err_t publication_error =
-        LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
-            false, 0, transport_rate_hz, volume_percent, error);
-    if (publication_error != ESP_OK) {
-        ESP_LOGE(TAG, "Playback final publication failed: %s", esp_err_to_name(publication_error));
-        if (error == ESP_OK) {
-            error = publication_error;
-        }
-    }
-
-    completed = error == ESP_OK && completed &&
+    const auto acknowledgement = LUNASHELL_audio_ack_cue(status.request_sequence, kBlockingPcmCue);
+    if (acknowledgement != ESP_OK) return acknowledgement;
+    if (timed_out) return ESP_ERR_TIMEOUT;
+    if (status.last_error != ESP_OK) return status.last_error;
+    if (status.state != LUNASHELL_CUE_COMPLETED && user_sounds_revision == nullptr) return ESP_ERR_INVALID_STATE;
+    completed = status.state == LUNASHELL_CUE_COMPLETED &&
         (user_sounds_revision == nullptr || user_sound_request_current(*user_sounds_revision));
-    ESP_LOGI(
-        TAG,
-        "Playback ended: transport=%lu source=%lu samples=%u volume=%d completed=%u result=%s",
-        static_cast<unsigned long>(transport_rate_hz),
-        static_cast<unsigned long>(sample_rate_hz),
-        static_cast<unsigned>(sample_count),
-        volume_percent,
-        static_cast<unsigned>(completed),
-        esp_err_to_name(error)
-    );
-    return error;
+    return ESP_OK;
 #endif
 }
 
@@ -1164,7 +1253,7 @@ extern "C" esp_err_t LUNASHELL_audio_capture_pcm16(
     (void)gain_db;
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    if (samples == nullptr || sample_count == 0) {
+    if (samples == nullptr || sample_count == 0 || sample_count > INT_MAX / sizeof(int16_t)) {
         return ESP_ERR_INVALID_ARG;
     }
     if (LUNASHELL_audio_input_channel_count() != 1) {
@@ -1175,10 +1264,14 @@ extern "C" esp_err_t LUNASHELL_audio_capture_pcm16(
     if (error != ESP_OK) {
         return error;
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+    std::unique_lock<std::mutex> voice_guard(LUNASHELL::voice_capture_guard(), std::try_to_lock);
+    if (!voice_guard.owns_lock() || LUNASHELL_voice_afe_capture_active()) return ESP_ERR_NOT_FINISHED;
+#endif
     SemaphoreHandle_t mutex = audio_mutex();
-    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(AUDIO_LOCK_TIMEOUT_MS)) != pdTRUE) {
-        return ESP_ERR_TIMEOUT;
-    }
+    if (mutex == nullptr) return ESP_ERR_NO_MEM;
+    // Never hold the AFE capture guard while waiting behind a long speaker cue.
+    if (xSemaphoreTake(mutex, 0) != pdTRUE) return ESP_ERR_NOT_FINISHED;
 
     error = configure_microphone_stream(sample_rate_hz, 1);
     if (error == ESP_OK) {
@@ -1191,7 +1284,7 @@ extern "C" esp_err_t LUNASHELL_audio_capture_pcm16(
                 static_cast<double>(gain_db),
                 gain_result
             );
-            error = ESP_FAIL;
+            error = static_cast<esp_err_t>(gain_result);
         }
     }
     if (error == ESP_OK) {
@@ -1206,7 +1299,15 @@ extern "C" esp_err_t LUNASHELL_audio_capture_pcm16(
                 "Microphone PCM read failed: codec_result=%d",
                 result
             );
-            error = ESP_FAIL;
+            error = static_cast<esp_err_t>(result);
+        }
+    }
+    if (s_microphone_open) {
+        const int restore_result = esp_codec_dev_set_in_gain(s_microphone, static_cast<float>(s_user_input_gain.load(std::memory_order_acquire)));
+        if (restore_result != ESP_CODEC_DEV_OK) {
+            ESP_LOGE(TAG, "Restoring user gain after mono capture failed (%d)", restore_result);
+            s_audio_state_poisoned.store(true, std::memory_order_release);
+            if (error == ESP_OK) error = static_cast<esp_err_t>(restore_result);
         }
     }
     audio_unlock(mutex);
@@ -1218,14 +1319,16 @@ extern "C" esp_err_t LUNASHELL_audio_capture_pcm16(
 // frame_count: Number of frames per channel requested by the diagnostic owner.
 // channel_count: Enabled diagnostic microphone topology.
 // sample_rate_hz: Requested diagnostic transport clock.
-// gain_db: Explicit diagnostic codec gain.
+// gain_db: Explicit diagnostic codec gain when use_user_gain is false.
+// use_user_gain: Selects the current shared gain inside the codec lock.
 // Exception: Returns original admission, initialization, mutex or codec failures.
-extern "C" esp_err_t LUNASHELL_audio_capture_pcm16_channels(
+static esp_err_t capture_pcm16_channels_owned(
     int16_t *samples,
     size_t frame_count,
     uint8_t channel_count,
     uint32_t sample_rate_hz,
-    float gain_db
+    float gain_db,
+    bool use_user_gain
 )
 {
 #if CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE
@@ -1234,9 +1337,11 @@ extern "C" esp_err_t LUNASHELL_audio_capture_pcm16_channels(
     (void)channel_count;
     (void)sample_rate_hz;
     (void)gain_db;
+    (void)use_user_gain;
     return ESP_ERR_NOT_SUPPORTED;
 #else
-    if (samples == nullptr || frame_count == 0 || channel_count == 0 || channel_count > 2) {
+    if (samples == nullptr || frame_count == 0 || channel_count == 0 || channel_count > 2 ||
+        frame_count > INT_MAX / sizeof(int16_t) / channel_count) {
         return ESP_ERR_INVALID_ARG;
     }
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
@@ -1249,10 +1354,15 @@ extern "C" esp_err_t LUNASHELL_audio_capture_pcm16_channels(
     if (error != ESP_OK) {
         return error;
     }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+    std::unique_lock<std::mutex> voice_guard(LUNASHELL::voice_capture_guard(), std::try_to_lock);
+    if (!voice_guard.owns_lock() || LUNASHELL_voice_afe_capture_active()) return ESP_ERR_NOT_FINISHED;
+#endif
     SemaphoreHandle_t mutex = audio_mutex();
-    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(AUDIO_LOCK_TIMEOUT_MS)) != pdTRUE) {
-        return ESP_ERR_TIMEOUT;
-    }
+    if (mutex == nullptr) return ESP_ERR_NO_MEM;
+    // The AFE may start while this diagnostic request is admitted.
+    if (xSemaphoreTake(mutex, 0) != pdTRUE) return ESP_ERR_NOT_FINISHED;
+    if (use_user_gain) gain_db = static_cast<float>(s_user_input_gain.load(std::memory_order_acquire));
     error = configure_microphone_stream(sample_rate_hz, channel_count);
     if (error == ESP_OK) {
         const int gain_result =
@@ -1266,7 +1376,7 @@ extern "C" esp_err_t LUNASHELL_audio_capture_pcm16_channels(
                 static_cast<double>(gain_db),
                 gain_result
             );
-            error = ESP_FAIL;
+            error = static_cast<esp_err_t>(gain_result);
         }
     }
     if (error == ESP_OK) {
@@ -1282,12 +1392,43 @@ extern "C" esp_err_t LUNASHELL_audio_capture_pcm16_channels(
                 static_cast<unsigned>(channel_count),
                 result
             );
-            error = ESP_FAIL;
+            error = static_cast<esp_err_t>(result);
+        }
+    }
+    if (s_microphone_open) {
+        const int restore_result = esp_codec_dev_set_in_gain(s_microphone, static_cast<float>(s_user_input_gain.load(std::memory_order_acquire)));
+        if (restore_result != ESP_CODEC_DEV_OK) {
+            ESP_LOGE(TAG, "Restoring user gain after diagnostic capture failed (%d)", restore_result);
+            s_audio_state_poisoned.store(true, std::memory_order_release);
+            if (error == ESP_OK) error = static_cast<esp_err_t>(restore_result);
         }
     }
     audio_unlock(mutex);
     return error;
 #endif
+}
+
+// samples: Caller-owned destination for explicit diagnostic PCM.
+// frame_count: Number of frames per channel.
+// channel_count: Configured input topology.
+// sample_rate_hz: Requested transport rate.
+// gain_db: Explicit diagnostic gain, restored to user policy afterwards.
+// Exception: Returns original validation, capture or restoration failure.
+extern "C" esp_err_t LUNASHELL_audio_capture_pcm16_channels(int16_t *samples, size_t frame_count,
+    uint8_t channel_count, uint32_t sample_rate_hz, float gain_db)
+{
+    return capture_pcm16_channels_owned(samples, frame_count, channel_count, sample_rate_hz, gain_db, false);
+}
+
+// samples: Caller-owned destination for user-policy microphone levels.
+// frame_count: Number of frames per channel.
+// channel_count: Configured input topology.
+// sample_rate_hz: Requested transport rate.
+// Exception: Returns original validation, capture or restoration failure.
+extern "C" esp_err_t LUNASHELL_audio_capture_user_levels_pcm16(int16_t *samples, size_t frame_count,
+    uint8_t channel_count, uint32_t sample_rate_hz)
+{
+    return capture_pcm16_channels_owned(samples, frame_count, channel_count, sample_rate_hz, 0, true);
 }
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
@@ -1362,6 +1503,14 @@ extern "C" esp_err_t LUNASHELL_audio_prepare_voice_route(void)
 // Exception: Returns original codec, transport, or lifecycle rollback errors.
 extern "C" esp_err_t LUNASHELL_audio_set_standby(bool standby)
 {
+    bool expected = false;
+    if (!s_standby_transition.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        return ESP_ERR_NOT_FINISHED;
+    }
+    struct TransitionRelease {
+        ~TransitionRelease() { s_standby_transition.store(false, std::memory_order_release); }
+    } release;
+    s_audio_lifecycle_generation.fetch_add(1, std::memory_order_acq_rel);
     invalidate_typewriter_events();
     invalidate_personality_events();
     SemaphoreHandle_t mutex = audio_mutex();
@@ -1512,103 +1661,6 @@ extern "C" esp_err_t LUNASHELL_audio_set_standby(bool standby)
 
 namespace {
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
-// played: True only after the real PCM write and mute restoration both succeed.
-// sample_rate_hz: Receives the current transport clock; no microphone is reconfigured.
-// volume_percent: Receives the existing codec volume, which this cue never overwrites.
-// event: Claimed scene or physical-touch payload, including its cancellation epoch.
-// Exception: Returns exact codec, AFE or snapshot failures; the caller owns the audio mutex.
-esp_err_t play_typewriter_tap_locked(bool &played, uint32_t &sample_rate_hz,
-                                    int &volume_percent, const TypewriterEvent &event)
-{
-    played = false;
-    if (s_standby.load(std::memory_order_acquire) || !typewriter_event_current(event)) {
-        return ESP_OK; // An explicitly suppressed cue was never submitted to the codec.
-    }
-    if (s_audio_state_poisoned.load(std::memory_order_acquire)) {
-        return ESP_ERR_INVALID_STATE;
-    }
-    sample_rate_hz = s_microphone_open ? s_microphone_sample_rate_hz :
-        s_speaker_open ? s_speaker_sample_rate_hz : s_typewriter_cue.sample_rate_hz;
-    if (sample_rate_hz < 8000U || sample_rate_hz > TYPEWRITER_MAX_TRANSPORT_RATE_HZ) {
-        ESP_LOGE(TAG, "Typewriter transport rate rejected: %lu", static_cast<unsigned long>(sample_rate_hz));
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-    esp_err_t error = configure_speaker_stream(sample_rate_hz);
-    if (error != ESP_OK) {
-        return error;
-    }
-    bool previous_mute = true;
-    if (error == ESP_OK) {
-        const int volume_result = esp_codec_dev_get_out_vol(s_speaker, &volume_percent);
-        const int mute_result = volume_result == ESP_CODEC_DEV_OK
-            ? esp_codec_dev_get_out_mute(s_speaker, &previous_mute) : volume_result;
-        if (volume_result != ESP_CODEC_DEV_OK || mute_result != ESP_CODEC_DEV_OK) {
-            ESP_LOGE(TAG, "Reading typewriter codec policy failed: volume=%d mute=%d", volume_result, mute_result);
-            return static_cast<esp_err_t>(volume_result != ESP_CODEC_DEV_OK ? volume_result : mute_result);
-        }
-        if (volume_percent < 0 || volume_percent > 100) {
-            ESP_LOGE(TAG, "Typewriter codec volume rejected: %d", volume_percent);
-            return ESP_ERR_INVALID_RESPONSE;
-        }
-        if (volume_percent == 0) {
-            return ESP_OK; // Existing silence is respected without a codec write or success report.
-        }
-    }
-    const size_t output_samples = s_typewriter_cue.sample_count * sample_rate_hz / s_typewriter_cue.sample_rate_hz;
-    if (output_samples == 0 || output_samples > s_typewriter_transport_samples.size()) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-    // The peer mic clock stays untouched. Resample this tiny original impulse into
-    // bounded owner scratch instead of trying to switch the duplex I2S clock.
-    for (size_t index = 0; index < output_samples; ++index) {
-        const uint32_t source_position = static_cast<uint32_t>(index) * s_typewriter_cue.sample_rate_hz;
-        const size_t source_index = source_position / sample_rate_hz;
-        const uint32_t fraction = source_position % sample_rate_hz;
-        const size_t next_index = std::min(source_index + 1U, s_typewriter_cue.sample_count - 1U);
-        const int32_t first = s_typewriter_cue.samples[source_index];
-        const int32_t next = s_typewriter_cue.samples[next_index];
-        s_typewriter_transport_samples[index] = static_cast<int16_t>(
-            (first * static_cast<int32_t>(sample_rate_hz - fraction) + next * static_cast<int32_t>(fraction)) /
-            static_cast<int32_t>(sample_rate_hz));
-        if (event.kind == TypewriterEventKind::Touch) {
-            // The quiet teletype impulse needs a little more presence for a single tap.
-            const int32_t feedback = s_typewriter_transport_samples[index] * 8;
-            s_typewriter_transport_samples[index] = static_cast<int16_t>(std::clamp<int32_t>(feedback, -32768, 32767));
-        }
-    }
-    if (!typewriter_event_current(event)) {
-        return ESP_OK;
-    }
-    if (error == ESP_OK) {
-        const int unmute_result = esp_codec_dev_set_out_mute(s_speaker, false);
-        if (unmute_result != ESP_CODEC_DEV_OK) {
-            ESP_LOGE(TAG, "Unmuting speaker for typewriter tap failed (%d)", unmute_result);
-            error = static_cast<esp_err_t>(unmute_result);
-        }
-    }
-    bool submitted = false;
-    if (error == ESP_OK && typewriter_event_current(event)) {
-        error = write_speaker_pcm_locked(s_typewriter_transport_samples.data(), output_samples,
-            sample_rate_hz, volume_percent);
-        submitted = error == ESP_OK;
-    }
-    if (error == ESP_OK && submitted) {
-        // Codec writes can enqueue DMA before the last sample reaches the amp.
-        // Drain this 15..25 ms cue before restoring mute, only in the audio worker.
-        const uint32_t clip_ms = static_cast<uint32_t>((output_samples * 1000U + sample_rate_hz - 1U) / sample_rate_hz);
-        vTaskDelay(pdMS_TO_TICKS(clip_ms) + 1U);
-    }
-    const int mute_result = esp_codec_dev_set_out_mute(s_speaker, previous_mute);
-    if (mute_result != ESP_CODEC_DEV_OK) {
-        ESP_LOGE(TAG, "Restoring speaker mute after typewriter tap failed (%d)", mute_result);
-        if (error == ESP_OK) {
-            error = static_cast<esp_err_t>(mute_result);
-        }
-    }
-    played = error == ESP_OK && submitted;
-    return error;
-}
-
 // error: Original asynchronous error, retained for the next caller and canonical snapshot.
 // sample_rate_hz: Attempted transport rate, diagnostic only after a rejection.
 // volume_percent: Observed codec volume, or zero before policy could be read.
@@ -1649,46 +1701,33 @@ void typewriter_worker(void *context)
         if (observed_us - event.requested_at_us > TYPEWRITER_MAX_AGE_US) {
             continue; // Expired taps never catch up after another audio operation.
         }
-        LUNASHELL::ClockSnapshot clock;
-        esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readClockObservation(clock);
+        if (!typewriter_event_current(event)) continue;
+        esp_err_t error = LUNASHELL_audio_init();
         if (error != ESP_OK) {
             retain_typewriter_failure(error, s_typewriter_cue.sample_rate_hz, 0);
             continue;
         }
-        if (LUNASHELL::clock_cue_policy(clock) != LUNASHELL::ClockCuePolicy::Allowed) {
-            continue; // Canonical quiet/invalid-time policy deliberately suppresses the cue.
-        }
-        error = LUNASHELL_audio_init();
+        const int64_t now = esp_timer_get_time();
+        const uint32_t age = static_cast<uint32_t>(now) - event.requested_at_us;
+        if (age > TYPEWRITER_MAX_AGE_US) continue;
+        const bool touch = event.kind == TypewriterEventKind::Touch;
+        constexpr uint32_t kGlyphFeedbackCue = 0x46544201U;
+        constexpr uint32_t kTouchFeedbackCue = 0x46544202U;
+        const lunashell_audio_request_t request{
+            touch ? s_typewriter_touch_samples.data() : s_typewriter_cue.samples,
+            s_typewriter_cue.sample_count, s_typewriter_cue.sample_rate_hz,
+            touch ? kTouchFeedbackCue : kGlyphFeedbackCue,
+            touch ? LUNASHELL_AUDIO_FEEDBACK_TOUCH : LUNASHELL_AUDIO_FEEDBACK_GLYPH,
+            LUNASHELL_CODEX_CUE_NOTICE, 1, 0, LUNASHELL_AUDIO_WAVE_PCM, 0, 1000,
+            0, 0, 0, 0, false, event.generation, now - age};
+        lunashell_audio_cue_status_t status{};
+        error = LUNASHELL_audio_submit(&request, &status);
         if (error != ESP_OK) {
             retain_typewriter_failure(error, s_typewriter_cue.sample_rate_hz, 0);
-            continue;
-        }
-        SemaphoreHandle_t mutex = audio_mutex();
-        if (xSemaphoreTake(mutex, 0) != pdTRUE) {
-            continue; // Meaningful playback/capture owns the route; no tap backlog is created.
-        }
-        bool played = false;
-        uint32_t sample_rate_hz = s_typewriter_cue.sample_rate_hz;
-        int volume_percent = 0;
-        const uint32_t started_at_us = static_cast<uint32_t>(esp_timer_get_time());
-        error = play_typewriter_tap_locked(played, sample_rate_hz, volume_percent, event);
-        if (error != ESP_OK) {
-            retain_typewriter_failure(error, sample_rate_hz, volume_percent);
-            audio_unlock(mutex);
-            continue;
-        }
-        if (played) {
-            last_play_at_us = started_at_us;
+        } else if (status.state == LUNASHELL_CUE_DISPATCHED) {
+            last_play_at_us = observed_us;
             have_played = true;
-            const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
-                false, 0, sample_rate_hz, volume_percent, ESP_OK);
-            if (publication_error != ESP_OK) {
-                retain_typewriter_failure(publication_error, sample_rate_hz, volume_percent);
-            } else {
-                s_typewriter_last_error.store(ESP_OK, std::memory_order_release);
-            }
         }
-        audio_unlock(mutex);
     }
 }
 #endif
@@ -1731,6 +1770,15 @@ extern "C" esp_err_t LUNASHELL_audio_prepare_typewriter(const int16_t *samples,
         return s_typewriter_last_error.load(std::memory_order_acquire);
     }
     s_typewriter_cue = {samples, sample_count, sample_rate_hz};
+    for (size_t index = 0; index < sample_count; ++index) {
+        const int32_t amplified = static_cast<int32_t>(samples[index]) * 8;
+        s_typewriter_touch_samples[index] = static_cast<int16_t>(std::clamp<int32_t>(amplified, -32768, 32767));
+    }
+    const esp_err_t mixer_error = ensure_cue_worker();
+    if (mixer_error != ESP_OK) {
+        audio_unlock(mutex);
+        return mixer_error;
+    }
     const TaskHandle_t worker = xTaskCreateStatic(typewriter_worker, "audio_typewriter",
         TYPEWRITER_STACK_BYTES, nullptr, 2, s_typewriter_task_stack, &s_typewriter_task_control);
     s_typewriter_task.store(worker, std::memory_order_release);
@@ -1751,10 +1799,11 @@ namespace {
 // Exception: Returns admission or retained asynchronous failure; never waits for audio I/O.
 esp_err_t notify_short_feedback(TypewriterEventKind kind)
 {
-    const esp_err_t retained_error = s_typewriter_last_error.load(std::memory_order_acquire);
-    if (retained_error != ESP_OK) {
-        return retained_error;
-    }
+    if (!LUNASHELL_audio_user_sounds_enabled()) return ESP_OK;
+    const esp_err_t policy_error = cody_output_policy_error();
+    if (policy_error != ESP_OK) return policy_error;
+    const esp_err_t previous_error = s_typewriter_last_error.exchange(ESP_OK, std::memory_order_acq_rel);
+    if (previous_error != ESP_OK) return previous_error;
     const TaskHandle_t worker = s_typewriter_task.load(std::memory_order_acquire);
     const uint32_t requested_at_us = static_cast<uint32_t>(esp_timer_get_time());
     TypewriterEvent event;
@@ -1785,14 +1834,14 @@ esp_err_t notify_short_feedback(TypewriterEventKind kind)
         return ESP_ERR_INVALID_STATE;
     }
     if (!admitted) {
-        return s_typewriter_last_error.load(std::memory_order_acquire);
+        return ESP_OK;
     }
     if (xTaskNotify(worker, TYPEWRITER_EVENT, eSetBits) != pdPASS) {
         drop_typewriter_event(event);
         ESP_LOGE(TAG, "Typewriter notification failed (%s)", esp_err_to_name(ESP_FAIL));
         return ESP_FAIL;
     }
-    return s_typewriter_last_error.load(std::memory_order_acquire);
+    return ESP_OK;
 }
 } // namespace
 
@@ -1823,6 +1872,7 @@ extern "C" esp_err_t LUNASHELL_audio_set_typewriter_suspended(bool suspended)
         s_typewriter_mailbox.pending = false;
     }
     ++s_typewriter_mailbox.generation;
+    s_feedback_glyph_generation.store(s_typewriter_mailbox.generation, std::memory_order_release);
     portEXIT_CRITICAL(&s_typewriter_mailbox_mux);
     if (s_typewriter_task.load(std::memory_order_acquire) == nullptr) {
         ESP_LOGE(TAG, "Typewriter suspension rejected before owner preparation");
@@ -1832,31 +1882,35 @@ extern "C" esp_err_t LUNASHELL_audio_set_typewriter_suspended(bool suspended)
 }
 
 namespace {
-// Transport resource limits are independent of product authoring policy.
-constexpr uint32_t PERSONALITY_STACK_BYTES = 4096;
+constexpr uint32_t PERSONALITY_STACK_BYTES = 8192;
 constexpr int64_t CODEX_ACTIVITY_COOLDOWN_US = 1500000;
-enum class ApplicationAudioChannel : uint8_t { Personality = 0, Codex = 1, Boot = 2, Pet = 3 };
-struct PersonalityAudioEvent {
-    const int16_t *samples = nullptr;
-    size_t sample_count = 0;
-    uint32_t sample_rate_hz = 16000;
-    uint32_t cue_id = 0;
+constexpr size_t kCueSlots = LUNASHELL::kAudioMixerMaxVoices;
+constexpr size_t kCueHistory = 24;
+struct CueSlot {
+    lunashell_audio_request_t request{};
+    lunashell_audio_cue_status_t status{};
+    LUNASHELL::AudioMixerVoice voice{};
     uint32_t generation = 0;
+    uint32_t lifecycle_generation = 0;
     int64_t requested_at_us = 0;
-    int64_t request_expiry_us = 0;
-    ApplicationAudioChannel channel = ApplicationAudioChannel::Personality;
-    uint8_t repetitions = 1;
-    uint16_t gap_ms = 0;
+    int64_t expires_after_us = 0;
+    int64_t drain_until_us = 0;
+    uint8_t plays_remaining = 0;
+    bool used = false;
+    bool started = false;
+    bool draining = false;
+    bool terminal = false;
+    bool cancel_requested = false;
 };
-struct PersonalityAudioMailbox {
-    PersonalityAudioEvent event;
-    lunashell_audio_cue_status_t status{LUNASHELL_CUE_IDLE, ESP_OK, 0, 0};
+struct CueOwner {
+    std::array<CueSlot, kCueSlots> slots{};
+    std::array<lunashell_audio_cue_status_t, kCueHistory> history{};
+    size_t history_next = 0;
+    uint32_t next_sequence = 0;
     lunashell_personality_audio_policy_t policy{};
     bool policy_configured = false;
     uint32_t generation = 0;
     uint32_t codex_generation = 0;
-    bool pending = false;
-    bool in_flight = false;
     bool suspended = false;
     bool codex_suspended = true;
     bool codex_enabled = true;
@@ -1864,731 +1918,1007 @@ struct PersonalityAudioMailbox {
     int64_t last_started_us = 0;
     bool codex_have_played = false;
     int64_t codex_last_started_us = 0;
+    esp_err_t preparation_error = ESP_OK;
 };
-PersonalityAudioMailbox s_personality_mailbox;
-portMUX_TYPE s_personality_mux = portMUX_INITIALIZER_UNLOCKED;
-std::atomic<TaskHandle_t> s_personality_task{nullptr};
+CueOwner s_cue_owner;
+portMUX_TYPE s_cue_mux = portMUX_INITIALIZER_UNLOCKED;
+std::atomic<TaskHandle_t> s_cue_task{nullptr};
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
-StaticTask_t s_personality_task_control;
-EXT_RAM_BSS_ATTR StackType_t s_personality_task_stack[PERSONALITY_STACK_BYTES / sizeof(StackType_t)];
+// No parameters: observes the single mixer task identity without acquiring its codec lock.
+bool on_cue_worker()
+{
+    const auto task = s_cue_task.load(std::memory_order_acquire);
+    return task != nullptr && task == xTaskGetCurrentTaskHandle();
+}
+#endif
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+StaticTask_t s_cue_task_control;
+EXT_RAM_BSS_ATTR StackType_t s_cue_task_stack[PERSONALITY_STACK_BYTES / sizeof(StackType_t)];
+std::mutex s_cue_worker_prepare_mutex;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+LUNASHELL::AudioStreamPipe s_audio_stream;
+std::atomic<uint32_t> s_audio_stream_generation{0};
+std::atomic<uint32_t> s_audio_stream_rate{0};
+std::atomic<uint16_t> s_audio_stream_gain{1000};
+std::atomic_bool s_audio_stream_reserved{false};
+
+// No parameters: reserve one mixer voice without replacing an in-flight cue.
+// Exception: Returns busy when the worker is full or another stream owns the slot.
+esp_err_t reserve_audio_stream_slot()
+{
+    portENTER_CRITICAL(&s_cue_mux);
+    size_t occupied = 0;
+    for (const auto &slot : s_cue_owner.slots) if (slot.used) ++occupied;
+    const bool available = !s_audio_stream_reserved.load(std::memory_order_relaxed) && occupied < kCueSlots;
+    if (available) s_audio_stream_reserved.store(true, std::memory_order_release);
+    portEXIT_CRITICAL(&s_cue_mux);
+    return available ? ESP_OK : ESP_ERR_NOT_FINISHED;
+}
+
+// No parameters: release a terminal stream's reservation after worker acknowledgement.
+void release_audio_stream_slot()
+{
+    s_audio_stream_reserved.store(false, std::memory_order_release);
+}
+#endif
 #endif
 
-// No parameters: expire both application channels before standby touches the transport.
+// No parameters: invalidate admitted cues before codec ownership changes.
 void invalidate_personality_events()
 {
-    portENTER_CRITICAL(&s_personality_mux);
-    ++s_personality_mailbox.generation;
-    ++s_personality_mailbox.codex_generation;
-    portEXIT_CRITICAL(&s_personality_mux);
+    portENTER_CRITICAL(&s_cue_mux);
+    ++s_cue_owner.generation;
+    ++s_cue_owner.codex_generation;
+    portEXIT_CRITICAL(&s_cue_mux);
 }
 
-// error: Real preparation/admission/playback failure, retained without inventing completion.
-// sample_rate_hz: Actual attempted transport rate, or authored rate before transport admission.
-// volume_percent: Observed codec volume, or zero when codec policy was unavailable.
-esp_err_t retain_personality_failure(esp_err_t error, uint32_t sample_rate_hz, int volume_percent)
+// slot: Active request whose source can no longer be read after this call.
+// state: Terminal disposition retained in bounded history.
+// error: Original playback or policy failure.
+void finish_cue_locked(CueSlot &slot, lunashell_audio_cue_state_t state, esp_err_t error)
 {
-    portENTER_CRITICAL(&s_personality_mux);
-    s_personality_mailbox.status.state = LUNASHELL_CUE_FAILED;
-    s_personality_mailbox.status.last_error = error;
-    portEXIT_CRITICAL(&s_personality_mux);
-    ESP_LOGE(TAG, "Personality audio operation failed (%s)", esp_err_to_name(error));
-    publish_rejected_playback(error, sample_rate_hz, volume_percent);
-    return error;
+    slot.status.state = state;
+    slot.status.last_error = error;
+    if (slot.request.channel == LUNASHELL_AUDIO_FEEDBACK_GLYPH ||
+        slot.request.channel == LUNASHELL_AUDIO_FEEDBACK_TOUCH) {
+        if (state == LUNASHELL_CUE_FAILED) s_typewriter_last_error.store(error, std::memory_order_release);
+    }
+    if (slot.request.pin_terminal) {
+        slot.terminal = true;
+        return;
+    }
+    s_cue_owner.history[s_cue_owner.history_next] = slot.status;
+    s_cue_owner.history_next = (s_cue_owner.history_next + 1U) % kCueHistory;
+    slot = {};
+}
+
+// slot: Owned request, checked with s_cue_mux held.
+bool cue_current_locked(const CueSlot &slot)
+{
+    if (slot.cancel_requested || slot.lifecycle_generation != s_audio_lifecycle_generation.load(std::memory_order_acquire) ||
+        s_standby.load(std::memory_order_acquire) ||
+        s_standby_transition.load(std::memory_order_acquire)) return false;
+    if (slot.request.channel == LUNASHELL_AUDIO_SYSTEM) return true;
+    if (slot.request.channel == LUNASHELL_AUDIO_USER_PCM) {
+        const auto revision = slot.request.user_sounds_revision;
+        return (revision & 1U) != 0U && s_user_sounds_state.load(std::memory_order_acquire) == revision;
+    }
+    if (slot.request.channel == LUNASHELL_AUDIO_FEEDBACK_GLYPH ||
+        slot.request.channel == LUNASHELL_AUDIO_FEEDBACK_TOUCH) {
+        const auto generation = slot.request.channel == LUNASHELL_AUDIO_FEEDBACK_TOUCH
+            ? s_feedback_touch_generation.load(std::memory_order_acquire)
+            : s_feedback_glyph_generation.load(std::memory_order_acquire);
+        return generation == slot.request.feedback_generation && LUNASHELL_audio_user_sounds_enabled();
+    }
+    const bool codex = slot.request.channel == LUNASHELL_AUDIO_CODEX;
+    const uint32_t generation = codex ? s_cue_owner.codex_generation : s_cue_owner.generation;
+    const bool suspended = codex ? s_cue_owner.codex_suspended : s_cue_owner.suspended;
+    return slot.generation == generation && s_cue_owner.policy.enabled && !suspended &&
+        (!codex || s_cue_owner.codex_enabled) && LUNASHELL_audio_user_sounds_enabled();
 }
 
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
-// event: Channel and ownership token invalidated by its presentation hiding or by standby.
-bool personality_event_current(const PersonalityAudioEvent &event)
+// slot: Validated request copied into the output owner's mixer source.
+// rate: Active duplex transport clock.
+// delay: Silence before this repetition, expressed in transport frames.
+// Exception: Returns original mixer initialization error.
+esp_err_t start_cue_voice(CueSlot &slot, uint32_t rate, uint32_t delay)
 {
-    portENTER_CRITICAL(&s_personality_mux);
-    const bool codex = event.channel == ApplicationAudioChannel::Codex;
-    const bool enabled = s_personality_mailbox.policy.enabled && (!codex || s_personality_mailbox.codex_enabled);
-    const bool suspended = codex ? s_personality_mailbox.codex_suspended : s_personality_mailbox.suspended;
-    const uint32_t generation = codex ? s_personality_mailbox.codex_generation : s_personality_mailbox.generation;
-    const bool current = enabled && !suspended && event.generation == generation &&
-        LUNASHELL_audio_user_sounds_enabled();
-    portEXIT_CRITICAL(&s_personality_mux);
-    return current && !s_standby.load(std::memory_order_acquire);
+    LUNASHELL::AudioVoiceSource source{};
+    source.wave = static_cast<LUNASHELL::AudioMixerWave>(slot.request.wave);
+    source.pcm = slot.request.samples;
+    source.pcm_frames = static_cast<uint32_t>(slot.request.sample_count);
+    source.duration_frames = static_cast<uint32_t>(slot.request.sample_count);
+    source.source_rate_hz = slot.request.sample_rate_hz;
+    source.frequency_hz = slot.request.frequency_hz;
+    source.delay_frames = delay;
+    source.attack_frames = slot.request.attack_frames;
+    source.release_frames = slot.request.release_frames;
+    source.noise_seed = slot.request.noise_seed;
+    source.gain = slot.request.gain;
+    slot.voice = {};
+    return LUNASHELL::initialize_audio_voice(slot.voice, source, rate);
 }
 
-// event: One immutable admitted symbol sound; audio mutex is already held.
-// outcome: Receives Completed or an explicit suppression outcome.
-// sample_rate_hz: Receives the unchanged duplex transport clock.
-// volume_percent: Receives the current codec volume; no volume setting is overwritten.
-// Exception: Returns actual codec, reference or snapshot failures.
-esp_err_t play_personality_locked(const PersonalityAudioEvent &event,
-    lunashell_audio_cue_state_t &outcome, uint32_t &sample_rate_hz, int &volume_percent)
+// error: Original audio transport failure; every occupied slot becomes terminal.
+void fail_all_cues(esp_err_t error)
 {
-    outcome = LUNASHELL_CUE_SUPPRESSED;
-    if (!personality_event_current(event)) {
-        return ESP_OK;
+    portENTER_CRITICAL(&s_cue_mux);
+    for (auto &slot : s_cue_owner.slots) {
+        if (slot.used && !slot.terminal) finish_cue_locked(slot, LUNASHELL_CUE_FAILED, error);
     }
-    if (!s_initialized.load(std::memory_order_acquire) || s_audio_state_poisoned.load(std::memory_order_acquire)) {
-        return ESP_ERR_INVALID_STATE;
+    portEXIT_CRITICAL(&s_cue_mux);
+}
+
+// rate: Active transport clock used for the conservative I2S tail bound.
+// Returns a delay after the final submitted frame before completion is reported.
+int64_t cue_drain_us(uint32_t rate)
+{
+    const i2s_chan_config_t dma = I2S_CHANNEL_DEFAULT_CONFIG(CONFIG_BSP_I2S_NUM, I2S_ROLE_MASTER);
+    const uint64_t frames = static_cast<uint64_t>(dma.dma_desc_num + 1U) * dma.dma_frame_num * 2U;
+    return static_cast<int64_t>((frames * 1000000U + rate - 1U) / rate);
+}
+
+// rate: Current shared transport rate.
+// volume: Codec volume used for the canonical playback observation.
+// Exception: Returns the original codec, AEC or snapshot failure.
+esp_err_t retire_mixer_tail(uint32_t rate, int volume)
+{
+    const i2s_chan_config_t dma = I2S_CHANNEL_DEFAULT_CONFIG(CONFIG_BSP_I2S_NUM, I2S_ROLE_MASTER);
+    size_t remaining = static_cast<size_t>(dma.dma_desc_num + 1U) * dma.dma_frame_num * 2U;
+    const int16_t silence[240]{};
+    while (remaining != 0) {
+        const size_t frames = std::min<size_t>(remaining, 240);
+        const auto error = write_speaker_pcm_locked(silence, frames, rate, volume);
+        if (error != ESP_OK) return error;
+        remaining -= frames;
     }
-    sample_rate_hz = s_microphone_open ? s_microphone_sample_rate_hz : s_speaker_sample_rate_hz;
-    if (sample_rate_hz < 8000 || sample_rate_hz > 48000) {
-        return ESP_ERR_NOT_SUPPORTED;
-    }
-    LUNASHELL::AudioCueSequenceLayout sequence{};
-    if (!LUNASHELL::prepare_audio_cue_sequence(event.sample_count, event.sample_rate_hz,
-            sample_rate_hz, event.repetitions, event.gap_ms, sequence,
-            event.channel == ApplicationAudioChannel::Boot)) {
-        ESP_LOGE(TAG, "Admitted audio sequence geometry rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
-        return ESP_ERR_INVALID_STATE;
-    }
-    esp_err_t error = configure_speaker_stream(sample_rate_hz);
-    if (error != ESP_OK) {
-        return error;
-    }
-    bool previous_mute = true;
-    const int volume_result = esp_codec_dev_get_out_vol(s_speaker, &volume_percent);
-    if (volume_result != ESP_CODEC_DEV_OK) {
-        return static_cast<esp_err_t>(volume_result);
-    }
-    const int mute_result = esp_codec_dev_get_out_mute(s_speaker, &previous_mute);
-    if (mute_result != ESP_CODEC_DEV_OK) {
-        return static_cast<esp_err_t>(mute_result);
-    }
-    if (volume_percent < 0 || volume_percent > 100) {
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    if (volume_percent == 0 || !personality_event_current(event)) {
-        return ESP_OK;
-    }
-    if (esp_timer_get_time() - event.requested_at_us > event.request_expiry_us) {
-        outcome = LUNASHELL_CUE_EXPIRED;
-        return ESP_OK;
-    }
-    const int unmute_result = esp_codec_dev_set_out_mute(s_speaker, false);
-    error = static_cast<esp_err_t>(unmute_result);
-    const size_t output_samples = sequence.total_samples;
+    return ESP_OK;
+}
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+struct StreamWorkerState {
+    LUNASHELL::AudioStreamBlock block{};
+    uint32_t generation = 0;
     size_t offset = 0;
-    bool submitted = false;
+    int64_t drain_until_us = 0;
+    esp_err_t failure = ESP_OK;
+    bool held = false;
     bool cancelled = false;
-    while (error == ESP_OK && offset < output_samples) {
-        if (!personality_event_current(event)) {
-            cancelled = true;
-            break;
-        }
-        // The codec mutex makes the existing typewriter scratch exclusive here too.
-        // Resampling in bounded chunks keeps the current microphone clock unchanged.
-        const size_t chunk_count = std::min<size_t>(320, output_samples - offset);
-        for (size_t index = 0; index < chunk_count; ++index) {
-            const size_t clip_offset = LUNASHELL::audio_cue_sequence_clip_offset(sequence, offset + index);
-            if (clip_offset == SIZE_MAX) {
-                s_typewriter_transport_samples[index] = 0;
-                continue;
-            }
-            const uint32_t position = static_cast<uint32_t>(clip_offset) * event.sample_rate_hz;
-            const size_t source = position / sample_rate_hz;
-            const uint32_t fraction = position % sample_rate_hz;
-            const size_t next = std::min(source + 1, event.sample_count - 1);
-            s_typewriter_transport_samples[index] = static_cast<int16_t>(
-                (static_cast<int32_t>(event.samples[source]) * static_cast<int32_t>(sample_rate_hz - fraction) +
-                 static_cast<int32_t>(event.samples[next]) * static_cast<int32_t>(fraction)) /
-                static_cast<int32_t>(sample_rate_hz));
-        }
-        if (!submitted) {
-            const int64_t started_at_us = esp_timer_get_time();
-            portENTER_CRITICAL(&s_personality_mux);
-            if (s_personality_mailbox.status.last_error == ESP_OK) {
-                s_personality_mailbox.status.state = LUNASHELL_CUE_PLAYING;
-            }
-            if (event.channel == ApplicationAudioChannel::Codex) {
-                s_personality_mailbox.codex_have_played = true;
-                s_personality_mailbox.codex_last_started_us = started_at_us;
-            } else {
-                s_personality_mailbox.have_played = true;
-                s_personality_mailbox.last_started_us = started_at_us;
-            }
-            portEXIT_CRITICAL(&s_personality_mux);
-        }
-        error = write_speaker_pcm_locked(s_typewriter_transport_samples.data(), chunk_count,
-            sample_rate_hz, volume_percent, event.cue_id);
-        submitted = true;
-        offset += chunk_count;
-    }
-    if (error == ESP_OK && submitted && !cancelled) {
-        // Earlier repetitions have already traversed the blocking transport. Preserve
-        // the existing single-clip drain bound for only the final DMA tail before mute.
-        const uint32_t clip_ms = static_cast<uint32_t>((sequence.clip_samples * 1000 + sample_rate_hz - 1) / sample_rate_hz);
-        vTaskDelay(pdMS_TO_TICKS(clip_ms) + 1);
-    }
-    const int restore_result = esp_codec_dev_set_out_mute(s_speaker, previous_mute);
-    if (restore_result != ESP_CODEC_DEV_OK) {
-        ESP_LOGE(TAG, "Personality mute restoration failed (%d)", restore_result);
-        if (error == ESP_OK) {
-            error = static_cast<esp_err_t>(restore_result);
-        }
-    }
-    const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
-        false, 0, sample_rate_hz, volume_percent, error, event.cue_id);
-    if (publication_error != ESP_OK) {
-        ESP_LOGE(TAG, "Personality playback completion publication failed (%s)", esp_err_to_name(publication_error));
-        if (error == ESP_OK) {
-            error = publication_error;
-        }
-    }
-    if (error == ESP_OK && submitted && !cancelled && personality_event_current(event)) {
-        outcome = LUNASHELL_CUE_COMPLETED;
-    }
-    return error;
-}
+    bool mixed_any = false;
+};
 
-// event: One dispatched immutable symbol cue with a bounded wait for a short tap to retire.
-// outcome: Receives a meaningful suppression/admission/completion state.
-// Exception: Returns genuine snapshot/codec errors and publishes them through the existing owner.
-esp_err_t handle_personality_event(const PersonalityAudioEvent &event, lunashell_audio_cue_state_t &outcome)
+// state: Worker-owned stream block and terminal retirement deadline.
+// now: Current monotonic time used to bound DMA retirement.
+// ready: Receives whether a copied block can contribute output immediately.
+// Exception: Returns NOT_FINISHED for transient pipe contention or the original pipe error.
+esp_err_t service_audio_stream(StreamWorkerState &state, int64_t now, bool &ready)
 {
-    outcome = LUNASHELL_CUE_SUPPRESSED;
-    if (!personality_event_current(event)) {
-        return ESP_OK;
+    ready = false;
+    const uint32_t generation = s_audio_stream_generation.load(std::memory_order_acquire);
+    if (generation == 0) return ESP_OK;
+    if (state.generation != generation) {
+        if (state.held) return ESP_ERR_INVALID_STATE;
+        state = {};
+        state.generation = generation;
     }
-    if (esp_timer_get_time() - event.requested_at_us > event.request_expiry_us) {
-        outcome = LUNASHELL_CUE_EXPIRED;
-        return ESP_OK;
+    if (state.failure != ESP_OK) {
+        const auto cancel = LUNASHELL::cancel_audio_stream(s_audio_stream, generation, state.failure);
+        if (cancel == ESP_ERR_NOT_FINISHED) return cancel;
+        if (cancel != ESP_OK && cancel != ESP_ERR_INVALID_STATE) return cancel;
     }
-    LUNASHELL::ClockSnapshot clock;
-    esp_err_t error = LUNASHELL::DeviceSnapshotService::instance().readClockObservation(clock);
-    if (error != ESP_OK) {
-        return retain_personality_failure(error, event.sample_rate_hz, 0);
+    LUNASHELL::AudioStreamStatus observed{};
+    auto error = LUNASHELL::observe_audio_stream(s_audio_stream, generation, &observed);
+    if (error != ESP_OK) return error;
+    if (!observed.active) return ESP_OK;
+    state.cancelled = observed.cancelled;
+    if (state.held && (state.offset == state.block.frames || observed.cancelled)) {
+        error = LUNASHELL::complete_audio_stream_block(s_audio_stream, generation, ESP_OK);
+        if (error == ESP_ERR_NOT_FINISHED) return error;
+        if (error != ESP_OK && (!observed.cancelled || error != observed.error)) return error;
+        state.held = false;
+        state.offset = 0;
+        observed.in_flight = false;
     }
-    const auto cue_policy = LUNASHELL::clock_cue_policy(clock);
-    if (cue_policy != LUNASHELL::ClockCuePolicy::Allowed) {
-        ESP_LOGI(TAG, "Personality cue=%lu suppressed: clock_policy=%u",
-            static_cast<unsigned long>(event.cue_id), static_cast<unsigned>(cue_policy));
-        return ESP_OK;
+    if (!state.held && !observed.cancelled && observed.queued_blocks != 0) {
+        error = LUNASHELL::dequeue_audio_stream(s_audio_stream, generation, state.block);
+        if (error != ESP_OK) return error;
+        state.held = true;
+        state.offset = 0;
+        --observed.queued_blocks;
+        observed.in_flight = true;
     }
-    SemaphoreHandle_t mutex = audio_mutex();
-    if (mutex == nullptr) {
-        return retain_personality_failure(ESP_ERR_NO_MEM, event.sample_rate_hz, 0);
-    }
-    // A pet cue was already accepted by the nonblocking UI-facing mailbox.
-    // Let its worker wait up to the remaining freshness window for a transient
-    // transport owner; other channels retain their existing short wait.
-    TickType_t mutex_wait = pdMS_TO_TICKS(50);
-    if (event.channel == ApplicationAudioChannel::Pet) {
-        const int64_t remaining_us = event.request_expiry_us - (esp_timer_get_time() - event.requested_at_us);
-        if (remaining_us <= 0) {
-            outcome = LUNASHELL_CUE_EXPIRED;
-            return ESP_OK;
+    if (!state.held && !observed.in_flight && observed.queued_blocks == 0 &&
+        (observed.input_ended || observed.cancelled) && now >= state.drain_until_us) {
+        if (observed.input_ended && !observed.cancelled && !state.mixed_any) {
+            state.failure = ESP_ERR_INVALID_RESPONSE;
+            return state.failure;
         }
-        mutex_wait = std::max<TickType_t>(1, pdMS_TO_TICKS((remaining_us + 999) / 1000));
+        return LUNASHELL::acknowledge_audio_stream_terminal(s_audio_stream, generation, state.failure);
     }
-    if (xSemaphoreTake(mutex, mutex_wait) != pdTRUE) {
-        outcome = event.channel == ApplicationAudioChannel::Pet ? LUNASHELL_CUE_EXPIRED : LUNASHELL_CUE_DROPPED_BUSY;
-        return ESP_OK;
-    }
-    if (esp_timer_get_time() - event.requested_at_us > event.request_expiry_us) {
-        audio_unlock(mutex);
-        outcome = LUNASHELL_CUE_EXPIRED;
-        return ESP_OK;
-    }
-    uint32_t sample_rate_hz = event.sample_rate_hz;
-    int volume_percent = 0;
-    error = play_personality_locked(event, outcome, sample_rate_hz, volume_percent);
-    if (error != ESP_OK) {
-        retain_personality_failure(error, sample_rate_hz, volume_percent);
-    }
-    audio_unlock(mutex);
-    return error;
+    ready = state.held && state.offset < state.block.frames;
+    return ESP_OK;
 }
+#endif
 
-// context: Unused; this sole worker owns asynchronous symbol playback within the audio owner.
-void personality_audio_worker(void *context)
+// context: Unused; this worker alone renders and writes the shared asynchronous output.
+void cue_worker(void *context)
 {
     (void)context;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    StreamWorkerState stream{};
+#endif
     for (;;) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+        const TickType_t wait = s_audio_stream_generation.load(std::memory_order_acquire) != 0
+            ? pdMS_TO_TICKS(10) + 1 : portMAX_DELAY;
+        ulTaskNotifyTake(pdTRUE, wait);
+#else
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-        PersonalityAudioEvent event;
-        portENTER_CRITICAL(&s_personality_mux);
-        const bool pending = s_personality_mailbox.pending;
-        if (pending) {
-            event = s_personality_mailbox.event;
-            s_personality_mailbox.pending = false;
-        }
-        portEXIT_CRITICAL(&s_personality_mux);
-        if (!pending) {
-            continue;
-        }
-        lunashell_audio_cue_state_t outcome;
-        const esp_err_t error = handle_personality_event(event, outcome);
-        portENTER_CRITICAL(&s_personality_mux);
-        if (error != ESP_OK) {
-            s_personality_mailbox.status.state = LUNASHELL_CUE_FAILED;
-            s_personality_mailbox.status.last_error = error;
-        } else if (s_personality_mailbox.status.last_error == ESP_OK) {
-            s_personality_mailbox.status.state = outcome;
-        } else {
-            s_personality_mailbox.status.state = LUNASHELL_CUE_FAILED;
-        }
-        s_personality_mailbox.in_flight = false;
-        portEXIT_CRITICAL(&s_personality_mux);
-        if (event.channel == ApplicationAudioChannel::Boot) {
-            ESP_LOGI(TAG, "Boot audio playback ended: state=%u result=%s",
-                static_cast<unsigned>(error == ESP_OK ? outcome : LUNASHELL_CUE_FAILED), esp_err_to_name(error));
+#endif
+        for (;;) {
+            bool any = false;
+            const int64_t check_time = esp_timer_get_time();
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+            bool stream_ready = false;
+            if ((s_standby_transition.load(std::memory_order_acquire) ||
+                    s_standby.load(std::memory_order_acquire)) &&
+                s_audio_stream_generation.load(std::memory_order_acquire) != 0 && stream.failure == ESP_OK)
+                stream.failure = ESP_ERR_INVALID_STATE;
+            const auto stream_service_error = service_audio_stream(stream, check_time, stream_ready);
+            if (stream_service_error == ESP_ERR_NOT_FINISHED) { vTaskDelay(1); continue; }
+            if (stream_service_error != ESP_OK) {
+                ESP_LOGE(TAG, "Audio stream service failed (%s)", esp_err_to_name(stream_service_error));
+                stream.failure = stream_service_error;
+                vTaskDelay(1);
+                continue;
+            }
+            any = stream_ready;
+#endif
+            portENTER_CRITICAL(&s_cue_mux);
+            for (auto &slot : s_cue_owner.slots) {
+                if (!slot.used || slot.terminal) continue;
+                if (!cue_current_locked(slot)) finish_cue_locked(slot, LUNASHELL_CUE_SUPPRESSED, ESP_OK);
+                else if (!slot.started && check_time - slot.requested_at_us > slot.expires_after_us)
+                    finish_cue_locked(slot, LUNASHELL_CUE_EXPIRED, ESP_OK);
+                else any = true;
+            }
+            portEXIT_CRITICAL(&s_cue_mux);
+            if (!any) break;
+            SemaphoreHandle_t mutex = audio_mutex();
+            if (mutex == nullptr) {
+                fail_all_cues(ESP_ERR_NO_MEM);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+                if (s_audio_stream_generation.load(std::memory_order_acquire) != 0)
+                    stream.failure = ESP_ERR_NO_MEM;
+#endif
+                break;
+            }
+            if (xSemaphoreTake(mutex, pdMS_TO_TICKS(50)) != pdTRUE) continue;
+            esp_err_t error = cody_output_policy_error();
+            if (error == ESP_OK && (!s_initialized.load(std::memory_order_acquire) ||
+                s_standby.load(std::memory_order_acquire) || s_audio_state_poisoned.load(std::memory_order_acquire)))
+                error = ESP_ERR_INVALID_STATE;
+            uint32_t rate = s_microphone_open ? s_microphone_sample_rate_hz : s_speaker_sample_rate_hz;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+            if (stream_ready) {
+                const uint32_t stream_rate = s_audio_stream_rate.load(std::memory_order_acquire);
+                if (s_microphone_open && rate != stream_rate) error = ESP_ERR_INVALID_STATE;
+                else rate = stream_rate;
+            }
+#endif
+            if (error == ESP_OK && (rate < 8000 || rate > 48000)) error = ESP_ERR_NOT_SUPPORTED;
+            if (error == ESP_OK) error = configure_speaker_stream(rate);
+            int volume = 0;
+            bool previous_mute = true;
+            if (error == ESP_OK) error = static_cast<esp_err_t>(esp_codec_dev_get_out_vol(s_speaker, &volume));
+            bool mute_policy_read = false;
+            if (error == ESP_OK) {
+                error = static_cast<esp_err_t>(esp_codec_dev_get_out_mute(s_speaker, &previous_mute));
+                mute_policy_read = error == ESP_OK;
+            }
+            if (error == ESP_OK && (volume < 0 || volume > 100)) error = ESP_ERR_INVALID_RESPONSE;
+            if (error == ESP_OK && volume > 0) error = static_cast<esp_err_t>(esp_codec_dev_set_out_mute(s_speaker, false));
+            bool wrote = false;
+            bool cancelled_cue = false;
+            while (error == ESP_OK) {
+                bool has_cue = false;
+                portENTER_CRITICAL(&s_cue_mux);
+                for (const auto &slot : s_cue_owner.slots) if (slot.used && !slot.terminal &&
+                    slot.request.channel != LUNASHELL_AUDIO_SYSTEM &&
+                    slot.request.channel != LUNASHELL_AUDIO_USER_PCM) { has_cue = true; break; }
+                portEXIT_CRITICAL(&s_cue_mux);
+                bool allowed = true;
+                esp_err_t cue_clock_error = ESP_OK;
+                if (has_cue) {
+                    LUNASHELL::ClockSnapshot clock{};
+                    cue_clock_error = LUNASHELL::DeviceSnapshotService::instance().readClockObservation(clock);
+                    if (cue_clock_error == ESP_OK) {
+                        allowed = LUNASHELL::clock_cue_policy(clock) == LUNASHELL::ClockCuePolicy::Allowed;
+                    }
+                }
+                const int64_t now = esp_timer_get_time();
+                bool active = false;
+                bool remaining = false;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+                // Pipe operations use a zero-time lock. Never wait for a producer while
+                // holding the codec: retry after releasing it on lock contention/underrun.
+                if ((s_standby_transition.load(std::memory_order_acquire) ||
+                        s_standby.load(std::memory_order_acquire)) &&
+                    s_audio_stream_generation.load(std::memory_order_acquire) != 0 && stream.failure == ESP_OK) {
+                    stream.failure = ESP_ERR_INVALID_STATE;
+                    break;
+                }
+                stream_ready = false;
+                const auto stream_error = service_audio_stream(stream, now, stream_ready);
+                if (stream_error != ESP_OK && stream_error != ESP_ERR_NOT_FINISHED) stream.failure = stream_error;
+                if (stream_ready && s_audio_stream_rate.load(std::memory_order_acquire) != rate) {
+                    stream.failure = ESP_ERR_INVALID_STATE;
+                    stream_ready = false;
+                }
+                if (stream_ready && volume == 0) {
+                    stream.failure = ESP_ERR_INVALID_STATE;
+                    stream_ready = false;
+                }
+                active = stream_ready;
+                remaining = stream_ready;
+#endif
+                std::array<CueSlot, kCueSlots> current{};
+                portENTER_CRITICAL(&s_cue_mux);
+                for (size_t index = 0; index < kCueSlots; ++index) {
+                    auto &slot = s_cue_owner.slots[index];
+                    // A request admitted after an empty observation waits for its own clock check.
+                    if (!slot.used || slot.terminal) continue;
+                    const bool application = slot.request.channel != LUNASHELL_AUDIO_SYSTEM &&
+                        slot.request.channel != LUNASHELL_AUDIO_USER_PCM;
+                    if (application && !has_cue) continue;
+                    if (application && cue_clock_error != ESP_OK) {
+                        cancelled_cue = cancelled_cue || slot.started;
+                        finish_cue_locked(slot, LUNASHELL_CUE_FAILED, cue_clock_error);
+                        continue;
+                    }
+                    if (!cue_current_locked(slot) || (application && !allowed) || volume == 0) {
+                        cancelled_cue = cancelled_cue || slot.started;
+                        finish_cue_locked(slot, LUNASHELL_CUE_SUPPRESSED, ESP_OK);
+                        continue;
+                    }
+                    if (!slot.started && now - slot.requested_at_us > slot.expires_after_us) {
+                        finish_cue_locked(slot, LUNASHELL_CUE_EXPIRED, ESP_OK);
+                        continue;
+                    }
+                    if (slot.draining && now >= slot.drain_until_us) {
+                        finish_cue_locked(slot, LUNASHELL_CUE_COMPLETED, ESP_OK);
+                        continue;
+                    }
+                    remaining = true;
+                    current[index] = slot;
+                }
+                portEXIT_CRITICAL(&s_cue_mux);
+                if (!remaining) break;
+                // Each snapshot keeps its PCM lease while rendering. Only this worker retires slots.
+                for (auto &slot : current) {
+                    if (!slot.used || slot.draining) continue;
+                    if (!slot.started) {
+                        error = start_cue_voice(slot, rate, 0);
+                        if (error != ESP_OK) break;
+                        slot.started = true;
+                        slot.status.state = LUNASHELL_CUE_PLAYING;
+                    }
+                    active = true;
+                }
+                if (error != ESP_OK) break;
+                if (!active) { vTaskDelay(pdMS_TO_TICKS(10) + 1); continue; }
+                LUNASHELL::AudioMixerVoice voices[kCueSlots]{};
+                size_t voice_slots[kCueSlots]{};
+                size_t voice_count = 0;
+                size_t frames = std::min<size_t>(320, rate / 50U);
+                for (size_t index = 0; index < kCueSlots; ++index) {
+                    const auto &slot = current[index];
+                    if (!slot.used || slot.draining || !slot.started) continue;
+                    voices[voice_count] = slot.voice;
+                    voice_slots[voice_count++] = index;
+                    const uint64_t duration = static_cast<uint64_t>(slot.voice.source.duration_frames) * rate;
+                    const uint64_t source_remaining = duration - slot.voice.position;
+                    const uint64_t remaining_frames = (source_remaining + slot.voice.source.source_rate_hz - 1U) /
+                        slot.voice.source.source_rate_hz + slot.voice.delay_remaining;
+                    frames = std::min(frames, static_cast<size_t>(remaining_frames));
+                }
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+                const bool mixed_stream = stream_ready;
+                if (mixed_stream) {
+                    if (voice_count == kCueSlots) { stream.failure = ESP_ERR_INVALID_STATE; break; }
+                    LUNASHELL::AudioVoiceSource source{};
+                    source.pcm = stream.block.pcm.data() + stream.offset;
+                    source.pcm_frames = static_cast<uint32_t>(stream.block.frames - stream.offset);
+                    source.duration_frames = source.pcm_frames;
+                    source.source_rate_hz = rate;
+                    source.gain = s_audio_stream_gain.load(std::memory_order_acquire);
+                    error = LUNASHELL::initialize_audio_voice(voices[voice_count], source, rate);
+                    if (error != ESP_OK) { stream.failure = error; break; }
+                    frames = std::min(frames, static_cast<size_t>(source.duration_frames));
+                    ++voice_count;
+                }
+#endif
+                int16_t mixed[320]{};
+                const size_t cue_voice_count = voice_count
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+                    - (mixed_stream ? 1U : 0U)
+#endif
+                    ;
+                uint32_t playback_cue = 0;
+                if (voice_count == 1 && cue_voice_count == 1) playback_cue = current[voice_slots[0]].request.cue_id;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+                else if (voice_count == 1 && mixed_stream) playback_cue = 0x54545301U;
+#endif
+                error = LUNASHELL::render_audio_mix(voices, voice_count, rate, mixed, frames);
+                if (error == ESP_OK) error = write_speaker_pcm_locked(mixed, frames, rate, volume, playback_cue);
+                if (error != ESP_OK) break;
+                wrote = true;
+                const int64_t submitted_at = esp_timer_get_time();
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+                if (mixed_stream) {
+                    stream.mixed_any = true;
+                    stream.offset += frames;
+                    stream.drain_until_us = submitted_at + cue_drain_us(rate);
+                }
+#endif
+                for (size_t voice_index = 0; voice_index < cue_voice_count; ++voice_index) {
+                    auto &slot = current[voice_slots[voice_index]];
+                    slot.voice = voices[voice_index];
+                    if (!slot.voice.active) {
+                        if (--slot.plays_remaining != 0) {
+                            const uint32_t delay = static_cast<uint32_t>(static_cast<uint64_t>(rate) * slot.request.gap_ms / 1000U);
+                            error = start_cue_voice(slot, rate, delay);
+                            if (error != ESP_OK) break;
+                        } else {
+                            slot.draining = true;
+                            slot.drain_until_us = submitted_at + cue_drain_us(rate);
+                        }
+                    }
+                }
+                if (error != ESP_OK) break;
+                portENTER_CRITICAL(&s_cue_mux);
+                for (size_t index = 0; index < kCueSlots; ++index) {
+                    const auto &snapshot = current[index];
+                    auto &slot = s_cue_owner.slots[index];
+                    if (!snapshot.used || !slot.used ||
+                        snapshot.status.request_sequence != slot.status.request_sequence) continue;
+                    if (!slot.started && snapshot.started && slot.request.channel != LUNASHELL_AUDIO_SYSTEM &&
+                        slot.request.channel != LUNASHELL_AUDIO_USER_PCM &&
+                        slot.request.channel != LUNASHELL_AUDIO_FEEDBACK_GLYPH &&
+                        slot.request.channel != LUNASHELL_AUDIO_FEEDBACK_TOUCH) {
+                        if (slot.request.channel == LUNASHELL_AUDIO_CODEX) {
+                            s_cue_owner.codex_have_played = true;
+                            s_cue_owner.codex_last_started_us = now;
+                        } else {
+                            s_cue_owner.have_played = true;
+                            s_cue_owner.last_started_us = now;
+                        }
+                    }
+                    const bool cancel_requested = slot.cancel_requested;
+                    slot = snapshot;
+                    slot.cancel_requested = slot.cancel_requested || cancel_requested;
+                }
+                portEXIT_CRITICAL(&s_cue_mux);
+            }
+            bool flush_tail = cancelled_cue;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+            flush_tail = flush_tail || stream.drain_until_us > esp_timer_get_time();
+#endif
+            if (wrote && flush_tail && error == ESP_OK) {
+                bool silence_output = cancelled_cue;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+                silence_output = silence_output || stream.cancelled || stream.failure != ESP_OK;
+#endif
+                bool other_source = false;
+                portENTER_CRITICAL(&s_cue_mux);
+                for (const auto &slot : s_cue_owner.slots) {
+                    if (slot.used && !slot.terminal && cue_current_locked(slot)) { other_source = true; break; }
+                }
+                portEXIT_CRITICAL(&s_cue_mux);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+                other_source = other_source || (s_audio_stream_generation.load(std::memory_order_acquire) != 0 &&
+                    !stream.cancelled && stream.failure == ESP_OK);
+#endif
+                silence_output = silence_output && !other_source;
+                if (silence_output) error = static_cast<esp_err_t>(esp_codec_dev_set_out_mute(s_speaker, true));
+                if (error == ESP_OK) error = retire_mixer_tail(rate, volume);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+                if (error == ESP_OK) stream.drain_until_us = esp_timer_get_time();
+#endif
+            }
+            if (mute_policy_read) {
+                const int mute_error = esp_codec_dev_set_out_mute(s_speaker, previous_mute);
+                if (mute_error != ESP_CODEC_DEV_OK) {
+                    s_audio_state_poisoned.store(true, std::memory_order_release);
+                    ESP_LOGE(TAG, "Restoring mixed audio mute failed (%d)", mute_error);
+                    const int force_mute = esp_codec_dev_set_out_mute(s_speaker, true);
+                    if (force_mute != ESP_CODEC_DEV_OK) ESP_LOGE(TAG, "Mixed audio failure mute failed (%d)", force_mute);
+                    if (error == ESP_OK) error = static_cast<esp_err_t>(mute_error);
+                }
+            }
+            if (wrote) {
+                const auto publication = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
+                    false, 0, rate, volume, error);
+                if (error == ESP_OK) error = publication;
+            }
+            audio_unlock(mutex);
+            if (error != ESP_OK) {
+                ESP_LOGE(TAG, "Audio mixer worker failed (%s)", esp_err_to_name(error));
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+                if (s_audio_stream_generation.load(std::memory_order_acquire) != 0 && stream.failure == ESP_OK)
+                    stream.failure = error;
+#endif
+                fail_all_cues(error);
+                break;
+            }
         }
     }
+}
+
+// No parameters: create the single mixer worker independently of any cue policy.
+// Exception: Returns the original stream initialization or worker allocation error.
+esp_err_t ensure_cue_worker()
+{
+    std::lock_guard<std::mutex> guard(s_cue_worker_prepare_mutex);
+    if (s_cue_task.load(std::memory_order_acquire) != nullptr) return ESP_OK;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    if (s_audio_stream.lock == nullptr) {
+        const auto error = LUNASHELL::initialize_audio_stream(s_audio_stream);
+        if (error != ESP_OK) return error;
+    }
+#endif
+    const TaskHandle_t task = xTaskCreateStatic(cue_worker, "audio_mixer", PERSONALITY_STACK_BYTES,
+        nullptr, 2, s_cue_task_stack, &s_cue_task_control);
+    if (task == nullptr) return ESP_ERR_NO_MEM;
+    s_cue_task.store(task, std::memory_order_release);
+    return ESP_OK;
+}
+
+// No parameters: notify the one output owner after PCM, EOF or cancellation.
+// Exception: Returns invalid state when no output worker exists.
+esp_err_t wake_cue_worker()
+{
+    const TaskHandle_t task = s_cue_task.load(std::memory_order_acquire);
+    if (task == nullptr) return ESP_ERR_INVALID_STATE;
+    xTaskNotifyGive(task);
+    return ESP_OK;
 }
 #endif
 } // namespace
 
-// policy: Build-authored immutable admission settings, copied before worker creation.
-// Exception: Returns and retains invalid or changed policy and original preparation failures.
+// policy: Immutable owner admission policy.
+// Exception: Returns invalid input, changed policy or worker creation error.
 extern "C" esp_err_t LUNASHELL_audio_prepare_personality(const lunashell_personality_audio_policy_t *policy)
 {
-    if (policy == nullptr || policy->cooldown_us < 0 || policy->request_expiry_us <= 0) {
-        ESP_LOGE(TAG, "Personality preparation policy rejected: present=%u cooldown=%lld expiry=%lld",
-            policy != nullptr, static_cast<long long>(policy == nullptr ? 0 : policy->cooldown_us),
-            static_cast<long long>(policy == nullptr ? 0 : policy->request_expiry_us));
-        return retain_personality_failure(ESP_ERR_INVALID_ARG, 16000, 0);
-    }
+    if (policy == nullptr || policy->cooldown_us < 0 || policy->request_expiry_us <= 0) return ESP_ERR_INVALID_ARG;
 #if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
-    lunashell_audio_cue_status_t retained;
-    const esp_err_t retained_error = LUNASHELL_audio_get_personality_status(&retained);
-    if (retained_error != ESP_OK) {
-        return retained_error;
+    portENTER_CRITICAL(&s_cue_mux);
+    const bool configured = s_cue_owner.policy_configured;
+    const bool same = !configured || (s_cue_owner.policy.enabled == policy->enabled &&
+        s_cue_owner.policy.cooldown_us == policy->cooldown_us &&
+        s_cue_owner.policy.request_expiry_us == policy->request_expiry_us);
+    if (!configured) { s_cue_owner.policy = *policy; s_cue_owner.policy_configured = true; }
+    const esp_err_t previous = s_cue_owner.preparation_error;
+    portEXIT_CRITICAL(&s_cue_mux);
+    if (!same) return ESP_ERR_INVALID_STATE;
+    if (previous != ESP_OK) return previous;
+    const auto worker_error = ensure_cue_worker();
+    if (worker_error != ESP_OK) {
+        portENTER_CRITICAL(&s_cue_mux);
+        s_cue_owner.preparation_error = worker_error;
+        portEXIT_CRITICAL(&s_cue_mux);
+        return worker_error;
     }
-    portENTER_CRITICAL(&s_personality_mux);
-    const bool already_configured = s_personality_mailbox.policy_configured;
-    const bool same_policy = !already_configured ||
-        (s_personality_mailbox.policy.enabled == policy->enabled &&
-         s_personality_mailbox.policy.cooldown_us == policy->cooldown_us &&
-         s_personality_mailbox.policy.request_expiry_us == policy->request_expiry_us);
-    if (!already_configured) {
-        s_personality_mailbox.policy = *policy;
-        s_personality_mailbox.policy_configured = true;
-        if (!policy->enabled) {
-            s_personality_mailbox.status.state = LUNASHELL_CUE_SUPPRESSED;
-        }
-    }
-    portEXIT_CRITICAL(&s_personality_mux);
-    if (!same_policy) {
-        ESP_LOGE(TAG, "Personality preparation cannot replace immutable admission policy");
-        return retain_personality_failure(ESP_ERR_INVALID_STATE, 16000, 0);
-    }
-    if (already_configured) {
-        if (s_personality_task.load(std::memory_order_acquire) == nullptr) {
-            ESP_LOGE(TAG, "Personality preparation already claimed without a ready worker");
-            return retain_personality_failure(ESP_ERR_INVALID_STATE, 16000, 0);
-        }
-        return LUNASHELL_audio_get_personality_status(&retained);
-    }
-    const TaskHandle_t worker = xTaskCreateStatic(personality_audio_worker, "audio_personality",
-        PERSONALITY_STACK_BYTES, nullptr, 2, s_personality_task_stack, &s_personality_task_control);
-    if (worker == nullptr) {
-        return retain_personality_failure(ESP_ERR_NO_MEM, 16000, 0);
-    }
-    s_personality_task.store(worker, std::memory_order_release);
-    return LUNASHELL_audio_get_personality_status(&retained);
+    return ESP_OK;
 #else
-    return retain_personality_failure(ESP_ERR_NOT_SUPPORTED, 16000, 0);
+    return ESP_ERR_NOT_SUPPORTED;
 #endif
 }
 
-// samples: Immutable flash-owned original PCM, retained through dispatch and playback.
-// sample_count: Exact PCM length; boot and single Codex notices allow two seconds.
-// sample_rate_hz: Exact authored format, 22050 Hz for boot and 16000 Hz otherwise.
-// cue_id: Stable application identity preserved through the worker.
-// channel: Typed owner channel with independent presentation cancellation.
-// kind: Codex activity is throttled; notices keep the same nonpreemptive shared admission.
-// repetitions: One normal clip, or two through five plays within one Codex notice.
-// gap_ms: Bounded inter-clip silence, never a delayed event or another mailbox request.
-// status: Receives the request disposition without mistaking admission for completion.
-// Exception: Returns genuine argument/admission or retained asynchronous errors.
-static esp_err_t notify_application_audio(const int16_t *samples, size_t sample_count,
-    uint32_t sample_rate_hz, uint32_t cue_id, ApplicationAudioChannel channel,
-    lunashell_codex_audio_kind_t kind, uint8_t repetitions, uint16_t gap_ms,
+// request: Validated PCM or synthesized voice, borrowed until terminal status.
+// status: Receives admission result and unique request identity.
+// Exception: Returns the original input, policy or owner error.
+extern "C" esp_err_t LUNASHELL_audio_submit(const lunashell_audio_request_t *request,
     lunashell_audio_cue_status_t *status)
 {
-    const bool codex = channel == ApplicationAudioChannel::Codex;
-    const bool boot = channel == ApplicationAudioChannel::Boot;
-    const bool pet = channel == ApplicationAudioChannel::Pet;
-    const bool invalid_kind = codex && kind != LUNASHELL_CODEX_CUE_ACTIVITY && kind != LUNASHELL_CODEX_CUE_NOTICE;
-    const bool invalid_identity = codex && (cue_id & 0xFFFF0000U) != 0x43430000U;
-    const bool sustained_notice = codex && kind == LUNASHELL_CODEX_CUE_NOTICE && repetitions == 1;
-    const size_t sample_limit = boot ? 44100 : ((sustained_notice || pet) ? 32000 : 5600);
-    LUNASHELL::AudioCueSequenceLayout sequence{};
-    const bool invalid_sequence = !LUNASHELL::prepare_audio_cue_sequence(sample_count, sample_rate_hz,
-        sample_rate_hz, repetitions, gap_ms, sequence, boot) ||
-        (repetitions != 1 && (!codex || kind != LUNASHELL_CODEX_CUE_NOTICE));
-    if (status == nullptr || samples == nullptr || sample_count == 0 || sample_count > sample_limit ||
-        cue_id == 0 || invalid_kind || invalid_identity || invalid_sequence) {
-        ESP_LOGE(TAG, "Application cue rejected: channel=%u cue=%lu samples=%u rate=%lu kind=%u repeat=%u gap_ms=%u status=%u",
-            static_cast<unsigned>(channel), static_cast<unsigned long>(cue_id),
-            static_cast<unsigned>(sample_count), static_cast<unsigned long>(sample_rate_hz),
-            static_cast<unsigned>(kind), static_cast<unsigned>(repetitions), static_cast<unsigned>(gap_ms), status != nullptr);
-        const esp_err_t error = retain_personality_failure(ESP_ERR_INVALID_ARG, sample_rate_hz, 0);
-        if (status != nullptr) {
-            portENTER_CRITICAL(&s_personality_mux);
-            *status = s_personality_mailbox.status;
-            portEXIT_CRITICAL(&s_personality_mux);
-        }
-        return error;
-    }
-    if (!LUNASHELL_audio_user_sounds_enabled()) {
-        const esp_err_t retained_error = LUNASHELL_audio_get_personality_status(status);
-        status->cue_id = cue_id;
-        if (retained_error == ESP_OK) {
-            status->state = LUNASHELL_CUE_SUPPRESSED;
-        }
-        return retained_error;
-    }
-    const TaskHandle_t worker = s_personality_task.load(std::memory_order_acquire);
-    if (worker == nullptr) {
-        const esp_err_t retained_error = LUNASHELL_audio_get_personality_status(status);
-        if (retained_error != ESP_OK) {
-            return retained_error;
-        }
-        const esp_err_t error = retain_personality_failure(ESP_ERR_INVALID_STATE, sample_rate_hz, 0);
-        const esp_err_t observation_error = LUNASHELL_audio_get_personality_status(status);
-        if (observation_error != error) {
-            ESP_LOGE(TAG, "Personality preparation failure observation changed (%s)", esp_err_to_name(observation_error));
-        }
-        return error;
-    }
-    const int64_t now_us = esp_timer_get_time();
-    bool dispatched = false;
-    portENTER_CRITICAL(&s_personality_mux);
-    *status = s_personality_mailbox.status;
-    status->cue_id = cue_id;
-    const bool enabled = s_personality_mailbox.policy.enabled && (!codex || s_personality_mailbox.codex_enabled) &&
-        LUNASHELL_audio_user_sounds_enabled();
-    const bool suspended = codex ? s_personality_mailbox.codex_suspended : s_personality_mailbox.suspended;
-    const int64_t cooldown_us = pet ? 0 : codex ?
-        (kind == LUNASHELL_CODEX_CUE_ACTIVITY ? CODEX_ACTIVITY_COOLDOWN_US : 0) :
-        s_personality_mailbox.policy.cooldown_us;
-    const bool have_played = codex ? s_personality_mailbox.codex_have_played : s_personality_mailbox.have_played;
-    const int64_t last_started_us = codex ? s_personality_mailbox.codex_last_started_us : s_personality_mailbox.last_started_us;
-    const uint32_t generation = codex ? s_personality_mailbox.codex_generation : s_personality_mailbox.generation;
-    if (status->last_error != ESP_OK) {
-        // Retained failures remain visible until an explicit new preparation/recovery design exists.
-    } else if (!enabled || suspended ||
-               s_standby.load(std::memory_order_acquire)) {
-        status->state = LUNASHELL_CUE_SUPPRESSED;
-    } else if (s_personality_mailbox.in_flight) {
-        status->state = LUNASHELL_CUE_DROPPED_BUSY;
-    } else if (have_played && now_us - last_started_us < cooldown_us) {
-        status->state = LUNASHELL_CUE_DROPPED_COOLDOWN;
-    } else {
-        ++s_personality_mailbox.status.request_sequence;
-        s_personality_mailbox.status.cue_id = cue_id;
-        s_personality_mailbox.status.state = LUNASHELL_CUE_DISPATCHED;
-        s_personality_mailbox.event = {samples, sample_count, sample_rate_hz, cue_id,
-            generation, now_us, s_personality_mailbox.policy.request_expiry_us, channel, repetitions, gap_ms};
-        s_personality_mailbox.pending = true;
-        s_personality_mailbox.in_flight = true;
-        *status = s_personality_mailbox.status;
-        dispatched = true;
-    }
-    portEXIT_CRITICAL(&s_personality_mux);
-    if (dispatched && xTaskNotifyGive(worker) != pdPASS) {
-        portENTER_CRITICAL(&s_personality_mux);
-        s_personality_mailbox.pending = false;
-        s_personality_mailbox.in_flight = false;
-        portEXIT_CRITICAL(&s_personality_mux);
-        const esp_err_t error = retain_personality_failure(ESP_FAIL, sample_rate_hz, 0);
-        const esp_err_t retained_error = LUNASHELL_audio_get_personality_status(status);
-        if (retained_error != error) {
-            ESP_LOGE(TAG, "Personality notification failure observation changed (%s)", esp_err_to_name(retained_error));
-        }
-        return error;
-    }
-    return status->last_error;
-}
-
-// samples: Immutable flash-owned PCM for one visible symbol.
-// sample_count: Exact sample count, at most 5600 mono samples.
-// sample_rate_hz: Authored 16000 Hz clock.
-// cue_id: Stable symbol identity retained in owner status.
-// status: Receives the explicit admission outcome.
-// Exception: Returns the original shared audio owner failure.
-extern "C" esp_err_t LUNASHELL_audio_notify_personality(const int16_t *samples, size_t sample_count,
-    uint32_t sample_rate_hz, uint32_t cue_id, lunashell_audio_cue_status_t *status)
-{
-    return notify_application_audio(samples, sample_count, sample_rate_hz, cue_id,
-        ApplicationAudioChannel::Personality, LUNASHELL_CODEX_CUE_ACTIVITY, 1, 0, status);
-}
-
-// samples: Immutable mono 16 kHz PCM owned until this request completes.
-// sample_count: Exact sample count, no more than 32000.
-// cue_id: Stable pet event identity.
-// status: Receives the nonblocking admission, suppression or busy result.
-// Exception: Returns the original validation or shared audio-owner error.
-extern "C" esp_err_t LUNASHELL_audio_notify_pet(const int16_t *samples, size_t sample_count,
-    uint32_t cue_id, lunashell_audio_cue_status_t *status)
-{
-    return notify_application_audio(samples, sample_count, 16000, cue_id,
-        ApplicationAudioChannel::Pet, LUNASHELL_CODEX_CUE_NOTICE, 1, 0, status);
-}
-
-// samples: Immutable mono PCM at the boot cue's authored rate.
-// sample_count: Exact mono length for one clip, at most two seconds.
-// cue_id: Stable boot identity retained through playback.
-// status: Receives the existing nonpreemptive worker's disposition.
-// Exception: Returns the original format, preparation or shared-owner failure.
-extern "C" esp_err_t LUNASHELL_audio_notify_boot(const int16_t *samples, size_t sample_count,
-    uint32_t cue_id, lunashell_audio_cue_status_t *status)
-{
-    return notify_application_audio(samples, sample_count, 22050, cue_id,
-        ApplicationAudioChannel::Boot, LUNASHELL_CODEX_CUE_NOTICE, 1, 0, status);
-}
-
-// samples: Immutable flash-owned PCM for one actual Codex transition.
-// sample_count: Exact sample count; notices allow two seconds, activity clips 350 ms.
-// sample_rate_hz: Authored 16000 Hz clock.
-// cue_id: Stable Codex identity retained in owner status.
-// kind: Activity rate limit or notice admission, both without an event queue.
-// status: Receives the explicit admission outcome; completion stays asynchronous.
-// Exception: Returns the original shared audio owner failure.
-extern "C" esp_err_t LUNASHELL_audio_notify_codex(const int16_t *samples, size_t sample_count,
-    uint32_t sample_rate_hz, uint32_t cue_id, lunashell_codex_audio_kind_t kind,
-    lunashell_audio_cue_status_t *status)
-{
-    return notify_application_audio(samples, sample_count, sample_rate_hz, cue_id,
-        ApplicationAudioChannel::Codex, kind, 1, 0, status);
-}
-
-// samples: One immutable flash-owned chime, never duplicated into a sequence buffer.
-// sample_count: Authored source length; one play allows two seconds, repetitions 350 ms per clip.
-// sample_rate_hz: Exact 16000 Hz source format.
-// cue_id: Stable Codex notice identity for the entire sequence.
-// repetitions: One through five plays under the same ownership/cancellation generation.
-// gap_ms: Bounded silence between clips, with no trailing gap.
-// status: Receives a single asynchronous admission disposition.
-// Exception: Returns the original shared-owner argument, preparation or playback error.
-extern "C" esp_err_t LUNASHELL_audio_notify_codex_repeated_notice(const int16_t *samples, size_t sample_count,
-    uint32_t sample_rate_hz, uint32_t cue_id, uint8_t repetitions, uint16_t gap_ms,
-    lunashell_audio_cue_status_t *status)
-{
-    return notify_application_audio(samples, sample_count, sample_rate_hz, cue_id,
-        ApplicationAudioChannel::Codex, LUNASHELL_CODEX_CUE_NOTICE, repetitions, gap_ms, status);
-}
-
-// suspended: Hides or reveals the Codex presentation without changing the symbol channel.
-// Exception: Returns any retained owner failure.
-extern "C" esp_err_t LUNASHELL_audio_set_codex_suspended(bool suspended)
-{
-    portENTER_CRITICAL(&s_personality_mux);
-    if (s_personality_mailbox.codex_suspended != suspended) {
-        s_personality_mailbox.codex_suspended = suspended;
-        ++s_personality_mailbox.codex_generation;
-    }
-    const esp_err_t error = s_personality_mailbox.status.last_error;
-    portEXIT_CRITICAL(&s_personality_mux);
-    return error;
-}
-
-// enabled: Explicit session sound preference, independent of the presentation gate.
-// Exception: Returns any retained owner failure.
-extern "C" esp_err_t LUNASHELL_audio_set_codex_enabled(bool enabled)
-{
-    portENTER_CRITICAL(&s_personality_mux);
-    if (s_personality_mailbox.codex_enabled != enabled) {
-        s_personality_mailbox.codex_enabled = enabled;
-        ++s_personality_mailbox.codex_generation;
-    }
-    const esp_err_t error = s_personality_mailbox.status.last_error;
-    portEXIT_CRITICAL(&s_personality_mux);
-    return error;
-}
-
-// suspended: Invalidates the single dispatch without queuing it for resume.
-// Exception: Returns any retained owner error.
-extern "C" esp_err_t LUNASHELL_audio_set_personality_suspended(bool suspended)
-{
-    portENTER_CRITICAL(&s_personality_mux);
-    if (s_personality_mailbox.suspended != suspended) {
-        s_personality_mailbox.suspended = suspended;
-        ++s_personality_mailbox.generation;
-    }
-    const esp_err_t error = s_personality_mailbox.status.last_error;
-    portEXIT_CRITICAL(&s_personality_mux);
-    return error;
-}
-
-// status: Receives a coherent outcome and its retained real error.
-// Exception: Returns rejected output pointer or the original retained owner failure.
-extern "C" esp_err_t LUNASHELL_audio_get_personality_status(lunashell_audio_cue_status_t *status)
-{
-    if (status == nullptr) {
-        ESP_LOGE(TAG, "Personality status pointer rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
+    if (status == nullptr || request == nullptr) return ESP_ERR_INVALID_ARG;
+    *status = {LUNASHELL_CUE_FAILED, ESP_ERR_INVALID_ARG, 0, request->cue_id};
+    const bool codex = request->channel == LUNASHELL_AUDIO_CODEX;
+    const bool boot = request->channel == LUNASHELL_AUDIO_BOOT;
+    const bool pet = request->channel == LUNASHELL_AUDIO_PET;
+    const bool system = request->channel == LUNASHELL_AUDIO_SYSTEM;
+    const bool user_pcm = request->channel == LUNASHELL_AUDIO_USER_PCM;
+    const bool explicit_pcm = system || user_pcm;
+    const bool feedback = request->channel == LUNASHELL_AUDIO_FEEDBACK_GLYPH ||
+        request->channel == LUNASHELL_AUDIO_FEEDBACK_TOUCH;
+    const bool channel_valid = request->channel >= LUNASHELL_AUDIO_PERSONALITY && request->channel <= LUNASHELL_AUDIO_FEEDBACK_TOUCH;
+    const bool kind_valid = request->kind == LUNASHELL_CODEX_CUE_ACTIVITY || request->kind == LUNASHELL_CODEX_CUE_NOTICE;
+    const bool wave_valid = request->wave >= LUNASHELL_AUDIO_WAVE_PCM && request->wave <= LUNASHELL_AUDIO_WAVE_NOISE;
+    const bool long_clip = boot || pet || (codex && request->kind == LUNASHELL_CODEX_CUE_NOTICE &&
+        request->repetitions == 1);
+    const uint64_t clip_ms_units = static_cast<uint64_t>(request->sample_count) * 1000U;
+    const uint64_t total_ms_units = clip_ms_units * request->repetitions +
+        static_cast<uint64_t>(request->gap_ms) * (request->repetitions > 0 ? request->repetitions - 1U : 0U) *
+            request->sample_rate_hz;
+    const bool sequence_valid = request->sample_rate_hz >= 8000 && request->sample_rate_hz <= 48000 &&
+        request->repetitions >= 1 && request->repetitions <= 5 && request->gap_ms <= 200 &&
+        (request->repetitions != 1 || request->gap_ms == 0) &&
+        (explicit_pcm || (clip_ms_units <= static_cast<uint64_t>(long_clip ? 2000U : 350U) * request->sample_rate_hz &&
+            total_ms_units <= static_cast<uint64_t>(2500U) * request->sample_rate_hz));
+    if (!channel_valid || !kind_valid || !wave_valid || request->cue_id == 0 || request->sample_count == 0 ||
+        request->sample_count > UINT32_MAX || request->gain > 1000 || request->attack_frames > request->sample_count ||
+        request->release_frames > request->sample_count ||
+        (request->wave == LUNASHELL_AUDIO_WAVE_PCM && request->samples == nullptr) ||
+        (explicit_pcm && (request->wave != LUNASHELL_AUDIO_WAVE_PCM || request->repetitions != 1)) ||
+        (feedback && (request->wave != LUNASHELL_AUDIO_WAVE_PCM || request->sample_rate_hz != 16000 ||
+            request->sample_count < 240 || request->sample_count > 400 || request->requested_at_us <= 0)) ||
+        (user_pcm && (request->user_sounds_revision & 1U) == 0U) ||
+        (request->wave != LUNASHELL_AUDIO_WAVE_PCM && request->wave != LUNASHELL_AUDIO_WAVE_NOISE &&
+            (request->frequency_hz == 0 || request->frequency_hz > 4000)) ||
+        (codex && (request->cue_id & 0xFFFF0000U) != 0x43430000U) || !sequence_valid ||
+        (request->repetitions != 1 && (!codex || request->kind != LUNASHELL_CODEX_CUE_NOTICE))) {
+        ESP_LOGE(TAG, "Audio cue format rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
         return ESP_ERR_INVALID_ARG;
     }
-    portENTER_CRITICAL(&s_personality_mux);
-    *status = s_personality_mailbox.status;
-    portEXIT_CRITICAL(&s_personality_mux);
+    if (!system && (!LUNASHELL_audio_user_sounds_enabled() || (user_pcm &&
+        s_user_sounds_state.load(std::memory_order_acquire) != request->user_sounds_revision))) {
+        *status = {LUNASHELL_CUE_SUPPRESSED, ESP_OK, 0, request->cue_id}; return ESP_OK;
+    }
+    const esp_err_t policy_error = cody_output_policy_error();
+    if (policy_error != ESP_OK) { status->last_error = policy_error; return policy_error; }
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311
+    if (explicit_pcm) {
+        const esp_err_t worker_error = ensure_cue_worker();
+        if (worker_error != ESP_OK) { status->last_error = worker_error; return worker_error; }
+    }
+#endif
+    const TaskHandle_t task = s_cue_task.load(std::memory_order_acquire);
+    if (task == nullptr) { status->last_error = ESP_ERR_INVALID_STATE; return ESP_ERR_INVALID_STATE; }
+    const int64_t now = esp_timer_get_time();
+    if (feedback && (request->requested_at_us > now || now - request->requested_at_us > TYPEWRITER_MAX_AGE_US)) {
+        *status = {LUNASHELL_CUE_EXPIRED, ESP_OK, 0, request->cue_id};
+        return ESP_OK;
+    }
+    bool admitted = false;
+    portENTER_CRITICAL(&s_cue_mux);
+    const bool enabled = explicit_pcm || feedback || (s_cue_owner.policy.enabled && (!codex || s_cue_owner.codex_enabled));
+    const bool suspended = (explicit_pcm || feedback) ? false : codex ? s_cue_owner.codex_suspended : s_cue_owner.suspended;
+    const int64_t cooldown = (pet || explicit_pcm || feedback) ? 0 : codex ?
+        (request->kind == LUNASHELL_CODEX_CUE_ACTIVITY ? CODEX_ACTIVITY_COOLDOWN_US : 0) : s_cue_owner.policy.cooldown_us;
+    const bool played = codex ? s_cue_owner.codex_have_played : s_cue_owner.have_played;
+    const int64_t started = codex ? s_cue_owner.codex_last_started_us : s_cue_owner.last_started_us;
+    CueSlot *free_slot = nullptr;
+    bool pending_same = false;
+    size_t occupied = 0;
+    for (auto &slot : s_cue_owner.slots) {
+        if (!slot.used) { if (free_slot == nullptr) free_slot = &slot; continue; }
+        ++occupied;
+        const bool slot_codex = slot.request.channel == LUNASHELL_AUDIO_CODEX;
+        if (!slot.started && !slot.terminal && cooldown > 0 && slot_codex == codex &&
+            slot.request.channel != LUNASHELL_AUDIO_SYSTEM && slot.request.channel != LUNASHELL_AUDIO_USER_PCM &&
+            slot.request.channel != LUNASHELL_AUDIO_FEEDBACK_GLYPH && slot.request.channel != LUNASHELL_AUDIO_FEEDBACK_TOUCH)
+            pending_same = true;
+    }
+#if CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311 && CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    if (s_audio_stream_reserved.load(std::memory_order_acquire) && occupied >= kCueSlots - 1U) free_slot = nullptr;
+#endif
+    if (!enabled || suspended || s_standby.load(std::memory_order_acquire) ||
+        s_standby_transition.load(std::memory_order_acquire) || (!system &&
+            (!LUNASHELL_audio_user_sounds_enabled() || (user_pcm &&
+                s_user_sounds_state.load(std::memory_order_acquire) != request->user_sounds_revision))))
+        *status = {LUNASHELL_CUE_SUPPRESSED, ESP_OK, 0, request->cue_id};
+    else if (free_slot == nullptr) *status = {LUNASHELL_CUE_DROPPED_BUSY, ESP_OK, 0, request->cue_id};
+    else if (pending_same || (played && now - started < cooldown)) *status = {LUNASHELL_CUE_DROPPED_COOLDOWN, ESP_OK, 0, request->cue_id};
+    else if (s_cue_owner.next_sequence == UINT32_MAX) status->last_error = ESP_ERR_INVALID_STATE;
+    else {
+        ++s_cue_owner.next_sequence;
+        free_slot->request = *request;
+        free_slot->status = {LUNASHELL_CUE_DISPATCHED, ESP_OK, s_cue_owner.next_sequence, request->cue_id};
+        free_slot->generation = codex ? s_cue_owner.codex_generation : s_cue_owner.generation;
+        free_slot->lifecycle_generation = s_audio_lifecycle_generation.load(std::memory_order_acquire);
+        free_slot->requested_at_us = feedback ? request->requested_at_us : now;
+        free_slot->expires_after_us = feedback ? TYPEWRITER_MAX_AGE_US :
+            explicit_pcm ? INT64_MAX : s_cue_owner.policy.request_expiry_us;
+        free_slot->plays_remaining = request->repetitions;
+        free_slot->used = true;
+        *status = free_slot->status;
+        admitted = true;
+    }
+    portEXIT_CRITICAL(&s_cue_mux);
+    // eIncrement notifications to a valid task are unconditional; the worker
+    // alone retires slots so a producer cannot release borrowed PCM mid-render.
+    if (admitted) xTaskNotifyGive(task);
     return status->last_error;
+}
+
+// request_sequence: Unique admitted request sequence.
+// cue_id: Exact cue identity submitted with it.
+// status: Receives active or bounded-history result.
+// Exception: Returns invalid input or ESP_ERR_NOT_FOUND when no record exists.
+extern "C" esp_err_t LUNASHELL_audio_get_cue_status(uint32_t request_sequence, uint32_t cue_id,
+    lunashell_audio_cue_status_t *status)
+{
+    if (request_sequence == 0 || cue_id == 0 || status == nullptr) return ESP_ERR_INVALID_ARG;
+    bool found = false;
+    portENTER_CRITICAL(&s_cue_mux);
+    for (const auto &slot : s_cue_owner.slots) if (slot.used && slot.status.request_sequence == request_sequence &&
+        slot.status.cue_id == cue_id) { *status = slot.status; found = true; break; }
+    if (!found) for (const auto &entry : s_cue_owner.history) if (entry.request_sequence == request_sequence &&
+        entry.cue_id == cue_id) { *status = entry; found = true; break; }
+    portEXIT_CRITICAL(&s_cue_mux);
+    return found ? ESP_OK : ESP_ERR_NOT_FOUND;
+}
+
+// request_sequence: Exact admitted request identity.
+// cue_id: Stable identity associated with that request.
+// Exception: Returns not-found for an absent request; terminal observation still owns source release.
+extern "C" esp_err_t LUNASHELL_audio_cancel_cue(uint32_t request_sequence, uint32_t cue_id)
+{
+    if (request_sequence == 0 || cue_id == 0) return ESP_ERR_INVALID_ARG;
+    bool found = false;
+    portENTER_CRITICAL(&s_cue_mux);
+    for (auto &slot : s_cue_owner.slots) {
+        if (!slot.used || slot.status.request_sequence != request_sequence || slot.status.cue_id != cue_id) continue;
+        if (!slot.terminal) slot.cancel_requested = true;
+        found = true;
+        break;
+    }
+    if (!found) for (const auto &entry : s_cue_owner.history) {
+        if (entry.request_sequence == request_sequence && entry.cue_id == cue_id) { found = true; break; }
+    }
+    portEXIT_CRITICAL(&s_cue_mux);
+    if (!found) return ESP_ERR_NOT_FOUND;
+    const TaskHandle_t task = s_cue_task.load(std::memory_order_acquire);
+    if (task != nullptr) xTaskNotifyGive(task);
+    return ESP_OK;
+}
+
+// request_sequence: Exact pinned request identity after terminal observation.
+// cue_id: Stable identity associated with that request.
+// Exception: Returns invalid state while the worker owns a slot or not-found for an absent identity.
+extern "C" esp_err_t LUNASHELL_audio_ack_cue(uint32_t request_sequence, uint32_t cue_id)
+{
+    if (request_sequence == 0 || cue_id == 0) return ESP_ERR_INVALID_ARG;
+    esp_err_t result = ESP_ERR_NOT_FOUND;
+    portENTER_CRITICAL(&s_cue_mux);
+    for (auto &slot : s_cue_owner.slots) {
+        if (!slot.used || slot.status.request_sequence != request_sequence || slot.status.cue_id != cue_id) continue;
+        if (!slot.terminal || !slot.request.pin_terminal) result = ESP_ERR_INVALID_STATE;
+        else { slot = {}; result = ESP_OK; }
+        break;
+    }
+    portEXIT_CRITICAL(&s_cue_mux);
+    return result;
+}
+
+// suspended: Cancels current Codex cues on a presentation transition.
+// Exception: Returns the owner's retained preparation failure.
+extern "C" esp_err_t LUNASHELL_audio_set_codex_suspended(bool suspended)
+{
+    portENTER_CRITICAL(&s_cue_mux);
+    if (s_cue_owner.codex_suspended != suspended) { s_cue_owner.codex_suspended = suspended; ++s_cue_owner.codex_generation; }
+    const auto error = s_cue_owner.preparation_error;
+    portEXIT_CRITICAL(&s_cue_mux);
+    return error;
+}
+
+// enabled: Explicit session sound choice.
+// Exception: Returns the owner's retained preparation failure.
+extern "C" esp_err_t LUNASHELL_audio_set_codex_enabled(bool enabled)
+{
+    portENTER_CRITICAL(&s_cue_mux);
+    if (s_cue_owner.codex_enabled != enabled) { s_cue_owner.codex_enabled = enabled; ++s_cue_owner.codex_generation; }
+    const auto error = s_cue_owner.preparation_error;
+    portEXIT_CRITICAL(&s_cue_mux);
+    return error;
+}
+
+// suspended: Cancels personality and pet requests on a presentation transition.
+// Exception: Returns the owner's retained preparation failure.
+extern "C" esp_err_t LUNASHELL_audio_set_personality_suspended(bool suspended)
+{
+    portENTER_CRITICAL(&s_cue_mux);
+    if (s_cue_owner.suspended != suspended) { s_cue_owner.suspended = suspended; ++s_cue_owner.generation; }
+    const auto error = s_cue_owner.preparation_error;
+    portEXIT_CRITICAL(&s_cue_mux);
+    return error;
 }
 
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
 namespace {
+constexpr uint32_t kSpeechWaitMs = 5000;
 struct SpeechAudioSession {
     TaskHandle_t owner = nullptr;
     uint32_t request_id = 0;
-    uint32_t source_rate = 0;
+    uint32_t generation = 0;
     uint32_t transport_rate = 0;
-    uint32_t resample_phase = 0;
-    int volume_percent = 0;
-    bool previous_mute = true;
+    LUNASHELL::AudioPcmResampler resampler{};
 };
 SpeechAudioSession s_speech_audio;
 std::atomic<TaskHandle_t> s_speech_owner;
-enum class SpeechPlaybackCue : uint32_t { Speech = 0x54545301U };
-constexpr uint32_t kSpeechPlaybackCue = static_cast<uint32_t>(SpeechPlaybackCue::Speech);
+
+// generation: Active stream identity.
+// samples: Borrowed converted PCM, copied into the bounded output queue.
+// frames: Exact output frames in this block.
+// Exception: Returns the original queue or worker-notification error.
+esp_err_t enqueue_speech_pcm(uint32_t generation, const int16_t *samples, size_t frames)
+{
+    if (frames == 0) return ESP_OK;
+    const auto error = LUNASHELL::enqueue_audio_stream(s_audio_stream, generation, samples, frames, kSpeechWaitMs);
+    if (error != ESP_OK) {
+        ESP_LOGE(TAG, "Speech PCM enqueue failed (%s)", esp_err_to_name(error));
+        return error;
+    }
+    return wake_cue_worker();
 }
 
-// source_rate_hz: Engine PCM rate, 22050 or 24000 Hz; the duplex clock remains authoritative.
-// request_id: Nonzero owner-produced identity, independent of application cue IDs.
-// Exception: Success holds the existing audio mutex; every failure releases it.
+// generation: Exact active stream identity.
+// cancel: Selects cancellation instead of normal end of input.
+// cause: Original cancellation reason when cancel is true.
+// Exception: Returns original pipe failure or a bounded contention timeout.
+esp_err_t close_speech_input(uint32_t generation, bool cancel, esp_err_t cause)
+{
+    for (unsigned attempt = 0; attempt < 100; ++attempt) {
+        const auto error = cancel ? LUNASHELL::cancel_audio_stream(s_audio_stream, generation, cause) :
+            LUNASHELL::end_audio_stream_input(s_audio_stream, generation);
+        if (error != ESP_ERR_NOT_FINISHED) return error;
+        vTaskDelay(1);
+    }
+    ESP_LOGE(TAG, "Speech stream control timed out (%s)", esp_err_to_name(ESP_ERR_TIMEOUT));
+    return ESP_ERR_TIMEOUT;
+}
+
+// generation: Identity of the just-finished stream.
+// Exception: Releases the reservation only after an observed terminal acknowledgement.
+esp_err_t retire_speech_stream(uint32_t generation)
+{
+    const auto terminal = LUNASHELL::wait_audio_stream_terminal(s_audio_stream, generation, kSpeechWaitMs);
+    LUNASHELL::AudioStreamStatus status{};
+    esp_err_t observed = ESP_ERR_NOT_FINISHED;
+    for (unsigned attempt = 0; attempt < 100 && observed == ESP_ERR_NOT_FINISHED; ++attempt) {
+        observed = LUNASHELL::observe_audio_stream(s_audio_stream, generation, &status);
+        if (observed == ESP_ERR_NOT_FINISHED) vTaskDelay(1);
+    }
+    if (observed == ESP_OK && !status.active) {
+        s_audio_stream_generation.store(0, std::memory_order_release);
+        s_audio_stream_rate.store(0, std::memory_order_release);
+        release_audio_stream_slot();
+    } else {
+        ESP_LOGE(TAG, "Speech stream retirement unconfirmed: wait=%s observation=%s",
+            esp_err_to_name(terminal), esp_err_to_name(observed));
+        return terminal != ESP_OK ? terminal : observed != ESP_OK ? observed : ESP_ERR_TIMEOUT;
+    }
+    return terminal;
+}
+
+// No parameters: releases a previously timed-out stream only after worker acknowledgement.
+// Exception: Returns busy, contention or the original pipe observation error.
+esp_err_t reap_finished_speech_stream()
+{
+    const uint32_t generation = s_audio_stream_generation.load(std::memory_order_acquire);
+    if (generation == 0) return ESP_OK;
+    LUNASHELL::AudioStreamStatus status{};
+    const auto error = LUNASHELL::observe_audio_stream(s_audio_stream, generation, &status);
+    if (error != ESP_OK) return error;
+    if (status.active) return ESP_ERR_NOT_FINISHED;
+    s_audio_stream_generation.store(0, std::memory_order_release);
+    s_audio_stream_rate.store(0, std::memory_order_release);
+    release_audio_stream_slot();
+    return ESP_OK;
+}
+} // namespace
+
+// source_rate_hz: Actual mono PCM clock supplied by the speech engine.
+// request_id: Nonzero identity owned by the speech worker.
+// Exception: Reserves one mixer voice and returns original format, lifecycle or codec errors.
 extern "C" esp_err_t LUNASHELL_audio_begin_speech(uint32_t source_rate_hz, uint32_t request_id)
 {
-    if ((source_rate_hz != 22050 && source_rate_hz != 24000) || request_id == 0) {
+    if (source_rate_hz < 8000 || source_rate_hz > 48000 || request_id == 0)
         return reject_playback("Speech format", ESP_ERR_INVALID_ARG, source_rate_hz, 0);
+    TaskHandle_t expected = nullptr;
+    const TaskHandle_t owner = xTaskGetCurrentTaskHandle();
+    if (!s_speech_owner.compare_exchange_strong(expected, owner))
+        return reject_playback("Speech session busy", ESP_ERR_NOT_FINISHED, source_rate_hz, 0);
+    auto error = cody_output_policy_error();
+    if (error == ESP_OK) error = LUNASHELL_audio_init();
+    if (error == ESP_OK) error = ensure_cue_worker();
+    if (error == ESP_OK) error = reap_finished_speech_stream();
+    bool reserved = false;
+    if (error == ESP_OK) {
+        error = reserve_audio_stream_slot();
+        reserved = error == ESP_OK;
     }
-    esp_err_t error = LUNASHELL_audio_init();
-    if (error != ESP_OK) return error;
-    SemaphoreHandle_t mutex = audio_mutex();
-    if (mutex == nullptr) return reject_playback("Speech mutex", ESP_ERR_NO_MEM, source_rate_hz, 0);
-    if (xSemaphoreTake(mutex, 0) != pdTRUE) {
-        return reject_playback("Speech route busy", ESP_ERR_TIMEOUT, source_rate_hz, 0);
-    }
-    SpeechAudioSession session;
+    SpeechAudioSession session{};
+    session.owner = owner;
     session.request_id = request_id;
-    session.owner = xTaskGetCurrentTaskHandle();
-    session.source_rate = source_rate_hz;
-    session.transport_rate = s_microphone_open ? s_microphone_sample_rate_hz :
-        s_speaker_open ? s_speaker_sample_rate_hz : source_rate_hz;
-    if (s_standby.load() || s_audio_state_poisoned.load() ||
-        session.transport_rate < 8000 || session.transport_rate > 48000) {
-        error = ESP_ERR_INVALID_STATE;
-    } else {
-        error = configure_speaker_stream(session.transport_rate);
-    }
     if (error == ESP_OK) {
-        error = static_cast<esp_err_t>(esp_codec_dev_get_out_vol(s_speaker, &session.volume_percent));
-    }
-    if (error == ESP_OK) {
-        error = static_cast<esp_err_t>(esp_codec_dev_get_out_mute(s_speaker, &session.previous_mute));
-    }
-    if (error == ESP_OK && (session.volume_percent < 1 || session.volume_percent > 100)) {
-        error = session.volume_percent == 0 ? ESP_ERR_INVALID_STATE : ESP_ERR_INVALID_RESPONSE;
-    }
-    if (error == ESP_OK) {
-        error = static_cast<esp_err_t>(esp_codec_dev_set_out_mute(s_speaker, false));
-        if (error != ESP_OK) {
-            const int restore_error = esp_codec_dev_set_out_mute(s_speaker, session.previous_mute);
-            if (restore_error != ESP_CODEC_DEV_OK) {
-                s_audio_state_poisoned.store(true);
-                ESP_LOGE(TAG, "Speech unmute rollback failed: codec=%d", restore_error);
-            }
+        error = cody_output_policy_error();
+        if (error == ESP_OK && (s_standby.load() || s_standby_transition.load() ||
+            s_audio_state_poisoned.load())) error = ESP_ERR_INVALID_STATE;
+        session.transport_rate = s_output_transport_rate.load(std::memory_order_acquire);
+        if (error == ESP_OK && (session.transport_rate < 8000 || session.transport_rate > 48000))
+            error = ESP_ERR_NOT_FINISHED;
+        if (error == ESP_OK && s_user_output_volume.load(std::memory_order_acquire) == 0)
+            error = ESP_ERR_INVALID_STATE;
+        if (error == ESP_OK) error = LUNASHELL::initialize_audio_resampler(session.resampler,
+            source_rate_hz, session.transport_rate);
+        if (error == ESP_OK) error = LUNASHELL::begin_audio_stream(s_audio_stream, request_id, &session.generation);
+        if (error == ESP_OK) {
+            s_speech_audio = session;
+            s_audio_stream_rate.store(session.transport_rate, std::memory_order_release);
+            s_audio_stream_gain.store(1000, std::memory_order_release);
+            s_audio_stream_generation.store(session.generation, std::memory_order_release);
         }
     }
     if (error != ESP_OK) {
-        audio_unlock(mutex);
-        return reject_playback("Speech admission", error, source_rate_hz, session.volume_percent);
+        if (reserved) release_audio_stream_slot();
+        s_speech_owner.store(nullptr);
+        return reject_playback("Speech admission", error, source_rate_hz, 0);
     }
-    s_speech_audio = session;
-    s_speech_owner.store(session.owner);
-    // Match the owner's codec settling policy once for the entire stream.
-    vTaskDelay(pdMS_TO_TICKS(100));
+    error = wake_cue_worker();
+    if (error != ESP_OK) {
+        const auto cancel_error = close_speech_input(session.generation, true, error);
+        ESP_LOGE(TAG, "Speech worker notification failed: notify=%s cancel=%s",
+            esp_err_to_name(error), esp_err_to_name(cancel_error));
+        s_speech_owner.store(nullptr);
+        return error;
+    }
     return ESP_OK;
 }
 
-// samples: Borrowed engine buffer, never retained beyond this synchronous call.
-// sample_count: Actual number of mono signed samples.
-// request_id: Exact active session; only its task may use the held owner mutex.
-// Exception: Returns original transport or canonical publication failure.
-extern "C" esp_err_t LUNASHELL_audio_write_speech(const int16_t *samples,
-                                                  size_t sample_count, uint32_t request_id)
+// samples: Borrowed mono PCM input, consumed or copied before returning.
+// sample_count: Exact engine block length.
+// request_id: Identity of the calling speech worker's active session.
+// Exception: Returns original conversion, stream or worker error.
+extern "C" esp_err_t LUNASHELL_audio_write_speech(const int16_t *samples, size_t sample_count, uint32_t request_id)
 {
     if (s_speech_owner.load() != xTaskGetCurrentTaskHandle() || samples == nullptr ||
-        sample_count == 0 || request_id != s_speech_audio.request_id) {
-        ESP_LOGE(TAG, "Speech write rejected: session identity or PCM format");
-        return ESP_ERR_INVALID_ARG;
-    }
-    // A rational sample-and-hold converter retains phase across engine blocks.
-    // It avoids reopening the shared microphone clock or allocating a second stream.
-    int16_t converted[320];
-    size_t used = 0;
-    for (size_t index = 0; index < sample_count; ++index) {
-        s_speech_audio.resample_phase += s_speech_audio.transport_rate;
-        while (s_speech_audio.resample_phase >= s_speech_audio.source_rate) {
-            s_speech_audio.resample_phase -= s_speech_audio.source_rate;
-            converted[used++] = samples[index];
-            if (used == 320) {
-                const esp_err_t error = write_speaker_pcm_locked(converted, used,
-                    s_speech_audio.transport_rate, s_speech_audio.volume_percent, kSpeechPlaybackCue);
-                if (error != ESP_OK) return error;
-                used = 0;
-            }
-        }
-    }
-    if (used == 0) return ESP_OK;
-    return write_speaker_pcm_locked(converted, used, s_speech_audio.transport_rate,
-                                   s_speech_audio.volume_percent, kSpeechPlaybackCue);
+        sample_count == 0 || request_id != s_speech_audio.request_id) return ESP_ERR_INVALID_ARG;
+    size_t offset = 0;
+    size_t produced = 0;
+    do {
+        int16_t converted[LUNASHELL::kAudioStreamBlockFrames];
+        size_t consumed = 0;
+        const auto error = LUNASHELL::resample_audio_pcm(s_speech_audio.resampler, samples + offset,
+            sample_count - offset, false, &consumed, converted, LUNASHELL::kAudioStreamBlockFrames, &produced);
+        if (error != ESP_OK) return error;
+        offset += consumed;
+        const auto enqueue_error = enqueue_speech_pcm(s_speech_audio.generation, converted, produced);
+        if (enqueue_error != ESP_OK) return enqueue_error;
+        if (consumed == 0 && produced == 0 && offset < sample_count) return ESP_ERR_INVALID_STATE;
+    } while (offset < sample_count || produced == LUNASHELL::kAudioStreamBlockFrames);
+    return ESP_OK;
 }
 
-// request_id: Exact session currently held by this calling worker.
-// cause: Original synthesis/write/cancellation error, retained over secondary failures.
-// Exception: Cleanup failures are logged and returned when no prior cause exists.
+// request_id: Exact identity of the stream owned by the calling speech worker.
+// cause: Original synthesis, policy or cancellation error, retained over cleanup failures.
+// Exception: Returns the original cause or the real stream/drain failure.
 extern "C" esp_err_t LUNASHELL_audio_end_speech(uint32_t request_id, esp_err_t cause)
 {
-    if (s_speech_owner.load() != xTaskGetCurrentTaskHandle() || request_id != s_speech_audio.request_id) {
-        ESP_LOGE(TAG, "Speech finish rejected: session identity");
+    if (s_speech_owner.load() != xTaskGetCurrentTaskHandle() || request_id != s_speech_audio.request_id)
         return ESP_ERR_INVALID_STATE;
-    }
-    const SpeechAudioSession session = s_speech_audio;
-    esp_err_t error = cause;
-    esp_err_t cleanup_error = ESP_OK;
-    if (cause != ESP_OK) {
-        // Stop queued speech before retiring the DMA ring after cancellation/error.
-        cleanup_error = static_cast<esp_err_t>(esp_codec_dev_set_out_mute(s_speaker, true));
-    }
-    if (cleanup_error == ESP_OK) {
-        // BSP uses I2S_CHANNEL_DEFAULT_CONFIG unchanged. Writing more than its
-        // ring capacity retires preceding speech PCM before restoring mute.
-        const i2s_chan_config_t dma = I2S_CHANNEL_DEFAULT_CONFIG(CONFIG_BSP_I2S_NUM, I2S_ROLE_MASTER);
-        // Two 16-bit slots bound the BSP duplex transport even for mono codec input.
-        size_t remaining = static_cast<size_t>(dma.dma_desc_num + 1U) * dma.dma_frame_num * 2U;
-        const int16_t silence[240]{};
-        while (remaining != 0 && cleanup_error == ESP_OK) {
-            const size_t count = std::min<size_t>(240, remaining);
-            cleanup_error = write_speaker_pcm_locked(silence, count, session.transport_rate,
-                                                    session.volume_percent, kSpeechPlaybackCue);
-            remaining -= count;
+    auto error = cause;
+    if (error == ESP_OK) {
+        while (!s_speech_audio.resampler.finished) {
+            int16_t converted[LUNASHELL::kAudioStreamBlockFrames];
+            size_t consumed = 0, produced = 0;
+            error = LUNASHELL::resample_audio_pcm(s_speech_audio.resampler, nullptr, 0, true,
+                &consumed, converted, LUNASHELL::kAudioStreamBlockFrames, &produced);
+            if (error != ESP_OK) break;
+            error = enqueue_speech_pcm(s_speech_audio.generation, converted, produced);
+            if (error != ESP_OK) break;
         }
     }
-    if (cleanup_error == ESP_OK) {
-        cleanup_error = static_cast<esp_err_t>(esp_codec_dev_set_out_mute(s_speaker, session.previous_mute));
-    }
-    if (cleanup_error != ESP_OK) {
-        // Ambiguous transport cannot safely restore an unmuted route or be reused.
-        s_audio_state_poisoned.store(true);
-        ESP_LOGE(TAG, "Speech drain/restoration failed: error=%ld", static_cast<long>(cleanup_error));
-        const int mute_error = esp_codec_dev_set_out_mute(s_speaker, true);
-        if (mute_error != ESP_CODEC_DEV_OK) ESP_LOGE(TAG, "Speech failure mute failed: codec=%d", mute_error);
-        if (error == ESP_OK) error = cleanup_error;
-    }
-    const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
-        false, 0, session.transport_rate, session.volume_percent, error, kSpeechPlaybackCue);
-    if (publication_error != ESP_OK) {
-        ESP_LOGE(TAG, "Speech playback finish publication failed (%s)", esp_err_to_name(publication_error));
-        if (error == ESP_OK) error = publication_error;
-    }
-    s_speech_owner.store(nullptr);
+    const auto close_error = close_speech_input(s_speech_audio.generation, error != ESP_OK, error);
+    if (error == ESP_OK) error = close_error;
+    const auto wake_error = wake_cue_worker();
+    if (error == ESP_OK) error = wake_error;
+    const auto terminal_error = retire_speech_stream(s_speech_audio.generation);
+    if (error == ESP_OK) error = terminal_error;
+    if (error != ESP_OK) ESP_LOGE(TAG, "Speech stream ended with %s", esp_err_to_name(error));
     s_speech_audio = {};
-    if (xSemaphoreGive(audio_mutex()) != pdTRUE) {
-        s_audio_state_poisoned.store(true);
-        ESP_LOGE(TAG, "Speech owner mutex release failed");
-        if (error == ESP_OK) error = ESP_FAIL;
-        const esp_err_t release_publication = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
-            false, 0, session.transport_rate, session.volume_percent, error, kSpeechPlaybackCue);
-        if (release_publication != ESP_OK) {
-            ESP_LOGE(TAG, "Speech mutex failure publication failed: error=%ld", static_cast<long>(release_publication));
-        }
-    }
+    s_speech_owner.store(nullptr);
     return error;
 }
 #endif

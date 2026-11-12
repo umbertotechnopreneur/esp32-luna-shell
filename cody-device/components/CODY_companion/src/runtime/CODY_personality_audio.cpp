@@ -141,16 +141,14 @@ esp_err_t notify_personality_audio(PersonalityCue cue, PersonalityAudioStatus &s
     }
     if (!PersonalityAudioConfig::enabled || !authored_rule->sfx_enabled ||
         !s_enabled.load(std::memory_order_acquire) || !selected->enabled) {
-        const esp_err_t error = get_personality_audio_status(status);
-        if (error == ESP_OK) {
-            status.state = PersonalityAudioState::Suppressed;
-            status.cue = cue;
-        }
-        return error;
+        status = {PersonalityAudioState::Suppressed, ESP_OK, 0, cue, IdleSceneId::None};
+        return ESP_OK;
     }
     lunashell_audio_cue_status_t owner{};
-    const esp_err_t error = LUNASHELL_audio_notify_personality(selected->samples, selected->sample_count,
-        selected->sample_rate_hz, static_cast<uint32_t>(cue), &owner);
+    const lunashell_audio_request_t request{selected->samples, selected->sample_count,
+        selected->sample_rate_hz, static_cast<uint32_t>(cue), LUNASHELL_AUDIO_PERSONALITY,
+        LUNASHELL_CODEX_CUE_ACTIVITY, 1, 0, LUNASHELL_AUDIO_WAVE_PCM, 0, 1000, 0, 0, 0, 0, false, 0, 0};
+    const esp_err_t error = LUNASHELL_audio_submit(&request, &owner);
     copy_status(owner, status);
     return error;
 }
@@ -161,16 +159,13 @@ esp_err_t notify_idle_whistle_audio(PersonalityAudioStatus &status)
 {
     lunashell_audio_cue_status_t owner{};
     if (!PersonalityAudioConfig::enabled || !s_enabled.load(std::memory_order_acquire)) {
-        const esp_err_t error = LUNASHELL_audio_get_personality_status(&owner);
-        copy_status(owner, status);
-        status.idle_scene = IdleSceneId::Whistle;
-        if (error == ESP_OK) {
-            status.state = PersonalityAudioState::Suppressed;
-        }
-        return error;
+        status = {PersonalityAudioState::Suppressed, ESP_OK, 0, PersonalityCue::None, IdleSceneId::Whistle};
+        return ESP_OK;
     }
-    const esp_err_t error = LUNASHELL_audio_notify_personality(kIdleWhistle.data(), kIdleWhistle.size(),
-        16000, static_cast<uint32_t>(IdleSceneId::Whistle), &owner);
+    const lunashell_audio_request_t request{kIdleWhistle.data(), kIdleWhistle.size(), 16000,
+        static_cast<uint32_t>(IdleSceneId::Whistle), LUNASHELL_AUDIO_PERSONALITY,
+        LUNASHELL_CODEX_CUE_ACTIVITY, 1, 0, LUNASHELL_AUDIO_WAVE_PCM, 0, 1000, 0, 0, 0, 0, false, 0, 0};
+    const esp_err_t error = LUNASHELL_audio_submit(&request, &owner);
     copy_status(owner, status);
     return error;
 }
@@ -193,13 +188,16 @@ esp_err_t set_personality_audio_enabled(bool enabled)
         !PersonalityAudioConfig::enabled || !enabled || s_suspended.load(std::memory_order_acquire));
 }
 
+// sequence: Exact sequence assigned to the admitted cue.
+// cue: Stable identity originally submitted with the sequence.
 // status: Receives actual retained owner state, including asynchronous failure.
 // Exception: Returns the original retained owner error.
-esp_err_t get_personality_audio_status(PersonalityAudioStatus &status)
+esp_err_t get_personality_audio_status(uint32_t sequence, PersonalityCue cue, PersonalityAudioStatus &status)
 {
     lunashell_audio_cue_status_t owner{};
-    const esp_err_t error = LUNASHELL_audio_get_personality_status(&owner);
+    const esp_err_t error = LUNASHELL_audio_get_cue_status(sequence, static_cast<uint32_t>(cue), &owner);
+    if (error != ESP_OK) return error;
     copy_status(owner, status);
-    return error;
+    return owner.last_error;
 }
 } // namespace CODY

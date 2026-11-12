@@ -22,6 +22,9 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
+#include <limits>
+#include <mutex>
 
 #if defined(_WIN32)
 #define CODY_AUDIO_EXPORT extern "C" __declspec(dllexport)
@@ -38,7 +41,9 @@ uint32_t s_tap_rate = 0;
 bool s_typewriter_suspended = false;
 bool s_personality_suspended = false;
 lunashell_personality_audio_policy_t s_policy{};
-lunashell_audio_cue_status_t s_status{};
+std::mutex s_status_mutex;
+std::array<lunashell_audio_cue_status_t, 16> s_status_records{};
+uint32_t s_next_sequence = 0;
 }
 
 // samples: Immutable PCM provided by the real Cody module.
@@ -94,48 +99,72 @@ extern "C" esp_err_t LUNASHELL_audio_prepare_personality(const lunashell_persona
     return ESP_OK;
 }
 
-// samples: Real flash asset passed by the unchanged Cody cue selector.
-// sample_count: Exact mono sample count.
-// sample_rate_hz: Authored sample rate.
-// cue_id: Stable application identity, including the idle whistle.
+// request: Real PCM asset and channel passed by Cody's unified cue selector.
 // status: Receives synthetic Windows admission, never physical-device evidence.
 // Exception: Returns invalid arguments or the original backend failure.
-extern "C" esp_err_t LUNASHELL_audio_notify_personality(const int16_t *samples, size_t sample_count,
-    uint32_t sample_rate_hz, uint32_t cue_id, lunashell_audio_cue_status_t *status)
+extern "C" esp_err_t LUNASHELL_audio_submit(const lunashell_audio_request_t *request,
+    lunashell_audio_cue_status_t *status)
 {
-    if (!status || !samples || sample_count == 0 || sample_rate_hz == 0 || !s_playback) {
-        ESP_LOGE("CodyFakeAudio", "notify personality cue=%u rejected: invalid PCM/backend/status", cue_id);
+    if (!request || !status || request->sample_count == 0 || request->sample_rate_hz == 0 ||
+        request->cue_id == 0 || !s_playback) {
+        ESP_LOGE("CodyFakeAudio", "submit rejected: invalid PCM/backend/status");
         return ESP_ERR_INVALID_ARG;
     }
-    s_status.cue_id = cue_id;
-    if (!s_policy.enabled || s_personality_suspended) {
-        s_status.state = LUNASHELL_CUE_SUPPRESSED;
-    } else {
-        ++s_status.request_sequence;
-        s_status.last_error = s_playback(samples, sample_count, sample_rate_hz, 1);
-        s_status.state = s_status.last_error == ESP_OK ? LUNASHELL_CUE_DISPATCHED : LUNASHELL_CUE_FAILED;
+    // The Windows callback accepts one PCM clip, not synthesized voices or sequences.
+    if (request->wave != LUNASHELL_AUDIO_WAVE_PCM || request->channel != LUNASHELL_AUDIO_PERSONALITY ||
+        request->repetitions != 1 || request->gap_ms != 0) {
+        *status = {LUNASHELL_CUE_UNAVAILABLE, ESP_ERR_NOT_SUPPORTED, 0, request->cue_id};
+        return ESP_ERR_NOT_SUPPORTED;
     }
-    *status = s_status;
-    return s_status.last_error;
+    if (!request->samples) {
+        *status = {LUNASHELL_CUE_FAILED, ESP_ERR_INVALID_ARG, 0, request->cue_id};
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (!s_policy.enabled || s_personality_suspended) {
+        *status = {LUNASHELL_CUE_SUPPRESSED, ESP_OK, 0, request->cue_id};
+        return ESP_OK;
+    }
+    std::lock_guard<std::mutex> guard(s_status_mutex);
+    if (s_next_sequence == std::numeric_limits<uint32_t>::max()) {
+        *status = {LUNASHELL_CUE_FAILED, ESP_ERR_INVALID_STATE, 0, request->cue_id};
+        return ESP_ERR_INVALID_STATE;
+    }
+    const esp_err_t error = s_playback(request->samples, request->sample_count, request->sample_rate_hz, 1);
+    if (error != ESP_OK) {
+        *status = {LUNASHELL_CUE_FAILED, error, 0, request->cue_id};
+        return error;
+    }
+    const uint32_t sequence = ++s_next_sequence;
+    auto &record = s_status_records[(sequence - 1U) % s_status_records.size()];
+    // Windows reports queue acceptance only; no audible completion is inferred.
+    record = {LUNASHELL_CUE_DISPATCHED, ESP_OK, sequence, request->cue_id};
+    *status = record;
+    return ESP_OK;
 }
 
 // suspended: Windows scene visibility gate for symbol/whistle requests.
 extern "C" esp_err_t LUNASHELL_audio_set_personality_suspended(bool suspended)
 {
     s_personality_suspended = suspended;
-    return s_status.last_error;
+    return ESP_OK;
 }
 
+// sequence: Exact simulated request sequence.
+// cue_id: Identity issued with that sequence.
 // status: Receives the fake owner's retained admission result.
-// Exception: Returns invalid destination or retained backend failure.
-extern "C" esp_err_t LUNASHELL_audio_get_personality_status(lunashell_audio_cue_status_t *status)
+// Exception: Returns invalid identity, missing request or retained backend failure.
+extern "C" esp_err_t LUNASHELL_audio_get_cue_status(uint32_t sequence, uint32_t cue_id,
+    lunashell_audio_cue_status_t *status)
 {
-    if (!status) {
-        ESP_LOGE("CodyFakeAudio", "get personality status rejected: missing destination");
+    if (!status || sequence == 0 || cue_id == 0) {
+        ESP_LOGE("CodyFakeAudio", "get cue status rejected: invalid identity or destination");
         return ESP_ERR_INVALID_ARG;
     }
-    *status = s_status;
-    return s_status.last_error;
+    std::lock_guard<std::mutex> guard(s_status_mutex);
+    const auto &record = s_status_records[(sequence - 1U) % s_status_records.size()];
+    if (sequence != record.request_sequence || cue_id != record.cue_id) return ESP_ERR_NOT_FOUND;
+    *status = record;
+    return record.last_error;
 }
 
 // playback: Windows callback; copies PCM immediately and queues PC playback.

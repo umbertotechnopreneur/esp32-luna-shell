@@ -9,6 +9,12 @@ dictation. The separate voice-input implementation remains available for a
 future build configuration; see [Cody voice input](../../cody/runtime.md#one-way-voice-input-source-increment).
 The model does not recognize **Cody**, transcribe speech or accept commands.
 
+On Cody, **Preferences → Behavior → More behavior → Sofia** controls whether
+confirmed Sophia detections may wake the device or start voice input. The choice
+is stored persistently and defaults to On when absent. Off leaves the shared audio
+front end available for manual dictation; it is not a hardware microphone mute.
+The trained model remains `wn9_sophia_tts_v1` and is not renamed by the UI label.
+
 ## Build selection and hardware capabilities
 
 Ordinary firmware variants retain their existing defaults with wake word off.
@@ -17,13 +23,14 @@ Use `-Feature wake-word` with `-Profile cody-companion` or `-Profile full` throu
 folder and canonical dependency lock. Other profile/feature combinations fail
 at the catalog boundary instead of silently selecting another product.
 
-The requested voice selection is wake-on-word with local synthesis disabled.
-The wake-word defaults explicitly exclude `LUNASHELL_BUILD_ENABLE_TTS` and the
-Italian synthesized boot test; the public feature gate also rejects a TTS
-component/backend in this variant. Existing SD contents are not installed,
-rewritten or removed by selecting this firmware variant. The reviewed
-recognition weights live in the internal model partition. The `_tts_` substring
-in their upstream model names does not enable the local speech synthesizer.
+The Cody wake-word variant also selects the English flash speech synthesizer;
+the full Luna wake-word variant remains recognition-only. The Italian boot
+test stays disabled. Existing SD contents are not installed, rewritten or
+removed by selecting this firmware variant. The reviewed recognition weights
+live in the unchanged internal model partition. The `_tts_` substring in the
+upstream model name does not itself enable the local speech synthesizer.
+The combined Cody variant still requires physical validation of memory, latency,
+recognition and echo cancellation while speech is playing.
 Prerecorded audio and synthesis are separate paths. The audio owner converts
 the 22.05 kHz boot chime/greeting to the fixed 16 kHz duplex transport in bounded
 chunks, preserving its source asset and duration. Speaker and AEC receive the
@@ -34,7 +41,7 @@ diagnostic PCM capture is rejected while AFE owns the microphone.
 
 `CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD` is the sole public engine gate;
 `LUNASHELL_BUILD_ENABLE_VOICE_AFE` is hidden and derived from it. Disable the
-feature with `-Feature none` (also the CLI default). The disabled variant
+feature with `-Feature none`. The disabled variant
 excludes ESP-SR and its private DSP dependencies, AFE source and stubs, worker
 tasks/buffers, speaker-reference hooks, diagnostic handoffs and voice publication
 entrypoints. Its canonical snapshot retains the stable `Disabled` voice schema.

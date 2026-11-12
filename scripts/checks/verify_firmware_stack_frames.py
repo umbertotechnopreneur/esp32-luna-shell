@@ -105,7 +105,7 @@ def main(argv=None) -> int:
     limits = [("power_task", "LUNASHELL_power.cpp", 8192),
               ("diagnostic_monitor_task", "LUNASHELL_hardware.cpp", 3072),
               ("command_task", "LUNASHELL_logger_usb.c", 4096),
-              ("personality_audio_worker", "LUNASHELL_audio.cpp", 4096)]
+              ("cue_worker", "LUNASHELL_audio.cpp", 4096)]
     if cody_enabled:
         limits.append(("device_ui_worker", "CODY_device_ui.cpp", 12288))
     if activity_enabled:
@@ -142,7 +142,7 @@ def main(argv=None) -> int:
         rows, ("CODY_home_dashboard.cpp", "CODY_home_identity.cpp", "CODY_scene.cpp",
                "CODY_device_ui.cpp"), r"home|dashboard|model_cost|\brender\(|draw_scene_rows")
     audio_notice_helpers = helper_frames(rows, ("LUNASHELL_audio.cpp",),
-        r"personality_audio_worker|play_personality_locked|notify_application_audio|repeated_notice")
+        r"cue_worker|start_cue_voice|LUNASHELL_audio_submit|LUNASHELL_audio_get_cue_status")
     native_raster_helpers = helper_frames(
         rows, ("CODY2D_paths.cpp", "CODY2D_controls.cpp", "CODY2D_text.cpp", "CODY_personality.cpp"))
     imu_acquisition_helpers = helper_frames(

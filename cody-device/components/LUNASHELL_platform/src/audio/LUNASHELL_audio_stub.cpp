@@ -21,12 +21,30 @@
 
 
 #include "LUNASHELL_platform.h"
+#include "LUNASHELL_audio_controls.h"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "esp_log.h"
 #include <atomic>
 
 namespace {
 std::atomic<uint32_t> s_user_sounds_state{1U};
+std::atomic_bool s_cody_output_policy_armed{false};
+std::atomic<esp_err_t> s_cody_output_policy_error{ESP_OK};
+}
+
+// No parameters: preserve the startup gate even on a build without audio hardware.
+extern "C" void LUNASHELL_audio_begin_cody_output_policy(void)
+{
+    s_cody_output_policy_error.store(ESP_ERR_NOT_FINISHED, std::memory_order_relaxed);
+    s_cody_output_policy_armed.store(true, std::memory_order_release);
+}
+
+// error: Original output reconciliation or publication result.
+extern "C" void LUNASHELL_audio_update_cody_output_policy(esp_err_t error)
+{
+    if (!s_cody_output_policy_armed.load(std::memory_order_acquire) ||
+        s_cody_output_policy_error.load(std::memory_order_acquire) == ESP_OK) return;
+    s_cody_output_policy_error.store(error, std::memory_order_release);
 }
 
 // enabled: Explicit admission preference, independent of whether this profile has an audio device.
@@ -156,6 +174,51 @@ extern "C" esp_err_t LUNASHELL_audio_capture_pcm16_channels(
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+// percent: Requested output volume for an unavailable output route.
+// applied: Output is unchanged because no codec readback exists.
+// Exception: Returns invalid arguments or the selected-route error.
+extern "C" esp_err_t LUNASHELL_audio_set_user_output_volume(uint8_t percent, uint8_t *applied)
+{
+    return applied == nullptr || percent > 100 ? ESP_ERR_INVALID_ARG : ESP_ERR_NOT_SUPPORTED;
+}
+
+// applied: Output is unchanged because no codec readback exists.
+// Exception: Returns invalid argument or the selected-route error.
+extern "C" esp_err_t LUNASHELL_audio_read_user_output_volume(uint8_t *applied)
+{
+    return applied == nullptr ? ESP_ERR_INVALID_ARG : ESP_ERR_NOT_SUPPORTED;
+}
+
+// gain_db: Requested ES7210 gain for an unavailable input route.
+// applied: Output is unchanged because no codec readback exists.
+// Exception: Returns invalid arguments or the selected-route error.
+extern "C" esp_err_t LUNASHELL_audio_set_user_input_gain(uint8_t gain_db, uint8_t *applied)
+{
+    return applied == nullptr || gain_db > 30 || gain_db % 3 != 0 ? ESP_ERR_INVALID_ARG : ESP_ERR_NOT_SUPPORTED;
+}
+
+// applied: Output is unchanged because no codec readback exists.
+// Exception: Returns invalid argument or the selected-route error.
+extern "C" esp_err_t LUNASHELL_audio_read_user_input_gain(uint8_t *applied)
+{
+    return applied == nullptr ? ESP_ERR_INVALID_ARG : ESP_ERR_NOT_SUPPORTED;
+}
+
+// samples: Caller-owned destination for a route absent from this build.
+// frame_count: Requested frames per channel.
+// channel_count: Requested microphone topology.
+// sample_rate_hz: Requested transport rate.
+// Exception: Returns the selected-route error without fabricating samples.
+extern "C" esp_err_t LUNASHELL_audio_capture_user_levels_pcm16(int16_t *samples, size_t frame_count,
+    uint8_t channel_count, uint32_t sample_rate_hz)
+{
+    (void)samples;
+    (void)frame_count;
+    (void)channel_count;
+    (void)sample_rate_hz;
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 extern "C" esp_err_t LUNASHELL_audio_set_standby(bool standby)
 {
     (void)standby;
@@ -223,58 +286,44 @@ extern "C" esp_err_t LUNASHELL_audio_prepare_personality(const lunashell_persona
     return ESP_ERR_NOT_SUPPORTED;
 }
 
-// status: Receives truthful unavailability; no fictional worker or playback exists.
-// Exception: Returns an invalid pointer or selected-route error.
-extern "C" esp_err_t LUNASHELL_audio_get_personality_status(lunashell_audio_cue_status_t *status)
+// request: PCM or generated cue requested without an output device.
+// status: Receives actual route unavailability without claiming admission.
+// Exception: Returns invalid arguments or the selected-route error.
+extern "C" esp_err_t LUNASHELL_audio_submit(const lunashell_audio_request_t *request,
+    lunashell_audio_cue_status_t *status)
 {
-    if (status == nullptr) {
-        ESP_LOGE("LUNASHELL_audio", "Personality status pointer rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_ARG));
-        return ESP_ERR_INVALID_ARG;
-    }
-    *status = {LUNASHELL_CUE_UNAVAILABLE, ESP_ERR_NOT_SUPPORTED, 0, 0};
+    if (request == nullptr || status == nullptr) return ESP_ERR_INVALID_ARG;
+    *status = {LUNASHELL_CUE_UNAVAILABLE, ESP_ERR_NOT_SUPPORTED, 0, request->cue_id};
+    ESP_LOGE("LUNASHELL_audio", "Cue output unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
     return ESP_ERR_NOT_SUPPORTED;
 }
 
-// samples: Immutable PCM requested on a build without audio output.
-// sample_count: Exact mono sample count.
-// sample_rate_hz: Authored rate.
-// cue_id: Stable symbol identity for the rejected operation.
-// status: Receives the unavailable disposition.
-// Exception: Returns selected-route or invalid output pointer error.
-extern "C" esp_err_t LUNASHELL_audio_notify_personality(const int16_t *samples, size_t sample_count,
-    uint32_t sample_rate_hz, uint32_t cue_id, lunashell_audio_cue_status_t *status)
+// request_sequence: Nonzero request identity.
+// cue_id: Nonzero application identity.
+// status: Receives actual route unavailability; no request was admitted.
+// Exception: Returns invalid arguments or the selected-route error.
+extern "C" esp_err_t LUNASHELL_audio_get_cue_status(uint32_t request_sequence, uint32_t cue_id,
+    lunashell_audio_cue_status_t *status)
 {
-    (void)samples;
-    (void)sample_count;
-    (void)sample_rate_hz;
-    const esp_err_t error = LUNASHELL_audio_get_personality_status(status);
-    if (status != nullptr) {
-        status->cue_id = cue_id;
-    }
-    ESP_LOGE("LUNASHELL_audio", "Personality dispatch unavailable (%s)", esp_err_to_name(error));
-    return error;
+    if (request_sequence == 0 || cue_id == 0 || status == nullptr) return ESP_ERR_INVALID_ARG;
+    *status = {LUNASHELL_CUE_UNAVAILABLE, ESP_ERR_NOT_SUPPORTED, request_sequence, cue_id};
+    return ESP_ERR_NOT_SUPPORTED;
 }
 
-// samples: Boot PCM requested on a build without audio output.
-// sample_count: Exact mono sample count.
-// cue_id: Stable boot identity preserved in the rejected operation.
-// status: Receives selected-route unavailability.
-// Exception: Returns invalid status storage or the original selected-route error.
-extern "C" esp_err_t LUNASHELL_audio_notify_boot(const int16_t *samples, size_t sample_count,
-    uint32_t cue_id, lunashell_audio_cue_status_t *status)
+// request_sequence: Requested nonzero audio identity.
+// cue_id: Stable identity associated with that request.
+// Exception: Returns invalid input or unavailable output; no request was admitted.
+extern "C" esp_err_t LUNASHELL_audio_cancel_cue(uint32_t request_sequence, uint32_t cue_id)
 {
-    return LUNASHELL_audio_notify_personality(samples, sample_count, 22050, cue_id, status);
+    return request_sequence == 0 || cue_id == 0 ? ESP_ERR_INVALID_ARG : ESP_ERR_NOT_SUPPORTED;
 }
 
-// samples: Immutable pet PCM for the excluded output route.
-// sample_count: Exact mono sample count.
-// cue_id: Stable rejected pet identity.
-// status: Receives the unavailable result.
-// Exception: Returns the selected-route error or invalid output pointer.
-extern "C" esp_err_t LUNASHELL_audio_notify_pet(const int16_t *samples, size_t sample_count,
-    uint32_t cue_id, lunashell_audio_cue_status_t *status)
+// request_sequence: Requested nonzero audio identity.
+// cue_id: Stable identity associated with that request.
+// Exception: Returns invalid input or unavailable output; no pinned record exists.
+extern "C" esp_err_t LUNASHELL_audio_ack_cue(uint32_t request_sequence, uint32_t cue_id)
 {
-    return LUNASHELL_audio_notify_personality(samples, sample_count, 16000, cue_id, status);
+    return request_sequence == 0 || cue_id == 0 ? ESP_ERR_INVALID_ARG : ESP_ERR_NOT_SUPPORTED;
 }
 
 // suspended: Requested gate for a route absent from this build.
@@ -284,51 +333,6 @@ extern "C" esp_err_t LUNASHELL_audio_set_personality_suspended(bool suspended)
     (void)suspended;
     ESP_LOGE("LUNASHELL_audio", "Personality suspension unavailable (%s)", esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
     return ESP_ERR_NOT_SUPPORTED;
-}
-
-// samples: Immutable requested cue on a build without audio output.
-// sample_count: Exact authored mono sample count.
-// sample_rate_hz: Authored PCM clock.
-// cue_id: Stable rejected Codex identity.
-// kind: Requested activity/notice admission class.
-// status: Receives actual unavailable status.
-// Exception: Returns selected-route unavailability or an invalid output pointer.
-extern "C" esp_err_t LUNASHELL_audio_notify_codex(const int16_t *samples, size_t sample_count,
-    uint32_t sample_rate_hz, uint32_t cue_id, lunashell_codex_audio_kind_t kind,
-    lunashell_audio_cue_status_t *status)
-{
-    (void)samples;
-    (void)sample_count;
-    (void)kind;
-    const esp_err_t error = LUNASHELL_audio_get_personality_status(status);
-    if (status != nullptr) {
-        status->cue_id = cue_id;
-    }
-    ESP_LOGE("LUNASHELL_audio", "Codex dispatch unavailable (%s)", esp_err_to_name(error));
-    const esp_err_t publication_error = LUNASHELL::DeviceSnapshotService::instance().reportPlayback(
-        false, 0, sample_rate_hz, 0, error, cue_id);
-    if (publication_error != ESP_OK) {
-        ESP_LOGE("LUNASHELL_audio", "Codex failure publication failed (%s)", esp_err_to_name(publication_error));
-    }
-    return error;
-}
-
-// samples: Immutable requested chime on a build without audio output.
-// sample_count: Exact mono source length.
-// sample_rate_hz: Authored source clock retained in the rejected snapshot.
-// cue_id: Stable rejected notice identity.
-// repetitions: Requested bounded sequence length; no playback is simulated.
-// gap_ms: Requested inter-clip silence; no timer is created.
-// status: Receives actual route unavailability.
-// Exception: Returns the selected-route error or an invalid output pointer.
-extern "C" esp_err_t LUNASHELL_audio_notify_codex_repeated_notice(const int16_t *samples, size_t sample_count,
-    uint32_t sample_rate_hz, uint32_t cue_id, uint8_t repetitions, uint16_t gap_ms,
-    lunashell_audio_cue_status_t *status)
-{
-    (void)repetitions;
-    (void)gap_ms;
-    return LUNASHELL_audio_notify_codex(samples, sample_count, sample_rate_hz, cue_id,
-        LUNASHELL_CODEX_CUE_NOTICE, status);
 }
 
 // suspended: Requested presentation gate on a build without an audio owner.

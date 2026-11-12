@@ -31,7 +31,8 @@ DOCUMENT_NAMES = (
 )
 SIZE = landscape(A4)
 W, H = SIZE
-DATE = "09 November 2026"
+PREVIOUS_EDITION = "09 November 2026"
+DATE = "12 November 2026"
 INK = colors.HexColor("#14283E")
 MUTED = colors.HexColor("#506579")
 TEAL = colors.HexColor("#007F83")
@@ -41,7 +42,7 @@ WHITE = colors.white
 
 CURRENT_SCOPE = (
     "Current repository source is the reference. Firmware execution, physical behavior and the private cloud service require their own verification. "
-    "The VibeWare introduction hands off to the interactive Muse avatar. Cloud firmware integration is deferred."
+    "After VibeWare, Home can show Counter mode or the interactive Muse avatar. Cloud firmware integration is deferred."
 )
 SOURCE_NOTE = "Sources: docs/cody/navigation.md, layout.md, runtime.md; cody-desktop/plugins/cody-codex-plugin/README.md and protocol/CCP1.md."
 
@@ -258,7 +259,7 @@ def geometry_page(label):
         ("466 x 466", "Center (233,233), radius 233. The baseline square is 320 x 320 at (73,73). Expand only within every occupied row's chord."),
         ("Back has its own space", "Left circle at (10,203), 60 x 60. One chevron, no caption, complete touch target, only with a previous route."),
         ("Rendering and touch agree", "Use the same logical 0/90/180/270-degree transform. Never mirror text or rotate touch independently."),
-        ("Controls become complete", "Text-only captions, semantic colors and restrained gradients. Reveal full controls and touch together after title/body; preserve QR quiet zones."),
+        ("Controls become complete", "Text actions have no filled cards or button borders; existing icons precede their captions. Reveal controls and touch together after title/body; preserve QR quiet zones."),
     ]
     top = 150
     for heading, text in topics:
@@ -272,11 +273,11 @@ def geometry_page(label):
 def identity_page(label):
     output, surface = page_start("Original screen IDs remain stable", "Identity reference / current labels and availability follow the source owners, not these original document names.", label)
     rows = [
-        ("01-03", "Character boot", "Studio/design; current device-first boot uses VibeWare then saved state."),
+        ("01-03", "Character boot", "VibeWare precedes Muse; the first-install birth introduction has its own pending state."),
         ("04-09 / 06-bis", "Network setup", "Installation QR, active provisioning QR, failure and valid Wi-Fi/IP."),
         ("10 / 36 / 11", "Options / Settings / Skin", "Device-first Options are current; Skin remains character design scope."),
         ("12-15", "Code / saved / searching / connected", "Local CCP pairing and current authentication are distinct states."),
-        ("16 / 17 / 18 / 18U", "Idle / project / work / unavailable", "Character Idle is design scope; activity needs exact source identity/freshness."),
+        ("16 / 17 / 18 / 18U", "Idle / project / work / unavailable", "Muse renders on the device; activity needs exact source identity and freshness."),
         ("19 / 20A / 20B", "Reply ready / paused / chat ended", "A reply is not proof of success; no background event steals context."),
         ("21-24 / 25", "PR observations / retired log route", "Read-only status; exact head and complete check list; 25 remains retired."),
         ("26 / 27", "Notice / question / review", "Numbered choices, complete detail review, then explicit Send."),
@@ -358,7 +359,7 @@ def route_records():
         record("12 October 2026", "Change", "Navigation within the documents",
             "Coordinated document identity, navigable contents and bookmarks retain original screen references when pagination changes. The quickstart keeps its own four instructional A5 pages.",
             "All atlas pages; Manga prior final register.", "Document authoring only."),
-        record(DATE, "Errata", "Current device and private cloud boundaries",
+        record(PREVIOUS_EDITION, "Errata", "Current device and private cloud boundaries",
             "Replace character-led current routes with the device-first dashboard, BOOT Options, current carousel order, Timer, Quick guide and explicit reset screens. Preserve character artwork as Studio/design material. Consolidate corrections into this register and remove accumulated build/code history. The private cloud service is under implementation; cloud firmware and Dot integration are pending.",
             "Current Navigation/Planning bodies; former Navigation pages 03-19 and Planning pages 03-27; map and A5 instructions.",
             "Read-only source review and PDF authoring. No firmware build, test, simulator, device operation or cloud deployment accompanies this edition."),
@@ -382,7 +383,7 @@ def security_records(include_cloud=True):
             "Source ownership only; this document does not establish live account login or end-to-end device delivery."),
     ]
     if include_cloud:
-        records.append(record(DATE, "Security", "Cloud authorization is a separate trust boundary",
+        records.append(record(PREVIOUS_EDITION, "Security", "Cloud authorization is a separate trust boundary",
             "Use owner sign-in, a key-bound device credential and an explicit owner/device/client grant. An ID, LAN pairing key or account label never authorizes arbitrary destinations. A short enrollment code is one-use and expires; owner claim and physical confirmation belong to the same transaction. HTTPS protects transport; DPoP binds the device token to its P-256 key. Revocation is checked server-side. Existing LAN UDP is not exposed publicly.",
             "New cloud relay concept; original local pairing screens 12-15 remain local. No new firmware screen IDs are assigned.",
             "Private implementation is in progress. Build, runtime/security review, Dot integration, firmware storage and physical confirmation are pending."))
@@ -424,7 +425,7 @@ def connection_chapters(label="Communication Atlas"):
             ("Telemetry and mount gates", "OpenTelemetry feeds the Aspire dashboard or a configured OTLP endpoint. The dashboard manages its own telemetry storage normally. Bounded relay logs persist on SMB. Exclude secrets and message bodies. Verify mount locks, durable flush, atomic replacement and disconnect/crash recovery. TLS and owner sign-in configuration remain pending."),
         ], label)),
         ("Voice and operator boundaries", cards_page("Use the operation that the current source supports", "Local customer controls, optional voice and engineering access have separate admission.", [
-            ("Voice is optional", "The default device-first profile omits microphone acquisition. A voice-enabled build requires Dictation on and a current paired LAN link. Record voice or a dashboard double tap starts the documented route."),
+            ("Voice is optional", "The default profile omits microphone acquisition. The wake-word variant admits Sophia for standby wake; the separate Codex voice-input owner remains disabled in that profile."),
             ("Audio evidence", "Recording, encrypted transport, queue acceptance and recipient transcription are separate outcomes. The retained 15 October synthetic queue result did not prove speech receipt. No new physical voice evidence is claimed here."),
             ("Settings and diagnostics", "Authenticated commands retain identity, nonce and actual acknowledgements. Diagnostic measurements come from canonical owners. Acknowledged settings do not prove physical pixels or sound."),
             ("Reset and approval", "Restart and factory reset are separate, explicit actions. A reset ACK establishes admission; reboot and deletion need actual evidence. Codex's native approval remains on the computer."),
@@ -442,13 +443,14 @@ def navigation_chapters():
             ("Wi-Fi ready", "Without a retained association, prepare the Codex pairing code. With a valid saved record, search for that PC until current authentication arrives. Internet availability is a separate condition."),
             ("Errors stay explicit", "Storage, service and cleanup failures retain the original cause. Retry is not consent to replace a PC. A missing observation does not become Connected or a fabricated numeric value."),
         ], label)),
-        ("Dashboard", cards_page("Read the current dashboard", "Left/right arrows cycle enabled pages. Device always remains available.", [
-            ("Carousel order", "Device > Codex reset > Context > Codex limits > Today > Last 7 days > Token history > Credits > Codex account > About."),
-            ("Navigation and visibility", "Shake returns to the first enabled statistics page, Codex reset by default. If all statistics are hidden, Device is the fallback. Arrows fade after ten seconds; reveal them before starting a new touch."),
+        ("Dashboard", cards_page("Read the current dashboard", "Counter mode defaults to On without a saved preference; horizontal swipes change its pages.", [
+            ("Counter mode", "Three pages show reset, current context and model. Missing or incoherent observations are unavailable. Change the saved switch in Behavior > More... > More...."),
+            ("Carousel when disabled", "Device > Codex reset > Context > Codex limits > Today > Last 7 days > Token history > Credits > Codex account > About."),
+            ("Carousel navigation", "With Counter mode off, shake returns to the first enabled statistics page, Codex reset by default. If all statistics are hidden, Device is the fallback. Arrows fade after ten seconds; reveal them before starting a new touch."),
             ("Current and saved data", "Measured counters keep their source date/time. Saved offline observations are labeled with their UTC update times. Missing daily counts remain gaps. No extrapolation, backfill or invented zeros."),
             ("About", "System shows measured CPU/uptime; Memory shows allocatable RAM/PSRAM used, free and largest free block; Firmware shows version/build context. The project QR follows these child pages and is not a carousel item."),
         ], label)),
-        ("Options", cards_page("BOOT opens Options", "Three menu pages; Home returns to the first enabled statistics screen or Device.", [
+        ("Options", cards_page("BOOT opens Options", "Three menu pages; the saved Counter mode controls the Home presentation.", [
             ("Page 1", "Connections, Codex stats, Timer. Connections opens Connect Codex and Set up Wi-Fi. Timer runs for 1-120 minutes with Bell or Chime; Back leaves it running."),
             ("Page 2", "Visible screens, Display, Behavior. Display owns brightness/rotation/orientation. Behavior owns Sounds, shake-to-wake and profile-dependent Dictation; More behavior contains the optional screensaver."),
             ("Page 3", "Restart device, Factory reset, Quick guide. Restart retains configuration. Factory reset requires confirmation and verified settings deletion. Quick guide has three pages and returns to Options."),
@@ -460,7 +462,7 @@ def navigation_chapters():
             ("Power and wake", "PWR toggles software standby. Authenticated questions and Reply ready can wake software standby while the LAN link is retained. A running Timer can wake at expiry. The route remains owned by its model."),
             ("Battery", "Awake notices use observed 50%, 20%, 10% and 5% thresholds. An observed 0% requests USB. If hardware cuts power earlier, no unobserved 0% message is invented."),
             ("Screensaver and sound", "Screensaver is off by default; when enabled it uses the idle dashboard without resetting standby timers. A dismissing touch cannot activate hidden content. Sounds and quiet hours govern optional cues."),
-            ("Voice profile", "The default build has no microphone acquisition. Voice-enabled firmware can admit Record voice/double tap with Dictation on and a current paired LAN link. A device recording does not prove recipient transcription."),
+            ("Voice profile", "The default build omits microphone acquisition. The wake-word variant uses Sophia for standby wake and does not enable the separate Codex voice-input owner. Recipient transcription is not established."),
         ], label)),
         ("Cloud status", cards_page("Cloud connection is a separate development step", "The current firmware remains a local paired companion.", [
             ("Private service", "The relay is under implementation with separate owner, device and client identities. Grants bind a particular client to an owned device; IDs and device names are not permissions."),
@@ -512,14 +514,14 @@ def navigation_map():
             ("Local Codex link", "Wi-Fi ready without a link prepares a code. A saved link searches its PC. BOOT > Options > Connections manages Keep link, Pair again or confirmed Forget."),
         ]),
         ("Dashboard and Options", [
-            ("Carousel", "Device > Codex reset > Context > Codex limits > Today > Last 7 days > Token history > Credits > Codex account > About."),
-            ("BOOT / Options pages", "1: Connections, Codex stats, Timer. 2: Visible screens, Display, Behavior. 3: Restart device, Factory reset, Quick guide. Home returns to the first enabled statistics page or Device."),
+            ("Counter / carousel", "Counter mode defaults On: swipe reset, context and model pages. When Off, the enabled statistics carousel and Muse Home are available."),
+            ("BOOT / Options pages", "1: Connections, Codex stats, Timer. 2: Visible screens, Display, Behavior. 3: Restart device, Factory reset, Quick guide. Behavior > More... > More... contains Counter mode."),
             ("About and visibility", "System > Memory > Firmware > project QR. Saved changes require confirmed storage. Arrows fade after 10 seconds; reveal before touching again."),
         ]),
         ("Events and local tools", [
             ("Questions", "Open > numbered choice rows > full review > Send. Recipient acknowledgement permits Reply sent. Back, offline and timeout never answer automatically."),
             ("Power, timer and sound", "PWR toggles standby. Timer keeps running after Back. Authenticated events can wake retained-link standby. Sounds and quiet hours govern optional cues."),
-            ("Optional voice", "Voice-enabled profile only: Dictation on, current paired LAN link, Record voice or dashboard double tap. The default profile omits microphone acquisition."),
+            ("Optional voice", "Default: no microphone acquisition. The wake-word variant uses Sophia for standby wake; Codex voice capture is separately gated and excluded from that profile."),
         ]),
     ]
     width = (W - 110) / 3
@@ -533,8 +535,10 @@ def navigation_map():
             raise ValueError("Navigation map column overflow")
     surface.setFillColor(PALE)
     surface.roundRect(38, 59, W - 76, 65, 6, fill=1, stroke=0)
-    copy(surface, DATE + " / ERRATA", 50, 482, 160, 8.5, TEAL, True)
-    copy(surface, "Corrects prior map page 1: current carousel order, three Options pages, Timer/Quick guide/reset entries, optional voice and recipient delivery. Source review and document layout only; no physical result claimed.", 220, 480, W - 275, 9, MUTED)
+    copy(surface, PREVIOUS_EDITION + " / ERRATA", 50, 480, 160, 8.5, TEAL, True)
+    copy(surface, "Map page 1: carousel, Options, local tools and recipient delivery.", 220, 480, W - 275, 9, MUTED)
+    copy(surface, DATE + " / ERRATA", 50, 506, 160, 8.5, TEAL, True)
+    copy(surface, "Map page 1: Counter mode, wake-only profile and quiet hours; device verification remains separate.", 220, 506, W - 275, 9, MUTED)
     return page_finish(output, surface)
 
 
@@ -557,9 +561,7 @@ def quickstart():
 # Raises subprocess.CalledProcessError for rendering failure.
 def render_document(path, pdftoppm, directory):
     destination = directory / path.stem
-    destination.mkdir(parents=True, exist_ok=True)
-    for old in destination.glob("*.png"):
-        old.unlink()
+    destination.mkdir(parents=True, exist_ok=False)
     subprocess.run([str(pdftoppm), "-r", "90", "-png", str(path), str(destination / "page")], check=True)
     pages = sorted(destination.glob("page-*.png"))
     for start in range(0, len(pages), 6):
@@ -596,6 +598,10 @@ def main(argv=None):
         return 0
     register_fonts()
     routes = route_records()
+    current_revision = record(DATE, "Errata", "Muse, flat actions and voice profile boundaries",
+        "The device source includes Muse, the first-install birth introduction and a saved Counter mode. Actions draw text and existing icons without filled cards. The wake-word profile admits Sophia for standby wake but not the separate Codex voice-input owner. Quiet hours are available in device settings.",
+        "Navigation/Planning current pages 3-8 and original screens 01-04, 26-29, 35A/35B and 40-42.",
+        "Source review and document authoring only; visual, physical and voice-delivery acceptance remain separate.")
     communication_records = routes[4:]
     communication_records.append(record("12 October 2026", "Addendum", "Operator and diagnostics boundaries",
         "Separate customer operations, authenticated diagnostics and USB engineering. A worker acknowledgement establishes admission or application of a command; the intended physical outcome requires separate observation. Debug and Release share the diagnostic entry without exposing a build-mode choice.",
@@ -604,6 +610,8 @@ def main(argv=None):
         "A synthetic localAudio item entered and left the public experimental queue, while Desktop reported that audio content was omitted because audio input was unsupported. Queue acceptance is not transcription or successful recipient audio delivery.",
         "Communication audio delivery / original voice screens 28-30.",
         "Observed synthetic queue/Desktop result. Physical-device voice submission was not performed."))
+    routes.append(current_revision)
+    communication_records.append(current_revision)
     outputs = {
         "cody-ccp-connection-atlas-v1.pdf": atlas("Communication Atlas", "CCP Communication Atlas", "Local pairing, semantic events and the proposed private cloud connection.", connection_chapters(), communication_records, security_records()),
         "cody-navigation-atlas-v1.pdf": atlas("Navigation Atlas", "Navigation Atlas", "Current device-first routes, controls and recovery.", navigation_chapters(), routes, security_records(False)),

@@ -527,16 +527,16 @@ uint8_t LUNASHELL_audio_input_channel_count(void);
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
 // source_rate_hz: Engine PCM16 rate, 22050 or 24000 Hz; output preserves the current codec clock.
 // request_id: Exact nonzero speech request identity retained through the session.
-// Exception: Returns busy, lifecycle, volume or codec failures; success holds the owner mutex.
+// Exception: Returns busy, lifecycle, volume or codec failures; success reserves one mixer voice.
 esp_err_t LUNASHELL_audio_begin_speech(uint32_t source_rate_hz, uint32_t request_id);
 // samples: Borrowed signed mono PCM16, consumed before return.
 // sample_count: Exact engine buffer length.
 // request_id: Must match the session owned by the calling task.
-// Exception: Returns exact codec or publication errors.
+// Exception: Returns exact conversion, bounded queue or worker errors.
 esp_err_t LUNASHELL_audio_write_speech(const int16_t *samples, size_t sample_count, uint32_t request_id);
 // request_id: Must match the session owned by the calling task.
 // cause: Original synthesis/cancellation cause preserved over cleanup failures.
-// Exception: Returns original operation failure or actual drain/restoration/publication failure.
+// Exception: Returns the original operation failure or actual drain/worker failure.
 esp_err_t LUNASHELL_audio_end_speech(uint32_t request_id, esp_err_t cause);
 #endif
 
@@ -613,66 +613,78 @@ typedef struct {
 // policy: Immutable build-authored admission settings; copied before the dormant worker starts.
 // Exception: Returns and publishes invalid policy, changed preparation or worker preparation failures.
 esp_err_t LUNASHELL_audio_prepare_personality(const lunashell_personality_audio_policy_t *policy);
-// samples: Immutable flash-owned PCM retained for the firmware lifetime.
-// sample_count: Exact mono samples, bounded to 5600 (350 ms at 16 kHz).
-// sample_rate_hz: Exact authored rate, 16000 Hz.
-// cue_id: Opaque stable symbol identity for admission and completion observations.
-// status: Receives explicit admission disposition; Dispatched is not audible completion.
-// Exception: Returns rejected arguments or retained asynchronous errors.
-esp_err_t LUNASHELL_audio_notify_personality(const int16_t *samples, size_t sample_count,
-    uint32_t sample_rate_hz, uint32_t cue_id, lunashell_audio_cue_status_t *status);
-// samples: Immutable pet PCM, mono 16 kHz, retained until playback ends.
-// sample_count: Exact number of samples, at most 32000.
-// cue_id: Stable pet event identity.
-// status: Receives dispatch, suppression or busy disposition from the shared worker.
-// Exception: Returns the original validation, preparation or audio-owner failure.
-esp_err_t LUNASHELL_audio_notify_pet(const int16_t *samples, size_t sample_count,
-    uint32_t cue_id, lunashell_audio_cue_status_t *status);
-// samples: Immutable mono PCM for the visible boot sequence, retained until playback ends.
-// sample_count: Exact 22.05 kHz mono length, at most 44100 samples.
-// cue_id: Stable boot cue identity for admission and playback telemetry.
-// status: Receives the shared worker's disposition, subject to Sounds and quiet hours.
-// Exception: Returns the original format, preparation or worker error.
-esp_err_t LUNASHELL_audio_notify_boot(const int16_t *samples, size_t sample_count,
-    uint32_t cue_id, lunashell_audio_cue_status_t *status);
-// suspended: Invalidates an outstanding dispatch; resumed requests never replay old sounds.
-// Exception: Returns a retained preparation/playback failure.
-esp_err_t LUNASHELL_audio_set_personality_suspended(bool suspended);
-// status: Receives the coherent retained outcome without claiming a playback occurred.
-// Exception: Returns the retained original asynchronous or preparation failure.
-esp_err_t LUNASHELL_audio_get_personality_status(lunashell_audio_cue_status_t *status);
+typedef enum {
+    LUNASHELL_AUDIO_PERSONALITY = 0,
+    LUNASHELL_AUDIO_CODEX,
+    LUNASHELL_AUDIO_BOOT,
+    LUNASHELL_AUDIO_PET,
+    LUNASHELL_AUDIO_SYSTEM,
+    LUNASHELL_AUDIO_USER_PCM,
+    LUNASHELL_AUDIO_FEEDBACK_GLYPH,
+    LUNASHELL_AUDIO_FEEDBACK_TOUCH,
+} lunashell_audio_channel_t;
 
 typedef enum {
     LUNASHELL_CODEX_CUE_ACTIVITY = 0,
     LUNASHELL_CODEX_CUE_NOTICE = 1,
 } lunashell_codex_audio_kind_t;
 
-// samples: Immutable flash-owned PCM retained through asynchronous playback.
-// sample_count: Exact mono length; notices allow 32000 samples (2 s), activity cues 5600 (350 ms).
-// sample_rate_hz: Exact authored rate, 16000 Hz.
-// cue_id: Stable application identity in the reserved Codex namespace.
-// kind: Activity is rate-limited; notices skip that limit but never interrupt current playback.
-// status: Receives dispatch/drop/suppression; one shared worker has no replay queue.
-// Exception: Returns and publishes original argument, preparation or asynchronous failures.
-esp_err_t LUNASHELL_audio_notify_codex(const int16_t *samples, size_t sample_count,
-    uint32_t sample_rate_hz, uint32_t cue_id, lunashell_codex_audio_kind_t kind,
+typedef enum {
+    LUNASHELL_AUDIO_WAVE_PCM = 0,
+    LUNASHELL_AUDIO_WAVE_TRIANGLE,
+    LUNASHELL_AUDIO_WAVE_SQUARE,
+    LUNASHELL_AUDIO_WAVE_SAW,
+    LUNASHELL_AUDIO_WAVE_NOISE,
+} lunashell_audio_wave_t;
+
+typedef struct {
+    const int16_t *samples;
+    size_t sample_count;
+    uint32_t sample_rate_hz;
+    uint32_t cue_id;
+    lunashell_audio_channel_t channel;
+    lunashell_codex_audio_kind_t kind;
+    uint8_t repetitions;
+    uint16_t gap_ms;
+    lunashell_audio_wave_t wave;
+    uint32_t frequency_hz;
+    uint16_t gain;
+    uint32_t attack_frames;
+    uint32_t release_frames;
+    uint32_t noise_seed;
+    uint32_t user_sounds_revision;
+    bool pin_terminal;
+    uint32_t feedback_generation;
+    int64_t requested_at_us;
+} lunashell_audio_request_t;
+
+// request: Immutable PCM or oscillator metadata; PCM stays valid until terminal status.
+// status: Receives nonblocking admission; dispatched does not mean audible completion.
+// Exception: Returns exact invalid input, policy or preparation error.
+esp_err_t LUNASHELL_audio_submit(const lunashell_audio_request_t *request,
     lunashell_audio_cue_status_t *status);
-// samples: One immutable flash-owned PCM chime reused throughout a single admitted notice.
-// sample_count: One play allows 32000 samples (2 s); repeated clips at most 5600 (350 ms).
-// sample_rate_hz: Authored 16000 Hz clock.
-// cue_id: Stable notice identity in the reserved Codex namespace.
-// repetitions: One through five plays owned by the same mailbox event.
-// gap_ms: Zero through 200 ms between plays; total sequence is at most 2500 ms.
-// status: Receives one dispatch/drop/suppression outcome for the entire sequence.
-// Exception: Returns and publishes the original argument or shared-owner failure.
-esp_err_t LUNASHELL_audio_notify_codex_repeated_notice(const int16_t *samples, size_t sample_count,
-    uint32_t sample_rate_hz, uint32_t cue_id, uint8_t repetitions, uint16_t gap_ms,
+// request_sequence: Nonzero unique identity returned by a successful admission.
+// cue_id: Stable identity associated with the sequence.
+// status: Receives this request's live or retained terminal state.
+// Exception: Returns invalid arguments or ESP_ERR_NOT_FOUND if its bounded record expired.
+esp_err_t LUNASHELL_audio_get_cue_status(uint32_t request_sequence, uint32_t cue_id,
     lunashell_audio_cue_status_t *status);
-// suspended: Cancels Codex cues when their presentation hides, independently of personality symbols.
-// Exception: Returns the original retained owner failure.
+// request_sequence: Exact admitted request.
+// cue_id: Stable identity associated with it.
+// Exception: Returns invalid arguments or not-found; cancellation is acknowledged by terminal status.
+esp_err_t LUNASHELL_audio_cancel_cue(uint32_t request_sequence, uint32_t cue_id);
+// request_sequence: Exact pinned request after a terminal observation.
+// cue_id: Stable identity associated with it.
+// Exception: Returns invalid state for active/unpinned requests, or not-found for absent records.
+esp_err_t LUNASHELL_audio_ack_cue(uint32_t request_sequence, uint32_t cue_id);
+// suspended: Invalidates outstanding personality cues without replay.
+// Exception: Returns the selected route's preparation failure.
+esp_err_t LUNASHELL_audio_set_personality_suspended(bool suspended);
+// suspended: Invalidates outstanding Codex cues independently of personality.
+// Exception: Returns the selected route's preparation failure.
 esp_err_t LUNASHELL_audio_set_codex_suspended(bool suspended);
-// enabled: Explicit session sound preference; does not override the immutable global sound policy.
-// Exception: Returns the original retained owner failure.
+// enabled: Explicit Codex session sound policy.
+// Exception: Returns the selected route's preparation failure.
 esp_err_t LUNASHELL_audio_set_codex_enabled(bool enabled);
 
 /** Capture mono signed PCM16 when the selected board exposes one microphone. */
@@ -972,6 +984,15 @@ esp_err_t LUNASHELL_codex_link_copy_pairing_code(
 // choice_id: Stable semantic option selected and explicitly confirmed on Cody.
 // Exception: Returns state, expiry, identity or mailbox admission errors; admission is not delivery.
 esp_err_t LUNASHELL_codex_event_reply(const char *expected_request_id, const char *choice_id);
+
+// expected_request_id: Exact authenticated assistant-response event identity.
+// segment: Exact zero-based segment whose speech actually completed.
+// Exception: Returns stale event, invalid identity or unavailable link errors.
+esp_err_t LUNASHELL_codex_reply_speech_completed(const char *expected_request_id, uint16_t segment);
+
+// No parameters: removes retained private reply speech and acknowledgement after opt-out.
+// Exception: Returns the original canonical snapshot publication failure.
+esp_err_t LUNASHELL_codex_clear_reply_speech(void);
 // request_id: Exact canonical pending-question identity explicitly selected on Cody.
 // Exception: Returns actual state, freshness, deadline or canonical publication errors.
 esp_err_t LUNASHELL_codex_event_select(const char *request_id);

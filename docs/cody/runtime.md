@@ -6,13 +6,16 @@ The model owns the selected screen, visibility policy, gestures and acquired
 projections. The renderer owns prepared glyphs, layouts and the last retired
 frame. Partial writes never become the next displayed-state reference.
 
-Cold startup retires the original VibeWare floppy-disk animation before
-presenting Muse. The native CODY2D profile excludes LVGL. Muse wakes, settles
+Cold startup retires the original VibeWare floppy-disk animation. The saved
+Counter mode can replace the Muse Home/dashboard presentation with its reset,
+context and model pages; an absent preference defaults to enabled in source.
+With Counter mode off, Muse wakes and settles
 into Idle and then draws one different showcase pose every ten seconds of visible
 time. Each shuffled cycle shows Idle, Listening, Thinking, Working, Reply, Error,
 Sleep and Waking. The Sleep preview stays dimly visible. Hidden routes and
 standby pause the showcase. These poses demonstrate animation and do not represent
 real microphone, task, reply, error or power state.
+The native CODY2D profile excludes LVGL.
 
 The Cody display worker
 handles touch and requests the existing touch sound. PWR hands display ownership to the power service for standby.
@@ -57,7 +60,7 @@ An approval faces forward. No person tracking or new sensor sampling is introduc
 
 The display-lock owner retains bounded inputs (at most 96 bytes) and direction
 state (at most 208 bytes). Existing native motion, blinking/protective eye closure,
-audio-driven mouth opening, breathing, quiet hours, day/night routine and Desk/Away
+audio-driven mouth opening, breathing, quiet hours and day/night routine
 policy retain their owners. Debug, explicit expression presets, setup and the
 startup/Sleep/Wake lifecycle suppress these contributions and consume hidden events.
 This work does not change expression debug screen 38 or Codex transport admission.
@@ -262,10 +265,10 @@ and online, one quieter 300-ms QuestionReminder is eligible every sixty awake
 seconds. The effects model owns this cadence independently of the selected
 Info, statistics or Options page. Sending, terminal outcomes or unavailable,
 stale or offline evidence stop future attempts. Each attempt uses the shared
-bounded audio mailbox and existing Sounds, volume, quiet-hours and standby
-gates. Busy or suppressed cues never accumulate for later playback.
+four-voice audio owner and existing Sounds, volume, quiet-hours and standby
+gates. Cues rejected as busy or suppressed do not accumulate for later playback.
 Both samples derive from the purchased Soft Chime recording at -24/-27 dBFS.
-The shared owner streams their flash PCM in its existing 320-sample scratch;
+The shared owner streams their flash PCM in bounded chunks;
 single Codex notices admit up to two seconds, while activity/personality and
 repeated clips retain their 350-ms bounds. The shared audio worker plays the
 existing immutable PCM; UI redraws do not request or restart sounds.
@@ -535,39 +538,24 @@ ongoing observer must provide a distinct confirmation age before a long-running
 operation can remain current beyond that lease. The explicit Studio synthetic
 long-compaction scenario exercises presentation, not actual hook reachability.
 
-### Desk and Away
+### USB power context
 
-The Behavior screen under Options includes a `Usage` row, toggling `Desk` and
-`Away` through the settings owner. In voice-enabled builds, More options opens
-that row on its own page. Both pages use the same Options layout described in
-[layout](layout.md#setup-qr-and-skin).
+Cody has no manually selected usage mode. Its power owner observes USB/VBUS
+through the canonical battery snapshot; confirmed external USB power is treated
+as desk power, including when the battery is full. Missing, stale or failed
+observations do not establish either presence or absence. USB power does not
+change pairing, voice settings or the underlying motion sensors.
 
-`cody_usage` is a strict persisted uint32 boundary value (Desk=0, Away=1).
-Only an absent key receives a logged Desk default followed by exact readback.
-Storage/type/value/readback failures publish independent mode validity and the
-original error; the row shows N/A rather than a guessed mode. Explicit mode
-changes serialize with other preferences and preserve sound, wake, rotation,
-clock, preferred name and their independent provenance. Consumers use only the
-canonical bounded options projection, with no NVS or sensor read in rendering.
+### Counter mode
 
-The shared `CODY_companion_mode.hpp` policy calms artistic breathing and outline
-motion, and suppresses optional idle accessory scenes on awake passive Home and
-panel routes. Setup, semantic question controls and manually selected Debug
-expressions retain their existing behavior. Activity headlines, important sounds,
-the compaction indicator, tap/shake, source freshness and service decisions stay
-with their existing owners. Studio provides a clearly SIMULATED preview toggle
-using that same native helper and resets it before live or Debug/event views.
-
-Away makes no radio, CPU frequency, voice, standby or new transport change.
-The regular gesture service cadence remains intact; lowering it without
-separating canonical motion sampling could miss deliberate shake peaks. Reduced
-accessory motion is implemented; CPU time, energy use and walking rejection are
-not measured by source review. Reachability continues to follow the actual link.
-
-The options projection is bounded to 256 bytes in the render path. The canonical
-preference carries the mode, its validity and its error. The persistent content
-owner holds the control. Stack headroom for the nested render path still
-requires a target measurement.
+Settings > Behavior > More behavior > More... > Counter mode selects the
+counter presentation. The setting defaults to On only when its persisted key
+is absent. Horizontal swipes cycle through reset, context and model pages;
+the model price band is an indicative standard reference. Fields without a
+current, coherent source are unavailable. The counter does not show chat
+titles, messages, event details or the mascot. BOOT and the settings route
+remain available so the mode can be switched off. Studio labels its independent
+loopback preview SIMULATED and does not change a physical device.
 
 `CODY_scene` resolves immutable definitions by `SceneId`, prepares cloud/title and
 an optional bounded content slot, advances fixed-capacity state and plans old/new
@@ -597,6 +585,31 @@ after scene advancement, then captures content before drawing; it preserves an
 already-true `changed` flag and does not attach mutable state on every tile.
 
 ## Optional audio
+
+When Synth Voice is enabled in a TTS-enabled Cody build, the speech owner can
+read a current authenticated question and its choice labels and details. After
+delivery it can read the selected answer only when the corresponding actual
+choice is still present in the canonical event. The request is tied to the
+event identity and revision, and is cancelled if the event, connection, Sounds
+or Synth Voice preference becomes invalid. Busy speech is retried only while
+the same event remains current. Synth Voice is initially off.
+
+With Synth Voice enabled, a current ReplyReady event can also carry encrypted,
+authenticated segments of the actual assistant response. Cody acknowledges a
+segment only after its speech reports completion; the desktop retains the next
+segment until that acknowledgement. The ordinary chat title is never spoken as
+the answer. Disabled, invalid, oversized, stale or unavailable content is not
+replaced by an inferred response. Playback and transport still require physical
+verification.
+
+The shared audio owner mixes up to four voices from mono PCM16 or generated
+waveforms. Effects, boot and system PCM, feedback and synthesized speech share
+the output; a speech stream reserves one voice. PCM sources retain their own
+sample rates, request identities and completion results, and remain borrowed
+until terminal acknowledgement. The owner applies the relevant Sounds,
+quiet-hours, volume and standby policies. A full set of voices returns busy.
+Summed samples saturate at PCM16 limits, so overlapping loud voices can clip.
+Hardware mixing, latency, memory headroom and playback quality remain unverified.
 
 ### Device-first notifications
 
@@ -661,20 +674,20 @@ completed/skipped/failed requests never become ordinary software-wake sounds. Cl
 waiting has no timeout that fabricates completion, and startup keeps an optional
 audio admission/playback failure visible without aborting visual startup.
 The base assets use 22,050 Hz and authored volume 100; the
-optional voice-AFE feature has its separate matched-rate configuration. Shared
-transport configuration is authoritative: a conflicting generic playback rate
-returns the real error rather than reconfiguring an open microphone unnoticed.
+optional voice-AFE feature has its separate matched-rate configuration. The
+mixer converts source PCM to the shared transport rate and does not change an
+open microphone clock to match a clip.
 
 `CODY_codex_audio.hpp` selects typed Codex action cues from immutable mono
 16 kHz PCM. The current cue set, durations and byte totals are owned by the
 [authoring manifest](../../cody-device/assets/cody/audio/codex-actions/README.md), within
-the existing audio-owner limit. The same optional personality-audio worker and one-slot mailbox own
-playback; there is no new worker, I2S owner or event replay queue. Independent
+the existing audio-owner limit. A single audio worker mixes up to four active
+cue voices and owns the speaker transport without an event replay queue. Independent
 channel generations cancel hidden Codex presentation and hidden personality
 symbols without cancelling each other; standby invalidates both. Codex starts
 suspended and its presenter enables only visible companion transitions.
 Working/Reading/Editing/Running requests have a 1.5-second activity rate limit.
-Other notices skip that limit but never preempt a cue already in flight.
+Other notices skip that limit and can overlap when an audio voice is free.
 Busy, expired, disabled and quiet-hours dispositions remain explicit, while
 actual failures return their original error and publish through the canonical
 snapshot. `Dispatched` does not mean playback completed. A response-ready cue
@@ -691,17 +704,14 @@ and wake reset the silent baseline; unchanged frames cannot create taps.
 It preserves actual codec volume and the already shared transport clock, converts
 only this cue to the active rate, and does not reconfigure the microphone. Zero
 volume, quiet hours, hidden/parked scenes and standby suppress output. Unavailable
-trusted time suppresses keyboard microclicks only when both routines and quiet-hours policy are
-enabled; disabling either allows cues without that clock. Unavailable policy
+trusted time suppresses keyboard microclicks when quiet hours are enabled;
+disabling quiet hours permits cues without that clock, independently of routines. Unavailable policy
 settings still suppress with their real error. Audio/speaker-excluded profiles
 skip preparation while preserving visual startup. Runtime playback failure is
 logged/published without stopping this optional presentation effect.
 
-The authored fixed audio RAM budget is approximately 6.5 KiB: 4,096-byte task
-stack + 2,400-byte transport scratch + small fixed state, not measured linked-image
-RAM. The stack and PCM scratch now use external BSS in PSRAM, as does the
-separate 4-KiB personality-audio stack; task controls/mailboxes and codec DMA
-remain internal. Speaker loudness and tone require listening on the device.
+The mixer uses bounded voice and transport buffers. Its linked-image RAM,
+worker stack headroom, speaker loudness and tone require measurement on the device.
 Candidate cues for separate audition are documented in the
 [audio asset guide](../../cody-device/assets/cody/audio/gentle-sfx/README.md).
 
@@ -906,3 +916,34 @@ See the [installation instructions](../../cody-desktop/plugins/cody-codex-plugin
 If the running Desktop app-server exposes only stdio, the installer reports
 that it cannot attach. Dictation requires a reachable supported listener on
 the process that owns the followed chat.
+
+## Clock presentation
+
+Trusted time and persistence belong to the [shared time service](../bsp/services/time.md).
+Cody reads its canonical clock projection, including health, original timestamp,
+timezone, period and quiet state. It never reads RTC, BSP or the system clock directly.
+
+### Presentation and audio policy
+
+After non-onboarding boot or genuine wake, trusted local time selects Good morning!,
+Good afternoon!, Good evening! or Hello, night owl!; unavailable/stale time uses
+Hello!. Period changes can retitle the awake scene without replaying entrance,
+missed greetings or creating a wake schedule. Morning selects Happy and night
+Drowsy, otherwise Calm. Explicit expression, boot/lifecycle and onboarding take
+priority. Quiet evening/night softens contour/breath behavior with continuous
+phase; it does not silently change touch/IMU gains, brightness, radio power or
+saved volume.
+
+The cue policy is allowed without a trusted clock when quiet hours are disabled,
+independently of the routines preference. When quiet hours are enabled,
+unavailable/stale time suppresses cues; a valid quiet interval also suppresses
+them. Unavailable settings remain a real
+error with conservative suppression. The original microclick also obeys its zero
+volume/standby/hidden-scene gates. Both cue types share clock policy; see
+[runtime](runtime.md). It is not a claim of safe audible loudness on the speaker.
+
+### Future reminders
+
+Routines choose presentation; they do not create an alarm or wake scheduler.
+Reminder, snooze and scheduled-wake ideas remain in [planned-todo.md](../../planned-todo.md).
+Outstanding observations are in [TODO.md](../../TODO.md).

@@ -21,10 +21,15 @@
 #include "LUNASHELL_clock.hpp"
 #include "LUNASHELL_codex_name.hpp"
 #include "LUNASHELL_platform.h"
+#include "LUNASHELL_audio_controls.h"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+#include "LUNASHELL_tts.hpp"
+#endif
 #include "sdkconfig.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include <cstring>
+#include <initializer_list>
 #include <mutex>
 
 namespace CODY {
@@ -36,10 +41,18 @@ constexpr char kSetupProgressKey[] = "cody_setup";
 constexpr char kShakeKey[] = "cody_shake";
 constexpr char kSoundsKey[] = "cody_sounds";
 constexpr char kScreensaverKey[] = "cody_saver";
+constexpr char kCounterModeKey[] = "cody_counter";
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+constexpr char kSofiaKey[] = "cody_sofia";
+#endif
 constexpr char kQuotaRingKey[] = "cody_qring";
 constexpr char kBatteryRingKey[] = "cody_bring";
+constexpr char kPlaybackVolumeKey[] = "cody_outvol";
+constexpr char kMicrophoneGainKey[] = "cody_ingain";
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+constexpr char kSynthVoiceKey[] = "cody_synth";
+#endif
 constexpr char kUserNameKey[] = "cody_user_name";
-constexpr char kUsageModeKey[] = "cody_usage";
 constexpr char kWidgetVisibilityKey[] = "cody_widgets";
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
 constexpr char kDictationKey[] = "cody_dictation";
@@ -219,6 +232,119 @@ esp_err_t save_preference_uint32(const char *key, uint32_t value)
     return error;
 }
 
+// preference: One of the two stable audio settings identities.
+// value: Requested NVS value before narrowing or codec application.
+bool valid_audio_preference(PreferenceId preference, uint32_t value)
+{
+    return preference == PreferenceId::PlaybackVolume ? value <= 100U :
+        preference == PreferenceId::MicrophoneGain && value <= 30U && value % 3U == 0;
+}
+
+// preference: Playback volume or shared microphone gain.
+// value: Receives a strictly validated NVS value, including verified first-boot default.
+// Exception: Returns the original storage/readback error or invalid-record error.
+esp_err_t load_audio_preference(PreferenceId preference, uint32_t &value)
+{
+    const bool output = preference == PreferenceId::PlaybackVolume;
+    if (!output && preference != PreferenceId::MicrophoneGain) return ESP_ERR_INVALID_ARG;
+    const char *key = output ? kPlaybackVolumeKey : kMicrophoneGainKey;
+    const uint32_t default_value = output ? 90U : 24U;
+    auto &store = LUNASHELL::UserSettingsService::instance();
+    uint32_t stored = 0;
+    auto error = store.getUInt32(key, &stored);
+    if (error == ESP_ERR_NVS_NOT_FOUND) {
+        ESP_LOGI(kTag, "First boot: key '%s' absent; persisting default=%lu", key,
+            static_cast<unsigned long>(default_value));
+        error = save_preference_uint32(key, default_value);
+        if (error == ESP_OK) stored = default_value;
+    }
+    if (error == ESP_OK && !valid_audio_preference(preference, stored)) error = ESP_ERR_INVALID_RESPONSE;
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Audio preference '%s' read rejected (%s)", key, esp_err_to_name(error));
+        return error;
+    }
+    value = stored;
+    return ESP_OK;
+}
+
+// preference: Validated audio setting identity.
+// requested: Validated value from NVS or an explicit user selection.
+// applied: Receives the value accepted and reported by the driver, not a physical register measurement.
+// Exception: Returns original driver/readback failure or a mismatched reported result.
+esp_err_t apply_audio_preference(PreferenceId preference, uint32_t requested, uint8_t &applied)
+{
+    if (!valid_audio_preference(preference, requested)) return ESP_ERR_INVALID_ARG;
+    uint8_t confirmed = 0;
+    const auto error = preference == PreferenceId::PlaybackVolume ?
+        LUNASHELL_audio_set_user_output_volume(static_cast<uint8_t>(requested), &confirmed) :
+        LUNASHELL_audio_set_user_input_gain(static_cast<uint8_t>(requested), &confirmed);
+    if (error != ESP_OK) return error;
+    if (confirmed != requested) {
+        ESP_LOGE(kTag, "Audio preference %u driver readback mismatch: requested=%lu reported=%u",
+            static_cast<unsigned>(preference), static_cast<unsigned long>(requested), confirmed);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    applied = confirmed;
+    return ESP_OK;
+}
+
+// preferences: Receives the independent persisted setting status.
+// previous: Last canonical projection when a valid prior projection was obtained, otherwise null.
+// preference: One stable audio setting identity.
+// storage_error: Original settings-store initialization result.
+void load_audio_preference_pending(LUNASHELL::CodyPreferencesSnapshot &preferences,
+    const LUNASHELL::CodyPreferencesSnapshot *previous, PreferenceId preference, esp_err_t storage_error)
+{
+    const bool output = preference == PreferenceId::PlaybackVolume;
+    auto &value = output ? preferences.playback_volume_percent : preferences.microphone_gain_db;
+    auto &valid = output ? preferences.playback_volume_valid : preferences.microphone_gain_valid;
+    auto &error = output ? preferences.playback_volume_error : preferences.microphone_gain_error;
+    uint32_t stored = 0;
+    error = storage_error == ESP_OK ? load_audio_preference(preference, stored) : storage_error;
+    valid = false;
+    if (error != ESP_OK) return;
+    value = static_cast<uint8_t>(stored);
+    error = ESP_ERR_NOT_FINISHED;
+    if (previous != nullptr) {
+        const auto old_value = output ? previous->playback_volume_percent : previous->microphone_gain_db;
+        const auto old_valid = output ? previous->playback_volume_valid : previous->microphone_gain_valid;
+        const auto old_error = output ? previous->playback_volume_error : previous->microphone_gain_error;
+        if (old_value == value) {
+            valid = old_valid;
+            error = old_error;
+        }
+    }
+}
+
+// preference: One canonical audio setting.
+// value: Exact setting chosen by the user, validated by the dispatcher.
+// Exception: Preserves the original snapshot, persistence, codec or publication error.
+esp_err_t persist_audio_preference(PreferenceId preference, uint32_t value)
+{
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    LUNASHELL::CodyOptionsObservation observed{};
+    auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+    auto error = snapshots.readCodyOptionsObservation(observed);
+    if (error != ESP_OK) return error;
+    const bool output = preference == PreferenceId::PlaybackVolume;
+    auto &prefs = observed.preferences;
+    auto &valid = output ? prefs.playback_volume_valid : prefs.microphone_gain_valid;
+    auto &reported_error = output ? prefs.playback_volume_error : prefs.microphone_gain_error;
+    auto &reported_value = output ? prefs.playback_volume_percent : prefs.microphone_gain_db;
+    error = save_preference_uint32(output ? kPlaybackVolumeKey : kMicrophoneGainKey, value);
+    uint8_t applied = 0;
+    if (error == ESP_OK) error = apply_audio_preference(preference, value, applied);
+    valid = error == ESP_OK;
+    reported_error = error;
+    if (error == ESP_OK) reported_value = applied;
+    else ESP_LOGE(kTag, "Audio preference %u save/apply failed (%s)",
+        static_cast<unsigned>(preference), esp_err_to_name(error));
+    const auto publication_error = snapshots.reportCodyPreferences(prefs);
+    if (publication_error != ESP_OK) ESP_LOGE(kTag, "Audio preference publication failed (%s)", esp_err_to_name(publication_error));
+    if (output) LUNASHELL_audio_update_cody_output_policy(error != ESP_OK ? error : publication_error);
+    return error != ESP_OK ? error : publication_error;
+}
+
 // visibility: Validated, independent screen and Cody child visibility masks.
 uint32_t encode_widget_visibility(const WidgetVisibility &visibility)
 {
@@ -281,21 +407,6 @@ esp_err_t read_widget_visibility(uint32_t &stored)
     return error;
 }
 
-// preferences: Receives only readback-confirmed mode or its independent original failure.
-// Exception: Returns real storage/type/value/default-readback errors without changing unrelated fields.
-esp_err_t load_usage_mode(LUNASHELL::CodyPreferencesSnapshot &preferences)
-{
-    bool away = false;
-    // The strict 0/1 storage encoding is the enum's documented boundary representation.
-    const esp_err_t error = load_switch(kUsageModeKey, false, away);
-    preferences.usage_mode_valid = error == ESP_OK;
-    preferences.usage_mode_error = error;
-    if (error == ESP_OK) {
-        preferences.usage_mode = away ? LUNASHELL::CodyUsageMode::Away : LUNASHELL::CodyUsageMode::Desk;
-    }
-    return error;
-}
-
 // value: Explicit zero/one choice; the dispatcher rejects other values.
 // Exception: Preserves real snapshot, persistence/readback and publication failures.
 esp_err_t persist_screensaver(uint32_t value)
@@ -315,6 +426,47 @@ esp_err_t persist_screensaver(uint32_t value)
     }
     return error != ESP_OK ? error : publication_error;
 }
+
+// value: Explicit zero/one counter-mode choice.
+// Exception: Returns the original snapshot, storage or publication error.
+esp_err_t persist_counter_mode(uint32_t value)
+{
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    LUNASHELL::CodyOptionsObservation observed{};
+    auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+    const auto read_error = snapshots.readCodyOptionsObservation(observed);
+    if (read_error != ESP_OK) return read_error;
+    const auto error = save_preference_uint32(kCounterModeKey, value);
+    observed.preferences.counter_mode_valid = error == ESP_OK;
+    observed.preferences.counter_mode_error = error;
+    if (error == ESP_OK) observed.preferences.counter_mode_enabled = value == 1U;
+    const auto publication_error = snapshots.reportCodyPreferences(observed.preferences);
+    if (publication_error != ESP_OK) ESP_LOGE(kTag, "Counter mode publication failed (%s)", esp_err_to_name(publication_error));
+    return error != ESP_OK ? error : publication_error;
+}
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+// value: Explicit zero/one synth-voice preference.
+// Exception: Returns the original snapshot, persistence or publication failure.
+esp_err_t persist_synth_voice(uint32_t value)
+{
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    LUNASHELL::CodyOptionsObservation observed{};
+    auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+    const auto read_error = snapshots.readCodyOptionsObservation(observed);
+    if (read_error != ESP_OK) return read_error;
+    const auto error = save_preference_uint32(kSynthVoiceKey, value);
+    if (error == ESP_OK && value == 0U) LUNASHELL::cancel_codex_speech();
+    observed.preferences.synth_voice_valid = error == ESP_OK;
+    observed.preferences.synth_voice_error = error;
+    if (error == ESP_OK) observed.preferences.synth_voice_enabled = value == 1U;
+    const auto publication_error = snapshots.reportCodyPreferences(observed.preferences);
+    if (publication_error != ESP_OK) ESP_LOGE(kTag, "Synth voice preference publication failed (%s)", esp_err_to_name(publication_error));
+    const auto clear_error = error == ESP_OK && value == 0U ? LUNASHELL_codex_clear_reply_speech() : ESP_OK;
+    if (clear_error != ESP_OK) ESP_LOGE(kTag, "Synth voice reply cleanup failed (%s)", esp_err_to_name(clear_error));
+    return error != ESP_OK ? error : publication_error != ESP_OK ? publication_error : clear_error;
+}
+#endif
 
 // preference: Exact perimeter setting selected by the user.
 // value: Validated zero/one value to save and read back.
@@ -372,6 +524,26 @@ esp_err_t persist_dictation(uint32_t value)
     return error != ESP_OK ? error : publication_error;
 }
 #endif
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+// value: Explicit zero/one choice for wake-word activation.
+// Exception: Returns the original snapshot, storage or publication failure.
+esp_err_t persist_sofia(uint32_t value)
+{
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    LUNASHELL::CodyOptionsObservation observation{};
+    auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+    const auto read_error = snapshots.readCodyOptionsObservation(observation);
+    if (read_error != ESP_OK) return read_error;
+    const auto error = save_preference_uint32(kSofiaKey, value);
+    observation.preferences.sofia_valid = error == ESP_OK;
+    observation.preferences.sofia_error = error;
+    if (error == ESP_OK) observation.preferences.sofia_enabled = value == 1U;
+    const auto publication_error = snapshots.reportCodyPreferences(observation.preferences);
+    if (publication_error != ESP_OK)
+        ESP_LOGE(kTag, "Sofia preference publication failed (%s)", esp_err_to_name(publication_error));
+    return error != ESP_OK ? error : publication_error;
+}
+#endif
 }
 
 // No parameters: exact persisted settings are applied before Cody/audio workers start.
@@ -386,6 +558,18 @@ static esp_err_t load_companion_preferences_locked()
     preferences.screensaver_error = storage_error == ESP_OK
         ? load_switch(kScreensaverKey, false, preferences.screensaver_enabled) : storage_error;
     preferences.screensaver_valid = preferences.screensaver_error == ESP_OK;
+    preferences.counter_mode_error = storage_error == ESP_OK
+        ? load_switch(kCounterModeKey, true, preferences.counter_mode_enabled) : storage_error;
+    preferences.counter_mode_valid = preferences.counter_mode_error == ESP_OK;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+    preferences.sofia_error = storage_error == ESP_OK
+        ? load_switch(kSofiaKey, true, preferences.sofia_enabled) : storage_error;
+    preferences.sofia_valid = preferences.sofia_error == ESP_OK;
+#else
+    preferences.sofia_error = ESP_ERR_NOT_SUPPORTED;
+#endif
+    if (!preferences.counter_mode_valid)
+        ESP_LOGE(kTag, "Optional counter mode unavailable (%s)", esp_err_to_name(preferences.counter_mode_error));
     preferences.assistant_quota_ring_error = storage_error == ESP_OK
         ? load_switch(kQuotaRingKey, true, preferences.assistant_quota_ring_enabled) : storage_error;
     preferences.assistant_quota_ring_valid = preferences.assistant_quota_ring_error == ESP_OK;
@@ -413,19 +597,23 @@ static esp_err_t load_companion_preferences_locked()
         // A failed sounds/wake reload preserves independent profile and mode
         // observations when their storage reads have not been attempted.
         preferences.user_name = previous.preferences.user_name;
-        preferences.usage_mode = previous.preferences.usage_mode;
-        preferences.usage_mode_valid = previous.preferences.usage_mode_valid;
-        preferences.usage_mode_error = previous.preferences.usage_mode_error;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
         preferences.dictation_enabled = previous.preferences.dictation_enabled;
 #endif
     } else {
         preferences.user_name.last_error = projection_error;
         preferences.user_name.health = LUNASHELL::DeviceHealth::Degraded;
-        preferences.usage_mode_error = projection_error;
         ESP_LOGE(kTag, "Optional preferred-name prior projection unavailable (%s)", esp_err_to_name(projection_error));
-        ESP_LOGE(kTag, "Optional companion usage mode prior projection unavailable (%s)", esp_err_to_name(projection_error));
     }
+    const auto *previous_audio = projection_error == ESP_OK && previous.preferences.last_attempt_at_us > 0
+        ? &previous.preferences : nullptr;
+    load_audio_preference_pending(preferences, previous_audio, PreferenceId::PlaybackVolume, storage_error);
+    load_audio_preference_pending(preferences, previous_audio, PreferenceId::MicrophoneGain, storage_error);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    preferences.synth_voice_error = storage_error == ESP_OK
+        ? load_switch(kSynthVoiceKey, false, preferences.synth_voice_enabled) : storage_error;
+    preferences.synth_voice_valid = preferences.synth_voice_error == ESP_OK;
+#endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     // An optional preference failure cannot stop the companion or admit capture.
     preferences.dictation_error = storage_error == ESP_OK
@@ -439,14 +627,6 @@ static esp_err_t load_companion_preferences_locked()
     }
     if (error == ESP_OK) {
         error = load_switch(kSoundsKey, kDefaultSounds, preferences.sounds_enabled);
-    }
-    if (error == ESP_OK) {
-        const esp_err_t usage_error = load_usage_mode(preferences);
-        if (usage_error != ESP_OK) {
-            // Presentation mode is optional. Keep its genuine failure independently
-            // visible while existing sound, wake and profile owners remain usable.
-            ESP_LOGE(kTag, "Optional companion usage mode unavailable (%s)", esp_err_to_name(usage_error));
-        }
     }
     if (error == ESP_OK) {
         if (projection_error == ESP_OK) {
@@ -501,36 +681,57 @@ esp_err_t load_companion_preferences()
     return error;
 }
 
-// mode: Explicit typed Desk or Away preference; no clock, audio, radio or wake policy changes.
-// Exception: Returns original validation, canonical projection, write/readback or publication errors.
-esp_err_t persist_companion_usage_mode(LUNASHELL::CodyUsageMode mode)
+// output_only: True restores just playback before startup sound admission.
+// Exception: Returns the first NVS, driver/readback or canonical publication error.
+static esp_err_t reconcile_audio_preferences_locked(bool output_only)
 {
-    if (mode != LUNASHELL::CodyUsageMode::Desk && mode != LUNASHELL::CodyUsageMode::Away) {
-        ESP_LOGE(kTag, "Companion usage mode rejected: value=%u (%s)",
-            static_cast<unsigned>(mode), esp_err_to_name(ESP_ERR_INVALID_ARG));
-        return ESP_ERR_INVALID_ARG;
-    }
-    std::lock_guard<std::mutex> guard(s_preferences_mutex);
-    LUNASHELL::CodyOptionsObservation observation;
+    LUNASHELL::CodyOptionsObservation observed{};
     auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
-    esp_err_t error = snapshots.readCodyOptionsObservation(observation);
-    if (error != ESP_OK) {
-        ESP_LOGE(kTag, "Companion usage mode canonical projection failed (%s)", esp_err_to_name(error));
-        return error;
+    const auto projection_error = snapshots.readCodyOptionsObservation(observed);
+    if (projection_error != ESP_OK) {
+        LUNASHELL_audio_update_cody_output_policy(projection_error);
+        return projection_error;
     }
-    error = save_preference_uint32(kUsageModeKey, mode == LUNASHELL::CodyUsageMode::Away ? 1U : 0U);
-    observation.preferences.usage_mode_valid = error == ESP_OK;
-    observation.preferences.usage_mode_error = error;
-    if (error == ESP_OK) {
-        observation.preferences.usage_mode = mode;
+    esp_err_t first_error = ESP_OK;
+    for (const auto preference : {PreferenceId::PlaybackVolume, PreferenceId::MicrophoneGain}) {
+        const bool output = preference == PreferenceId::PlaybackVolume;
+        if (output_only && !output) continue;
+        auto &prefs = observed.preferences;
+        auto &valid = output ? prefs.playback_volume_valid : prefs.microphone_gain_valid;
+        auto &reported_error = output ? prefs.playback_volume_error : prefs.microphone_gain_error;
+        auto &reported_value = output ? prefs.playback_volume_percent : prefs.microphone_gain_db;
+        uint32_t stored = 0;
+        auto error = load_audio_preference(preference, stored);
+        uint8_t reported = 0;
+        if (error == ESP_OK) error = apply_audio_preference(preference, stored, reported);
+        valid = error == ESP_OK;
+        reported_error = error;
+        if (valid) reported_value = reported;
+        else ESP_LOGW(kTag, "Audio preference %u reconciliation failed (%s)",
+            static_cast<unsigned>(preference), esp_err_to_name(error));
+        if (first_error == ESP_OK && error != ESP_OK) first_error = error;
     }
-    // Keep master preference validity, timestamps and the independent name profile
-    // unchanged. A failed mode write cannot report guessed Desk or disable sounds.
-    const esp_err_t publication_error = snapshots.reportCodyPreferences(observation.preferences);
-    if (publication_error != ESP_OK) {
-        ESP_LOGE(kTag, "Companion usage mode publication failed (%s)", esp_err_to_name(publication_error));
-    }
-    return error != ESP_OK ? error : publication_error;
+    const auto publication_error = snapshots.reportCodyPreferences(observed.preferences);
+    if (publication_error != ESP_OK) ESP_LOGE(kTag, "Audio reconciliation publication failed (%s)", esp_err_to_name(publication_error));
+    const auto output_error = observed.preferences.playback_volume_error;
+    LUNASHELL_audio_update_cody_output_policy(output_error != ESP_OK ? output_error : publication_error);
+    return first_error != ESP_OK ? first_error : publication_error;
+}
+
+// No parameters: reapply both stored preferences through the existing codec owner on a worker.
+// Exception: Returns the first NVS, driver/readback or canonical publication error.
+esp_err_t reconcile_audio_preferences()
+{
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    return reconcile_audio_preferences_locked(false);
+}
+
+// No parameters: restore saved playback policy on the startup task before its optional cue.
+// Exception: Returns the original NVS, driver/readback or canonical publication error.
+esp_err_t reconcile_audio_output_preference()
+{
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    return reconcile_audio_preferences_locked(true);
 }
 
 // preference: Stable identity of the choice pressed on screen 10.
@@ -538,6 +739,22 @@ esp_err_t persist_companion_usage_mode(LUNASHELL::CodyUsageMode mode)
 // Exception: Returns the original validation, persistence, policy or publication error.
 esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
 {
+    if (preference == PreferenceId::SynthEnabled) {
+        if (value > 1U) return ESP_ERR_INVALID_ARG;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+        return persist_synth_voice(value);
+#else
+        return ESP_ERR_NOT_SUPPORTED;
+#endif
+    }
+    if (preference == PreferenceId::PlaybackVolume || preference == PreferenceId::MicrophoneGain) {
+        if (!valid_audio_preference(preference, value)) {
+            ESP_LOGE(kTag, "Audio preference %u rejected value=%lu (%s)", static_cast<unsigned>(preference),
+                static_cast<unsigned long>(value), esp_err_to_name(ESP_ERR_INVALID_ARG));
+            return ESP_ERR_INVALID_ARG;
+        }
+        return persist_audio_preference(preference, value);
+    }
     if (preference == PreferenceId::QuietEnabled || preference == PreferenceId::QuietStart ||
         preference == PreferenceId::QuietEnd) {
         const bool enabled_change = preference == PreferenceId::QuietEnabled;
@@ -594,6 +811,18 @@ esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
         }
         return persist_ring_preference(preference, value);
     }
+    if (preference == PreferenceId::CounterMode) {
+        if (value > 1U) return ESP_ERR_INVALID_ARG;
+        return persist_counter_mode(value);
+    }
+    if (preference == PreferenceId::Sofia) {
+        if (value > 1U) return ESP_ERR_INVALID_ARG;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+        return persist_sofia(value);
+#else
+        return ESP_ERR_NOT_SUPPORTED;
+#endif
+    }
     if (preference == PreferenceId::Screensaver) {
         if (value > 1U) {
             ESP_LOGE(kTag, "Screensaver preference rejected value=%lu (%s)",
@@ -610,15 +839,6 @@ esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
     }
     if (preference == PreferenceId::Orientation && (value == 0U || value == 180U)) {
         return LUNASHELL_display_set_rotation_degrees(value);
-    }
-    if (preference == PreferenceId::UsageMode) {
-        if (value > 1U) {
-            ESP_LOGE(kTag, "Companion usage mode input rejected: value=%lu (%s)",
-                static_cast<unsigned long>(value), esp_err_to_name(ESP_ERR_INVALID_ARG));
-            return ESP_ERR_INVALID_ARG;
-        }
-        return persist_companion_usage_mode(value == 1U ? LUNASHELL::CodyUsageMode::Away :
-            LUNASHELL::CodyUsageMode::Desk);
     }
     if (preference == PreferenceId::Dictation) {
         if (value > 1U) {

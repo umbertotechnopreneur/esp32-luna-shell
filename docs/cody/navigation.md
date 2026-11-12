@@ -5,10 +5,13 @@
 ## Start and connect
 
 The VibeWare floppy animation plays once after a cold boot or software reset.
-The display then shows Muse waking. The showcase changes its pose every ten
-seconds while Muse is visible. Tap the character to trigger its reaction and
-the optional Cody touch sound. Muse stays full-size on Home whether Wi-Fi is
-connected or offline. Status and navigation chrome hide after inactivity and
+Home uses the saved Counter mode when enabled; the current source defaults it
+to On when no preference has been saved. It presents three pages for reset,
+current context and model, with horizontal swipes between them. Missing or
+incoherent current observations are shown as unavailable. When Counter mode is
+off, Home shows Muse waking and the showcase changes pose every ten seconds
+while visible. Tap the character to trigger its reaction and the optional Cody
+touch sound. Status and navigation chrome hide after inactivity and
 return on touch or measured IMU motion. Battery percentage display is prepared
 as a renderer option; its settings UI is deferred.
 
@@ -17,7 +20,7 @@ Wi-Fi or connect Codex. The Wi-Fi action offers a local network list and Bluetoo
 provisioning with app download and pairing QR screens. Back returns from the list
 to the Wi-Fi choices, then to Connections. The public BLE name is `AiGadget-` with a
 boot-scoped random suffix shared by the radio and the pairing QR. A short BOOT
-press returns to Muse Home. PWR puts the device in standby or wakes it. Pending
+press returns to Home. PWR puts the device in standby or wakes it. Pending
 setup, pairing and other owned operations retain their normal cleanup and
 admission rules when changing screens.
 
@@ -115,7 +118,9 @@ Page 3 has Restart device, Factory reset and Quick guide, plus an About action.
 Swipe left or right to move between these pages; Back from
 the first page returns to the opening route. **Codex stats** opens the first enabled
 statistics page with data, or Device when none is available.
-The Tools, Preferences and Device pages show three position marks without a Home
+Counter mode can be changed under **Behavior > More... > More...**;
+its saved state controls the Home/dashboard presentation. The full statistics
+carousel described below applies when Counter mode is off. The Tools, Preferences and Device pages show three position marks without a Home
 footer. Each destination uses an icon, title and separator. Footer actions use
 the Home gradient text, with a label appropriate to the current action.
 Display holds brightness, rotation and orientation. **Display > More... >
@@ -133,8 +138,17 @@ Both default to On, survive restart, and return to On after a factory reset.
 The battery status and alerts remain available when its arc is hidden. Behavior holds sound,
 shake-to-wake and, in the voice-enabled profile, Dictation. **More behavior**
 contains **Screensaver**, disabled by default, and opens **Synth Voice**. The
-Synth Voice page presents Enable Synth Voice, Voice volume and Voice type as
-unavailable until a speech engine is integrated; these rows cannot be activated.
+Synth Voice page offers an Enable Synth Voice switch, off by default, and a
+Test voice action that requests the English phrase `Hello from Cody`. The test
+works independently of that switch and follows Sounds and quiet hours; its
+status distinguishes admission, playback completion and failure. With the
+switch on, Cody may speak a current question and its delivered selected answer.
+ReplyReady currently carries a chat title rather than the assistant's response,
+so it does not supply text for reading an assistant reply. Voice volume and
+voice type controls remain unavailable; playback uses the saved Audio volume.
+Without an explicit feature or board configuration, the Cody console selects
+`tts-flash` and includes English flash speech. The explicit Cody `wake-word`
+variant also includes English flash speech; `none` excludes both engines.
 
 **Quick guide** has three color-coded pages for the physical buttons, display
 gestures and offline features. Swipe left or right to change guide pages.
@@ -237,12 +251,22 @@ arrow on page 1 returns to Options. Device remains available. A visibility
 change takes effect after confirmed storage. A failed save leaves the previous
 policy in effect.
 
-Double-tap open dashboard space or use Record voice on Device to start
-dictation in a voice-enabled build. Dictation must be on and the paired LAN
-link must be current. The optional wake-word build can also listen for Sophia.
+The Audio page shows the current output and two canonical microphone meters.
+Use the output minus/plus controls to change the saved speaker volume in
+10% steps and the input controls to change shared microphone gain in 3 dB
+steps. Settings are applied on the existing worker; unavailable readings,
+pending changes and errors remain explicit. Driver-confirmed settings are
+not physical register measurements. The page remains available when an input
+is absent, and unavailable controls do not accept touch. Visual and physical
+device verification of these controls remains pending.
+
+The source retains a separate Codex dictation flow. It requires a supported
+voice-input configuration, Dictation enabled and a current paired LAN link;
+its manual triggers include a dashboard double tap and Record voice on Device.
+The default build omits microphone acquisition. The current `wake-word` variant
+enables Sophia for standby wake but does not enable the Codex voice-input owner.
 Options and its child routes suppress new dictation. A BOOT hold waits for an active
 voice session to end before opening Options.
-The default build omits microphone acquisition and its audio front end.
 
 When online, Cody asks its configured SNTP servers for time after Wi-Fi obtains
 an IP. Once synchronized, the clock continues to run offline. A cold boot
@@ -300,13 +324,13 @@ is active, the notice can wake the screen from software standby.
 | --- | --- |
 | 26 / Codex needs you, Open | Open an explicit two- or three-choice question on 27 |
 | 26 / From Codex | Informational notification; no response |
-| 27, select a card | Reversible review, without sending |
+| 27, select a numbered row | Reversible review, without sending |
 | Review, Send | Admit that immutable choice and await delivery |
 | UDP received | Broker recorded the reply; continue waiting |
 | Authenticated recipient delivered | 31 / Reply sent, then restore previous context |
 | Expired/cancelled/offline | Preserve the real outcome; never choose for the user |
 
-The review page has one Send capsule; lateral Back returns to choices. Back from
+The review page has one Send text action; lateral Back returns to choices. Back from
 choices returns to 26 with the question retained. Before admission, offline
 disables Send; after admission it preserves Sending your reply / Reply reached
 your PC / Confirming delivery. Only recipient acknowledgement permits Reply sent.
@@ -336,3 +360,48 @@ intent and the exact confirmation string; syntax, ambiguous results and retained
 PC state belong to the [CCP guide](../../cody-desktop/plugins/cody-codex-plugin/README.md#explicit-restart-or-settings-reset).
 
 Current gates are in [TODO.md](../../TODO.md).
+
+## Native text entry
+
+`CODY_text_entry` is a reusable CODY2D keypad for a 466 x 466 display. It is
+compiled into the companion component and used by the local Wi-Fi password
+route. The existing phone-based setup remains available.
+
+The caller supplies a title, optional field hint, native font, byte limit and
+whether input is secret. Drafts accept printable ASCII and are bounded to 64
+bytes. Callers apply their own field-specific limits and validation. The editor
+currently appends and deletes at the end; it does not move a cursor within text.
+Long values show their trailing characters. Secret values start masked; Show and
+Hide change only their presentation.
+
+Character groups use multi-tap with a one-second window; a single-character key
+appends immediately on every tap. Shift toggles letter
+case. `123` opens digits; the first digit group cycles through 0 and 1. `#+=`
+opens printable symbols, and `123` returns to digits. `ABC` returns to letters.
+Space and Del edit the draft. Done emits a submission event; the caller decides
+whether the value is valid and what to do with it. Back and cancellation belong to
+the caller, and must not submit the value.
+
+The input owner passes acquired, already-oriented contact samples to
+`handle_text_entry_touch`. A key activates on release only if the gesture stays
+within its original target and does not move more than 12 pixels. Rotation
+changes cancel the gesture. Reset `TextEntryTouch` when the screen is hidden.
+Use a scene with its ordinary title hidden, since this view renders its own
+heading. Keep each prepared view and its title, hint and font alive and immutable
+until the frame retires. Prepare a new frame after edits, then clear retired
+views. On cancellation or final exit, clear the draft and every retired view;
+the latter may contain a revealed value. Do not log or publish drafts or capture
+them in screenshots or diagnostics.
+
+The first tap on a Wi-Fi network highlights its row and shows its complete SSID,
+security and BSSID in the button. If the caption exceeds the available width,
+it scrolls in both directions with pauses at the ends. A second tap on that row
+selects the network; choosing a different row starts its own preview. The
+animation pauses when another surface covers the scene.
+The local route selects the scanned access point by BSSID and security; persisting
+that selection pins the profile to that AP and restricts roaming. Hidden and
+non-printable/non-ASCII names are not supported by this local route.
+
+The layout and interaction are implemented in source. Compilation, visual
+inspection, touch comfort, rotation and physical-device behavior have not been
+validated for this component.

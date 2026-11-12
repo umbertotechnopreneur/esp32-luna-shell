@@ -40,7 +40,7 @@ struct CodexAudioStatus {
 // Exception: Returns rejected identities or the original shared audio owner error.
 esp_err_t notify_codex_audio(CodexAudioCue cue, CodexAudioStatus &status);
 // cue: Existing short notice clip reused without storing another PCM asset.
-// repetitions: One through five plays in one nonpreemptive admitted notice.
+// repetitions: One through five plays in one admitted notice.
 // gap_ms: Bounded silence between plays, zero through 200 ms.
 // status: Receives the shared owner's actual admission or failure.
 // Exception: Returns an unknown identity or the original sequence/admission failure.
@@ -56,8 +56,10 @@ esp_err_t set_codex_audio_suspended(bool suspended);
 // enabled: Explicit session preference; volume, quiet hours and immutable build policy still apply.
 // Exception: Returns the original retained owner error.
 esp_err_t set_codex_audio_enabled(bool enabled);
-// status: Receives current shared-owner outcome; cue is None if the owner is handling another channel.
+// sequence: Exact sequence of the admitted request.
+// cue: Stable identity submitted with the sequence.
+// status: Receives this request's actual owner outcome.
 // Exception: Returns the original retained asynchronous owner failure.
-esp_err_t get_codex_audio_status(CodexAudioStatus &status);
+esp_err_t get_codex_audio_status(uint32_t sequence, CodexAudioCue cue, CodexAudioStatus &status);
 
 } // namespace CODY

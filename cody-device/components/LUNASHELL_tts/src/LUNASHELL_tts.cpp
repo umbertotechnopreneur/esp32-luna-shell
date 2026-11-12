@@ -38,11 +38,23 @@
 namespace {
 using namespace LUNASHELL;
 constexpr char TAG[] = "LUNASHELL_tts";
-constexpr size_t kMaximumTextBytes = 1024;
+constexpr size_t kMaximumTextBytes = kSpeechMaximumTextBytes;
 static_assert(LUNASHELL_TTS_CORE_ID != LUNASHELL_RENDER_CORE_ID);
 static_assert(configNUMBER_OF_CORES == 2, "TTS requires a dedicated non-renderer core");
-enum class RequestPurpose : uint8_t { Explicit, ItalianBootTest };
+enum class RequestPurpose : uint8_t { Explicit, ItalianBootTest, CodexEvent };
 RequestPurpose s_request_purpose = RequestPurpose::Explicit;
+struct RetainedSpeechEvent {
+    char event_id[33]{};
+    char selected_id[13]{};
+    uint64_t revision = 0;
+    CodexEventKind kind = CodexEventKind::None;
+    CodexEventState state = CodexEventState::None;
+};
+RetainedSpeechEvent s_speech_event{};
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+EXT_RAM_BSS_ATTR CodexEventSnapshot s_speech_event_observation{};
+uint32_t s_speech_sounds_revision = 0;
+#endif
 #if CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
 bool s_boot_test_requested;
 constexpr int64_t kBootStorageWaitUs = 30000000;
@@ -80,6 +92,15 @@ std::atomic<esp_err_t> s_publication_error{ESP_OK};
 bool s_package_ready;
 EXT_RAM_BSS_ATTR uint8_t *s_package_buffers[12]{};
 #endif
+
+// bytes: Retired private speech storage to clear after engine ownership ends.
+// size: Number of bytes to overwrite.
+// Exception: None; performs no allocation or external I/O.
+void clear_speech_storage(void *bytes, size_t size)
+{
+    volatile uint8_t *cursor = static_cast<volatile uint8_t *>(bytes);
+    while (size-- != 0) *cursor++ = 0;
+}
 
 // language: Stable requested identity; the flash package admits only English.
 const char *voice_path(SpeechLanguage language)
@@ -170,6 +191,34 @@ esp_err_t read_policy(SpeechObservation &observation)
     esp_err_t error = DeviceSnapshotService::instance().readSpeechObservation(observation);
     if (error != ESP_OK) return error;
     if (observation.operating_state != DeviceOperatingState::Active) return ESP_ERR_INVALID_STATE;
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    if ((s_speech_sounds_revision & 1U) == 0U ||
+        LUNASHELL_audio_user_sounds_revision() != s_speech_sounds_revision) return ESP_ERR_INVALID_STATE;
+    if (s_request_purpose == RequestPurpose::CodexEvent) {
+        CodyOptionsObservation options{};
+        error = DeviceSnapshotService::instance().readCodyOptionsObservation(options);
+        if (error != ESP_OK) return error;
+        if (!options.preferences.synth_voice_valid || options.preferences.synth_voice_error != ESP_OK)
+            return options.preferences.synth_voice_error != ESP_OK ? options.preferences.synth_voice_error : ESP_ERR_INVALID_STATE;
+        if (!options.preferences.synth_voice_enabled) return ESP_ERR_INVALID_STATE;
+        CodexPresenceStatus presence{};
+        error = DeviceSnapshotService::instance().readCodexPresenceStatus(presence);
+        if (error != ESP_OK) return error;
+        if (!presence.codex_link.data_valid || presence.codex_link.data_stale ||
+            presence.codex_link.last_error != ESP_OK || !presence.codex_app_open ||
+            presence.codex_link_state != CodexLinkState::Connected) return ESP_ERR_INVALID_STATE;
+        error = DeviceSnapshotService::instance().readCodexEventObservation(s_speech_event_observation);
+        if (error != ESP_OK) return error;
+        const auto &event = s_speech_event_observation;
+        const bool stale = !event.data_valid || event.data_stale || event.last_error != ESP_OK ||
+            (event.expires_at_us > 0 && esp_timer_get_time() >= event.expires_at_us) ||
+            event.revision != s_speech_event.revision || event.kind != s_speech_event.kind ||
+            event.state != s_speech_event.state || std::strcmp(event.request_id, s_speech_event.event_id) != 0 ||
+            std::strcmp(event.selected_id, s_speech_event.selected_id) != 0;
+        clear_speech_storage(s_speech_event_observation.reply_speech, sizeof(s_speech_event_observation.reply_speech));
+        if (stale) return ESP_ERR_INVALID_STATE;
+    }
+#endif
     bool boot_test = false;
 #if CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
     boot_test = s_request_purpose == RequestPurpose::ItalianBootTest;
@@ -274,6 +323,12 @@ void finish_request(SpeechState state, esp_err_t error)
     // Other engine/storage/transport errors remain available to the power owner.
     s_retirement_error = publication_error != ESP_OK ? publication_error :
         state == SpeechState::Cancelled && error == ESP_ERR_INVALID_STATE ? ESP_OK : error;
+    clear_speech_storage(s_text, sizeof(s_text));
+    clear_speech_storage(&s_speech_event, sizeof(s_speech_event));
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    clear_speech_storage(&s_speech_event_observation, sizeof(s_speech_event_observation));
+#endif
+    s_request = {};
     s_busy = false;
     s_active_id = 0;
 }
@@ -428,7 +483,8 @@ void speech_worker(void *context)
 // request_id: Receives stable identity only after successful queue publication/notification.
 // purpose: Private identity; only the fixed boot diagnostic may bypass clock policy.
 // Exception: Returns rejected input, unsupported language, busy, lifecycle or publication failure.
-esp_err_t admit_speech(const SpeechRequest &request, uint32_t &request_id, RequestPurpose purpose)
+esp_err_t admit_speech(const SpeechRequest &request, uint32_t &request_id, RequestPurpose purpose,
+    const SpeechEventIdentity *event = nullptr)
 {
     request_id = 0;
     esp_err_t error = ESP_OK;
@@ -445,6 +501,15 @@ esp_err_t admit_speech(const SpeechRequest &request, uint32_t &request_id, Reque
             static_cast<unsigned>(request.pitch_range), esp_err_to_name(error));
         return error;
     }
+    if (purpose == RequestPurpose::CodexEvent &&
+        (event == nullptr || event->event_id == nullptr || event->selected_id == nullptr || event->revision == 0 ||
+         strnlen(event->event_id, sizeof(s_speech_event.event_id)) == 0 ||
+         strnlen(event->event_id, sizeof(s_speech_event.event_id)) >= sizeof(s_speech_event.event_id) ||
+         strnlen(event->selected_id, sizeof(s_speech_event.selected_id)) >= sizeof(s_speech_event.selected_id) ||
+         !((event->kind == CodexEventKind::Question &&
+            (event->state == CodexEventState::Pending || event->state == CodexEventState::Delivered)) ||
+           (event->kind == CodexEventKind::ReplyReady && event->state == CodexEventState::Pending))))
+        return ESP_ERR_INVALID_ARG;
     std::lock_guard<std::mutex> lock(s_request_mutex);
     if (s_power_off_sealed) {
         ESP_LOGE(TAG, "Speech admission rejected: power-off sealed (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
@@ -459,14 +524,27 @@ esp_err_t admit_speech(const SpeechRequest &request, uint32_t &request_id, Reque
         s_boot_test_requested = true;
     }
 #endif
-    if (s_initialization_error != ESP_OK) error = s_initialization_error;
-    else if (s_worker == nullptr || s_busy || s_worker_executing || s_last_id == UINT32_MAX) error = ESP_ERR_INVALID_STATE;
+    if (!s_initialization_attempted) error = ESP_ERR_NOT_FINISHED;
+    else if (s_initialization_error != ESP_OK) error = s_initialization_error;
+    else if (s_worker == nullptr || s_last_id == UINT32_MAX) error = ESP_ERR_INVALID_STATE;
+    else if (s_busy || s_worker_executing) error = ESP_ERR_NOT_FINISHED;
     else if (s_publication_error.load() != ESP_OK) error = s_publication_error.load();
     if (error != ESP_OK) {
         ESP_LOGE(TAG, "Speech admission rejected (%s)", esp_err_to_name(error));
         return error;
     }
     s_request_purpose = purpose;
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    s_speech_sounds_revision = LUNASHELL_audio_user_sounds_revision();
+#endif
+    s_speech_event = {};
+    if (purpose == RequestPurpose::CodexEvent) {
+        std::strcpy(s_speech_event.event_id, event->event_id);
+        std::strcpy(s_speech_event.selected_id, event->selected_id);
+        s_speech_event.revision = event->revision;
+        s_speech_event.kind = event->kind;
+        s_speech_event.state = event->state;
+    }
     s_request = request;
     memcpy(s_text, request.text, request.text_bytes);
     s_text[request.text_bytes] = 0;
@@ -536,6 +614,25 @@ esp_err_t initialize_speech()
 esp_err_t request_speech(const SpeechRequest &request, uint32_t &request_id)
 {
     return admit_speech(request, request_id, RequestPurpose::Explicit);
+}
+
+// request: Validated Codex question or answer text, copied on admission.
+// event: Canonical event identity copied and revalidated for every PCM callback.
+// request_id: Receives the exact admitted request identity.
+// Exception: Returns the original input, lifecycle or publication failure.
+esp_err_t request_codex_speech(const SpeechRequest &request, const SpeechEventIdentity &event, uint32_t &request_id)
+{
+    return admit_speech(request, request_id, RequestPurpose::CodexEvent, &event);
+}
+
+// No parameters: invalidates the exact active Codex request without touching explicit speech.
+// Exception: None; cancellation is asynchronous and checked by the speech worker.
+void cancel_codex_speech()
+{
+    std::lock_guard<std::mutex> lock(s_request_mutex);
+    if (s_busy && s_request_purpose == RequestPurpose::CodexEvent) {
+        s_cancel_id.store(s_active_id, std::memory_order_release);
+    }
 }
 
 #if CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN

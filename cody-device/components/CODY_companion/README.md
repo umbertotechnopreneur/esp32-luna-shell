@@ -57,6 +57,5 @@ interval defaults to ten seconds of visible mascot time. It does not represent
 real device or Codex events, and it does not play symbol sounds. The host
 preview uses the same showcase and renderer.
 
-On first import of an external library or prebuilt binary, stage and scan the
-archive and extracted imported files with an explicit targeted Microsoft
-Defender scan before use; do not retain scan records.
+On first import of an external library or prebuilt binary, verify its official
+source and version before use.

@@ -165,6 +165,11 @@ LUNASHELL::CodexTechnicalSnapshot s_technical_snapshot{};
 // maintenance. Public command admissions only enqueue work; references never escape.
 LUNASHELL::ConnectivityObservation s_ready_connectivity{};
 bool s_event_received_for_nonce = false;
+bool s_find_speech_requested = false;
+char s_reply_speech_ack_id[33]{};
+uint16_t s_reply_speech_ack_segment = 0;
+bool s_reply_speech_ack_valid = false;
+char s_find_speech_ack[40] = "-";
 bool s_inbox_requested = false;
 uint8_t s_inbox_offset = 0;
 uint8_t s_inbox_requested_offset = 0;
@@ -175,6 +180,10 @@ uint64_t s_app_sequence = 0;
 char s_ready_nonce[33]{};
 LUNASHELL::CodexEventSnapshot s_event_snapshot{};
 LUNASHELL::CodexEventPayload s_event_candidate{};
+EXT_RAM_BSS_ATTR LUNASHELL::CodexEncryptedReply s_event_encrypted_reply{};
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+EXT_RAM_BSS_ATTR LUNASHELL::CodyOptionsObservation s_find_speech_options{};
+#endif
 // The same serialized CCP owner retains dismissal rollback outside nested task frames.
 LUNASHELL::CodexEventSnapshot s_event_rollback{};
 
@@ -1628,6 +1637,17 @@ esp_err_t publishEventLocked();
 // Exception: Returns missing/retired-state, canonical publication, HMAC, formatting or UDP send failures.
 esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
 {
+    bool speech_requested = false;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    const esp_err_t options_error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(s_find_speech_options);
+    if (options_error == ESP_OK) {
+        const auto &preferences = s_find_speech_options.preferences;
+        speech_requested = preferences.synth_voice_valid && preferences.synth_voice_error == ESP_OK &&
+            preferences.synth_voice_enabled && LUNASHELL_audio_user_sounds_enabled();
+    } else {
+        ESP_LOGW(kTag, "CCP speech preference unavailable (%s)", esp_err_to_name(options_error));
+    }
+#endif
     char device_id[13]{};
     esp_err_t error = formatDeviceId(wifi.mac_address, device_id);
     if (error != ESP_OK) {
@@ -1637,6 +1657,7 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
     char pc_id[33]{};
     char current_id[33] = "00000000000000000000000000000000";
     char selected_id[33] = "00000000000000000000000000000000";
+    char speech_ack[40] = "-";
     const char *current_state = "none";
     uint8_t link_key[32]{};
     uint8_t nonce[16]{};
@@ -1678,22 +1699,35 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
         if (s_event_snapshot.selection_request_id[0] != '\0') {
             std::memcpy(selected_id, s_event_snapshot.selection_request_id, sizeof(selected_id));
         }
+        if (!speech_requested) {
+            s_reply_speech_ack_valid = false;
+            wipe(s_reply_speech_ack_id, sizeof(s_reply_speech_ack_id));
+        } else if (s_reply_speech_ack_valid) {
+            const int ack_length = std::snprintf(speech_ack, sizeof(speech_ack), "%s:%u",
+                s_reply_speech_ack_id, static_cast<unsigned>(s_reply_speech_ack_segment));
+            if (ack_length <= 0 || static_cast<size_t>(ack_length) >= sizeof(speech_ack)) {
+                wipe(link_key, sizeof(link_key));
+                return ESP_ERR_INVALID_SIZE;
+            }
+        }
     }
     esp_fill_random(nonce, sizeof(nonce));
     char nonce_hex[33]{};
     error = encodeHex(nonce, sizeof(nonce), nonce_hex, sizeof(nonce_hex));
-    char proof_input[192]{};
+    char proof_input[256]{};
     const int input_length = error == ESP_OK
         ? std::snprintf(
             proof_input,
             sizeof(proof_input),
-            "find-events-activity-v6|%s|%s|%s|%s|%s|%s",
+            "find-events-activity-speech-v1|%s|%s|%s|%s|%s|%s|%u|%s",
             device_id,
             pc_id,
             nonce_hex,
             current_id,
             current_state,
-            selected_id
+            selected_id,
+            static_cast<unsigned>(speech_requested),
+            speech_ack
         )
         : -1;
     uint8_t proof[32]{};
@@ -1711,7 +1745,7 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
         ? std::snprintf(
             request,
             sizeof(request),
-            "%s|FIND|device=%s|pc=%s|nonce=%s|activity=5|events=3|current=%s|state=%s|event_select=%s|proof=%s",
+            "%s|FIND|device=%s|pc=%s|nonce=%s|activity=5|events=3|current=%s|state=%s|event_select=%s|speech=%u|speech_ack=%s|proof=%s",
             kProtocol,
             device_id,
             pc_id,
@@ -1719,6 +1753,8 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
             current_id,
             current_state,
             selected_id,
+            static_cast<unsigned>(speech_requested),
+            speech_ack,
             proof_hex
         )
         : -1;
@@ -1736,6 +1772,8 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
         if (s_pending == Command::None &&
             (s_link_snapshot.state == State::Discovering || s_link_snapshot.state == State::Connected)) {
             std::memcpy(s_find_nonce, nonce, sizeof(nonce));
+            s_find_speech_requested = speech_requested;
+            std::memcpy(s_find_speech_ack, speech_ack, sizeof(s_find_speech_ack));
             s_activity_received_for_nonce = false;
             s_technical_received_for_nonce = false;
             // An unanswered request descends through the two legacy capabilities.
@@ -2698,6 +2736,57 @@ esp_err_t verifyEventProofLocked(const char *proof)
     wipe(s_event_proof_input, sizeof(s_event_proof_input));
     return error;
 }
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+// device: Authenticated device identity from the current EVENT envelope.
+// request_id: Authenticated immutable event identity.
+// encrypted: Bounded ciphertext, random IV and GCM tag decoded from the envelope.
+// destination: Owner buffer receiving the complete authenticated UTF-8 reply.
+// Exception: Returns original key, authentication, size or UTF-8 errors without exposing text.
+esp_err_t decryptReplySpeechLocked(const char *device, const char *request_id,
+    const LUNASHELL::CodexEncryptedReply &encrypted, char *destination, size_t capacity)
+{
+    if (device == nullptr || request_id == nullptr || destination == nullptr || encrypted.length == 0 ||
+        encrypted.length > LUNASHELL::kCodexReplySpeechBytes || capacity <= encrypted.length) return ESP_ERR_INVALID_ARG;
+    char key_domain[64]{};
+    char aad[112]{};
+    const int key_length = std::snprintf(key_domain, sizeof(key_domain), "cody-reply-speech-v1|%s", device);
+    const int aad_length = std::snprintf(aad, sizeof(aad), "cody-reply-speech-v1|%s|%s|%u|%u", device, request_id,
+        static_cast<unsigned>(encrypted.segment_index), static_cast<unsigned>(encrypted.segment_count));
+    if (key_length <= 0 || static_cast<size_t>(key_length) >= sizeof(key_domain) ||
+        aad_length <= 0 || static_cast<size_t>(aad_length) >= sizeof(aad)) return ESP_ERR_INVALID_SIZE;
+    uint8_t derived[32]{};
+    esp_err_t error = hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), key_domain, derived);
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_set_key_type(&attributes, PSA_KEY_TYPE_AES);
+    psa_set_key_bits(&attributes, 256);
+    psa_set_key_usage_flags(&attributes, PSA_KEY_USAGE_DECRYPT);
+    psa_set_key_algorithm(&attributes, PSA_ALG_GCM);
+    mbedtls_svc_key_id_t key = MBEDTLS_SVC_KEY_ID_INIT;
+    psa_status_t status = error == ESP_OK ? psa_import_key(&attributes, derived, sizeof(derived), &key) : PSA_ERROR_GENERIC_ERROR;
+    psa_reset_key_attributes(&attributes);
+    const bool imported = status == PSA_SUCCESS;
+    size_t length = 0;
+    if (imported) status = psa_aead_decrypt(key, PSA_ALG_GCM, encrypted.nonce, sizeof(encrypted.nonce),
+        reinterpret_cast<const uint8_t *>(aad), static_cast<size_t>(aad_length), encrypted.ciphertext,
+        static_cast<size_t>(encrypted.length) + 16U, reinterpret_cast<uint8_t *>(destination), capacity - 1U, &length);
+    const psa_status_t cleanup = imported ? psa_destroy_key(key) : PSA_SUCCESS;
+    wipe(derived, sizeof(derived));
+    if (error != ESP_OK || status != PSA_SUCCESS || cleanup != PSA_SUCCESS || length != encrypted.length) {
+        wipe(destination, capacity);
+        if (error != ESP_OK) return error;
+        if (status != PSA_SUCCESS) return logCryptoFailure("CCP reply speech decrypt", status);
+        if (cleanup != PSA_SUCCESS) return logCryptoFailure("CCP reply speech key destroy", cleanup);
+        return ESP_ERR_INVALID_SIZE;
+    }
+    destination[length] = '\0';
+    if (!LUNASHELL::validCodexReplySpeech(destination, length)) {
+        wipe(destination, capacity);
+        return ESP_ERR_INVALID_RESPONSE;
+    }
+    return ESP_OK;
+}
+#endif
 
 // value: Exact sixteen-character lowercase hexadecimal sequence.
 // output: Receives the complete unsigned sequence without signed conversions.
@@ -4132,6 +4221,15 @@ esp_err_t acceptInbox(const char *payload, const sockaddr_in &source)
     return error;
 }
 
+// Clears private temporary copies when the serialized EVENT handler returns.
+struct ReplySpeechScratchGuard {
+    ~ReplySpeechScratchGuard()
+    {
+        wipe(s_event_candidate.reply_speech, sizeof(s_event_candidate.reply_speech));
+        wipe(&s_event_encrypted_reply, sizeof(s_event_encrypted_reply));
+    }
+};
+
 // payload: Complete bounded EVENT envelope, never logged as raw user content.
 // source: Observed UDP endpoint matched against authenticated READY.
 // Exception: Returns precise envelope/schema/replay/publication/wake errors.
@@ -4143,6 +4241,7 @@ esp_err_t acceptEvent(const char *payload, const sockaddr_in &source)
         return ESP_ERR_INVALID_ARG;
     }
     std::lock_guard<std::mutex> guard(s_mutex);
+    ReplySpeechScratchGuard scratch_guard;
     esp_err_t error = admitEventEnvelopeLocked(source, values[0], values[1], values[2], InboundCommand::Event);
     if (error != ESP_OK) {
         return error;
@@ -4170,9 +4269,34 @@ esp_err_t acceptEvent(const char *payload, const sockaddr_in &source)
         return ESP_ERR_INVALID_ARG;
     }
     if (!absent) {
-        error = LUNASHELL::decodeCodexEventPayload(values[6], std::strlen(values[6]), s_event_candidate);
+        error = LUNASHELL::decodeCodexEventPayload(values[6], std::strlen(values[6]),
+            s_event_candidate, &s_event_encrypted_reply);
         if (error != ESP_OK) {
             return error;
+        }
+        if (s_event_encrypted_reply.length != 0) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+            const auto options_error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(s_find_speech_options);
+            const auto &preferences = s_find_speech_options.preferences;
+            if (!s_find_speech_requested || options_error != ESP_OK || !preferences.synth_voice_valid ||
+                preferences.synth_voice_error != ESP_OK || !preferences.synth_voice_enabled ||
+                !LUNASHELL_audio_user_sounds_enabled()) return ESP_ERR_INVALID_STATE;
+            error = decryptReplySpeechLocked(values[0], values[3], s_event_encrypted_reply,
+                s_event_candidate.reply_speech, sizeof(s_event_candidate.reply_speech));
+            if (error != ESP_OK) return error;
+            const uint16_t index = s_event_encrypted_reply.segment_index;
+            if (index > 0) {
+                char expected_ack[40]{};
+                const int size = std::snprintf(expected_ack, sizeof(expected_ack), "%s:%u", values[3],
+                    static_cast<unsigned>(index - 1U));
+                if (size <= 0 || static_cast<size_t>(size) >= sizeof(expected_ack) ||
+                    std::strcmp(s_find_speech_ack, expected_ack) != 0) return ESP_ERR_INVALID_RESPONSE;
+            }
+            s_event_candidate.reply_segment_index = index;
+            s_event_candidate.reply_segment_count = s_event_encrypted_reply.segment_count;
+#else
+            return ESP_ERR_NOT_SUPPORTED;
+#endif
         }
         if (std::strcmp(values[3], s_dismissed_event_id) == 0) {
             s_event_received_for_nonce = true;
@@ -5497,6 +5621,61 @@ extern "C" esp_err_t LUNASHELL_codex_request_pc_time(void)
     return error;
 }
 
+// No parameters: scrub only the current private reply and pending acknowledgement.
+// Exception: Returns the original canonical event publication failure.
+extern "C" esp_err_t LUNASHELL_codex_clear_reply_speech(void)
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    s_find_speech_requested = false;
+    s_reply_speech_ack_valid = false;
+    wipe(s_reply_speech_ack_id, sizeof(s_reply_speech_ack_id));
+    std::memcpy(s_find_speech_ack, "-", 2);
+    wipe(s_event_candidate.reply_speech, sizeof(s_event_candidate.reply_speech));
+    wipe(&s_event_encrypted_reply, sizeof(s_event_encrypted_reply));
+    wipe(s_event_rollback.reply_speech, sizeof(s_event_rollback.reply_speech));
+    if (s_event_snapshot.reply_speech[0] == '\0' && s_event_snapshot.reply_segment_count == 0) return ESP_OK;
+    wipe(s_event_snapshot.reply_speech, sizeof(s_event_snapshot.reply_speech));
+    s_event_snapshot.reply_segment_index = 0;
+    s_event_snapshot.reply_segment_count = 0;
+    ++s_event_snapshot.revision;
+    const auto error = publishEventLocked();
+    if (error != ESP_OK) ESP_LOGE(kTag, "CCP reply speech opt-out publication failed (%s)", esp_err_to_name(error));
+    return error;
+}
+
+// expected_request_id: Exact current authenticated ReplyReady identity.
+// segment: Segment whose speech owner reported real completion.
+// Exception: Returns stale, disabled, expired or unavailable transport status.
+extern "C" esp_err_t LUNASHELL_codex_reply_speech_completed(const char *expected_request_id, uint16_t segment)
+{
+    if (expected_request_id == nullptr || strnlen(expected_request_id, 33) != 32) return ESP_ERR_INVALID_ARG;
+    std::lock_guard<std::mutex> guard(s_mutex);
+    const int64_t now = esp_timer_get_time();
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    LUNASHELL::CodyOptionsObservation options{};
+    const auto options_error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(options);
+    if (options_error != ESP_OK) return options_error;
+    if (!options.preferences.synth_voice_valid || options.preferences.synth_voice_error != ESP_OK ||
+        !options.preferences.synth_voice_enabled) return ESP_ERR_INVALID_STATE;
+#else
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+    if (!s_find_speech_requested || !LUNASHELL_audio_user_sounds_enabled() || s_worker == nullptr ||
+        s_link_snapshot.state != State::Connected || !s_event_snapshot.data_valid || s_event_snapshot.data_stale ||
+        s_event_snapshot.last_error != ESP_OK || s_event_snapshot.kind != LUNASHELL::CodexEventKind::ReplyReady ||
+        s_event_snapshot.state != LUNASHELL::CodexEventState::Pending ||
+        (s_event_snapshot.expires_at_us > 0 && now >= s_event_snapshot.expires_at_us) ||
+        std::strcmp(expected_request_id, s_event_snapshot.request_id) != 0 ||
+        s_event_snapshot.reply_speech[0] == '\0' || s_event_snapshot.reply_segment_index != segment)
+        return ESP_ERR_INVALID_STATE;
+    std::memcpy(s_reply_speech_ack_id, expected_request_id, sizeof(s_reply_speech_ack_id));
+    s_reply_speech_ack_segment = segment;
+    s_reply_speech_ack_valid = true;
+    s_next_find_at_us = 0;
+    xTaskNotifyGive(s_worker);
+    return ESP_OK;
+}
+
 // expected_request_id: Immutable identity displayed before explicit Send confirmation.
 // choice_id: Semantic option identity, never a storage index or caption.
 // Exception: Returns state, freshness, expiry, schema or publication admission failures.
@@ -5638,6 +5817,7 @@ extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_
     s_event_rollback = s_event_snapshot;
     const esp_err_t admission_error = LUNASHELL::dismissCodexTransaction(eventTransactionLocked(), expected_request_id);
     if (admission_error != ESP_OK) {
+        wipe(s_event_rollback.reply_speech, sizeof(s_event_rollback.reply_speech));
         ESP_LOGE(kTag, "CCP event dismiss rejected (%s)", esp_err_to_name(admission_error));
         return admission_error;
     }
@@ -5651,11 +5831,13 @@ extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_
         s_event_snapshot = s_event_rollback;
         s_event_snapshot.last_error = error;
         ++s_event_snapshot.revision;
+        wipe(s_event_rollback.reply_speech, sizeof(s_event_rollback.reply_speech));
         return error;
     }
     std::memcpy(s_dismissed_event_id, s_event_rollback.request_id, sizeof(s_dismissed_event_id));
     s_dismissed_event_state = s_event_rollback.kind == LUNASHELL::CodexEventKind::Question
         ? s_event_rollback.state : LUNASHELL::CodexEventState::None;
+    wipe(s_event_rollback.reply_speech, sizeof(s_event_rollback.reply_speech));
     s_reply_pending = false;
     s_next_find_at_us = 0;
     if (s_worker != nullptr) {
@@ -5665,6 +5847,23 @@ extern "C" esp_err_t LUNASHELL_codex_event_dismiss(const char *expected_request_
 }
 
 #else
+
+// No parameters: no authenticated event owner exists in this profile.
+// Exception: None; there is no retained reply speech to clear.
+extern "C" esp_err_t LUNASHELL_codex_clear_reply_speech(void)
+{
+    return ESP_OK;
+}
+
+// expected_request_id: Unused in a profile without the authenticated transport.
+// segment: Unused segment identity.
+// Exception: Returns the actual selected-route unavailability.
+extern "C" esp_err_t LUNASHELL_codex_reply_speech_completed(const char *expected_request_id, uint16_t segment)
+{
+    (void)expected_request_id;
+    (void)segment;
+    return ESP_ERR_NOT_SUPPORTED;
+}
 
 // No parameters: no authenticated PC transport is present in this profile.
 extern "C" esp_err_t LUNASHELL_codex_request_pc_time(void)

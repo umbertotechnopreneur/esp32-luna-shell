@@ -18,11 +18,10 @@
 # The native image uses the Muse avatar with the lightweight device panel.
 if(NOT CMAKE_BUILD_EARLY_EXPANSION)
     if(CONFIG_LUNASHELL_CODY_RENDER_PEARL_JELLY OR
-       CONFIG_LUNASHELL_BUILD_ENABLE_TTS OR
        CONFIG_LUNASHELL_ACTIVITY_MODEL OR
        CONFIG_LUNASHELL_ACTIVITY_CAPTURE)
         message(FATAL_ERROR
-            "The Cody device panel excludes the legacy character rig, TTS and activity models. Select cody-companion with Feature none or wake-word and its current defaults.")
+            "The Cody device panel excludes the legacy character rig and activity models.")
     endif()
     if(NOT CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD AND
        NOT CONFIG_LUNASHELL_BUILD_AUDIO_INPUT_DRIVER_NONE)
@@ -86,6 +85,10 @@ idf_component_register(
 if(NOT CMAKE_BUILD_EARLY_EXPANSION AND CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION)
     # optional_requires matches admitted managed identities, not registry aliases.
     idf_component_optional_requires(PRIVATE espressif__qrcode)
+endif()
+
+if(NOT CMAKE_BUILD_EARLY_EXPANSION AND CONFIG_LUNASHELL_BUILD_ENABLE_TTS)
+    idf_component_optional_requires(PRIVATE LUNASHELL_tts)
 endif()
 
 if(NOT CMAKE_BUILD_EARLY_EXPANSION AND CONFIG_LUNASHELL_CODY_RELAY_PROBE)

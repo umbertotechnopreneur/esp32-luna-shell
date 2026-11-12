@@ -17,9 +17,11 @@
 #pragma once
 #include "sdkconfig.h"
 #include "esp_err.h"
+#include <cstddef>
 #include <cstdint>
 
 namespace LUNASHELL {
+inline constexpr std::size_t kSpeechMaximumTextBytes = 1536;
 enum class SpeechLanguage : uint8_t { English = 1, Italian = 2, Mandarin = 3, Cantonese = 4 };
 enum class SpeechState : uint8_t {
     Disabled = 0, Idle = 1, Queued = 2, Preparing = 3, Synthesizing = 4,

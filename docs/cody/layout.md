@@ -166,11 +166,12 @@ cleanup path before leaving. The setup journey has no Home icon. Status and
 lateral navigation on other pages reappear on touch or measured motion.
 The compact status uses actual clock, Wi-Fi RSSI, Bluetooth and battery observations;
 its numeric battery percentage can be suppressed by the renderer, with a settings
-control deferred. Cody remains full-size on Home during normal interaction.
+control deferred. When Counter mode is off, Muse remains full-size on Home;
+when enabled, Counter mode presents its three data pages instead.
 
 The existing recovery entry retains the prior device-first pairing screens below.
-They use the same title and body fonts, left chevron, and capsule geometry as the
-dashboard and Options. The dark canvas, amber offline
+They use the same title and body fonts and left chevron as the dashboard and
+Options, with background-free actions and their complete touch bounds. The dark canvas, amber offline
 glyph and background-free actions carry across the Wi-Fi
 setup journey.
 Both QR screens keep their white area within the square code tile.
@@ -359,9 +360,9 @@ window requires a fresh reset observation before showing a new countdown.
 ## Local timer
 
 Options opens Timer with a large minutes and seconds readout. The duration
-controls occupy a pair of 154 x 60 cards at y=247. Sound and Start use the same
-pair at y=321. Running and finished timers use a centered 240 x 60 capsule for
-Cancel or OK. The lateral Back target returns to the previous view. The
+controls occupy two 154 x 60 touch areas at y=247. Sound and Start use the same
+pair at y=321. Running and finished timers use a centered 240 x 60 touch area for
+the Cancel or OK text action. The lateral Back target returns to the previous view. The
 finished page distinguishes a pending, muted or unavailable alarm.
 
 ## Codex statistics
@@ -439,8 +440,9 @@ to VibeWare.
 ## Optional screensaver
 
 Options > Behavior > More behavior contains the Screensaver setting, initially
-Off, and a row opening Synth Voice. Its three unavailable rows use the same
-Options geometry until a speech engine is integrated. After
+Off, and a row opening Synth Voice. Availability of speech controls depends on
+the selected firmware feature; see [navigation](navigation.md#dashboard-and-options).
+After
 fifteen idle seconds on an unobstructed dashboard or after the Home waking
 animation, a softly colored globe fills the otherwise black display. The shared
 status layer appears temporarily on touch or measured motion. The globe is

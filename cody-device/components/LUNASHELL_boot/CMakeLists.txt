@@ -50,7 +50,7 @@ if(CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_UI)
     idf_component_optional_requires(PUBLIC esp32_s3_touch_amoled_1_75)
 endif()
 if(CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_AUDIO)
-    idf_component_optional_requires(PUBLIC esp_codec_dev)
+    idf_component_optional_requires(PUBLIC espressif__esp_codec_dev)
 endif()
 
 if(CONFIG_LUNASHELL_BUILD_ENABLE_BOOT_AUDIO)

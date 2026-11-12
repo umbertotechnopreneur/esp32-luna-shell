@@ -25,6 +25,7 @@ import hmac
 import ipaddress
 import json
 import os
+import queue
 from pathlib import Path
 import re
 import secrets
@@ -136,6 +137,7 @@ class EventPeer:
     source: tuple[str, int]
     observed_at: float
     previous_audio_nonces: tuple[tuple[str, float], ...] = ()
+    speech_enabled: bool = False
 
     # self: Most recent confirmed endpoint for this active pairing.
     # nonce: Newly confirmed discovery challenge.
@@ -152,6 +154,42 @@ class EventPeer:
         confirmed = ((self.nonce, self.observed_at), *self.previous_audio_nonces)
         return any(hmac.compare_digest(nonce, value) and 0 <= now - observed <= LIVENESS_TIMEOUT_SECONDS
                    for value, observed in confirmed)
+
+
+# data: Validated version-2 reply event encoded in lowercase hexadecimal.
+# text: One complete bounded UTF-8 reply segment; never logged or persisted.
+# link_key: The confirmed active association credential.
+# device_id: Exact authenticated physical recipient.
+# request_id: Immutable EVENT ticket identity.
+# index: Zero-based segment identity.
+# total: Exact total number of segments.
+# Returns version-3 EVENT data with an authenticated encrypted reply trailer.
+# Raises ImportError or ValueError if the cipher or bounded content is unavailable.
+def seal_reply_event(data: str, text: str, link_key: bytes, device_id: str, request_id: str,
+                     index: int, total: int) -> str:
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+
+    plaintext = text.encode("utf-8", "strict")
+    if not 1 <= len(plaintext) <= 400 or not 1 <= total <= 64 or not 0 <= index < total:
+        raise ValueError("Reply speech exceeds its bounded encrypted payload")
+    raw = bytearray.fromhex(data)
+    if len(raw) < 2 or raw[0] != 2 or raw[1] != int(interactions.EventKind.REPLY_READY):
+        raise ValueError("Reply speech requires a version-2 ReplyReady payload")
+    domain = b"cody-reply-speech-v1|" + device_id.encode("ascii")
+    key = hmac.digest(link_key, domain, "sha256")
+    aad = (domain + b"|" + request_id.encode("ascii") + b"|" + str(index).encode("ascii") +
+           b"|" + str(total).encode("ascii"))
+    iv = secrets.token_bytes(12)
+    sealed = AESGCM(key).encrypt(iv, plaintext, aad)
+    raw[0] = 3
+    raw.extend(index.to_bytes(2, "big"))
+    raw.extend(total.to_bytes(2, "big"))
+    raw.extend(len(plaintext).to_bytes(2, "big"))
+    raw.extend(iv)
+    raw.extend(sealed)
+    if len(raw) > 1536:
+        raise ValueError("Encrypted reply exceeds the EVENT payload envelope")
+    return raw.hex()
 
 
 # address: Socket-observed IP address, or an empty value before fresh observation.
@@ -869,13 +907,19 @@ class CompanionResponder:
         presence_fields = {"device", "pc", "nonce", "proof"}
         activity_fields = presence_fields | {"activity"}
         event_fields = activity_fields | {"events", "current", "state", "event_select"}
-        with_events = field_names == event_fields
+        with_speech = field_names == event_fields | {"speech", "speech_ack"}
+        with_events = with_speech or field_names == event_fields
         with_activity = with_events or field_names == activity_fields
         if not with_activity and field_names != presence_fields:
             raise ValueError("CCP FIND has unexpected or missing fields")
         if with_activity and fields["activity"] != "5":
             raise ValueError("Unsupported CCP activity capability; update the peer to activity=5")
         if with_events:
+            if with_speech and fields["speech"] not in {"0", "1"}:
+                raise ValueError("CCP speech capability is invalid")
+            if with_speech and (not re.fullmatch(r"(?:-|[0-9a-f]{32}:(?:0|[1-9][0-9]?))", fields["speech_ack"]) or
+                                fields["speech"] == "0" and fields["speech_ack"] != "-"):
+                raise ValueError("CCP speech acknowledgement is invalid")
             if fields["events"] != "3":
                 raise ValueError("Unsupported CCP events capability")
             if (interactions.IDENTITY.fullmatch(fields["current"]) is None
@@ -899,10 +943,13 @@ class CompanionResponder:
                 continue
             domain = "find"
             if with_activity:
-                domain = "find-events-activity-v6" if with_events else "find-activity-v5"
+                domain = ("find-events-activity-speech-v1" if with_speech else
+                          "find-events-activity-v6" if with_events else "find-activity-v5")
             values = [fields["device"], fields["pc"], fields["nonce"]]
             if with_events:
                 values.extend((fields["current"], fields["state"], fields["event_select"]))
+                if with_speech:
+                    values.extend((fields["speech"], fields["speech_ack"]))
             expected = make_proof(candidate, domain, *values)
             if hmac.compare_digest(expected, fields["proof"]):
                 link_key = candidate
@@ -988,15 +1035,34 @@ class CompanionResponder:
                 if (previous is not None and previous.source == source
                         and hmac.compare_digest(previous.key, link_key)):
                     recent = previous.rotate_audio_nonce(fields["nonce"], now)
-                self._event_peers[fields["device"]] = EventPeer(fields["nonce"], link_key, source, now, recent)
+                self._event_peers[fields["device"]] = EventPeer(fields["nonce"], link_key, source, now, recent,
+                                                               fields.get("speech") == "1")
                 self._debug_peers = {identity: peer for identity, peer in self._debug_peers.items()
                                      if 0 <= now - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS}
+            association = hashlib.sha256(link_key).hexdigest()
+            if fields.get("speech") != "1":
+                self._requests.clear_reply_speech(fields["device"], association)
+            elif fields.get("speech_ack", "-") != "-":
+                reply_id, segment = fields["speech_ack"].split(":", 1)
+                self._requests.acknowledge_reply_speech(fields["device"], association, reply_id, int(segment))
             request_id, state, ttl, data = self._requests.snapshot(
-                fields["device"], hashlib.sha256(link_key).hexdigest(), fields["current"], fields["state"], fields["event_select"])
+                fields["device"], association, fields["current"], fields["state"], fields["event_select"])
+            sent_speech_index = None
+            if fields.get("speech") == "1":
+                reply = self._requests.reply_speech(fields["device"], association, request_id)
+                if reply:
+                    try:
+                        text, index, total = reply
+                        data = seal_reply_event(data, text, link_key, fields["device"], request_id, index, total)
+                        sent_speech_index = index
+                    except (ImportError, ValueError) as error:
+                        print(f"CCP encrypted reply speech unavailable: {type(error).__name__}", file=sys.stderr, flush=True)
             values = [fields["device"], fields["pc"], fields["nonce"], request_id, state, ttl, data]
             event_proof = make_proof(link_key, "event", *values)
             payload = encode_datagram("EVENT", list(zip(
                 ("device", "pc", "nonce", "id", "state", "ttl", "data"), values)) + [("proof", event_proof)])
+            if sent_speech_index is not None:
+                self._requests.mark_reply_speech_sent(fields["device"], association, request_id, sent_speech_index)
             self._socket.sendto(payload, source)
             request = self._resets.claim(fields["device"], hashlib.sha256(link_key).hexdigest(),
                                          fields["nonce"], source)
@@ -1357,6 +1423,19 @@ class CompanionResponder:
             peer = self._event_peers.get(device_id)
             return peer is not None and 0 <= time.monotonic() - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS
 
+    # device_id: Exact paired recipient whose confirmed FIND carries the speech opt-in.
+    # Returns true only for a fresh, active, non-simulated authenticated association.
+    def supports_reply_speech(self, device_id: str) -> bool:
+        with self._event_lock:
+            peer = self._event_peers.get(device_id)
+            if (peer is None or not peer.speech_enabled or
+                    not 0 <= time.monotonic() - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS or
+                    observation_source(peer.source[0]) != "LAN"):
+                return False
+            key = peer.key
+        active = self._state.retained_keys(device_id).active
+        return active is not None and hmac.compare_digest(active, key)
+
     # self: Responder admitting a device restart only after an authenticated current-peer acknowledgement.
     # fields: Exact RESETACK fields, without any caller-supplied return address.
     # source: Observed UDP address and port of the paired Cody.
@@ -1464,8 +1543,12 @@ class CcpService:
             self.interactions = interactions.InteractionStore(storage=question_storage, owner_id=self.state.pc_id)
             self.notifications_error: str | None = None
             self._hook_lock = threading.Lock()
+            self._reply_stop = threading.Event()
+            self._reply_jobs: queue.Queue = queue.Queue(maxsize=8)
             self.responder = CompanionResponder(self.state, listener, self.activity, self.interactions, subscriptions)
             self.responder.start()
+            self._reply_thread = threading.Thread(target=self._reply_worker, name="CCP-reply-speech", daemon=True)
+            self._reply_thread.start()
         except BaseException:
             try:
                 listener.close()
@@ -1608,6 +1691,23 @@ class CcpService:
         reply_is_current = reply_ready and observation.reply_ready
         if not approval_is_current and not reply_is_current:
             return False
+        if reply_is_current and any(self.responder.supports_reply_speech(device) for device in targets):
+            try:
+                self._reply_jobs.put_nowait((observation, tuple(targets)))
+                return True
+            except queue.Full:
+                print("CCP reply speech unavailable: bounded source queue full", file=sys.stderr, flush=True)
+                return self._publish_hook_notice(observation, targets, "", True)
+        return self._publish_hook_notice(observation, targets, "")
+
+    # observation: Exact validated native hook identity, rechecked after source I/O.
+    # targets: Physical recipients captured at admission and still currently present.
+    # reply: Complete final-answer text, or empty when unavailable; never logged.
+    # speech_unavailable: Explicit source failure for recipients still opted in.
+    # Returns whether at least one notice was enqueued; raises real queue/association errors.
+    def _publish_hook_notice(self, observation: HookObservation, targets: list[str], reply: str,
+                             speech_unavailable: bool = False) -> bool:
+        approval = observation.event == "PermissionRequest" and observation.followed
         # Context is a compact project label. A real chat title is kept complete
         # in the body when available; opaque native IDs never become UI text.
         project = observation.project
@@ -1620,18 +1720,55 @@ class CcpService:
         if approval:
             fallback_body = "Chat title unavailable"
         body = observation.title or fallback_body
-        payload = interactions.EventPayload(kind, context, title, body)
         for device_id in targets:
             active = self.state.retained_keys(device_id).active
             if active is None:
                 raise ValueError("Hook notice target lost its active association")
+            speech_enabled = not approval and self.responder.supports_reply_speech(device_id)
+            notice_body = "Voice unavailable; open Codex" if speech_unavailable and speech_enabled else body
+            payload = interactions.EventPayload(kind, context, title, notice_body)
             self.interactions.enqueue(device_id, payload, "LAN",
                                       association_id=hashlib.sha256(active).hexdigest(),
-                                      native_session=observation.session_id)
+                                      native_session=observation.session_id,
+                                      reply_speech=reply if speech_enabled else "")
             if approval:
                 self.activity.mark_approval_notice_sent(observation, device_id)
                 self.trace_approval_notice(observation, "queued", "first_notice_for_recipient_in_turn")
         return bool(targets)
+
+    # No parameters: read the exact completed Codex turn off the hook/UDP workers.
+    # Failure leaves a normal ReplyReady notice and never logs response content.
+    def _reply_worker(self) -> None:
+        while not self._reply_stop.is_set():
+            try:
+                observation, initial_targets = self._reply_jobs.get(timeout=0.2)
+            except queue.Empty:
+                continue
+            reply = ""
+            unavailable = False
+            try:
+                if any(self.responder.supports_reply_speech(device) for device in initial_targets):
+                    from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: F401
+                    reply = self.responder.audio.read_final_reply(observation.session_id, observation.turn_id,
+                                                                  self._reply_stop)
+                    interactions.split_reply_speech(reply)  # Reject, never truncate, an oversized final response.
+            except Exception as error:
+                unavailable = True
+                reply = ""
+                print(f"CCP reply speech source unavailable: {type(error).__name__}", file=sys.stderr, flush=True)
+            try:
+                with self._hook_lock:
+                    refreshed = self.activity.refresh_notice_title(observation) if not self._reply_stop.is_set() else None
+                    if refreshed is not None and refreshed.reply_ready:
+                        current = set(self.physical_event_targets())
+                        targets = [device for device in initial_targets if device in current]
+                        if targets:
+                            self._publish_hook_notice(refreshed, targets, reply, unavailable)
+            except (OSError, RuntimeError, ValueError) as error:
+                print(f"CCP reply notification failed: {type(error).__name__}", file=sys.stderr, flush=True)
+            finally:
+                reply = ""
+                self._reply_jobs.task_done()
 
     # self: Service recording bounded diagnostic facts without commands or chat text.
     # observation: Genuine accepted permission event with opaque native identities.
@@ -1646,6 +1783,10 @@ class CcpService:
     # No parameters: stops the background UDP listener.
     # Raises RuntimeError or OSError when responder shutdown or socket closure fails.
     def close(self) -> None:
+        self._reply_stop.set()
+        self._reply_thread.join(timeout=3)
+        if self._reply_thread.is_alive():
+            raise RuntimeError("Codex reply speech worker did not retire")
         self.responder.close()
 
     # self: Service replacing its current, non-secret discovery cache.

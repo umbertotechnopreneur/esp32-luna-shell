@@ -95,6 +95,13 @@ $OutputEncoding = [System.Text.Encoding]::UTF8
 [System.Environment]::SetEnvironmentVariable("PYTHONIOENCODING", "utf-8", "Process")
 [System.Environment]::SetEnvironmentVariable("PYTHONFAULTHANDLER", "1", "Process")
 
+# Cody's default includes local English speech. Explicit feature and board
+# configuration selections remain authoritative for their own profile graphs.
+if (-not $PSBoundParameters.ContainsKey('Feature') -and
+    [string]::IsNullOrWhiteSpace($BoardConfig) -and $Profile -eq 'cody-companion') {
+    $Feature = 'tts-flash'
+}
+
 $ProfileBuildKey = if ($Feature -eq "none") {
     $Profile
 } else {
@@ -298,10 +305,10 @@ if ($SelectedProfileVariant.profile -cne $Profile -or
 
 if ($Profile -eq 'cody-companion') {
     # Reject unsupported compositions before generating defaults or importing dependencies.
-    if ($Feature -notin @('none', 'wake-word') -or $ActivityClassifier -or $ActivityCapture) {
-        throw 'The Cody device panel supports -Feature none or optional wake-word for Codex voice handoff, without TTS, activity classification or capture.'
+    if ($Feature -notin @('none', 'wake-word', 'tts-flash') -or $ActivityClassifier -or $ActivityCapture) {
+        throw 'The Cody device panel supports -Feature tts-flash, none or wake-word; activity classification and capture are unavailable.'
     }
-    if ($Feature -eq 'none' -and $null -ne $BoardModules -and
+    if ($Feature -in @('none', 'tts-flash') -and $null -ne $BoardModules -and
         $BoardModules.microphones -eq 'service') {
         throw 'The lightweight Cody device panel requires microphones mode off. Select -Feature wake-word for Codex voice handoff.'
     }
@@ -512,7 +519,7 @@ if ($ProfileComponentRoots.Count -eq 0 -or
 }
 $env:LUNASHELL_PROFILE_COMPONENT_ROOTS = $ProfileComponentRoots -join ';'
 $env:LUNASHELL_PROFILE_BUILD_KEY = $ProfileBuildKey
-$env:LUNASHELL_PROFILE_TTS_BACKEND = if ($Feature -eq "tts-sd") { "sd" } elseif ($Feature -eq "tts-flash") { "flash" } else { "none" }
+$env:LUNASHELL_PROFILE_TTS_BACKEND = if ($Feature -eq "tts-sd") { "sd" } elseif ($Feature -eq "tts-flash" -or ($Profile -eq 'cody-companion' -and $Feature -eq 'wake-word')) { "flash" } else { "none" }
 
 $ProfileComponentDirectories = @(
     $SelectedProfileVariant.component_dirs |
@@ -642,25 +649,126 @@ $ToolsPath = $toolchain.ToolsPath
 $PythonExe = $toolchain.PythonExe
 $IdfPy = Join-Path $IdfPath 'tools/idf.py'
 $IdfToolsPy = Join-Path $IdfPath 'tools/idf_tools.py'
+
+# LockPath: Reviewed resolver lock for the active profile.
+# ComponentRoot: Existing component-manager directory; this function never modifies it.
+# Throws if a locked registry component or its recorded identity is unavailable.
+function Get-ExistingLockedComponents([string]$LockPath, [string]$ComponentRoot) {
+    if (-not (Test-Path -LiteralPath $LockPath -PathType Leaf)) {
+        throw "Canonical dependency lock is unavailable: $LockPath"
+    }
+    $entries = [ordered]@{}
+    $inDependencies = $false
+    $name = $null
+    foreach ($line in Get-Content -LiteralPath $LockPath) {
+        if ($line -ceq 'dependencies:') { $inDependencies = $true; continue }
+        if (-not $inDependencies) { continue }
+        if ($line -match '^\S') { break }
+        if ($line -match '^  ([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)?):\s*$') {
+            $name = $Matches[1]
+            if ($entries.Contains($name)) { throw "Duplicate dependency in lock: $name" }
+            $entries[$name] = @{ Type = $null; Hash = $null }
+        } elseif ($null -ne $name -and $line -match '^    component_hash:\s*([0-9a-f]{64})\s*$') {
+            $entries[$name].Hash = $Matches[1]
+        } elseif ($null -ne $name -and $line -match '^      type:\s*(\S+)\s*$') {
+            $entries[$name].Type = $Matches[1]
+        }
+    }
+    if ($entries.Count -eq 0) { throw "Dependency lock has no entries: $LockPath" }
+    $paths = @()
+    foreach ($entry in $entries.GetEnumerator()) {
+        if ($entry.Value.Type -ceq 'idf') { continue }
+        if ($entry.Value.Type -cne 'service' -or
+            $entry.Key -notmatch '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' -or
+            $entry.Value.Hash -notmatch '^[0-9a-f]{64}$') {
+            throw "Unsupported locked dependency identity: $($entry.Key)"
+        }
+        $path = Join-Path $ComponentRoot ($entry.Key.Replace('/', '__'))
+        $marker = Join-Path $path '.component_hash'
+        if (-not (Test-Path -LiteralPath (Join-Path $path 'CMakeLists.txt') -PathType Leaf) -or
+            -not (Test-Path -LiteralPath $marker -PathType Leaf)) {
+            throw "Locked component not present: $($entry.Key) at $path"
+        }
+        if ((Get-Content -Raw -LiteralPath $marker).Trim() -cne $entry.Value.Hash) {
+            throw "Component identity does not match the lock: $($entry.Key)"
+        }
+        $paths += $path
+    }
+    return $paths
+}
+
+if ($Action -eq 'update-lock') {
+    throw 'Dependency resolution can remove unused components. Preserve existing artifacts and update the lock only through an explicitly reviewed workflow.'
+}
+if ($Action -in @('build','set-target','reconfigure','flash','combo','size','recover')) {
+    # ESP-IDF officially supports disabling its component manager. Its normal
+    # resolver can delete other profiles' managed components during configure.
+    # This checks recorded identities, not a cryptographic hash of every file.
+    $lockedPaths = @(Get-ExistingLockedComponents $ProfileCanonicalDependencyLockPath (Join-Path $FirmwareRoot 'managed_components'))
+    $lockedNames = @($lockedPaths | ForEach-Object { Split-Path -Leaf $_ })
+    if ('espressif__esp-sr' -in $lockedNames -and 'espressif__cjson' -in $lockedNames) {
+        # ESP-SR's upstream CMake uses the short cjson dependency. With the
+        # manager disabled, a normal interface component forwards it to the
+        # locked registry component without changing either vendor directory.
+        $lockedPaths += Join-Path $FirmwareRoot 'components/cody_idf_aliases/cjson'
+    }
+    $env:IDF_COMPONENT_MANAGER = '0'
+    $env:LUNASHELL_PROFILE_COMPONENT_DIRS = (@($ProfileComponentDirectories) + $lockedPaths) -join ';'
+    $env:LUNASHELL_PROFILE_COMPONENT_ROOTS = (@($ProfileComponentRoots) +
+        @($lockedPaths | ForEach-Object { Split-Path -Leaf $_ } | Where-Object { $_ -notin $ProfileComponentRoots })) -join ';'
+    Write-Host "Component manager disabled; $($lockedPaths.Count) locked component identities matched their recorded metadata."
+}
 foreach ($requiredIdfFile in @($IdfPy, $IdfToolsPy)) {
     if (-not (Test-Path -LiteralPath $requiredIdfFile -PathType Leaf)) {
         throw "Installazione ESP-IDF incompleta: file non trovato $requiredIdfFile"
     }
 }
 
+$inheritedPathEntries = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+foreach ($entry in @($env:PATH -split [regex]::Escape([string][IO.Path]::PathSeparator))) {
+    if (-not [string]::IsNullOrWhiteSpace($entry)) { $null = $inheritedPathEntries.Add($entry) }
+}
 Import-FirmwareToolchainEnvironment -Toolchain $toolchain -IdfToolsPy $IdfToolsPy
 # Some ESP-IDF components invoke python by name while packing their assets.
 # Keep that invocation on the same interpreter selected for the firmware CLI.
 $pythonDirectory = Split-Path -Parent $PythonExe
 $env:PATH = $pythonDirectory + [IO.Path]::PathSeparator + $env:PATH
 if ($IsWindows) {
-    # cmd.exe drops an inherited PATH longer than 8191 characters. ESP-IDF's
-    # exported paths can repeat host entries, so keep the first occurrence.
+    # Limit the process-local PATH inherited by cmd.exe, not the user's PATH.
+    # Retain every SDK/tool export plus the actual selected host tools; unrelated
+    # application directories can otherwise exceed cmd.exe's 8191-character limit.
     $seenPathEntries = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    $pathEntries = @($env:PATH -split ';' | Where-Object { $seenPathEntries.Add($_) })
+    $pathEntries = [Collections.Generic.List[string]]::new()
+    $sdkRoots = @($ToolsPath, $IdfPath) | ForEach-Object {
+        [IO.Path]::GetFullPath($_).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+    }
+    foreach ($entry in @($pythonDirectory) + @($env:PATH -split ';')) {
+        if ([string]::IsNullOrWhiteSpace($entry)) { continue }
+        $isSdkPath = $false
+        foreach ($sdkRoot in $sdkRoots) {
+            if ($entry.StartsWith($sdkRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                $isSdkPath = $true
+                break
+            }
+        }
+        $isExportedPath = -not $inheritedPathEntries.Contains($entry)
+        if (($entry -eq $pythonDirectory -or $isSdkPath -or $isExportedPath) -and $seenPathEntries.Add($entry)) {
+            $pathEntries.Add($entry)
+        }
+    }
+    foreach ($name in @('git', 'cmake', 'ninja', 'xtensa-esp32s3-elf-gcc',
+                        'cmd', 'where', 'findstr', 'powershell', 'pwsh', 'bash', 'sh', 'tar')) {
+        $tool = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($null -eq $tool) { continue }
+        $directory = Split-Path -Parent $tool.Source
+        if ($directory -and $seenPathEntries.Add($directory)) { $pathEntries.Add($directory) }
+    }
+    foreach ($directory in @((Join-Path $env:SystemRoot 'System32'), $env:SystemRoot)) {
+        if ($directory -and $seenPathEntries.Add($directory)) { $pathEntries.Add($directory) }
+    }
     $env:PATH = $pathEntries -join ';'
     if ($env:PATH.Length -gt 8191) {
-        throw 'The exported firmware PATH exceeds the Windows cmd.exe limit after removing duplicate entries.'
+        throw 'The required firmware tool PATH exceeds the Windows cmd.exe limit.'
     }
 }
 
@@ -1377,23 +1485,16 @@ function Invoke-ProfileConfiguration(
     [string]$RequestedBuildDir,
     [bool]$RefreshDependencyLock
 ) {
-    # Keep the build directory empty while ESP-IDF validates/removes an old
-    # configuration. A dependency lock copied before fullclean makes a fresh
-    # directory look unsafe to delete.
+    # Configuration needs an empty build directory. Preserve existing artifacts
+    # and let the owner choose whether to clean them manually.
     $buildDirectory = Get-BuildDirectoryPath $RequestedBuildDir
     if (Test-Path -LiteralPath $buildDirectory -PathType Container) {
         $buildEntries = @(Get-ChildItem -LiteralPath $buildDirectory -Force)
         if ($buildEntries.Count -gt 0) {
-            $cmakeCache = Join-Path $buildDirectory "CMakeCache.txt"
-            $ninjaFile = Join-Path $buildDirectory "build.ninja"
-            if (-not (Test-Path -LiteralPath $cmakeCache -PathType Leaf) -and
-                -not (Test-Path -LiteralPath $ninjaFile -PathType Leaf)) {
-                throw (
-                    "Refusing to clean non-CMake build directory: " +
-                    $buildDirectory
-                )
-            }
-            Invoke-BuildDirectoryClean $RequestedBuildDir
+            throw (
+                "The selected build directory is not empty: $buildDirectory. " +
+                "Choose an empty directory or clean it manually before configuring."
+            )
         }
     }
 
@@ -1403,8 +1504,14 @@ function Invoke-ProfileConfiguration(
         $RefreshDependencyLock
 
     if (Test-Path -LiteralPath $ProfileSdkconfigPath -PathType Leaf) {
+        $backupPath = "$ProfileSdkconfigPath.old"
+        $backupIndex = 0
+        while (Test-Path -LiteralPath $backupPath) {
+            ++$backupIndex
+            $backupPath = "$ProfileSdkconfigPath.old.$backupIndex"
+        }
         Move-Item -LiteralPath $ProfileSdkconfigPath `
-            -Destination "$ProfileSdkconfigPath.old" -Force
+            -Destination $backupPath
     }
 
     Write-Host "Configuring profile '$ProfileBuildKey' with ESP-IDF"

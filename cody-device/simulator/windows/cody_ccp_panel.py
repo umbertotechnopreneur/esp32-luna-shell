@@ -137,7 +137,6 @@ class CcpPanel:
         self.activity_preview = tk.BooleanVar(value=False)
         self.preview_phase = tk.StringVar(value="working")
         self.preview_scenario = tk.StringVar(value="Normal")
-        self.preview_companion_mode = tk.StringVar(value="Desk")
         self.preview_project = tk.StringVar(value="ESP32 Luna Shell")
         self.preview_branch = tk.StringVar(value="codex/audio-settings")
         self.preview_description = tk.StringVar(value="Updating Cody audio cues and quiet-hours settings, then preparing the firmware for the device with clearer activity feedback and a distraction-free desktop experience.")
@@ -150,8 +149,7 @@ class CcpPanel:
         self._preview_capture_delay_ms = None
         section = window.add_section(parent, "SIMULATED / CCP1",
             "Real CCP packets on this PC. This identity belongs only to Cody Studio.")
-        ttk.Checkbutton(section, text="Show CCP on the display", variable=self.follow,
-            command=self.change_companion_mode).pack(anchor="w")
+        ttk.Checkbutton(section, text="Show CCP on the display", variable=self.follow).pack(anchor="w")
         ttk.Checkbutton(section, text="SIMULATED LAN available", variable=self.network,
                         command=self.change_network).pack(anchor="w", pady=(8, 12))
         ttk.Label(section, textvariable=self.message, style="Muted.TLabel", wraplength=310).pack(fill="x")
@@ -179,12 +177,6 @@ class CcpPanel:
                     "Cheap model", "Reasonable model", "Expensive model", "Custom"))
         scenarios.pack(fill="x")
         scenarios.bind("<<ComboboxSelected>>", self.select_preview_scenario)
-        ttk.Label(preview, text="SIMULATED companion mode").pack(anchor="w", pady=(8, 2))
-        companion_mode = ttk.Combobox(preview, textvariable=self.preview_companion_mode, state="readonly", values=("Desk", "Away"))
-        companion_mode.pack(fill="x")
-        companion_mode.bind("<<ComboboxSelected>>", self.change_companion_mode)
-        ttk.Label(preview, style="Muted.TLabel", wraplength=310,
-            text="On passive Home and technical pages, Desk retains the native rhythm. Away suppresses idle accessories and slows breathing and contour motion while preserving activity and attention alerts; device settings are unchanged.").pack(fill="x")
         ttk.Button(preview, text="SIMULATED shake: return Home", command=self.simulate_shake).pack(fill="x", pady=(8, 4))
         ttk.Label(preview, text="Phase").pack(anchor="w", pady=(12, 2))
         phase = ttk.Combobox(preview, textvariable=self.preview_phase, state="readonly",
@@ -295,9 +287,6 @@ class CcpPanel:
             and self._preview_snapshot.state == LinkState.CONNECTED and self._preview_snapshot.activity_valid
             and self._preview_snapshot.phase in {"none", "active"}
             and self.preview_scenario.get() != "Long compaction")
-        self.change_companion_mode()
-        # Idle Home retains the native admission decision; the shared Away helper
-        # suppresses accessories and adjusts artistic motion without changing source samples.
         inputs = replace(self.window.observe_stimuli(round(now * 1000000), rotation), idle_scene_allowed=preview_idle)
         self.window.response_config["motion"]["sensitivity"] = self.window.motion_sensitivity.get()
         self.window.response_state = self.window.renderer.advance_model(self.window.response_config,
@@ -404,22 +393,10 @@ class CcpPanel:
             self._preview_capture_delay_ms = None
             self.follow.set(self._preview_saved_follow)
             self.window.playing.set(self._preview_saved_playing)
-            self.window.renderer.require_native().set_away(False)
             self.preview_capture_button.configure(state="disabled")
             self.preview_message.set("Preview is off. Showing the actual SIMULATED CCP endpoint.")
             self._route_key = None
             self._frame_key = None
-
-    # self: Explicit SIMULATED preview presentation owner, separate from persisted device settings.
-    # event: Optional Tk control event; no event text is treated as metadata.
-    # Raises RuntimeError for the original native mode boundary error.
-    def change_companion_mode(self, event=None):
-        away = bool(self.activity_preview.get() and self.follow.get()
-            and self._preview_snapshot is not None and self.preview_companion_mode.get() == "Away")
-        # Every explicit activity preview is passive companion content, including
-        # work, attention, compaction and disconnected technical pages. The
-        # independent idle admission still prevents accessories on busy Home.
-        self.window.renderer.require_native().set_away(away)
 
     # self: Rendering-only synthetic input owner, separate from pairing, packets and snapshots.
     # event: Optional Tk selection event; no remote or firmware command is admitted.
@@ -700,9 +677,6 @@ class CcpPanel:
     def render(self, rotation):
         self.refresh()
         preview = self.activity_preview.get() and self._preview_snapshot is not None
-        # Reset before every early Debug/event path as well as ordinary live
-        # rendering; explicit preview rhythm must not leak into authenticated views.
-        self.change_companion_mode()
         snapshot, code = (self._preview_snapshot, "") if preview else (self._snapshot, self._display_code)
         if not preview and self._debug_mode != "normal":
             self.events.pause()

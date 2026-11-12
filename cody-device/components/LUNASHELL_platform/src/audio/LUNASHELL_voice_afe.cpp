@@ -30,6 +30,7 @@
 #include "LUNASHELL_voice_input.hpp"
 #include "LUNASHELL_pcm16_levels.hpp"
 #include "LUNASHELL_snapshot_internal.hpp"
+#include "LUNASHELL_voice_capture_guard.hpp"
 #include "esp_timer.h"
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
 #include "model_path.h"
@@ -51,6 +52,15 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+
+namespace LUNASHELL {
+// No parameters: this guard serializes each AFE read with codec gain changes.
+std::mutex &voice_capture_guard()
+{
+    static std::mutex guard;
+    return guard;
+}
+}
 
 namespace {
 
@@ -446,11 +456,15 @@ void voice_feed_task(void *arg)
             park_paused_worker(s_feed_paused);
             continue;
         }
-        const esp_err_t capture_error = LUNASHELL_audio_capture_voice_pcm16(
-            microphones,
-            static_cast<size_t>(feed_frames),
-            kMicrophoneChannels
-        );
+        esp_err_t capture_error;
+        {
+            std::lock_guard<std::mutex> guard(LUNASHELL::voice_capture_guard());
+            capture_error = LUNASHELL_audio_capture_voice_pcm16(
+                microphones,
+                static_cast<size_t>(feed_frames),
+                kMicrophoneChannels
+            );
+        }
         if (capture_error != ESP_OK) {
             ESP_LOGE(
                 kTag,
@@ -559,8 +573,14 @@ void voice_fetch_task(void *arg)
                 publish_voice(LUNASHELL::VoiceState::Failed, ESP_ERR_INVALID_RESPONSE);
                 break;
             }
+            // A disabled or unavailable user preference must not emit wake events
+            // or start dictation. The AFE remains available for manual voice input.
+            LUNASHELL::CodyOptionsObservation options{};
+            const auto options_error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(options);
+            const bool allowed = options_error == ESP_OK && options.preferences.sofia_valid &&
+                options.preferences.sofia_error == ESP_OK && options.preferences.sofia_enabled;
             const int64_t now_us = esp_timer_get_time();
-            if (last_detection_at_us == 0 || now_us - last_detection_at_us >= kDetectionCooldownUs) {
+            if (allowed && (last_detection_at_us == 0 || now_us - last_detection_at_us >= kDetectionCooldownUs)) {
                 detected_at_us = now_us;
                 last_detection_at_us = now_us;
                 ESP_LOGI(kTag, "Wake word detected: Sophia model=%s", kWakeModelName);

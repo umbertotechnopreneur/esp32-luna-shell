@@ -72,7 +72,7 @@ function Edit-DeviceMenuSettings([hashtable]$Settings) {
     }
     if ($key -eq 'Feature') {
         $features = [ordered]@{
-            '1' = @{ Emoji = '🪶'; Label = 'None'; Description = 'Default lightweight composition'; Value = 'none' }
+            '1' = @{ Emoji = '🪶'; Label = 'None'; Description = 'Lightweight composition without speech'; Value = 'none' }
             '2' = @{ Emoji = '📏'; Label = 'Distance'; Description = 'Reviewed distance variant'; Value = 'distance' }
             '3' = @{ Emoji = '🎙️'; Label = 'Wake word'; Description = 'Local recognition variant'; Value = 'wake-word' }
             '4' = @{ Emoji = '💾'; Label = 'TTS on SD'; Description = 'English, Italian, Mandarin and Cantonese; Italian boot speech test'; Value = 'tts-sd' }
@@ -146,7 +146,8 @@ function Show-DeviceMenu([System.Collections.IDictionary]$InitialSettings) {
             'Choose when needed'
         }
         Write-Host "`n  CODY COMPANION  /  DEVELOPMENT CONSOLE" -ForegroundColor Cyan
-        Write-Host "  Firmware: $selector    Build mode: $($settings.BuildMode)    Feature: $(if ($settings.Feature) { $settings.Feature } else { 'none' })    Port: $portDescription    Rotation: $($settings.Rotation) degrees" -ForegroundColor Gray
+        $defaultFeature = if (-not $settings.BoardConfig -and (-not $settings.Profile -or $settings.Profile -eq 'cody-companion')) { 'tts-flash' } else { 'none' }
+        Write-Host "  Firmware: $selector    Build mode: $($settings.BuildMode)    Feature: $(if ($settings.Feature) { $settings.Feature } else { $defaultFeature })    Port: $portDescription    Rotation: $($settings.Rotation) degrees" -ForegroundColor Gray
         Write-Host "  Physical board: $($settings.Board)" -ForegroundColor Gray
         Write-Host '  Output: artifacts/    Opening the menu does not access hardware.' -ForegroundColor DarkGray
         $main = [ordered]@{

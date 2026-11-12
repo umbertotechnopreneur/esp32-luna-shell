@@ -3,6 +3,10 @@
 #include <cstring>
 
 #include "LUNASHELL_platform.h"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+#include "CODY_onboarding.hpp"
+#include "esp_attr.h"
+#endif
 #include "esp_log.h"
 #include "esp_timer.h"
 
@@ -29,6 +33,95 @@ constexpr int64_t kQuestionReminderUs = 60000000;
 constexpr int64_t kEventSoundWaitUs = 2500000;
 constexpr int64_t kVoiceCountdownCueFreshnessUs = 200000;
 constexpr int64_t kVoiceCloseCueFreshnessUs = 500000;
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+// The display owner is the only producer; the action worker copies before returning.
+EXT_RAM_BSS_ATTR char s_event_speech_text[LUNASHELL::kSpeechMaximumTextBytes + 1];
+EXT_RAM_BSS_ATTR LUNASHELL::SpeechObservation s_reply_speech_observation{};
+
+// No parameters: retire the display owner's copied question or answer text.
+void clear_event_speech_text()
+{
+    volatile char *bytes = s_event_speech_text;
+    for (size_t index = 0; index < sizeof(s_event_speech_text); ++index) bytes[index] = '\0';
+}
+
+// text: Bounded output buffer retained by this display owner.
+// used: Receives the number of complete bytes already appended.
+// source: Null-terminated canonical source, never logged.
+// capacity: Source array size, including its required terminator.
+// Exception: Returns invalid data or size instead of truncating speech content.
+esp_err_t append_event_speech(char *text, size_t &used, const char *source, size_t capacity)
+{
+    const auto *end = static_cast<const char *>(std::memchr(source, '\0', capacity));
+    if (end == nullptr) return ESP_ERR_INVALID_RESPONSE;
+    const size_t length = static_cast<size_t>(end - source);
+    if (length > LUNASHELL::kSpeechMaximumTextBytes - used) return ESP_ERR_INVALID_SIZE;
+    std::memcpy(text + used, source, length);
+    used += length;
+    text[used] = '\0';
+    return ESP_OK;
+}
+
+// event: Fresh canonical question or delivered selection.
+// length: Receives the complete rendered speech length without its terminator.
+// Exception: Rejects missing/ambiguous content or text longer than the TTS limit.
+esp_err_t format_event_speech(const LUNASHELL::CodexEventSnapshot &event, size_t &length)
+{
+    using Kind = LUNASHELL::CodexEventKind;
+    using State = LUNASHELL::CodexEventState;
+    length = 0;
+    s_event_speech_text[0] = '\0';
+    const auto add = [&](const char *text, size_t capacity) {
+        return append_event_speech(s_event_speech_text, length, text, capacity);
+    };
+    constexpr char question[] = "Question. ";
+    constexpr char answer[] = "Answer. ";
+    constexpr char period[] = ". ";
+    constexpr const char *option_prefixes[] = {" Option one. ", " Option two. ", " Option three. "};
+    if (event.kind == Kind::Question && event.state == State::Pending) {
+        if (event.choice_count == 0 || event.choice_count > 3) return ESP_ERR_INVALID_RESPONSE;
+        const char *prompt = event.body[0] != '\0' ? event.body : event.title;
+        const size_t prompt_capacity = event.body[0] != '\0' ? sizeof(event.body) : sizeof(event.title);
+        if (prompt[0] == '\0') return ESP_ERR_INVALID_RESPONSE;
+        auto error = add(question, sizeof(question));
+        if (error == ESP_OK) error = add(prompt, prompt_capacity);
+        for (size_t index = 0; error == ESP_OK && index < event.choice_count; ++index) {
+            const auto &choice = event.choices[index];
+            if (choice.label[0] == '\0') return ESP_ERR_INVALID_RESPONSE;
+            error = add(option_prefixes[index], std::strlen(option_prefixes[index]) + 1U);
+            if (error == ESP_OK) error = add(choice.label, sizeof(choice.label));
+            if (error == ESP_OK && choice.detail[0] != '\0') error = add(period, sizeof(period));
+            if (error == ESP_OK && choice.detail[0] != '\0') error = add(choice.detail, sizeof(choice.detail));
+        }
+        return error;
+    }
+    if (event.kind == Kind::Question && event.state == State::Delivered) {
+        if (event.selected_id[0] == '\0' || event.choice_count > 3 ||
+            std::memchr(event.selected_id, '\0', sizeof(event.selected_id)) == nullptr) return ESP_ERR_INVALID_RESPONSE;
+        const LUNASHELL::CodexEventChoice *selected = nullptr;
+        for (size_t index = 0; index < event.choice_count; ++index) {
+            const auto &choice = event.choices[index];
+            if (std::memchr(choice.id, '\0', sizeof(choice.id)) == nullptr) return ESP_ERR_INVALID_RESPONSE;
+            if (std::strcmp(choice.id, event.selected_id) == 0) {
+                if (selected != nullptr) return ESP_ERR_INVALID_RESPONSE;
+                selected = &choice;
+            }
+        }
+        if (selected == nullptr || selected->label[0] == '\0') return ESP_ERR_INVALID_RESPONSE;
+        auto error = add(answer, sizeof(answer));
+        if (error == ESP_OK) error = add(selected->label, sizeof(selected->label));
+        if (error == ESP_OK && selected->detail[0] != '\0') error = add(period, sizeof(period));
+        if (error == ESP_OK && selected->detail[0] != '\0') error = add(selected->detail, sizeof(selected->detail));
+        return error;
+    }
+    if (event.kind == Kind::ReplyReady && event.state == State::Pending &&
+        event.reply_segment_count > 0 && event.reply_speech[0] != '\0') {
+        return add(event.reply_speech, sizeof(event.reply_speech));
+    }
+    return ESP_ERR_INVALID_ARG;
+}
+#endif
 
 // No parameters: build a rounded-noise impulse with a short attack and quadratic decay.
 constexpr std::array<int16_t, kTapSamples> make_tap_cue()
@@ -148,6 +241,109 @@ DeviceEventSoundRecord &event_record(DeviceEffectsModel &model, const char *requ
     return record;
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+// model: Owns the current canonical event and bounded per-identity speech ledger.
+// now_us: Monotonic time used to reject expired events.
+// voice_busy: True while recording owns audio; the current event may retry later.
+// Exception: Returns the original preference, content or action-worker admission error.
+esp_err_t observe_event_speech(DeviceEffectsModel &model, int64_t now_us, bool voice_busy)
+{
+    using Kind = LUNASHELL::CodexEventKind;
+    using State = LUNASHELL::CodexEventState;
+    if (model.reply_speech_request_id != 0) {
+        const auto observation_error = LUNASHELL::DeviceSnapshotService::instance().readSpeechObservation(s_reply_speech_observation);
+        if (observation_error != ESP_OK) return observation_error;
+        const auto &speech = s_reply_speech_observation.speech;
+        if (speech.request_id == model.reply_speech_request_id) {
+            if (speech.state == LUNASHELL::SpeechState::Completed) {
+                const auto ack_error = LUNASHELL_codex_reply_speech_completed(model.reply_speech_event_id,
+                    model.reply_speech_segment);
+                if (ack_error != ESP_OK && ack_error != ESP_ERR_INVALID_STATE) return ack_error;
+                model.reply_speech_request_id = 0;
+            } else if (speech.state == LUNASHELL::SpeechState::Failed ||
+                       speech.state == LUNASHELL::SpeechState::Cancelled ||
+                       speech.state == LUNASHELL::SpeechState::Suppressed ||
+                       speech.state == LUNASHELL::SpeechState::Unavailable) {
+                model.reply_speech_request_id = 0; // No acknowledgement for a partial or failed utterance.
+            } else return ESP_OK;
+        } else if (speech.request_id > model.reply_speech_request_id) {
+            model.reply_speech_request_id = 0; // The precise completion was not observed.
+        } else return ESP_OK;
+    }
+    if (model.event_speech_pending) {
+        EventSpeechResult result{};
+        if (!take_event_speech_result(result)) return ESP_OK;
+        model.event_speech_pending = false;
+        if (result.error == ESP_OK && result.speech_request_id == 0) result.error = ESP_ERR_INVALID_RESPONSE;
+        const uint8_t completed_bit = result.kind == Kind::Question && result.state == State::Pending ? 1U :
+            result.kind == Kind::Question && result.state == State::Delivered ? 2U : 0U;
+        if (result.error == ESP_OK && result.kind == Kind::ReplyReady && result.state == State::Pending &&
+            model.event.kind == Kind::ReplyReady && model.event.revision == result.revision &&
+            std::strcmp(model.event.request_id, result.event_id) == 0) {
+            model.reply_speech_request_id = result.speech_request_id;
+            model.reply_speech_segment = model.event.reply_segment_index;
+            std::memcpy(model.reply_speech_event_id, result.event_id, sizeof(model.reply_speech_event_id));
+            auto &record = event_record(model, result.event_id);
+            record.reply_segment_valid = true;
+            record.reply_segment_announced = model.reply_speech_segment;
+        }
+        if (result.error != ESP_ERR_NOT_FINISHED) {
+            for (auto &record : model.recent_events) {
+                if (std::strcmp(record.request_id, result.event_id) == 0) {
+                    record.speech_announced |= completed_bit;
+                    break;
+                }
+            }
+            if (result.error != ESP_OK) return result.error;
+        }
+        model.next_event_speech_attempt_us = now_us + 250000;
+    }
+    const auto &event = model.event;
+    if (!model.event_online || event.request_id[0] == '\0' ||
+        std::memchr(event.request_id, '\0', sizeof(event.request_id)) == nullptr ||
+        (event.expires_at_us > 0 && now_us >= event.expires_at_us)) return ESP_OK;
+    const uint8_t bit = event.kind == Kind::Question && event.state == State::Pending ? 1U :
+        event.kind == Kind::Question && event.state == State::Delivered ? 2U :
+        event.kind == Kind::ReplyReady && event.state == State::Pending ? 4U : 0U;
+    if (bit == 0) return ESP_OK;
+    auto &record = event_record(model, event.request_id);
+    if ((record.speech_announced & bit) != 0) return ESP_OK;
+    if (bit == 4U && record.reply_segment_valid && record.reply_segment_announced == event.reply_segment_index)
+        return ESP_OK;
+    LUNASHELL::CodyOptionsObservation options{};
+    auto error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(options);
+    if (error != ESP_OK) return error;
+    if (!options.preferences.synth_voice_valid) {
+        return options.preferences.synth_voice_error != ESP_OK
+            ? options.preferences.synth_voice_error : ESP_ERR_INVALID_STATE;
+    }
+    if (options.preferences.synth_voice_error != ESP_OK) return options.preferences.synth_voice_error;
+    if (!options.preferences.synth_voice_enabled || !LUNASHELL_audio_user_sounds_enabled()) {
+        // Enabling later must not replay an occurrence observed while disabled.
+        record.speech_announced |= bit;
+        return ESP_OK;
+    }
+    if (bit == 4U && event.reply_speech[0] == '\0') return ESP_OK;
+    if (voice_busy || now_us < model.next_event_speech_attempt_us) return ESP_OK;
+    size_t length = 0;
+    error = format_event_speech(event, length);
+    if (error == ESP_OK) error = request_event_speech(s_event_speech_text, length, event.request_id,
+        event.revision, event.kind, event.state, event.selected_id);
+    clear_event_speech_text();
+    if (error == ESP_OK) {
+        model.event_speech_pending = true;
+    } else if (error == ESP_ERR_NOT_FINISHED) {
+        model.next_event_speech_attempt_us = now_us + 250000;
+        return ESP_OK;
+    } else {
+        record.speech_announced |= bit;
+        ESP_LOGW(kTag, "Event speech rejected: kind=%u state=%u error=%s",
+            static_cast<unsigned>(event.kind), static_cast<unsigned>(event.state), esp_err_to_name(error));
+    }
+    return error;
+}
+#endif
+
 // model: Holds the canonical event and the only pending semantic sound.
 // cue: Distinct immutable PCM identity for the observed transition.
 // now_us: First observation time; subsequent attempts preserve the original deadline.
@@ -170,7 +366,7 @@ esp_err_t observe_sound_attempt(CodexAudioCue cue, uint32_t &sequence, bool &fin
     finished = false;
     if (sequence == 0) return ESP_OK;
     CodexAudioStatus status{};
-    const auto error = get_codex_audio_status(status);
+    const auto error = get_codex_audio_status(sequence, cue, status);
     if (error != ESP_OK || status.request_sequence != sequence || status.cue != cue) {
         finished = true;
     } else if (status.state == CodexAudioState::DroppedBusy) {
@@ -578,8 +774,10 @@ esp_err_t play_device_boot_cue(DeviceEffectsModel &model)
             end - begin != kBootRiseSamples * sizeof(int16_t)) {
             error = ESP_ERR_INVALID_SIZE;
         } else {
-            error = LUNASHELL_audio_notify_boot(reinterpret_cast<const int16_t *>(boot_rise_start),
-                kBootRiseSamples, kBootRiseCue, &status);
+            const lunashell_audio_request_t request{reinterpret_cast<const int16_t *>(boot_rise_start),
+                kBootRiseSamples, 22050, kBootRiseCue, LUNASHELL_AUDIO_BOOT, LUNASHELL_CODEX_CUE_NOTICE,
+                1, 0, LUNASHELL_AUDIO_WAVE_PCM, 0, 1000, 0, 0, 0, 0, false, 0, 0};
+            error = LUNASHELL_audio_submit(&request, &status);
         }
     }
     model.boot_audio_error = error;
@@ -611,8 +809,10 @@ esp_err_t play_pet_cue(DeviceEffectsModel &model, PetCue cue, const LUNASHELL::V
     PetAudioClip clip{};
     auto error = pet_audio_clip(cue, clip);
     if (error == ESP_OK) {
-        error = LUNASHELL_audio_notify_pet(clip.samples, clip.sample_count,
-            static_cast<uint32_t>(cue), &model.pet_audio_status);
+        const lunashell_audio_request_t request{clip.samples, clip.sample_count, 16000,
+            static_cast<uint32_t>(cue), LUNASHELL_AUDIO_PET, LUNASHELL_CODEX_CUE_NOTICE,
+            1, 0, LUNASHELL_AUDIO_WAVE_PCM, 0, 1000, 0, 0, 0, 0, false, 0, 0};
+        error = LUNASHELL_audio_submit(&request, &model.pet_audio_status);
     } else {
         model.pet_audio_status.state = LUNASHELL_CUE_FAILED;
         model.pet_audio_status.last_error = error;
@@ -633,11 +833,13 @@ void play_device_tap_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapsh
     if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
             !voice_sound_state_known(*voice, esp_timer_get_time()))) return;
 
-    // Use the existing short, nonpreemptive mailbox. Its owner applies the saved
-    // volume, Sounds and quiet-hours policy without waiting on this touch path.
+    // The shared audio owner applies volume, Sounds and quiet-hours policy
+    // without waiting for playback on this touch path.
     lunashell_audio_cue_status_t status{};
-    const auto error = LUNASHELL_audio_notify_codex(kTapPcm.data(), kTapPcm.size(), kTapRateHz,
-        kTapCue, LUNASHELL_CODEX_CUE_NOTICE, &status);
+    const lunashell_audio_request_t request{kTapPcm.data(), kTapPcm.size(), kTapRateHz,
+        kTapCue, LUNASHELL_AUDIO_CODEX, LUNASHELL_CODEX_CUE_NOTICE, 1, 0,
+        LUNASHELL_AUDIO_WAVE_PCM, 0, 1000, 0, 0, 0, 0, false, 0, 0};
+    const auto error = LUNASHELL_audio_submit(&request, &status);
     if (error != ESP_OK && error != model.tap_audio_error) {
         ESP_LOGW(kTag, "Tap cue admission failed (%s)", esp_err_to_name(error));
     }
@@ -652,8 +854,10 @@ void play_device_preference_cue(DeviceEffectsModel &model, const LUNASHELL::Voic
     if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
             !voice_sound_state_known(*voice, esp_timer_get_time()))) return;
     lunashell_audio_cue_status_t status{};
-    const auto error = LUNASHELL_audio_notify_codex(kPreferencePcm.data(), kPreferencePcm.size(), kTapRateHz,
-        kPreferenceCue, LUNASHELL_CODEX_CUE_NOTICE, &status);
+    const lunashell_audio_request_t request{kPreferencePcm.data(), kPreferencePcm.size(), kTapRateHz,
+        kPreferenceCue, LUNASHELL_AUDIO_CODEX, LUNASHELL_CODEX_CUE_NOTICE, 1, 0,
+        LUNASHELL_AUDIO_WAVE_PCM, 0, 1000, 0, 0, 0, 0, false, 0, 0};
+    const auto error = LUNASHELL_audio_submit(&request, &status);
     if (error != ESP_OK && error != model.preference_audio_error) {
         ESP_LOGW(kTag, "Preference cue admission failed (%s)", esp_err_to_name(error));
     }
@@ -713,8 +917,10 @@ void play_device_key_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapsh
     if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
             !voice_sound_state_known(*voice, esp_timer_get_time()))) return;
     lunashell_audio_cue_status_t status{};
-    const auto error = LUNASHELL_audio_notify_codex(kTapPcm.data(), 320, kTapRateHz,
-        kKeyCue, LUNASHELL_CODEX_CUE_NOTICE, &status);
+    const lunashell_audio_request_t request{kTapPcm.data(), 320, kTapRateHz,
+        kKeyCue, LUNASHELL_AUDIO_CODEX, LUNASHELL_CODEX_CUE_NOTICE, 1, 0,
+        LUNASHELL_AUDIO_WAVE_PCM, 0, 1000, 0, 0, 0, 0, false, 0, 0};
+    const auto error = LUNASHELL_audio_submit(&request, &status);
     if (error != ESP_OK && error != model.tap_audio_error) {
         ESP_LOGW(kTag, "Keyboard cue admission failed (%s)", esp_err_to_name(error));
     }
@@ -729,8 +935,10 @@ void play_device_wake_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnaps
     if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
             !voice_sound_state_known(*voice, esp_timer_get_time()))) return;
     lunashell_audio_cue_status_t status{};
-    const auto error = LUNASHELL_audio_notify_codex(kWakePcm.data(), kWakePcm.size(), kTapRateHz,
-        kWakeCue, LUNASHELL_CODEX_CUE_NOTICE, &status);
+    const lunashell_audio_request_t request{kWakePcm.data(), kWakePcm.size(), kTapRateHz,
+        kWakeCue, LUNASHELL_AUDIO_CODEX, LUNASHELL_CODEX_CUE_NOTICE, 1, 0,
+        LUNASHELL_AUDIO_WAVE_PCM, 0, 1000, 0, 0, 0, 0, false, 0, 0};
+    const auto error = LUNASHELL_audio_submit(&request, &status);
     if (error != ESP_OK && error != model.wake_audio_error) {
         ESP_LOGW(kTag, "Wake cue admission failed (%s)", esp_err_to_name(error));
     }
@@ -745,8 +953,10 @@ void play_device_jump_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnaps
     if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
             !voice_sound_state_known(*voice, esp_timer_get_time()))) return;
     lunashell_audio_cue_status_t status{};
-    const auto error = LUNASHELL_audio_notify_codex(kJumpPcm.data(), kJumpPcm.size(), kTapRateHz,
-        kJumpCue, LUNASHELL_CODEX_CUE_NOTICE, &status);
+    const lunashell_audio_request_t request{kJumpPcm.data(), kJumpPcm.size(), kTapRateHz,
+        kJumpCue, LUNASHELL_AUDIO_CODEX, LUNASHELL_CODEX_CUE_NOTICE, 1, 0,
+        LUNASHELL_AUDIO_WAVE_PCM, 0, 1000, 0, 0, 0, 0, false, 0, 0};
+    const auto error = LUNASHELL_audio_submit(&request, &status);
     if (error != ESP_OK && error != model.jump_audio_error) {
         ESP_LOGW(kTag, "Jump cue admission failed (%s)", esp_err_to_name(error));
     }
@@ -761,7 +971,10 @@ static esp_err_t notify_pet_expression(CodexAudioCue cue, lunashell_audio_cue_st
     for (const auto &clip : CodexAudioAssets::clips) {
         if (clip.cue != cue) continue;
         if (clip.sample_rate_hz != 16000) return ESP_ERR_INVALID_SIZE;
-        return LUNASHELL_audio_notify_pet(clip.samples, clip.sample_count, static_cast<uint32_t>(cue), &status);
+        const lunashell_audio_request_t request{clip.samples, clip.sample_count, clip.sample_rate_hz,
+            static_cast<uint32_t>(cue), LUNASHELL_AUDIO_PET, LUNASHELL_CODEX_CUE_NOTICE,
+            1, 0, LUNASHELL_AUDIO_WAVE_PCM, 0, 1000, 0, 0, 0, 0, false, 0, 0};
+        return LUNASHELL_audio_submit(&request, &status);
     }
     return ESP_ERR_NOT_FOUND;
 }
@@ -899,6 +1112,13 @@ esp_err_t update_device_effects(DeviceEffectsModel &model,
     }
     observe_battery(model, battery, request);
     const bool suspended = observe_voice(model, voice, now_us, request);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    const auto speech_error = observe_event_speech(model, now_us, suspended);
+    if (speech_error != ESP_OK && speech_error != model.event_speech_error) {
+        ESP_LOGW(kTag, "Optional event speech unavailable (%s)", esp_err_to_name(speech_error));
+    }
+    model.event_speech_error = speech_error;
+#endif
     // Optional audio failure must not suppress the independent attention model.
     const auto suspend_error = model.prepared && model.preparation_error == ESP_OK
         ? set_codex_audio_suspended(suspended) : model.preparation_error;

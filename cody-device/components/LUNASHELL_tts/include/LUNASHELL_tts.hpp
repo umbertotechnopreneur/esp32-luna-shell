@@ -17,6 +17,7 @@
 #pragma once
 
 #include "LUNASHELL_speech_state.hpp"
+#include "LUNASHELL_codex_events.hpp"
 #include "esp_err.h"
 #include <cstddef>
 #include <cstdint>
@@ -32,6 +33,14 @@ struct SpeechRequest {
     uint8_t pitch_range = 20;
 };
 
+struct SpeechEventIdentity {
+    const char *event_id = nullptr;
+    uint64_t revision = 0;
+    CodexEventKind kind = CodexEventKind::None;
+    CodexEventState state = CodexEventState::None;
+    const char *selected_id = nullptr;
+};
+
 // No parameters: creates a silent service; does not synthesize or read the card.
 // Exception: Returns worker/allocation/publication errors; TTS is optional at startup.
 esp_err_t initialize_speech();
@@ -39,6 +48,14 @@ esp_err_t initialize_speech();
 // request_id: Receives a stable nonzero identity; admission is not playback completion.
 // Exception: Returns rejected format, language, lifecycle, busy or publication errors.
 esp_err_t request_speech(const SpeechRequest &request, uint32_t &request_id);
+// request: Validated Codex question or answer text, copied on admission.
+// event: Canonical event identity revalidated during speech; strings are copied.
+// request_id: Receives the nonzero speech request identity.
+// Exception: Returns the original input, policy, lifecycle or admission failure.
+esp_err_t request_codex_speech(const SpeechRequest &request, const SpeechEventIdentity &event, uint32_t &request_id);
+// No parameters: cancels the active Codex event speech, if one is owned.
+// Exception: None; explicit test speech and unrelated requests remain untouched.
+void cancel_codex_speech();
 #if CONFIG_LUNASHELL_TTS_BOOT_TEST_ITALIAN
 // No parameters: queues the fixed Italian boot phrase once; worker awaits the initial SD report.
 // Exception: Returns admission error; active power, card integrity and audio volume still apply.

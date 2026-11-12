@@ -56,6 +56,9 @@
 #include "LUNASHELL_build_mode.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_platform.h"
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+#include "LUNASHELL_tts.hpp"
+#endif
 #include "scene_data.hpp"
 #include "home_dashboard_fonts.hpp"
 #include "navigation_data.hpp"
@@ -221,11 +224,15 @@ enum class Work : uint8_t {
     SavePreference,
     ScheduleBirthIntro,
     SaveWidgetVisibility,
+    RefreshAudioPreferences,
+    SaveAudioPreference,
     LocalWifiScan,
     LocalWifiConnect,
 #if CONFIG_LUNASHELL_CODY_RELAY_PROBE
     CheckRelay,
 #endif
+    TestSynthVoice,
+    EventSpeech,
 };
 using NavigationDirection = UI::NavigationDirection;
 enum class CodexConnectionIntent : uint8_t { Setup, Retry, ConfirmReplacement };
@@ -239,6 +246,7 @@ enum class OnboardingAction : uint8_t {
     FactoryReset, ConfirmFactoryReset, LocalTimer, RestartDevice, ConfirmRestart, QuickGuide,
     CheckRelay, SynthOptions, BrowseCodex, AndroidApp, AppleApp, LocalWifi, AudioLevels, OpenAbout,
     MoreBehaviorSettings, QuietHours, QuietToggle, QuietStart, QuietEnd, QuietHour, QuietMinute, QuietSave,
+    TestSynthVoice,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
@@ -297,6 +305,7 @@ struct Result {
     Command command{};
     esp_err_t error = ESP_OK;
     bool preference_changed = false;
+    uint32_t speech_request_id = 0;
     QrModules qr{};
     char codex_code[7]{};
 #if CONFIG_LUNASHELL_CODY_RELAY_PROBE
@@ -465,6 +474,27 @@ bool s_connections_from_options = false;
 WidgetOpenRequest s_widget_open_request = WidgetOpenRequest::None;
 OptionsPage s_options_page = OptionsPage::Menu;
 esp_err_t s_preference_error = ESP_OK;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+EXT_RAM_BSS_ATTR LUNASHELL::SpeechObservation s_speech_observation{};
+uint32_t s_speech_test_id = 0;
+LUNASHELL::SpeechState s_speech_test_state = LUNASHELL::SpeechState::Idle;
+esp_err_t s_speech_test_error = ESP_OK;
+struct EventSpeechRequest {
+    char text[LUNASHELL::kSpeechMaximumTextBytes + 1U]{};
+    char event_id[33]{};
+    char selected_id[13]{};
+    size_t text_bytes = 0;
+    uint64_t revision = 0;
+    LUNASHELL::CodexEventKind kind = LUNASHELL::CodexEventKind::None;
+    LUNASHELL::CodexEventState state = LUNASHELL::CodexEventState::None;
+};
+EXT_RAM_BSS_ATTR EventSpeechRequest s_event_speech{};
+EventSpeechResult s_event_speech_result{};
+std::atomic_bool s_event_speech_result_ready{false};
+EXT_RAM_BSS_ATTR LUNASHELL::CodexEventSnapshot s_event_speech_observation{};
+EXT_RAM_BSS_ATTR LUNASHELL::CodyOptionsObservation s_event_speech_options{};
+LUNASHELL::CodexPresenceStatus s_event_speech_presence{};
+#endif
 bool s_retry_birth_intro = false;
 bool s_birth_intro_scheduled = false;
 uint32_t s_factory_reset_request_id = 0;
@@ -905,6 +935,64 @@ void execute_command(const Command &command, Result &result)
         result.error = persist_first_boot(false);
         return;
     }
+    if (command.work == Work::EventSpeech) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+        auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
+        result.error = snapshots.readCodexEventObservation(s_event_speech_observation);
+        if (result.error == ESP_OK) result.error = snapshots.readCodyOptionsObservation(s_event_speech_options);
+        if (result.error == ESP_OK) result.error = snapshots.readCodexPresenceStatus(s_event_speech_presence);
+        const auto &event = s_event_speech_observation;
+        const auto &preferences = s_event_speech_options.preferences;
+        const auto &presence = s_event_speech_presence;
+        if (result.error == ESP_OK && (!presence.codex_link.data_valid || presence.codex_link.data_stale ||
+            presence.codex_link.last_error != ESP_OK || !presence.codex_app_open ||
+            presence.codex_link_state != LUNASHELL::CodexLinkState::Connected ||
+            !event.data_valid || event.data_stale || event.last_error != ESP_OK ||
+            (event.expires_at_us > 0 && esp_timer_get_time() >= event.expires_at_us) ||
+            std::strcmp(event.request_id, s_event_speech.event_id) != 0 || event.revision != s_event_speech.revision ||
+            event.kind != s_event_speech.kind || event.state != s_event_speech.state ||
+            std::strcmp(event.selected_id, s_event_speech.selected_id) != 0 ||
+            !preferences.synth_voice_valid || preferences.synth_voice_error != ESP_OK || !preferences.synth_voice_enabled ||
+            !LUNASHELL_audio_user_sounds_enabled())) {
+            result.error = ESP_ERR_INVALID_STATE;
+        }
+        if (result.error == ESP_OK) {
+            LUNASHELL::SpeechRequest request{};
+            request.language = LUNASHELL::SpeechLanguage::English;
+            request.text = s_event_speech.text;
+            request.text_bytes = s_event_speech.text_bytes;
+            const LUNASHELL::SpeechEventIdentity identity{s_event_speech.event_id, s_event_speech.revision,
+                s_event_speech.kind, s_event_speech.state, s_event_speech.selected_id};
+            result.error = LUNASHELL::request_codex_speech(request, identity, result.speech_request_id);
+        }
+        wipe(s_event_speech_observation.reply_speech, sizeof(s_event_speech_observation.reply_speech));
+#else
+        result.error = ESP_ERR_NOT_SUPPORTED;
+#endif
+        return;
+    }
+    if (command.work == Work::TestSynthVoice) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+        if (command.generation != s_presentation_generation.load(std::memory_order_acquire)) {
+            result.error = ESP_ERR_INVALID_STATE;
+            return;
+        }
+        if (!LUNASHELL_audio_user_sounds_enabled()) {
+            ESP_LOGW(kTag, "Voice test suppressed because Sounds is off");
+            result.error = ESP_ERR_INVALID_STATE;
+            return;
+        }
+        constexpr char text[] = "Hello from Cody";
+        LUNASHELL::SpeechRequest request{};
+        request.language = LUNASHELL::SpeechLanguage::English;
+        request.text = text;
+        request.text_bytes = sizeof(text) - 1U;
+        result.error = LUNASHELL::request_speech(request, result.speech_request_id);
+#else
+        result.error = ESP_ERR_NOT_SUPPORTED;
+#endif
+        return;
+    }
     if (command.work == Work::SavePreference) {
         if (command.generation != s_presentation_generation.load(std::memory_order_acquire)) {
             result.error = ESP_ERR_INVALID_STATE;
@@ -938,6 +1026,19 @@ void execute_command(const Command &command, Result &result)
             return;
         }
         result.error = persist_birth_intro_pending(true);
+        return;
+    }
+    if (command.work == Work::RefreshAudioPreferences) {
+        result.error = reconcile_audio_preferences();
+        return;
+    }
+    if (command.work == Work::SaveAudioPreference) {
+        if (command.generation != s_presentation_generation.load(std::memory_order_acquire)) {
+            result.error = ESP_ERR_INVALID_STATE;
+            ESP_LOGE(kTag, "Audio preference write retired before persistence (%s)", esp_err_to_name(result.error));
+            return;
+        }
+        result.error = persist_companion_preference(command.preference, command.preference_value);
         return;
     }
     if (command.work == Work::SaveWidgetVisibility) {
@@ -1024,6 +1125,25 @@ void complete_action()
         ESP_LOGE(kTag, "Action %u attempt=%lu session=%lu failed (%s)",
             to_index(completed.command.work), static_cast<unsigned long>(completed.command.attempt),
             static_cast<unsigned long>(completed.command.session), esp_err_to_name(completed.error));
+    }
+    if (completed.command.work == Work::EventSpeech) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+        s_event_speech_result = {};
+        std::memcpy(s_event_speech_result.event_id, s_event_speech.event_id, sizeof(s_event_speech_result.event_id));
+        std::memcpy(s_event_speech_result.selected_id, s_event_speech.selected_id, sizeof(s_event_speech_result.selected_id));
+        s_event_speech_result.revision = s_event_speech.revision;
+        s_event_speech_result.kind = s_event_speech.kind;
+        s_event_speech_result.state = s_event_speech.state;
+        s_event_speech_result.error = completed.error;
+        s_event_speech_result.speech_request_id = completed.speech_request_id;
+        wipe(&s_event_speech, sizeof(s_event_speech));
+        wipe(&s_event_speech_observation, sizeof(s_event_speech_observation));
+        wipe(&s_event_speech_options, sizeof(s_event_speech_options));
+        wipe(&s_event_speech_presence, sizeof(s_event_speech_presence));
+        s_event_speech_result_ready.store(true, std::memory_order_release);
+#endif
+        s_work_busy.store(false, std::memory_order_release);
+        return;
     }
     s_result_ready.store(true, std::memory_order_release);
 }
@@ -1414,6 +1534,9 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         break;
     case OnboardingAction::SynthOptions:
         label = "Synth Voice";
+        break;
+    case OnboardingAction::TestSynthVoice:
+        label = "Test voice";
         break;
     case OnboardingAction::CodexStatistics:
         label = "Codex stats";
@@ -2773,7 +2896,7 @@ esp_err_t prepare_quick_guide_content(SceneFrame &scene)
 #endif
     };
     constexpr GuideCommand offline[] = {
-        {"SAVED STATS", "Last update in UTC"}, {"TIMER", "Works without PC"}, {"RESTART", "Keeps settings"},
+        {"SAVED STATS", "Last update in UTC"}, {"TIMER", "Works without PC"}, {"BATTERY", "About 17 hours"},
     };
     static_assert(std::size(buttons) == std::size(touch) && std::size(touch) == std::size(offline));
     static_assert(2U * std::size(touch) + 1U <= kContentLineCapacity);
@@ -2944,9 +3067,14 @@ PreferencePresentation project_preference(PreferenceId identity,
     PreferencePresentation result{preferences.data_valid && !preferences.data_stale, false, 0};
     switch (identity) {
     case PreferenceId::SynthEnabled:
+        result.available = preferences.synth_voice_valid && preferences.synth_voice_error == ESP_OK;
+        result.active = preferences.synth_voice_enabled;
+        break;
     case PreferenceId::SynthVolume:
     case PreferenceId::SynthVoice:
-        // No engine has been admitted yet. Never offer a setting that cannot be applied.
+    case PreferenceId::PlaybackVolume:
+    case PreferenceId::MicrophoneGain:
+        // These settings have no supported control implementation.
         result.available = false;
         break;
     case PreferenceId::Screensaver:
@@ -2969,6 +3097,14 @@ PreferencePresentation project_preference(PreferenceId identity,
         result.available = preferences.dictation_valid && preferences.dictation_error == ESP_OK;
         result.active = preferences.dictation_enabled;
         break;
+    case PreferenceId::Sofia:
+        result.available = preferences.sofia_valid && preferences.sofia_error == ESP_OK;
+        result.active = preferences.sofia_enabled;
+        break;
+    case PreferenceId::CounterMode:
+        result.available = preferences.counter_mode_valid && preferences.counter_mode_error == ESP_OK;
+        result.active = preferences.counter_mode_enabled;
+        break;
     case PreferenceId::ShakeWake:
         result.active = preferences.shake_to_wake;
 #if !CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
@@ -2989,10 +3125,6 @@ PreferencePresentation project_preference(PreferenceId identity,
         if (identity == PreferenceId::Orientation && !result.active) {
             result.value = orientation.rendering_rotation_degrees;
         }
-        break;
-    case PreferenceId::UsageMode:
-        result.available = preferences.usage_mode_valid && preferences.usage_mode_error == ESP_OK;
-        result.active = preferences.usage_mode == LUNASHELL::CodyUsageMode::Away;
         break;
     case PreferenceId::Brightness:
         result.available = observation.brightness_valid && observation.brightness_percent >= 10U &&
@@ -3070,6 +3202,17 @@ MenuAppearance menu_appearance(OnboardingAction action)
     case OnboardingAction::MoreBehaviorSettings: return {Icon::Motion, Theme::primary_muted, "More behavior settings"};
     case OnboardingAction::QuietHours: return {Icon::Clock, Theme::accent_warm, "Quiet schedule"};
     case OnboardingAction::SynthOptions: return {Icon::Sound, Theme::accent_warm, "Voice settings"};
+    case OnboardingAction::TestSynthVoice:
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+        if (s_speech_test_state == LUNASHELL::SpeechState::Suppressed) return {Icon::Sound, Theme::accent_warm, "Suppressed"};
+        if (s_speech_test_error != ESP_OK) return {Icon::Sound, Theme::accent_warm, "Test failed"};
+        if (s_speech_test_state == LUNASHELL::SpeechState::Completed) return {Icon::Sound, Theme::accent_warm, "Completed"};
+        if (s_speech_test_id != 0 && s_speech_test_state != LUNASHELL::SpeechState::Idle)
+            return {Icon::Sound, Theme::accent_warm, "In progress"};
+        return {Icon::Sound, Theme::accent_warm, "Hello from Cody"};
+#else
+        return {Icon::Sound, Theme::accent_warm, "Not available"};
+#endif
     case OnboardingAction::ScheduleBirthIntro: return {Icon::Retry, Theme::secondary_default, "Next restart"};
     default: return {Icon::None, kPairingCaption, ""};
     }
@@ -3253,6 +3396,11 @@ esp_err_t prepare_options_content(SceneFrame &scene,
         return error == ESP_OK ? prepare_action(OnboardingAction::None, false) : error;
     }
     if (on_options_menu()) {
+        LUNASHELL::CodyOptionsObservation menu_options{};
+        const auto menu_options_error =
+            LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(menu_options);
+        const bool browser_available = menu_options_error == ESP_OK &&
+            menu_options.preferences.counter_mode_valid && !menu_options.preferences.counter_mode_enabled;
         constexpr OnboardingAction legacy_actions[] = {
             OnboardingAction::Connections, OnboardingAction::CodexStatistics, OnboardingAction::VisibleScreens,
             OnboardingAction::DisplayOptions, OnboardingAction::BehaviorOptions,
@@ -3283,7 +3431,7 @@ esp_err_t prepare_options_content(SceneFrame &scene,
             if (error == ESP_OK) {
                 CODY2D::TextLine unused;
                 error = prepare_button(action, label, {kPreferenceLeft, top, kPreferenceWidth, kPreferenceHeight},
-                    true, false, target.control, unused);
+                    action != OnboardingAction::BrowseCodex || browser_available, false, target.control, unused);
                 if (error == ESP_OK && kDeviceFirstSetup) {
                     error = prepare_menu_row(label, menu_appearance(action), target.control, target.value);
                 }
@@ -3301,13 +3449,6 @@ esp_err_t prepare_options_content(SceneFrame &scene,
             return ESP_OK;
         }
         return prepare_action(OnboardingAction::Done, true);
-    }
-    if (s_options_page == OptionsPage::BehaviorMoreSettings) {
-        s_view.menu_page = 2;
-        s_view.menu_page_count = 2;
-        error = append_options_action(OnboardingAction::QuietHours, !s_command_pending);
-        if (error == ESP_OK) error = append_options_action(OnboardingAction::SynthOptions, !s_command_pending);
-        return error == ESP_OK ? prepare_action(OnboardingAction::None, false) : error;
     }
     if (s_options_page == OptionsPage::QuietHours || s_options_page == OptionsPage::QuietEdit) {
         LUNASHELL::ClockSnapshot clock{};
@@ -3382,12 +3523,12 @@ esp_err_t prepare_options_content(SceneFrame &scene,
         {PreferenceId::SynthVolume, "Voice volume", Icon::Sound, Theme::accent_warm},
         {PreferenceId::SynthVoice, "Voice type", Icon::Sound, Theme::accent_warm},
     };
-    static constexpr Row usage_row{PreferenceId::UsageMode, "Usage", Icon::Home, Theme::accent_cyan};
     static constexpr Row more_behavior_rows[] = {
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-        usage_row,
-#endif
+        {PreferenceId::Sofia, "Sofia", Icon::Microphone, Theme::accent_cyan},
         {PreferenceId::Screensaver, "Screensaver", Icon::Motion, Theme::primary_muted},
+    };
+    static constexpr Row more_settings_rows[] = {
+        {PreferenceId::CounterMode, "Counter mode", Icon::Statistics, Theme::accent_cyan},
     };
     static constexpr Row behavior_rows[] = {
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
@@ -3395,14 +3536,12 @@ esp_err_t prepare_options_content(SceneFrame &scene,
 #endif
         {PreferenceId::ShakeWake, "Shake sleep/wake", Icon::Motion, Theme::secondary_default},
         {PreferenceId::Sounds, "Sounds", Icon::Sound, Theme::accent_warm},
-#if !CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-        usage_row,
-#endif
     };
     static_assert(std::size(display_rows) + 1U <= kPreferencesPerPage);
     static_assert(std::size(synth_rows) <= kPreferencesPerPage);
     static_assert(std::size(behavior_rows) + 1U <= kPreferencesPerPage);
     static_assert(std::size(more_behavior_rows) + 2U <= kPreferencesPerPage);
+    static_assert(std::size(more_settings_rows) + 2U <= kPreferencesPerPage);
     const Row *rows = behavior_rows;
     size_t row_count = std::size(behavior_rows);
     if (s_options_page == OptionsPage::Display) {
@@ -3420,6 +3559,9 @@ esp_err_t prepare_options_content(SceneFrame &scene,
     } else if (s_options_page == OptionsPage::BehaviorMore) {
         rows = more_behavior_rows;
         row_count = std::size(more_behavior_rows);
+    } else if (s_options_page == OptionsPage::BehaviorMoreSettings) {
+        rows = more_settings_rows;
+        row_count = std::size(more_settings_rows);
     }
     const uint16_t first_row_top = kPreferenceTop;
     const auto &font = SceneData::body_font;
@@ -3437,9 +3579,6 @@ esp_err_t prepare_options_content(SceneFrame &scene,
         target.requested_value = active ? 0U : 1U;
         if (available) {
             value = active ? "On" : "Off";
-            if (row.identity == PreferenceId::UsageMode) {
-                value = active ? "Away" : "Desk";
-            }
             if (row.identity == PreferenceId::Orientation) {
                 if (active) {
                     value = "Auto";
@@ -3487,6 +3626,13 @@ esp_err_t prepare_options_content(SceneFrame &scene,
             return error;
         }
         ++s_view.preference_count;
+    }
+    if (s_options_page == OptionsPage::BehaviorMoreSettings) {
+        s_view.menu_page = 2;
+        s_view.menu_page_count = 2;
+        error = append_options_action(OnboardingAction::QuietHours, !s_command_pending);
+        if (error == ESP_OK) error = append_options_action(OnboardingAction::SynthOptions, !s_command_pending);
+        return error == ESP_OK ? prepare_action(OnboardingAction::None, false) : error;
     }
     if (s_options_page == OptionsPage::Display && kDeviceFirstSetup) {
         error = append_options_action(OnboardingAction::MoreDisplay, !s_command_pending);
@@ -3570,7 +3716,19 @@ esp_err_t prepare_options_content(SceneFrame &scene,
         return error == ESP_OK ? prepare_action(OnboardingAction::None, false) : error;
     }
     if (s_options_page == OptionsPage::SynthVoice) {
-        return prepare_action(OnboardingAction::None, false);
+        error = append_options_action(OnboardingAction::TestSynthVoice,
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+            !s_command_pending && (s_speech_test_id == 0 ||
+                s_speech_test_state == LUNASHELL::SpeechState::Completed ||
+                s_speech_test_state == LUNASHELL::SpeechState::Cancelled ||
+                s_speech_test_state == LUNASHELL::SpeechState::Suppressed ||
+                s_speech_test_state == LUNASHELL::SpeechState::Failed ||
+                s_speech_test_state == LUNASHELL::SpeechState::Unavailable)
+#else
+            false
+#endif
+        );
+        return error == ESP_OK ? prepare_action(OnboardingAction::None, false) : error;
     }
     return prepare_action(OnboardingAction::Done, !s_command_pending);
 }
@@ -4464,6 +4622,8 @@ esp_err_t present_codex_event(const LUNASHELL::CodexLinkSnapshot &link, SceneFra
     auto &observed = s_observed_event;
     const esp_err_t read_error =
         LUNASHELL::DeviceSnapshotService::instance().readCodexEventObservation(observed);
+    // The scene needs event metadata only; private response text belongs to the speech owner.
+    wipe(observed.reply_speech, sizeof(observed.reply_speech));
     if (read_error != ESP_OK) {
         s_question_audio_schedule.last_attempt_at_us = -1;
         if (in_options) {
@@ -5553,6 +5713,63 @@ esp_err_t update_timeout_cleanup(SceneFrame &scene,
 }
 
 } // namespace
+
+// text: Complete immutable speech text copied to worker-owned bounded storage.
+// text_bytes: Exact nonzero byte count, at most kSpeechMaximumTextBytes.
+// event_id: Authenticated event identity, at most 32 bytes.
+// event_revision: Exact canonical revision used to derive the speech.
+// kind: Question event category.
+// state: Pending question or delivered selected answer.
+// selected_id: Stable answer identity, or empty for a pending event.
+// Exception: Returns invalid data, unavailable speech or a busy action worker.
+esp_err_t request_event_speech(const char *text, size_t text_bytes, const char *event_id,
+    uint64_t event_revision, LUNASHELL::CodexEventKind kind, LUNASHELL::CodexEventState state,
+    const char *selected_id)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    const bool valid_state = (kind == LUNASHELL::CodexEventKind::Question &&
+        (state == LUNASHELL::CodexEventState::Pending || state == LUNASHELL::CodexEventState::Delivered)) ||
+        (kind == LUNASHELL::CodexEventKind::ReplyReady && state == LUNASHELL::CodexEventState::Pending);
+    if (text == nullptr || text_bytes == 0 || text_bytes > LUNASHELL::kSpeechMaximumTextBytes || event_id == nullptr || selected_id == nullptr ||
+        strnlen(event_id, 33) == 0 || strnlen(event_id, 33) >= 33 || strnlen(selected_id, 13) >= 13 ||
+        event_revision == 0 || !valid_state || memchr(text, '\0', text_bytes) != nullptr) return ESP_ERR_INVALID_ARG;
+    if (s_worker == nullptr) return ESP_ERR_INVALID_STATE;
+    if (s_command_pending || s_work_busy.load(std::memory_order_acquire) ||
+        s_event_speech_result_ready.load(std::memory_order_acquire)) return ESP_ERR_NOT_FINISHED;
+    s_event_speech = {};
+    std::memcpy(s_event_speech.text, text, text_bytes);
+    std::memcpy(s_event_speech.event_id, event_id, std::strlen(event_id) + 1U);
+    std::memcpy(s_event_speech.selected_id, selected_id, std::strlen(selected_id) + 1U);
+    s_event_speech.text_bytes = text_bytes;
+    s_event_speech.revision = event_revision;
+    s_event_speech.kind = kind;
+    s_event_speech.state = state;
+    s_command = {};
+    s_command.work = Work::EventSpeech;
+    s_work_busy.store(true, std::memory_order_release);
+    xTaskNotifyGive(s_worker);
+    return ESP_OK;
+#else
+    (void)text; (void)text_bytes; (void)event_id; (void)event_revision;
+    (void)kind; (void)state; (void)selected_id;
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
+}
+
+// result: Receives one copied result; no speech text is retained in this receipt.
+// Exception: None; false means no new receipt is available.
+bool take_event_speech_result(EventSpeechResult &result)
+{
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+    if (!s_event_speech_result_ready.load(std::memory_order_acquire)) return false;
+    result = s_event_speech_result;
+    s_event_speech_result_ready.store(false, std::memory_order_release);
+    return true;
+#else
+    (void)result;
+    return false;
+#endif
+}
 
 // No parameters: all action storage is static; no framebuffer or per-frame allocation.
 esp_err_t onboarding_service_init()
@@ -6766,6 +6983,86 @@ bool take_preference_confirmation()
     return confirmed;
 }
 
+// No parameters: request worker reconciliation without blocking the display task.
+// Exception: Returns NOT_FINISHED if the shared mailbox is occupied.
+esp_err_t request_audio_preferences_refresh()
+{
+    if (s_worker == nullptr) {
+        ESP_LOGE(kTag, "Audio preference refresh worker unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_command_pending || s_work_busy.load(std::memory_order_acquire)) return ESP_ERR_NOT_FINISHED;
+    s_command = {};
+    s_command.work = Work::RefreshAudioPreferences;
+    s_command.generation = s_generation;
+    s_command_pending = true;
+    ++s_navigation_revision;
+    s_work_busy.store(true, std::memory_order_release);
+    if (xTaskNotifyGive(s_worker) != pdPASS) {
+        s_command_pending = false;
+        s_work_busy.store(false, std::memory_order_release);
+        ESP_LOGE(kTag, "Audio preference refresh notification failed (%s)", esp_err_to_name(ESP_FAIL));
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+// preference: Stable output or input control identity.
+// value: Explicit bounded setting chosen by the user.
+// Exception: Returns invalid input, unavailable Options route or busy worker without starting a write.
+esp_err_t request_audio_preference(PreferenceId preference, uint32_t value)
+{
+    const bool valid = preference == PreferenceId::PlaybackVolume ? value <= 100U :
+        preference == PreferenceId::MicrophoneGain && value <= 30U && value % 3U == 0;
+    if (!valid) {
+        ESP_LOGE(kTag, "Audio preference request rejected: id=%u value=%lu (%s)",
+            static_cast<unsigned>(preference), static_cast<unsigned long>(value), esp_err_to_name(ESP_ERR_INVALID_ARG));
+        return ESP_ERR_INVALID_ARG;
+    }
+    if (s_route != Route::MakeItYours10 || s_worker == nullptr) {
+        ESP_LOGE(kTag, "Audio preference route/worker unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    if (s_command_pending || s_work_busy.load(std::memory_order_acquire)) return ESP_ERR_NOT_FINISHED;
+    s_command = {};
+    s_command.work = Work::SaveAudioPreference;
+    s_command.generation = s_generation;
+    s_command.preference = preference;
+    s_command.preference_value = value;
+    s_command_pending = true;
+    ++s_navigation_revision;
+    s_work_busy.store(true, std::memory_order_release);
+    if (xTaskNotifyGive(s_worker) != pdPASS) {
+        s_command_pending = false;
+        s_work_busy.store(false, std::memory_order_release);
+        ESP_LOGE(kTag, "Audio preference save notification failed (%s)", esp_err_to_name(ESP_FAIL));
+        return ESP_FAIL;
+    }
+    return ESP_OK;
+}
+
+// refresh: Receives whether this is the two-control reconciliation result.
+// preference: Receives the explicit identity for a save result.
+// error: Receives the original worker result, even after a route change.
+bool take_audio_preference_result(bool &refresh, PreferenceId &preference, esp_err_t &error)
+{
+    if (!s_result_ready.load(std::memory_order_acquire) ||
+        (s_result.command.work != Work::RefreshAudioPreferences && s_result.command.work != Work::SaveAudioPreference)) {
+        return false;
+    }
+    refresh = s_result.command.work == Work::RefreshAudioPreferences;
+    preference = s_result.command.preference;
+    error = s_result.error;
+    if (s_result.command.generation == s_generation) {
+        s_command_pending = false;
+        ++s_navigation_revision;
+    }
+    wipe(&s_result, sizeof(s_result));
+    s_result_ready.store(false, std::memory_order_release);
+    s_work_busy.store(false, std::memory_order_release);
+    return true;
+}
+
 // scene: Visible reconnect page, without interpreting unavailable data as missing credentials.
 // wifi: Coherent observation used for the network name during passive reconnect.
 // error: Actual canonical Wi-Fi observation failure, or ESP_OK for a known disconnected state.
@@ -6940,7 +7237,8 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(direct_observation) : ESP_OK;
     Result result;
     bool have_result = direct_observation_error == ESP_OK && s_result_ready.load(std::memory_order_acquire) &&
-        s_result.command.work != Work::SaveWidgetVisibility;
+        s_result.command.work != Work::SaveWidgetVisibility &&
+        s_result.command.work != Work::RefreshAudioPreferences && s_result.command.work != Work::SaveAudioPreference;
     if (have_result) {
         result = s_result;
         wipe(&s_result, sizeof(s_result));
@@ -7056,6 +7354,27 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             return options_error;
         }
         bool pc_time_changed = false;
+        bool speech_changed = false;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+        if (s_options_page == OptionsPage::SynthVoice && s_speech_test_id != 0) {
+            const auto speech_error = LUNASHELL::DeviceSnapshotService::instance().readSpeechObservation(s_speech_observation);
+            auto state = s_speech_test_state;
+            auto status_error = s_speech_test_error;
+            if (speech_error != ESP_OK) {
+                state = LUNASHELL::SpeechState::Unavailable;
+                status_error = speech_error;
+            } else if (s_speech_observation.speech.request_id == s_speech_test_id) {
+                state = s_speech_observation.speech.state;
+                status_error = s_speech_observation.speech.last_error;
+            } else if (s_speech_observation.speech.request_id > s_speech_test_id) {
+                state = LUNASHELL::SpeechState::Unavailable;
+                status_error = ESP_ERR_NOT_FOUND;
+            }
+            speech_changed = state != s_speech_test_state || status_error != s_speech_test_error;
+            s_speech_test_state = state;
+            s_speech_test_error = status_error;
+        }
+#endif
         if (s_options_page == OptionsPage::Time) {
             const auto pc_error = LUNASHELL::DeviceSnapshotService::instance().readCodexPresenceStatus(s_pc_time_observation);
             const auto &link = s_pc_time_observation.codex_link;
@@ -7068,7 +7387,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             if (pc_time_changed && (state == LUNASHELL::PcTimeSyncState::Pending ||
                 state == LUNASHELL::PcTimeSyncState::Applied)) s_manual_pc_time_error = ESP_OK;
         }
-        if (options_presentation_changed(options) || pc_time_changed) {
+        if (options_presentation_changed(options) || pc_time_changed || speech_changed) {
             esp_err_t refresh_error = prepare_options_content(scene, &options);
             if (refresh_error == ESP_OK) {
                 refresh_error = attach_content(scene);
@@ -7132,7 +7451,15 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
         s_command_pending = false;
         scene.content.control_revision = ++s_navigation_revision;
         changed = true;
-        if ((result.command.work == Work::SavePreference || result.command.work == Work::ScheduleBirthIntro) &&
+        if (result.command.work == Work::TestSynthVoice && s_route == Route::MakeItYours10) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+            s_speech_test_id = result.speech_request_id;
+            s_speech_test_state = result.error == ESP_OK ? LUNASHELL::SpeechState::Queued : LUNASHELL::SpeechState::Failed;
+            s_speech_test_error = result.error;
+#endif
+            error = prepare_options_content(scene);
+            if (error == ESP_OK) error = attach_content(scene);
+        } else if ((result.command.work == Work::SavePreference || result.command.work == Work::ScheduleBirthIntro) &&
             s_route == Route::MakeItYours10) {
             if (result.command.work == Work::SavePreference && result.preference_changed)
                 s_preference_confirmation = true;
@@ -8467,6 +8794,20 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
                 }
                 case OnboardingAction::SynthOptions:
                     return show_options_page(scene, OptionsPage::SynthVoice);
+                case OnboardingAction::TestSynthVoice: {
+                    const auto admission_error = enqueue(Work::TestSynthVoice, 0);
+#if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
+                    if (admission_error != ESP_OK) {
+                        s_speech_test_error = admission_error;
+                        s_speech_test_state = LUNASHELL::SpeechState::Failed;
+                        s_speech_test_id = 0;
+                    }
+#else
+                    (void)admission_error;
+#endif
+                    const auto refresh = prepare_options_content(scene);
+                    return refresh == ESP_OK ? attach_content(scene) : refresh;
+                }
                 case OnboardingAction::OpenAbout:
                     s_widget_open_request = WidgetOpenRequest::About;
                     return ESP_OK;

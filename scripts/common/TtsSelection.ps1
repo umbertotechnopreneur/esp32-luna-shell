@@ -24,9 +24,12 @@ function Assert-FirmwareTtsConfiguration {
         [Parameter(Mandatory)][string]$Feature,
         [Parameter(Mandatory)][string[]]$ComponentRoots
     )
-    $enabled = $Feature -in @('tts-sd', 'tts-flash')
+    # Cody's reviewed wake profile explicitly includes the flash speech owner.
+    # Other wake profiles retain their previous recognition-only composition.
+    $wakeFlash = $Feature -eq 'wake-word' -and ($ComponentRoots -ccontains 'LUNASHELL_tts')
+    $enabled = $Feature -in @('tts-sd', 'tts-flash') -or $wakeFlash
     $sd = $Feature -eq 'tts-sd'
-    $flash = $Feature -eq 'tts-flash'
+    $flash = $Feature -eq 'tts-flash' -or $wakeFlash
     if (($ComponentRoots -ccontains 'LUNASHELL_tts') -ne $enabled) {
         throw "TTS component graph disagrees with explicit feature '$Feature'."
     }
@@ -46,8 +49,8 @@ function Assert-FirmwareTtsConfiguration {
         $expected.SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY = $true
         $expected.FREERTOS_UNICORE = $false
         $expected.FREERTOS_TASK_CREATE_ALLOW_EXT_MEM = $true
-        $expected.LUNASHELL_BUILD_ENABLE_VOICE_AFE = $false
-        $expected.LUNASHELL_BUILD_ENABLE_WAKE_WORD = $false
+        $expected.LUNASHELL_BUILD_ENABLE_VOICE_AFE = $wakeFlash
+        $expected.LUNASHELL_BUILD_ENABLE_WAKE_WORD = $wakeFlash
         if ($sd) {
             $expected.LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE = $true
             $expected.MBEDTLS_SHA256_C = $true

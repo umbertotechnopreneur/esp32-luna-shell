@@ -81,6 +81,17 @@ struct CodexPendingQuestion {
     char title[25]{};
 };
 
+inline constexpr size_t kCodexReplySpeechBytes = 400;
+
+// Network scratch for the confidential ReplyReady trailer; never a UI projection.
+struct CodexEncryptedReply {
+    uint16_t segment_index = 0;
+    uint16_t segment_count = 0;
+    uint16_t length = 0;
+    uint8_t nonce[12]{};
+    uint8_t ciphertext[kCodexReplySpeechBytes + 16]{};
+};
+
 // Payloads are bounded UI data. Context is a declared label, never a chat identity.
 struct CodexEventPayload {
     CodexEventKind kind = CodexEventKind::None;
@@ -88,6 +99,10 @@ struct CodexEventPayload {
     char title[25]{};
     // ApprovalOnPc carries the complete originating title; other bodies retain 63 bytes.
     char body[256]{};
+    // Decrypted only after authenticated EVENT admission; never used as display text.
+    char reply_speech[kCodexReplySpeechBytes + 1]{};
+    uint16_t reply_segment_index = 0;
+    uint16_t reply_segment_count = 0;
     uint8_t choice_count = 0;
     CodexEventChoice choices[3]{};
     char selected_id[13]{};
@@ -128,7 +143,13 @@ esp_err_t decodeCodexInboxPage(const char *hex, size_t length, CodexInboxPage &p
 // length: Exact character count, bounded before any decoding or writes.
 // candidate: Untrusted scratch; publish only after this function succeeds.
 // Exception: Returns INVALID_SIZE for bounds, INVALID_ARG for schema/identity failures.
-esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayload &candidate);
+esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayload &candidate,
+    CodexEncryptedReply *encrypted_reply = nullptr);
+
+// text: Authenticated plaintext held by the network owner.
+// length: Exact UTF-8 byte length, excluding the terminator.
+// Exception: None; rejects malformed UTF-8 and control characters.
+bool validCodexReplySpeech(const char *text, size_t length);
 
 // value: Null-terminated semantic choice identifier, independent of display order.
 bool validCodexChoiceId(const char *value);

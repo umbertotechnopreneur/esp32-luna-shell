@@ -144,6 +144,11 @@ class Ticket:
     state_terminal_seen: bool = False
     state_observed_ns: int = 0
     state_restored: bool = False
+    # Volatile only; native replies never enter the durable question checkpoint.
+    reply_speech: tuple[str, ...] = ()
+    reply_segment: int = 0
+    reply_sent_segment: int = -1
+    reply_deadline: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -336,6 +341,33 @@ class PayloadReader:
         except UnicodeDecodeError as error:
             raise ValueError("EVENT text is not ASCII") from error
         return bounded_text(value, "EVENT text", maximum, empty)
+
+
+# text: Complete genuine UTF-8 final answer, never logged or persisted.
+# Returns at most 64 sequential chunks, each at most 400 bytes, without losing text.
+# Raises ValueError for invalid, empty, oversized or unrepresentable content.
+def split_reply_speech(text: str) -> tuple[str, ...]:
+    if not isinstance(text, str) or not text:
+        raise ValueError("Reply speech must contain genuine text")
+    raw = text.encode("utf-8", "strict")
+    if len(raw) > 400 * 64:
+        raise ValueError("Reply speech exceeds its bounded segment budget")
+    segments = []
+    while raw:
+        end = min(len(raw), 400)
+        while end and end < len(raw) and (raw[end] & 0xC0) == 0x80:
+            end -= 1
+        if end == 0:
+            raise ValueError("Reply speech contains an invalid UTF-8 boundary")
+        if end < len(raw):
+            boundary = raw.rfind(b" ", max(0, end - 40), end)
+            if boundary >= 0:
+                end = boundary + 1
+        segments.append(raw[:end].decode("utf-8", "strict"))
+        raw = raw[end:]
+    if len(segments) > 64:
+        raise ValueError("Reply speech requires too many complete segments")
+    return tuple(segments)
 
 
 # value: Complete hex data authenticated by the enclosing EVENT before decoding.
@@ -668,7 +700,8 @@ class InteractionStore:
         changes: dict[str, Ticket | None] = {}
         for identity, ticket in self._tickets.items():
             if ticket.state not in CLOSED_TICKETS and now >= ticket.expires_at:
-                changes[identity] = replace(ticket, state="expired", terminal_at=now)
+                changes[identity] = replace(ticket, state="expired", terminal_at=now,
+                                            reply_speech=(), reply_deadline=0.0)
                 continue
             if ticket.terminal_at is None or now - ticket.terminal_at < TERMINAL_RETENTION_SECONDS:
                 continue
@@ -698,7 +731,7 @@ class InteractionStore:
     # native_session: Genuine hook identity retiring notices at lifecycle or resumed-activity boundaries.
     # Raises ValueError if the target/content/TTL is invalid or a bounded queue is occupied.
     def enqueue(self, device_id: str, payload: EventPayload, source: str, ttl_seconds: int = 180,
-                association_id: str = "", native_session: str = "") -> dict[str, Any]:
+                association_id: str = "", native_session: str = "", reply_speech: str = "") -> dict[str, Any]:
         if not isinstance(device_id, str) or DEVICE_ID.fullmatch(device_id) is None:
             raise ValueError("A retained Cody device_id is required")
         if source not in {"LAN", "SIMULATED", "UNOBSERVED"}:
@@ -707,6 +740,11 @@ class InteractionStore:
             raise ValueError("ttl_seconds must be between 15 and 180")
         if association_id and CAPABILITY.fullmatch(association_id) is None:
             raise ValueError("Interaction association identity is invalid")
+        if (not isinstance(reply_speech, str) or
+                (reply_speech and (payload.kind != EventKind.REPLY_READY or not native_session or
+                 not association_id))):
+            raise ValueError("Reply speech requires a bounded native reply and active association")
+        segments = split_reply_speech(reply_speech) if reply_speech else ()
         question = payload.kind == EventKind.QUESTION
         if question and self._storage is not None and (not association_id or source == "UNOBSERVED"):
             raise ValueError("Durable question requires a confirmed active association")
@@ -728,7 +766,8 @@ class InteractionStore:
                             and item.payload.kind != EventKind.QUESTION
                             and ((native_session and item.native_session == native_session and item.payload.kind == payload.kind)
                                  or (not native_session and not item.native_session))):
-                        changes[item.request_id] = replace(item, state="cancelled", terminal_at=now)
+                        changes[item.request_id] = replace(item, state="cancelled", terminal_at=now,
+                                                           reply_speech=(), reply_deadline=0.0)
             # Every unsettled question may resolve while Cody is offline.
             # Keep enough room to publish all terminal states before removing them.
             if question and association_id and sum(
@@ -745,6 +784,8 @@ class InteractionStore:
             ticket = Ticket(
                 request_id, "" if durable else capability, device_id, payload, source, now, now + ttl_seconds,
                 association_id=association_id, native_session=native_session,
+                reply_speech=segments,
+                reply_deadline=now + 3600.0 if segments else 0.0,
                 question_id=question_id, question_state="open" if question else "",
                 capability_digest=hashlib.sha256(bytes.fromhex(capability)).hexdigest() if durable else "",
             )
@@ -753,6 +794,70 @@ class InteractionStore:
             result = self._public(ticket)
             result["capability"] = capability
             return result
+
+    # device_id: Authenticated current recipient.
+    # association_id: Digest of that recipient's current active key.
+    # request_id: Exact currently published reply ticket.
+    # Returns the current volatile segment, index and total while the notice remains pending.
+    def reply_speech(self, device_id: str, association_id: str, request_id: str) -> tuple[str, int, int] | None:
+        with self._condition:
+            self._expire()
+            ticket = self._tickets.get(request_id)
+            if (ticket is None or ticket.device_id != device_id or ticket.state != "pending" or
+                    not ticket.published or ticket.payload.kind != EventKind.REPLY_READY or
+                    not hmac.compare_digest(ticket.association_id, association_id)):
+                return None
+            if ticket.reply_segment >= len(ticket.reply_speech):
+                return None
+            return ticket.reply_speech[ticket.reply_segment], ticket.reply_segment, len(ticket.reply_speech)
+
+    # Record only the exact segment whose encrypted EVENT is about to be sent.
+    # A socket error is ambiguous, so a subsequent valid acknowledgement is accepted.
+    def mark_reply_speech_sent(self, device_id: str, association_id: str, request_id: str, index: int) -> None:
+        with self._condition:
+            ticket = self._tickets.get(request_id)
+            if (ticket is None or ticket.device_id != device_id or ticket.state != "pending" or
+                    not ticket.published or ticket.reply_segment != index or
+                    index >= len(ticket.reply_speech) or
+                    not hmac.compare_digest(ticket.association_id, association_id)):
+                raise ValueError("Reply speech segment is no longer current")
+            ticket.reply_sent_segment = index
+
+    # device_id: Authenticated current recipient.
+    # association_id: Active pairing digest.
+    # request_id: Exact retained native ReplyReady ticket.
+    # index: Device-confirmed completed segment index.
+    # Raises ValueError for a foreign or out-of-order acknowledgement.
+    def acknowledge_reply_speech(self, device_id: str, association_id: str, request_id: str, index: int) -> None:
+        with self._condition:
+            self._expire()
+            ticket = self._tickets.get(request_id)
+            if (ticket is None or ticket.device_id != device_id or ticket.state != "pending" or
+                    not ticket.published or ticket.payload.kind != EventKind.REPLY_READY or
+                    not hmac.compare_digest(ticket.association_id, association_id)):
+                return  # A dismissed, expired or superseded notice cannot advance anything.
+            if index == ticket.reply_segment - 1:
+                return
+            if (index != ticket.reply_segment or index != ticket.reply_sent_segment or
+                    index >= len(ticket.reply_speech)):
+                raise ValueError("Reply speech acknowledgement is out of order")
+            ticket.reply_segment += 1
+            if ticket.reply_segment == len(ticket.reply_speech):
+                ticket.reply_speech = ()
+                ticket.reply_deadline = 0.0
+            else:
+                ticket.expires_at = min(ticket.reply_deadline, self._clock() + MAX_TTL_SECONDS)
+
+    # device_id: Authenticated recipient that has disabled speech.
+    # association_id: Digest of the active pairing.
+    # Clears volatile reply content without deleting or changing the visible notice.
+    def clear_reply_speech(self, device_id: str, association_id: str) -> None:
+        with self._condition:
+            for ticket in self._tickets.values():
+                if (ticket.device_id == device_id and ticket.reply_speech and
+                        hmac.compare_digest(ticket.association_id, association_id)):
+                    ticket.reply_speech = ()
+                    ticket.reply_deadline = 0.0
 
     # request_id: Exact successful question ticket returned to the documented Codex tool hook.
     # chat_id: Native chat identity from that hook.
@@ -939,7 +1044,8 @@ class InteractionStore:
                 ticket = replace(ticket, state=state, question_state="cancelled", terminal_at=self._clock())
                 self._commit({ticket.request_id: ticket})
             elif ticket.state not in CLOSED_TICKETS:
-                ticket = replace(ticket, state="cancelled", terminal_at=self._clock())
+                ticket = replace(ticket, state="cancelled", terminal_at=self._clock(),
+                                 reply_speech=(), reply_deadline=0.0)
                 self._commit({ticket.request_id: ticket})
             return self._public(ticket)
 
@@ -998,7 +1104,7 @@ class InteractionStore:
                            active_on_device=False)
         if ticket.state in CLOSED_TICKETS:
             return replace(ticket, active_on_device=False)
-        return replace(ticket, state="cancelled", terminal_at=now)
+        return replace(ticket, state="cancelled", terminal_at=now, reply_speech=(), reply_deadline=0.0)
 
     # self: Automatic-notice owner; retiring a hook context never affects caller-owned questions.
     # session_id: Genuine native session, or None to retire all native notices.
@@ -1012,6 +1118,7 @@ class InteractionStore:
                         and (kind is None or ticket.payload.kind == kind)
                         and ticket.state not in CLOSED_TICKETS):
                     ticket.state, ticket.terminal_at = "cancelled", self._clock()
+                    ticket.reply_speech, ticket.reply_deadline = (), 0.0
                     if ticket.payload.kind == EventKind.APPROVAL_ON_PC:
                         chat = hashlib.sha256(ticket.native_session.encode("ascii")).hexdigest()[:12]
                         print(f"CCP approval notice: state=retired reason=native_lifecycle chat={chat}",
@@ -1060,6 +1167,7 @@ class InteractionStore:
                 raise ValueError("Informational dismissal has no published notice in this association")
             if ticket.state == "pending":
                 ticket.state, ticket.terminal_at = "cancelled", self._clock()
+                ticket.reply_speech, ticket.reply_deadline = (), 0.0
                 self._condition.notify_all()
 
     # self: Publisher choosing a complete request snapshot without changing caller ownership.

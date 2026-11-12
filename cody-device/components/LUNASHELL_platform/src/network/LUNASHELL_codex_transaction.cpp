@@ -163,6 +163,15 @@ esp_err_t applyCodexEvent(CodexTransactionView current, const char *request_id,
     if (same && !sameContent(current.payload, *candidate)) {
         return ESP_ERR_INVALID_RESPONSE;
     }
+    // A plaintext answer may arrive only after opt-in, or disappear on opt-out.
+    // Once present, a different nonempty answer cannot reuse the same identity.
+    if (same && current.payload.reply_speech[0] != '\0' && candidate->reply_speech[0] != '\0') {
+        if (current.payload.reply_segment_count != candidate->reply_segment_count ||
+            (current.payload.reply_segment_index == candidate->reply_segment_index &&
+             std::strcmp(current.payload.reply_speech, candidate->reply_speech) != 0) ||
+            (current.payload.reply_segment_index != candidate->reply_segment_index &&
+             candidate->reply_segment_index != current.payload.reply_segment_index + 1U)) return ESP_ERR_INVALID_RESPONSE;
+    }
     const bool explicit_handoff = current.state == CodexEventState::Pending &&
         current.payload.selected_id[0] == '\0' && candidate->kind == CodexEventKind::Question &&
         state == CodexEventState::Pending && current.selection_request_id[0] != '\0' &&
@@ -187,7 +196,12 @@ esp_err_t applyCodexEvent(CodexTransactionView current, const char *request_id,
     const bool elapsed = same && codexEventIsOpen(current.state) && now_us >= current.expires_at_us;
     const int64_t deadline = now_us + static_cast<int64_t>(ttl) * 1000000LL;
     const bool queue_changed = same && !samePendingQuestions(current.payload, *candidate);
-    effect.changed = !same || queue_changed || (!keep_reply && state != current.state);
+    const bool speech_changed = same && (std::strcmp(current.payload.reply_speech, candidate->reply_speech) != 0 ||
+        current.payload.reply_segment_index != candidate->reply_segment_index ||
+        current.payload.reply_segment_count != candidate->reply_segment_count);
+    const bool speech_advanced = speech_changed && current.payload.kind == CodexEventKind::ReplyReady &&
+        candidate->reply_speech[0] != '\0' && candidate->reply_segment_index > current.payload.reply_segment_index;
+    effect.changed = !same || queue_changed || speech_changed || (!keep_reply && state != current.state);
     effect.wake = !same && state == CodexEventState::Pending;
     if (!same) {
         current.payload = *candidate;
@@ -195,10 +209,18 @@ esp_err_t applyCodexEvent(CodexTransactionView current, const char *request_id,
         current.expires_at_us = deadline;
         current.selection_request_id[0] = '\0';
     } else {
+        if (speech_changed) {
+            std::memset(current.payload.reply_speech, 0, sizeof(current.payload.reply_speech));
+            std::memcpy(current.payload.reply_speech, candidate->reply_speech,
+                std::strlen(candidate->reply_speech) + 1U);
+            current.payload.reply_segment_index = candidate->reply_segment_index;
+            current.payload.reply_segment_count = candidate->reply_segment_count;
+        }
         if (answered) {
             std::memcpy(current.payload.selected_id, candidate->selected_id, sizeof(current.payload.selected_id));
         }
-        current.expires_at_us = std::min(current.expires_at_us, deadline);
+        // Only a completed and authenticated segment handoff renews the reply deadline.
+        current.expires_at_us = speech_advanced ? deadline : std::min(current.expires_at_us, deadline);
         current.payload.pending_question_count = candidate->pending_question_count;
         current.payload.pending_entry_count = candidate->pending_entry_count;
         std::memcpy(current.payload.pending_questions, candidate->pending_questions, sizeof(current.payload.pending_questions));

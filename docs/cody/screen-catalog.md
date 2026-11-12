@@ -74,8 +74,8 @@ identify the owning journey; exact current controls remain in navigation.md.
 | atlas-v1:25 / check-log | Former log route | AT | No current entry | Retired design; E; never reuse code |
 | atlas-v1:26 / question-notice | Codex needs you | ON + SC; event/inbox owner | Question -> queue/choices; Back retains question | Active when admitted; S |
 | atlas-v1:27 / question-choice | Choose / Review reply | ON + SC; stable choice identity | Choice -> full detail -> explicit Send; Back reverses selection | Active when admitted; S |
-| atlas-v1:28 / voice-capture | Preparing / Listening | UI + DV; voice owner | Record voice/double tap/wake -> Send or Cancel | Active with supported voice profile; S |
-| atlas-v1:29 / voice-delivery | Sending / delivery result | UI + DV; voice transport | End capture -> receipt/failure/unconfirmed -> retained caller | Active with supported voice profile; S |
+| atlas-v1:28 / voice-capture | Preparing / Listening | UI + DV; voice owner | Record voice/double tap/wake -> Send or Cancel | Retained voice-input source; excluded from current wake-only variant; S |
+| atlas-v1:29 / voice-delivery | Sending / delivery result | UI + DV; voice transport | End capture -> receipt/failure/unconfirmed -> retained caller | Retained voice-input source; excluded from current wake-only variant; S |
 | atlas-v1:30 / transcript-review | Review transcript | AT | Proposed transcription -> review | Retained design only; E |
 | atlas-v1:31 / reply-delivered | Reply sent | ON + SC; recipient acknowledgement | Confirmed recipient -> Done/caller | Active when confirmed; S |
 | atlas-v1:32 / link-lost | Link unavailable | ON + SC; link health | Lost link -> recovery; question identity retained | Active/conditional; S |
@@ -143,9 +143,11 @@ Those numbers are not atlas codes and must not be converted by array position.
 `VoiceInputTrigger::DeviceButton` and calls `LUNASHELL::requestVoiceInput`.
 The same owner admits DoubleTap, WakeWord and StandbyWake. This is start/Send/
 Cancel behavior; it does not establish hold-to-record/release-to-send semantics.
-The default lightweight profile omits input; the `wake-word` feature enables
-the existing capture path, subject to Dictation, route availability, microphone
-readiness and authenticated LAN admission for manual triggers.
+The default lightweight profile omits microphone acquisition. The current
+`wake-word` variant enables Sophia for standby wake, but explicitly disables the
+separate Codex voice-input owner. The capture route below describes that retained
+owner when an explicitly supported configuration enables it; the wake-only variant
+does not establish voice capture or delivery.
 
 `LUNASHELL_voice_input.cpp` serializes capture with `s_mutex`, obtains admission
 and destination through DeviceSnapshotService, freezes the chat digest/title,
@@ -180,7 +182,7 @@ adaptation, credential lifetime and route assignment.
 | Display/touch | UI worker owns `DeviceUi` in external-RAM storage, strips and retired mapping. `SceneContent` borrows immutable state through complete frame retirement. Touch acts on that mapping, and invalidation cancels old touch ownership. |
 | Muse | Two 64 x 64 indexed frames plus palettes total 8,448 bytes. The 1.75C viewport is 320 x 320 at (73,73). The 40 ms frame target awaits on-device measurement. Muse callbacks do not submit DMA or acquire hardware. |
 | Settings/persistence | Existing settings, pairing and voice owners retain serialized storage/readback. Domain persistence will have a separate bounded adapter; UI does not read NVS or files. |
-| Audio | `CODY_device_effects.cpp` uses the existing audio owner; voice capture has its own admitted session and buffer lifetime. Quiet-hours rollout change remains phase 08, not an assumed current setting. |
+| Audio | `CODY_device_effects.cpp` uses the existing audio owner; voice capture has its own admitted session and buffer lifetime. Quiet hours are configured through the current settings owner; actual cue admission follows the clock and audio policies. |
 | Desktop OS | `ccp_runtime.py` has OS-specific credential filenames; `ccp_windows.py` contains Windows DPAPI, Linux Secret Service and process launch paths. These are candidates for explicit platform adapters, not domain imports. |
 | Device platform | ESP error/log/clock types, PSRAM placement, BSP display/touch, codec and storage belong to adapters. Current 466 x 466 round layout and microphone count must not enter domain records. |
 | Host | Native bridge sources live in `simulator/native`; Python preview/compiler owners live in `simulator/windows` and `scripts/common/cody_host_compiler.py`. Compiler discovery/shared-library flags are platform concerns. No simulator was started. |

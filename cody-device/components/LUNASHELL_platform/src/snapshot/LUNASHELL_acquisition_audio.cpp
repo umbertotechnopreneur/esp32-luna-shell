@@ -1,6 +1,7 @@
 #include "LUNASHELL_acquisition_audio.hpp"
 #include "LUNASHELL_acquisition_internal.hpp"
 #include "LUNASHELL_platform.h"
+#include "LUNASHELL_audio_controls.h"
 #include "LUNASHELL_snapshot_internal.hpp"
 #include "../audio/LUNASHELL_pcm16_levels.hpp"
 
@@ -186,12 +187,11 @@ esp_err_t capture_microphone(const char *phase, bool spectrum_requested)
             publication_error
         );
     }
-    const esp_err_t error = LUNASHELL_audio_capture_pcm16_channels(
+    const esp_err_t error = LUNASHELL_audio_capture_user_levels_pcm16(
         s_microphone_samples,
         frame_count,
         channel_count,
-        22050,
-        24.0F
+        22050
     );
 
     if (error != ESP_OK) {

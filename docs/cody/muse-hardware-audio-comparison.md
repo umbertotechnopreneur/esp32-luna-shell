@@ -57,7 +57,7 @@ codec objects, then open the speaker before the microphone.
 | Active capture | PCM16 stereo at 16,000 Hz, blocks of 320 frames | PCM16 with selected microphone topology; 22,050 Hz diagnostics or 16,000 Hz with AFE |
 | Microphone processing | Averages both channels, then an 80 Hz one-pole high-pass filter | Retains separate channels for measurements and AFE input |
 | Output API | Duplicates mono samples into both stereo slots | Mono PCM16; codec data interface coordinates shared transport slots |
-| Default gain | 30 dB, restored from settings when available | 24 dB applied by initialization, voice-route preparation and diagnostic capture |
+| Default gain | 30 dB, restored from settings when available | 24 dB by default; the saved Cody gain is reapplied through the audio owner |
 | Output silence | Speaker preference replaces PCM with zeros | Codec mute at idle, unmute for playback, mute afterward |
 | Level reporting | RMS-derived dBFS of processed mono | Mean absolute PCM and peak for each microphone; these are not RMS or calibrated SPL |
 
@@ -65,6 +65,13 @@ Application sample depth and I2S slot width are different concepts. The codec
 data interface negotiates slot width between mono output and stereo input.
 Cody also rejects incompatible peer sample rates explicitly. Do not change
 the capture clock to accommodate a playback clip.
+
+Cody's current source submits PCM effects, boot/system sounds and synthesized
+speech through one mixer with up to four admitted voices. A speech stream reserves
+one voice; the audio owner applies volume, sound, quiet-hour and standby policies.
+Request admission is distinct from playback completion, and simultaneous loud
+sources can saturate. Hardware behavior, audio quality and resource headroom have
+not been established by this source comparison.
 
 Muse's normal voice-note upload stays at 16 kHz. Its stateful linear resampler
 serves other paths, including optional dictation and decoded playback. Cody
@@ -129,9 +136,9 @@ values apply to its measured configuration, including its LCD and power rails.
 
 ## Reuse candidates and limits
 
-- Add volume and gain policy to the existing Cody audio owner, with confirmed
-  applied values, explicit failures and settings-owner persistence. A UI-only
-  setter would be overwritten by current route preparation.
+- The Cody audio owner retains output volume and microphone gain through route
+  changes, with settings-owner persistence and driver-reported results. Physical
+  level, gain and restoration behavior still require device verification.
 - Use the codec's actual gain steps. Muse maps a displayed 33 dB request to
   34.5 dB because the driver otherwise maps it to 30 dB. Cody should display
   the applied value instead of copying this mismatch.

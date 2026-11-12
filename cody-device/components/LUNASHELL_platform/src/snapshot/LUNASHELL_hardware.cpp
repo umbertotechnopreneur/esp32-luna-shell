@@ -4837,6 +4837,7 @@ esp_err_t LUNASHELL::DeviceSnapshotService::readSpeechObservation(SpeechObservat
     if (error != ESP_OK) return error;
     copy.clock = s_snapshot.clock;
     copy.storage = s_snapshot.storage;
+    copy.speech = s_snapshot.speech;
     copy.operating_state = s_snapshot.power.state;
     const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
     error = give_snapshot_mutex("speech policy read");

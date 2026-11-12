@@ -67,7 +67,7 @@ zero drift; endpoint details belong in [HTTP API](http-device-api.md).
 
 RTC wiring and alarm limits belong to the
 [Waveshare hardware reference](../boards/waveshare-esp32s3-touch-amoled-1.75/hardware.md#rtc-and-wake-limits).
-[Cody clock presentation](../../cody/clock.md) owns greetings and artistic routine
+[Cody clock presentation](../../cody/runtime.md#clock-presentation) owns greetings and artistic routine
 effects. Reminder/snooze scheduling is deferred. RTC retention, SNTP recovery,
 fault handling, timezone/DST and physical cue gating remain device observations
 tracked in [TODO.md](../../../TODO.md).

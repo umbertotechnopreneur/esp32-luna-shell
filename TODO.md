@@ -78,6 +78,14 @@ Confirm Dot's supported surface and stable chat/reply IDs. Persist unread state 
 
 ## Device information, effects and idle presentation
 
+- Validate assistant-reply speech end to end: confirm the installed Codex App
+  Server supports exact completed-turn and final-message reads, refresh the
+  desktop plugin, and verify encrypted segmented delivery, opt-out, expiry,
+  cancellation and actual speaker completion on the paired device. Unsupported,
+  ambiguous and oversized replies remain explicit rather than truncated.
+- Validate the ported bounded four-voice synth renderer and its PCM buffer
+  ownership, codec volume and microphone gain across playback, voice and standby;
+  measure latency, stack headroom and memory on the device when authorized.
 - Run authorized focused host checks. On the round display, verify System, Memory, Firmware, terminal project QR, CPU baseline after standby and unavailable/failed readings.
 - Verify event sounds with Sounds on/off, quiet hours, microphone failure, voice capture, standby, battery thresholds and concurrent notices. Measure stack headroom and check for duplicate or late playback after navigation/reconnect.
 - Check the optional 15-second globe, brightness pulse and pause at minimum, first-touch consumption, interruptions and dim/standby deadlines. Check Options/Visible screens during held touches and settings writes against idle display work and CPU.

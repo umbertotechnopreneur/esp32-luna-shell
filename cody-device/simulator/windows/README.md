@@ -339,8 +339,8 @@ Leg retains accelerometer, gyro, combined, motion and settings views, all synthe
 
 The EXE package remains Luna under `artifacts/simulator/windows/dist/`.
 Packaging explicitly prepares the host environment; opening a preview does not
-silently install dependencies. The first import of an external dependency
-requires one targeted Windows Defender scan of the archive and extracted files.
+silently install dependencies. Verify the official source and version of a new
+external dependency before use.
 
 | Luna control | Synthetic action |
 | --- | --- |

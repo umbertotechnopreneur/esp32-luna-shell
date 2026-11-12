@@ -22,8 +22,8 @@ sequence, including the pinned **ESP-IDF 6.0.2** toolchain for ESP32-S3 and its
 **Python 3.13.x** environment. Installing missing tools requires Internet access.
 Preflight stops at the first failed step and reports the step and cause. Earlier
 successful steps stay installed, so rerun the same command after fixing the
-failure. Preflight prepares the host outside the checkout. First-time imports
-into the repository still require the targeted Defender scan in [AGENTS.md](../AGENTS.md).
+failure. Preflight prepares the host outside the checkout. Verify the official
+source and version of new imported dependencies before using them.
 Firmware configuration, build and serial operations are separate console commands.
 
 On Windows, preflight keeps an existing `E:\Espressif` installation. For a
@@ -249,8 +249,8 @@ the selected revision and keeps external ingress closed.
 The relay command writes console output without a persistent operation log in
 this public repository. Tool failures retain their nonzero status. Generated
 build files use a private per-operation directory and are removed at exit.
-New external build inputs require the existing targeted first-import scan
-before use. The release workflow and actual Azure runtime and SMB behavior still need
+Verify the official source and version of new external build inputs before use.
+The release workflow and actual Azure runtime and SMB behavior still need
 acceptance. An HTTP check requires separate authorization and reports its
 execution host. [Remote integration](../docs/cody/remote-integration.md)
 

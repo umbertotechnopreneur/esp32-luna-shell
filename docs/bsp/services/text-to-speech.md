@@ -36,7 +36,10 @@ Both Cody and full Luna have isolated SD/flash variants, generated sdkconfig,
 build directory and dependency lock. Physical hardware selection remains
 separate from UI selection: adding speech to Cody does not admit LVGL/Brookesia.
 The supported target is ESP-IDF 6.0.2 with the existing Brookesia 0.8 UI path.
-Wake-word/AFE plus TTS is rejected as an unreviewed combined composition.
+The Cody wake-word variant also admits English flash TTS while retaining the
+wake-word partition and duplex transport. Combined recognition, speech, AEC,
+memory and timing behavior require physical verification; other wake-word
+profiles do not admit this combined composition.
 No speech partition or LittleFS speech image is created. English flash data is
 part of the optional application image; SD builds embed only file metadata and
 hashes, while disabled builds admit neither speech code nor package generation.

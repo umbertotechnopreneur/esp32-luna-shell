@@ -159,7 +159,8 @@ void update_local_timer_alarm(LocalTimerModel &model, int64_t now_us, bool voice
 
     CodexAudioStatus status{};
     if (model.alarm_request_sequence != 0) {
-        const esp_err_t error = get_codex_audio_status(status);
+        const auto cue = model.sound == LocalTimerSound::Bell ? CodexAudioCue::Question : CodexAudioCue::ResponseReady;
+        const esp_err_t error = get_codex_audio_status(model.alarm_request_sequence, cue, status);
         if (error != ESP_OK) {
             fail_alarm(model, error);
         } else if (status.request_sequence != model.alarm_request_sequence) {

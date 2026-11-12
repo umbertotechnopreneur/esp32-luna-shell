@@ -1,4 +1,4 @@
-"""Bounded public Codex queue client; never starts or resumes a model session."""
+"""Bounded public Codex queue and final-answer reader; never starts a model session."""
 
 from __future__ import annotations
 
@@ -14,7 +14,8 @@ from ccp_windows import runtime_directory
 
 
 class PublicAudioQueue(NativeAppServer):
-    methods = frozenset({"initialize", "thread/read", "thread/queue/list", "thread/queue/add"})
+    methods = frozenset({"initialize", "thread/read", "thread/queue/list", "thread/queue/add",
+                         "thread/turns/list", "thread/items/list"})
 
     # executable: Explicit installed native Codex executable, not a shell command.
     # stop_event: Optional owning worker cancellation; native requests never survive shutdown.
@@ -29,7 +30,7 @@ class PublicAudioQueue(NativeAppServer):
         super().__init__(executable, stop_event, client_info={"name": "cody_audio_queue", "version": "0.6.9"},
                          stderr=log.open("ab"), experimental=True)
 
-    # self: Queue-only native client; a notLoaded status is expected in this process.
+    # self: Audio queue's native client; a notLoaded status is expected in this process.
     # thread_id: Exact genuine followed chat identity captured by the hook owner.
     # Raises original native errors; successful reads do not prove model audio support.
     def probe(self, thread_id: str):

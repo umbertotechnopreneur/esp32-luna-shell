@@ -48,7 +48,6 @@
 #include "CODY_dirty_plan.hpp"
 #include "CODY_response.hpp"
 #include "CODY_character_direction.hpp"
-#include "CODY_companion_mode.hpp"
 #include "CODY_widget_visibility_view.hpp"
 #include "CODY_petting.hpp"
 #include "CODY_companion_gestures.hpp"
@@ -1657,14 +1656,15 @@ void notify_completed_personality(const CODY::PersonalityFrame &previous,
     }
     CODY::PersonalityAudioStatus status{};
     if (s_pending_personality_sound_sequence != 0) {
-        const esp_err_t observation_error = CODY::get_personality_audio_status(status);
+        const esp_err_t observation_error = CODY::get_personality_audio_status(
+            s_pending_personality_sound_sequence, current.cue, status);
         if (observation_error != ESP_OK) {
             log_optional_personality_error(observation_error);
             s_pending_personality_sound = CODY::PersonalityCue::None;
             return;
         }
         if (status.request_sequence != s_pending_personality_sound_sequence || status.cue != current.cue) {
-            // Another explicit cue owns the shared mailbox; never replay a displaced request.
+            // A different identity cannot acknowledge this request; never replay it.
             s_pending_personality_sound = CODY::PersonalityCue::None;
             return;
         }
@@ -1712,9 +1712,11 @@ esp_err_t notify_completed_model_cost_notice(bool price_visible)
     // One event owns all five plins. Carousel entry, a suppressed admission or a later
     // source refresh cannot enqueue this same model change again.
     lunashell_audio_cue_status_t status{};
-    error = LUNASHELL_audio_notify_codex_repeated_notice(CODY::ModelCostAudioAssets::samples,
+    const lunashell_audio_request_t request{CODY::ModelCostAudioAssets::samples,
         CODY::ModelCostAudioAssets::sample_count, CODY::ModelCostAudioAssets::sample_rate_hz,
-        static_cast<uint32_t>(CODY::ModelCostAudioCue::Expensive), 5, 100, &status);
+        static_cast<uint32_t>(CODY::ModelCostAudioCue::Expensive), LUNASHELL_AUDIO_CODEX,
+        LUNASHELL_CODEX_CUE_NOTICE, 5, 100, LUNASHELL_AUDIO_WAVE_PCM, 0, 1000, 0, 0, 0, 0, false, 0, 0};
+    error = LUNASHELL_audio_submit(&request, &status);
     ESP_LOGI(kTag, "Model cost notice: disposition=%u sequence=%lu error=%s",
         static_cast<unsigned>(status.state), static_cast<unsigned long>(status.request_sequence),
         esp_err_to_name(error));
@@ -2827,18 +2829,6 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
     if (observation_error != ESP_OK) {
         return observation_error;
     }
-    // Persistent preferences have independent validity; an invalid mode is not a Desk default.
-    // Only a confirmed Away value may opt into the optional artistic policy.
-    LUNASHELL::CodyOptionsObservation options;
-    static_assert(sizeof(options) <= 256, "Away observation exceeds the bounded render projection budget");
-    const esp_err_t options_error = LUNASHELL::DeviceSnapshotService::instance().readCodyOptionsObservation(options);
-    if (options_error != ESP_OK) {
-        ESP_LOGE(kTag, "Companion mode observation failed (%s)", esp_err_to_name(options_error));
-        return options_error;
-    }
-    const bool away = options.preferences.usage_mode_valid &&
-        options.preferences.usage_mode_error == ESP_OK &&
-        options.preferences.usage_mode == LUNASHELL::CodyUsageMode::Away;
     if (resume_animation) {
         CODY::suspend_companion_shake(s_state.companion_shake, frame_started_us);
         CODY::cancel_companion_tap(s_state.companion_tap);
@@ -3006,8 +2996,6 @@ esp_err_t evaluate_companion_geometry(int64_t frame_started_us, bool resume_anim
         rhythm_config.expression.stress_breath_gain = 0;
         rhythm_config.expression.fatigue_breath_slowdown = 0;
     }
-    CODY::apply_away_rhythm(away && gesture_eligible && next_lifecycle.phase == CODY::LifecyclePhase::Idle &&
-        !debug_view_active() && !s_state.expression_override, rhythm_config, target_contour, inputs);
     const esp_err_t response_error = CODY::advance_response(
         rhythm_config, previous_response, inputs, animation_delta_ms,
         esp_timer_get_time(), true, next_response

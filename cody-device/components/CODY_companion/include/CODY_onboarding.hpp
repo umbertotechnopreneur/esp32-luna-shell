@@ -16,14 +16,45 @@
 
 #pragma once
 
+#include <cstdint>
+#include <cstddef>
 #include "CODY_scene.hpp"
+#include "LUNASHELL_codex_events.hpp"
+#include "LUNASHELL_speech_state.hpp"
 
 namespace CODY {
 
 struct WidgetVisibility;
+enum class PreferenceId : uint8_t;
 
 // No parameters: create one bounded action worker before the renderer starts.
 esp_err_t onboarding_service_init();
+
+// text: Complete bounded speech text, copied before this call returns.
+// text_bytes: Exact nonzero UTF-8 byte length, at most kSpeechMaximumTextBytes.
+// event_id: Exact authenticated event identity, at most 32 bytes.
+// event_revision: Canonical event revision that produced the text.
+// kind: Question event kind.
+// state: Pending question or Delivered answer represented by the text.
+// selected_id: Exact selected answer identity, empty when none.
+// Exception: Returns busy, unavailable or invalid input without starting speech.
+esp_err_t request_event_speech(const char *text, size_t text_bytes, const char *event_id,
+    uint64_t event_revision, LUNASHELL::CodexEventKind kind, LUNASHELL::CodexEventState state,
+    const char *selected_id);
+
+struct EventSpeechResult {
+    char event_id[33]{};
+    char selected_id[13]{};
+    uint64_t revision = 0;
+    LUNASHELL::CodexEventKind kind = LUNASHELL::CodexEventKind::None;
+    LUNASHELL::CodexEventState state = LUNASHELL::CodexEventState::None;
+    esp_err_t error = ESP_OK;
+    uint32_t speech_request_id = 0;
+};
+
+// result: Receives one exact completed worker admission receipt.
+// Returns true once per receipt; worker errors are preserved in result.error.
+bool take_event_speech_result(EventSpeechResult &result);
 
 #if defined(CODY_DEVICE_UI_ONLY)
 // content: Receives the About link's immutable heading and project QR.
@@ -140,6 +171,21 @@ bool take_widget_visibility_save_result(esp_err_t &error);
 
 // No parameters: consume one successfully changed local preference.
 bool take_preference_confirmation();
+
+// No parameters: queue a worker-owned read and apply of both persisted audio preferences.
+// Exception: Returns NOT_FINISHED when the shared settings worker is busy, or its admission failure.
+esp_err_t request_audio_preferences_refresh();
+
+// preference: PlaybackVolume or MicrophoneGain identity.
+// value: Explicit user selection, 0..100 percent or 0..30 dB in steps of three.
+// Exception: Returns original validation or mailbox admission failure before persistence begins.
+esp_err_t request_audio_preference(PreferenceId preference, uint32_t value);
+
+// refresh: Receives true for a refresh; false identifies a saved preference.
+// preference: Receives the saved identity when refresh is false.
+// error: Receives the actual worker result, including partial independent failures.
+// Call even after closing Audio so the shared worker's result cannot remain occupied.
+bool take_audio_preference_result(bool &refresh, PreferenceId &preference, esp_err_t &error);
 
 enum class LateralNavigation : uint8_t { None, Previous, Next };
 

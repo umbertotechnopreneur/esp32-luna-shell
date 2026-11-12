@@ -172,10 +172,10 @@ try {
             }
         }
 
-        # Serialize output writers too: a build must not remove an active simulator/check log.
+        # Serialize output writers so concurrent commands do not overwrite active logs.
         $failureStage = 'acquiring artifact operation lock'
         $operationLock = Open-DeviceArtifactLock
-        if ($Action -in @('build','flash','combo','recover','clean-artifacts')) {
+        if ($Action -eq 'clean-artifacts') {
             $failureStage = 'cleaning transient artifacts'
             $protected = @()
             if ($dispatch.ContainsKey('BuildDir')) {

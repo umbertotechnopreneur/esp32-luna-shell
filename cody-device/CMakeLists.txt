@@ -92,6 +92,32 @@ idf_build_set_property(
 )
 project(esp32_luna_shell)
 
+if("$ENV{IDF_COMPONENT_MANAGER}" STREQUAL "0")
+    # The component manager normally links manifest-only dependencies. Restore
+    # those documented edges using public IDF/CMake targets when using the
+    # verified existing component directories without running the resolver.
+    set(_offline_roots "$ENV{LUNASHELL_PROFILE_COMPONENT_ROOTS}")
+    function(cody_link_offline_dependency consumer visibility dependency)
+        if(consumer IN_LIST _offline_roots AND dependency IN_LIST _offline_roots)
+            idf_component_get_property(_consumer_lib ${consumer} COMPONENT_LIB)
+            idf_component_get_property(_dependency_lib ${dependency} COMPONENT_LIB)
+            if(consumer STREQUAL "espressif__esp-sr")
+                # ESP-SR itself uses CMake's plain linking signature.
+                target_link_libraries(${_consumer_lib} ${_dependency_lib})
+            else()
+                target_link_libraries(${_consumer_lib} ${visibility} ${_dependency_lib})
+            endif()
+        endif()
+    endfunction()
+    cody_link_offline_dependency(espressif__network_provisioning PRIVATE espressif__cjson)
+    cody_link_offline_dependency(espressif__esp-sr PRIVATE espressif__cjson)
+    cody_link_offline_dependency(espressif__esp-sr PRIVATE espressif__dl_fft)
+    cody_link_offline_dependency(espressif__esp-sr PRIVATE espressif__esp-dsp)
+    cody_link_offline_dependency(espressif__esp_io_expander_tca9554 PUBLIC espressif__esp_io_expander)
+    cody_link_offline_dependency(espressif__esp_lcd_panel_io_additions PUBLIC espressif__esp_io_expander)
+    cody_link_offline_dependency(waveshare__esp_lcd_touch_cst9217 PUBLIC espressif__esp_lcd_touch)
+endif()
+
 if(LUNASHELL_BUILD_MODE STREQUAL "Debug" AND
    NOT CONFIG_ESP_COREDUMP_ENABLE_TO_UART)
     message(FATAL_ERROR "Debug panic task-stack capture requires UART core dumps")

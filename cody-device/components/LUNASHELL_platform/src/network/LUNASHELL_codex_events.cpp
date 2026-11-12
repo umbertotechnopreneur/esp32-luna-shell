@@ -101,6 +101,41 @@ struct PayloadReader {
 };
 } // namespace
 
+// text: Decrypted bounded answer, not logged or displayed.
+// length: Exact UTF-8 byte count before the terminator.
+// Exception: None; returns false for malformed, overlong or control characters.
+bool validCodexReplySpeech(const char *text, size_t length)
+{
+    if (text == nullptr || length == 0 || length > kCodexReplySpeechBytes) return false;
+    size_t offset = 0;
+    bool visible = false;
+    while (offset < length) {
+        const uint8_t first = static_cast<uint8_t>(text[offset++]);
+        if (first < 0x80) {
+            if (first < 0x20 || first == 0x7f) return false;
+            visible = visible || first != ' ';
+            continue;
+        }
+        unsigned continuation = 0;
+        uint32_t value = 0;
+        uint32_t minimum = 0;
+        if (first >= 0xc2 && first <= 0xdf) { continuation = 1; value = first & 0x1f; minimum = 0x80; }
+        else if (first >= 0xe0 && first <= 0xef) { continuation = 2; value = first & 0x0f; minimum = 0x800; }
+        else if (first >= 0xf0 && first <= 0xf4) { continuation = 3; value = first & 7; minimum = 0x10000; }
+        else return false;
+        if (continuation > length - offset) return false;
+        for (unsigned index = 0; index < continuation; ++index) {
+            const uint8_t next = static_cast<uint8_t>(text[offset++]);
+            if ((next & 0xc0) != 0x80) return false;
+            value = (value << 6) | (next & 0x3f);
+        }
+        if (value < minimum || value > 0x10ffff || (value >= 0xd800 && value <= 0xdfff) ||
+            (value >= 0x80 && value <= 0x9f)) return false;
+        visible = true;
+    }
+    return visible;
+}
+
 // hex: Complete authenticated INBOX summary body.
 // length: Exact length in ASCII bytes.
 // page: Network-owned scratch; publish only after the complete page validates.
@@ -177,9 +212,11 @@ bool validCodexChoiceId(const char *value)
 // length: Exact bounded input count; an odd or oversized value is rejected.
 // candidate: Untrusted scratch; its partial contents are never a valid snapshot.
 // Exception: Returns the original bounded reader error or INVALID_ARG for semantic failures.
-esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayload &candidate)
+esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayload &candidate,
+    CodexEncryptedReply *encrypted_reply)
 {
     candidate = {};
+    if (encrypted_reply != nullptr) *encrypted_reply = {};
     if (hex == nullptr || length == 0 || length > 3072 || length % 2 != 0) {
         return ESP_ERR_INVALID_SIZE;
     }
@@ -189,11 +226,14 @@ esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayl
     if (!reader.byte(version) || !reader.byte(kind)) {
         return reader.error;
     }
-    if (version != 2 || kind < static_cast<uint8_t>(CodexEventKind::Notice) ||
+    if ((version != 2 && version != 3) || kind < static_cast<uint8_t>(CodexEventKind::Notice) ||
         kind > static_cast<uint8_t>(CodexEventKind::ReplyReady)) {
         return ESP_ERR_INVALID_ARG;
     }
     candidate.kind = static_cast<CodexEventKind>(kind);
+    if (version == 3 && (candidate.kind != CodexEventKind::ReplyReady || encrypted_reply == nullptr)) {
+        return ESP_ERR_INVALID_ARG;
+    }
     if (!reader.text(candidate.context, false) || !reader.text(candidate.title, true) ||
         !reader.text(candidate.body, true) || !reader.byte(candidate.choice_count)) {
         return reader.error;
@@ -276,6 +316,17 @@ esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayl
                 return ESP_ERR_INVALID_ARG;
             }
         }
+    }
+    if (version == 3) {
+        if (!reader.word(encrypted_reply->segment_index) || !reader.word(encrypted_reply->segment_count) ||
+            !reader.word(encrypted_reply->length)) return reader.error;
+        if (encrypted_reply->segment_count == 0 || encrypted_reply->segment_count > 64 ||
+            encrypted_reply->segment_index >= encrypted_reply->segment_count ||
+            encrypted_reply->length == 0 || encrypted_reply->length > kCodexReplySpeechBytes)
+            return ESP_ERR_INVALID_SIZE;
+        for (auto &value : encrypted_reply->nonce) if (!reader.byte(value)) return reader.error;
+        for (size_t index = 0; index < static_cast<size_t>(encrypted_reply->length) + 16U; ++index)
+            if (!reader.byte(encrypted_reply->ciphertext[index])) return reader.error;
     }
     if (reader.offset != length || progress > 1) {
         return ESP_ERR_INVALID_ARG;

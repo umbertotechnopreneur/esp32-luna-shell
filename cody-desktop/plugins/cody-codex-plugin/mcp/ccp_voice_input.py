@@ -16,6 +16,7 @@ import wave
 from ccp_windows import configure_exclusive_socket, runtime_directory
 import ccp_audio_config as audio_config
 from ccp_audio_queue import PublicAudioQueue, NativeInputRejected
+from ccp_reply_source import CodexReplySource
 
 HEADER = struct.Struct("!4s6s16s16sIBH")
 PORT = 42119
@@ -71,6 +72,7 @@ class VoiceInputServer:
         self.lock = threading.Lock()
         self.stop = threading.Event()
         self.jobs = queue.Queue(maxsize=MAX_ACTIVE)
+        self.reply_reads = queue.Queue(maxsize=8)
         self.executable = ""
         self.queue_client = None
         self.queue_executable = ""
@@ -335,6 +337,50 @@ class VoiceInputServer:
             self.queue_client = None
             self.queue_executable = ""
 
+    # thread_id: Exact native chat identity from a genuine Stop hook.
+    # turn_id: Exact turn from that same hook.
+    # cancel_event: Broker-owned cancellation; never stops the pre-existing queue client.
+    # Returns the final text only from the already-running queue owner's client.
+    # Raises RuntimeError or TimeoutError when that client or its bounded worker is unavailable.
+    def read_final_reply(self, thread_id: str, turn_id: str, cancel_event: threading.Event) -> str:
+        if not self.delivery.is_alive() or self.stop.is_set():
+            raise RuntimeError("Codex reply source is unavailable; configure the existing audio queue")
+        job = {"thread": thread_id, "turn": turn_id, "done": threading.Event(),
+               "cancelled": threading.Event(), "reply": "", "error": None}
+        try:
+            self.reply_reads.put_nowait(job)
+        except queue.Full as error:
+            raise RuntimeError("Codex reply source queue is full") from error
+        deadline = time.monotonic() + 45
+        while not job["done"].wait(timeout=0.2):
+            if cancel_event.is_set() or self.stop.is_set() or time.monotonic() >= deadline:
+                job["cancelled"].set()
+                raise TimeoutError("Codex reply source did not complete")
+        if job["error"] is not None:
+            raise RuntimeError("Codex reply source is unavailable or response is not eligible") from job["error"]
+        return job["reply"]
+
+    # No parameters: one bounded reply query is serviced by the queue client's sole owner.
+    # The job is never sent to a newly launched process by the reply path.
+    def process_reply_read(self) -> None:
+        try:
+            job = self.reply_reads.get_nowait()
+        except queue.Empty:
+            return
+        try:
+            if job["cancelled"].is_set():
+                return
+            if self.queue_client is None or self.native_error:
+                raise RuntimeError("Codex public audio queue has no active App Server client")
+            reply = CodexReplySource(self.queue_client, job["cancelled"]).final_answer(job["thread"], job["turn"])
+            if not job["cancelled"].is_set():
+                job["reply"] = reply
+        except Exception as error:
+            job["error"] = error
+        finally:
+            job["done"].set()
+            self.reply_reads.task_done()
+
     # self: Delivery worker owns its queue process for its entire lifetime.
     # Exceptions: Cleanup failures remain visible in the optional audio state and log.
     def deliver(self):
@@ -354,6 +400,7 @@ class VoiceInputServer:
             self.refresh_readiness()
             if self.stop.is_set():
                 break
+            self.process_reply_read()
             try:
                 recording = self.jobs.get(timeout=0.2)
             except queue.Empty:

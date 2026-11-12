@@ -18,16 +18,16 @@
 #include "esp_err.h"
 #include <cstdint>
 
-namespace LUNASHELL { enum class CodyUsageMode : uint8_t; }
-
 namespace CODY {
 struct WidgetVisibility;
 
 enum class PreferenceId : uint8_t {
-    ShakeWake = 0, AutoRotate = 1, Sounds = 2, Orientation = 3, UsageMode = 4, Brightness = 5,
+    ShakeWake = 0, AutoRotate = 1, Sounds = 2, Orientation = 3, Brightness = 5,
     Dictation = 6, Screensaver = 7, SynthEnabled = 8, SynthVolume = 9, SynthVoice = 10,
     AssistantQuotaRing = 11, BatteryRing = 12, AutoTime = 13,
-    QuietEnabled = 14, QuietStart = 15, QuietEnd = 16,
+    PlaybackVolume = 15, MicrophoneGain = 16,
+    QuietEnabled = 14, QuietStart = 17, QuietEnd = 18,
+    Sofia = 19, CounterMode = 20,
 };
 
 // No parameters: loads exact persisted values, creating only genuinely absent keys.
@@ -39,9 +39,13 @@ esp_err_t load_companion_preferences();
 // Exception: Returns the real validation, persistence, application or publication error.
 esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value);
 
-// mode: Explicit Desk or Away choice; changes only this durable presentation preference.
-// Exception: Returns original validation, projection, persistence, readback or publication errors.
-esp_err_t persist_companion_usage_mode(LUNASHELL::CodyUsageMode mode);
+// No parameters: reconcile stored output and microphone preferences with the codec on a worker.
+// Exception: Returns the first original NVS, codec, readback or snapshot-publication error.
+esp_err_t reconcile_audio_preferences();
+
+// No parameters: restore only the saved output policy before the optional boot cue.
+// Exception: Returns the original NVS, codec, readback or snapshot-publication error.
+esp_err_t reconcile_audio_output_preference();
 
 // visibility: Receives the validated preference after a confirmed read or first initialization.
 // Exception: Returns the original storage error or ESP_ERR_INVALID_RESPONSE for an invalid record.

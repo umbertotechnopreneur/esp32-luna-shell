@@ -13,18 +13,24 @@ persistence, power and authenticated transport.
 | Retained screen sources, original codes and Muse/Tools mapping | [Screen catalog](screen-catalog.md) |
 | vNext development phases, dependencies and acceptance gates | [Development plan](../../planned-todo.md#cody-next---domain-model-and-muse-implementation-plan) |
 | vNext entities, evidence, capacities and lifecycle rules | [Domain model](domain-model.md) |
-| Hardware, pet and assistant status ownership | [Status models](status-models.md) |
+| Hardware, pet and assistant status ownership | [Status models](domain-model.md#hardware-pet-and-assistant-status-models) |
 | vNext JSON, negotiation, bounded transport and recovery | [State protocol](../../cody-desktop/plugins/cody-codex-plugin/protocol/CODY_STATE_V1.md) |
 | All device routes at a glance | [A4 navigation map](device-navigation-map-a4.pdf) |
 | Display coordinates, action controls and QR | [Layout](layout.md) |
+| Local Wi-Fi text entry and secret handling | [Text entry](navigation.md#native-text-entry) |
+| Clock presentation and cue policy | [Clock presentation](runtime.md#clock-presentation) |
 | Power and standby | [Power management](../bsp/services/power-management.md) |
 | Native display transfers | [Display and touch runtime](../bsp/core/display-touch-runtime.md) |
 
 Installation and PC operation belong to the [CCP guide](../../cody-desktop/plugins/cody-codex-plugin/README.md).
 Packet formats and authentication belong to [CCP1](../../cody-desktop/plugins/cody-codex-plugin/protocol/CCP1.md).
 Windows controls and synthetic scenarios belong to the [simulator guide](../../cody-device/simulator/windows/README.md).
+The Italian product-strategy Word and PDF files are historical product
+documents, not current build or device-verification references; their voice
+statements must be read against the feature-profile boundaries below.
 Use the [A4 navigation map](device-navigation-map-a4.pdf) for the dashboard and
-Options. The startup screen shows the Muse avatar after the VibeWare animation.
+Options. The saved Counter mode can show its three data pages on Home after the
+VibeWare animation; with Counter mode off, Home shows the Muse avatar.
 
 On the first cold start after installation or factory reset, Cody shows the
 [Muse birth concept](muse-birth-oobe.png): white fades to black, Muse fades in,
@@ -46,9 +52,13 @@ Board wiring and available peripherals are listed in the
 The [project introduction](../../README.md#the-little-round-thing) explains the choice of device.
 
 Cody uses the shared power, battery, IMU, speaker, Wi-Fi and BLE provisioning
-owners. The default image includes the Muse avatar. The microphone pipeline and
-activity classifier are optional. The optional `wake-word` feature enables the microphone,
-audio front end and existing Sophia listener, including listening standby.
+owners. The default image includes the Muse avatar and, when no feature or board
+configuration is specified, selects English `tts-flash` synthesis. The explicit
+`none` variant omits synthesis and microphone acquisition. The optional
+`wake-word` feature enables the microphone, audio front end and existing Sophia
+listener for standby wake alongside English flash TTS; it excludes the separate
+Codex voice-input owner. Their combined behavior needs physical verification.
+Activity classification is not available in the Cody profile.
 
 The saved-profile startup policy is authoritative; the Cody profile sets
 `CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT=n`. Development replay requires explicit

@@ -540,7 +540,7 @@ struct CodexEventSnapshot : ComponentSnapshot, CodexEventPayload {
     int64_t expires_at_us = 0;
     char selection_request_id[33]{}; // Explicit navigation admission; never an answer.
 };
-static_assert(sizeof(CodexEventSnapshot) <= 2048, "Question projection requires owner storage, bounded to 2 KiB");
+static_assert(sizeof(CodexEventSnapshot) <= 2560, "Event projection includes bounded private speech and requires owner storage");
 
 enum class PcTimeSyncState : uint8_t { Idle, Pending, Applied, Failed };
 
@@ -1061,7 +1061,6 @@ struct CodyUserNameSnapshot : ComponentSnapshot {
 };
 
 // Settings owner publishes readback-confirmed values; consumers never read NVS.
-enum class CodyUsageMode : uint8_t { Desk = 0, Away = 1 };
 
 struct CodyPreferencesSnapshot : ComponentSnapshot {
     bool shake_to_wake = false;
@@ -1069,6 +1068,9 @@ struct CodyPreferencesSnapshot : ComponentSnapshot {
     bool screensaver_enabled = false;
     bool screensaver_valid = false;
     esp_err_t screensaver_error = ESP_ERR_INVALID_STATE;
+    bool counter_mode_enabled = false;
+    bool counter_mode_valid = false;
+    esp_err_t counter_mode_error = ESP_ERR_INVALID_STATE;
     bool assistant_quota_ring_enabled = false;
     bool assistant_quota_ring_valid = false;
     esp_err_t assistant_quota_ring_error = ESP_ERR_INVALID_STATE;
@@ -1078,12 +1080,22 @@ struct CodyPreferencesSnapshot : ComponentSnapshot {
     bool auto_time_enabled = false;
     bool auto_time_valid = false;
     esp_err_t auto_time_error = ESP_ERR_INVALID_STATE;
-    CodyUsageMode usage_mode = CodyUsageMode::Desk;
-    bool usage_mode_valid = false;
-    esp_err_t usage_mode_error = ESP_ERR_INVALID_STATE;
+    // Audio values are accepted and reported by esp_codec_dev; they are not hardware-register measurements.
+    uint8_t playback_volume_percent = 0;
+    bool playback_volume_valid = false;
+    esp_err_t playback_volume_error = ESP_ERR_INVALID_STATE;
+    uint8_t microphone_gain_db = 0;
+    bool microphone_gain_valid = false;
+    esp_err_t microphone_gain_error = ESP_ERR_INVALID_STATE;
+    bool synth_voice_enabled = false;
+    bool synth_voice_valid = false;
+    esp_err_t synth_voice_error = ESP_ERR_NOT_SUPPORTED;
     bool dictation_enabled = false;
     bool dictation_valid = false;
     esp_err_t dictation_error = ESP_ERR_INVALID_STATE;
+    bool sofia_enabled = false;
+    bool sofia_valid = false;
+    esp_err_t sofia_error = ESP_ERR_INVALID_STATE;
     CodyUserNameSnapshot user_name;
 };
 
@@ -1136,6 +1148,7 @@ struct DeviceSnapshot {
 struct SpeechObservation {
     ClockSnapshot clock;
     StorageSnapshot storage;
+    SpeechSnapshot speech;
     DeviceOperatingState operating_state = DeviceOperatingState::Active;
 };
 #endif

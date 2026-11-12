@@ -90,8 +90,10 @@ esp_err_t notify_codex_audio(CodexAudioCue cue, CodexAudioStatus &status)
         return ESP_ERR_INVALID_ARG;
     }
     lunashell_audio_cue_status_t owner{};
-    const esp_err_t error = LUNASHELL_audio_notify_codex(selected->samples, selected->sample_count,
-        selected->sample_rate_hz, static_cast<uint32_t>(cue), cue_kind(cue), &owner);
+    const lunashell_audio_request_t request{selected->samples, selected->sample_count,
+        selected->sample_rate_hz, static_cast<uint32_t>(cue), LUNASHELL_AUDIO_CODEX, cue_kind(cue), 1, 0,
+        LUNASHELL_AUDIO_WAVE_PCM, 0, 1000, 0, 0, 0, 0, false, 0, 0};
+    const esp_err_t error = LUNASHELL_audio_submit(&request, &owner);
     copy_status(owner, status);
     return error;
 }
@@ -123,9 +125,10 @@ esp_err_t notify_codex_audio_sequence(CodexAudioCue cue, uint8_t repetitions,
         return ESP_ERR_INVALID_ARG;
     }
     lunashell_audio_cue_status_t owner{};
-    const auto error = LUNASHELL_audio_notify_codex_repeated_notice(selected->samples,
-        selected->sample_count, selected->sample_rate_hz, static_cast<uint32_t>(cue),
-        repetitions, gap_ms, &owner);
+    const lunashell_audio_request_t request{selected->samples, selected->sample_count,
+        selected->sample_rate_hz, static_cast<uint32_t>(cue), LUNASHELL_AUDIO_CODEX,
+        LUNASHELL_CODEX_CUE_NOTICE, repetitions, gap_ms, LUNASHELL_AUDIO_WAVE_PCM, 0, 1000, 0, 0, 0, 0, false, 0, 0};
+    const auto error = LUNASHELL_audio_submit(&request, &owner);
     copy_status(owner, status);
     return error;
 }
@@ -162,13 +165,16 @@ esp_err_t set_codex_audio_enabled(bool enabled)
     return LUNASHELL_audio_set_codex_enabled(enabled);
 }
 
-// status: Receives the retained asynchronous owner result and a known Codex identity, if any.
+// sequence: Exact admitted request sequence.
+// cue: Stable identity originally submitted with the sequence.
+// status: Receives that request's asynchronous outcome.
 // Exception: Returns the original retained owner failure.
-esp_err_t get_codex_audio_status(CodexAudioStatus &status)
+esp_err_t get_codex_audio_status(uint32_t sequence, CodexAudioCue cue, CodexAudioStatus &status)
 {
     lunashell_audio_cue_status_t owner{};
-    const esp_err_t error = LUNASHELL_audio_get_personality_status(&owner);
+    const esp_err_t error = LUNASHELL_audio_get_cue_status(sequence, static_cast<uint32_t>(cue), &owner);
+    if (error != ESP_OK) return error;
     copy_status(owner, status);
-    return error;
+    return owner.last_error;
 }
 } // namespace CODY

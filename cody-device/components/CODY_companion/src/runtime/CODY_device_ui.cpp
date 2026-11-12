@@ -6,10 +6,12 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
 #include <new>
 
 #include "CODY_boot_branding.hpp"
 #include "CODY_codex_audio.hpp"
+#include "CODY_cost_badge.hpp"
 #include "CODY_device_view.hpp"
 #include "CODY_device_effects.hpp"
 #include "CODY_codex_panels.hpp"
@@ -20,11 +22,13 @@
 #include "CODY_pet_service.hpp"
 #include "CODY_screensaver.hpp"
 #include "CODY_status_overlay.hpp"
+#include "LUNASHELL_audio_controls.h"
 #include "CODY_onboarding.hpp"
 #include "CODY_page_marks.hpp"
 #include "CODY_settings.hpp"
 #include "CODY_setup_progress.hpp"
 #include "CODY_theme_generated.hpp"
+#include "CODY_technical_panels.hpp"
 #include "CODY_voice_waveform.hpp"
 #include "CODY_waveshare_device.hpp"
 #include "CODY_widget_visibility_view.hpp"
@@ -78,7 +82,7 @@ constexpr uint32_t kWorkerStackBytes = 12288;
 
 enum class Layer : uint8_t {
     Branding, Birth, Mascot, Animation, Message, Scene, Dashboard, AboutLink, Visibility, Timer, Voice, Diagnostics,
-    VoucherWarning, Events, CurrentTurn, EventReply, CodexBrowser, Screensaver, Blank, Audio, Surprise
+    VoucherWarning, Events, CurrentTurn, EventReply, CodexBrowser, Screensaver, Blank, Audio, Surprise, Counter
 };
 enum class Command : uint8_t { Ready = 1, Sleep, Wake, Shutdown, ShutdownFailed };
 enum class ActivityPage : uint8_t { Events, CurrentTurn, Reply, Statistics };
@@ -88,7 +92,8 @@ enum class Target : uint8_t {
     None, Previous, Next, VisibilityFirst, VisibilitySecond, VisibilityThird,
     Interval, FirstAction, SecondAction, VoiceGesture, VoucherScroll, VoucherDismiss,
     TimerDecrease, TimerIncrease, TimerSound, TimerStart, TimerCancel, TimerDismiss,
-    EventsGesture, ActivityBack, EventDismiss, CodexBrowserControl, CodexBrowserBack, AudioClose
+    EventsGesture, ActivityBack, EventDismiss, CodexBrowserControl, CodexBrowserBack, AudioClose,
+    AudioVolumeDown, AudioVolumeUp, AudioGainDown, AudioGainUp
 };
 constexpr std::array<Target, CODY::kVisibilityRowsPerPage> kVisibilityTargets{
     Target::VisibilityFirst, Target::VisibilitySecond, Target::VisibilityThird,
@@ -153,6 +158,16 @@ struct DeviceUi {
     CODY::WidgetVisibilityView editor{};
     CODY::LocalTimerView timer_view{};
     CODY::AudioView audio_view{};
+    LUNASHELL::CodyOptionsObservation audio_options{};
+    esp_err_t audio_options_error = ESP_ERR_NOT_FINISHED;
+    esp_err_t audio_setting_error = ESP_OK;
+    bool audio_setting_pending = false;
+    bool audio_refresh_needed = false;
+    bool counter_mode_enabled = false;
+    uint8_t counter_page = 0;
+    char counter_model_name[129]{};
+    CODY::StyledTitle counter_model_title{};
+    int64_t audio_refresh_retry_us = 0;
     CODY::StatusOverlay status{};
     CODY::StatusOverlay retired_status{};
     bool status_retired = false;
@@ -580,6 +595,56 @@ void set_audio_demand(bool enabled)
     }
 }
 
+// ui: Retains the selected counter page and its canonical dashboard projections.
+// frame: Receives only quota, active-context or model information.
+// now_us: Current monotonic time for freshness and countdown.
+// Exception: Returns the original projection or rendering failure.
+esp_err_t prepare_counter_view(DeviceUi &ui, FrameView &frame, int64_t now_us)
+{
+    CODY::update_device_statistics(ui.model.dashboard);
+    const auto &data = ui.model.dashboard;
+    frame.layer = Layer::Counter;
+    frame.arrows = false;
+    if (ui.counter_page == 0) {
+        return CODY::prepare_device_dashboard(ui.view, frame.presentation, WidgetScreen::Reset,
+            ui.model.interval, data, now_us, CODY::VoucherList{});
+    }
+    CODY::PanelInputs inputs{};
+    const auto error = CODY::project_companion_panel_inputs(data.context.link, data.context.technical,
+        now_us, data.context.firmware_version, inputs);
+    if (error != ESP_OK) return error;
+    const bool active = inputs.activity == CODY::PanelValueState::Current && inputs.chat_id[0] != '\0';
+    if (ui.counter_page == 1) {
+        if (!active || !inputs.context_coherent || inputs.used.state != CODY::PanelValueState::Current ||
+            inputs.capacity.state != CODY::PanelValueState::Current || inputs.capacity.value == 0 ||
+            inputs.used.value > inputs.capacity.value) {
+            return CODY::prepare_device_message(ui.view, frame.presentation, "Context", "Unavailable",
+                "No current chat data");
+        }
+        char used[32]{};
+        char remaining[32]{};
+        char capacity[32]{};
+        std::snprintf(used, sizeof(used), "Used %llu", static_cast<unsigned long long>(inputs.used.value));
+        std::snprintf(remaining, sizeof(remaining), "Free %llu",
+            static_cast<unsigned long long>(inputs.capacity.value - inputs.used.value));
+        std::snprintf(capacity, sizeof(capacity), "Window %llu", static_cast<unsigned long long>(inputs.capacity.value));
+        return CODY::prepare_device_message(ui.view, frame.presentation, "Context", used, remaining, nullptr, nullptr, capacity);
+    }
+    const bool model_current = active && inputs.model_state == CODY::PanelValueState::Current &&
+        inputs.model[0] != '\0' && std::strlen(inputs.model) < sizeof(ui.counter_model_name);
+    const char *band = active && inputs.cost_state == CODY::PanelValueState::Current
+        ? CODY::cost_band_text(inputs.cost_band) : "Price unavailable";
+    auto result = CODY::prepare_device_message(ui.view, frame.presentation, "Model",
+        model_current ? "Current model" : "Model unavailable", band, nullptr, nullptr, "Standard reference");
+    if (result != ESP_OK || !model_current) return result;
+    std::snprintf(ui.counter_model_name, sizeof(ui.counter_model_name), "%s", inputs.model);
+    const auto length = static_cast<uint16_t>(std::strlen(ui.counter_model_name));
+    result = CODY::prepare_styled_title({ui.counter_model_name, length},
+        frame.presentation.content.heading.bounds, ui.counter_model_title, 3, true);
+    if (result == ESP_OK) frame.presentation.content.heading = ui.counter_model_title;
+    return result;
+}
+
 // frame: Receives one visible surface and its native content.
 // now_us: Monotonic time for the reset and recording views.
 // motion_error: Result of the canonical motion/audio read in this update, if any.
@@ -622,7 +687,7 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
 #else
     (void)motion_error;
 #endif
-    if (!ui.audio_open || ui.diagnostics || voice_busy) {
+    if (!ui.audio_open || ui.diagnostics) {
         set_audio_demand(false);
     }
     // Read an admitted alarm's result before another effect can reuse the audio mailbox.
@@ -647,8 +712,10 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
             ui.model.vouchers.warning_expiry = expiry;
         }
     }
-    const bool saver_eligible = (ui.mascot_home ? ui.pixel_demo.elapsed_us >= CODY::kPixelDemoWakingUs :
-        CODY::onboarding_dashboard_active()) &&
+    const bool saver_eligible = (ui.counter_mode_enabled
+        ? (ui.mascot_home || CODY::onboarding_dashboard_active())
+        : (ui.mascot_home ? ui.pixel_demo.elapsed_us >= CODY::kPixelDemoWakingUs :
+           CODY::onboarding_dashboard_active())) &&
         !ui.model.editing && !ui.diagnostics && !ui.animation_active &&
         !ui.timer_open && !ui.audio_open && !voice_busy &&
         ui.model.vouchers.warning_expiry == 0 &&
@@ -662,7 +729,7 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         frame.layer = Layer::Screensaver;
         return CODY::prepare_screensaver(ui.model.screensaver, ui.view.screensaver, frame.presentation.content);
     }
-    if (ui.animation_active && (voice_busy || CODY::device_effects_require_attention(ui.model.effects) ||
+    if (ui.animation_active && (ui.counter_mode_enabled || voice_busy || CODY::device_effects_require_attention(ui.model.effects) ||
         ui.model.battery_banner.sequence != 0 || ui.diagnostics)) {
         ui.animation_active = false;
         CODY::reset_muse_animation(0);
@@ -698,9 +765,8 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
             demand_error = ESP_ERR_NOT_FINISHED;
         }
 #endif
-        if (demand_error == ESP_OK) {
-            motion_error = DeviceSnapshotService::instance().readMotionPowerObservation(ui.model.motion);
-        }
+        motion_error = DeviceSnapshotService::instance().readMotionPowerObservation(ui.model.motion);
+        const auto playback_error = motion_error;
         const auto &sample = ui.model.motion.audio.microphone;
         const int64_t admitted_at = std::max(ui.audio_demand_started_us,
             s_audio_demand_confirmed_at_us.load(std::memory_order_acquire));
@@ -708,8 +774,10 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
             sample.last_error == ESP_OK && sample.last_success_at_us <= admitted_at) {
             motion_error = ESP_ERR_NOT_FINISHED;
         }
+        ui.audio_options_error = DeviceSnapshotService::instance().readCodyOptionsObservation(ui.audio_options);
         return CODY::prepare_audio_view(ui.model.motion.audio,
-            demand_error == ESP_OK ? motion_error : demand_error, esp_timer_get_time(),
+            demand_error == ESP_OK ? motion_error : demand_error, playback_error, ui.audio_options.preferences,
+            ui.audio_options_error, ui.audio_setting_pending, ui.audio_setting_error, esp_timer_get_time(),
             CODY::SceneData::title_font, CODY::SceneData::body_font, ui.audio_view, frame.presentation.content);
     }
     if (ui.timer_open) {
@@ -725,12 +793,16 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
             ui.model.save == Save::Pending, ui.model.save == Save::Failed, ui.model.settings_error != ESP_OK,
             CODY::SceneData::title_font, CODY::SceneData::body_font, ui.editor, frame.presentation.content);
     }
-    if (ui.codex_browser.route != CODY::CodexBrowserRoute::Closed &&
+    if (!ui.counter_mode_enabled && ui.codex_browser.route != CODY::CodexBrowserRoute::Closed &&
         ui.browser_destination == CODY::CodexBrowserDestination::None &&
         CODY::onboarding_codex_tools_active()) {
         frame.layer = Layer::CodexBrowser;
         frame.arrows = true;
         return CODY::prepare_codex_browser(ui.codex_browser, now_us, frame.presentation.content);
+    }
+    if (ui.counter_mode_enabled && !ui.about_from_options &&
+        (CODY::onboarding_dashboard_active() || ui.mascot_home)) {
+        return prepare_counter_view(ui, frame, now_us);
     }
     const bool mascot_waking = ui.pixel_demo.elapsed_us < CODY::kPixelDemoWakingUs;
     if (ui.mascot_home && (mascot_waking || !CODY::device_effects_require_attention(ui.model.effects))) {
@@ -967,7 +1039,11 @@ esp_err_t render(const FrameView &frame, bool force = false)
     uint8_t carousel_page = 0;
     uint8_t carousel_count = 0;
     uint16_t carousel_mask = 0;
-    if (frame.layer == Layer::Dashboard && screen != WidgetScreen::About) {
+    if (frame.layer == Layer::Counter) {
+        carousel_page = ui.counter_page;
+        carousel_count = 3;
+        carousel_mask = 7;
+    } else if (frame.layer == Layer::Dashboard && screen != WidgetScreen::About) {
         for (const auto &entry : CODY::kWidgetScreens) {
             if (!CODY::widget_visible(ui.available_statistics, entry.id)) continue;
             if (entry.id == screen) carousel_page = carousel_count;
@@ -1211,8 +1287,17 @@ Target target_at(CODY2D::Point point)
     const auto layer = ui.retired.layer;
     if (layer == Layer::AboutLink) return Target::Previous;
     if (layer == Layer::Audio) {
+        // The view is mutable during preparation; admit only the last retired revision.
+        if (ui.audio_view.revision != ui.retired.content_revision) return Target::None;
         if (ui.retired.navigation_opacity == 255 &&
             CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::AudioClose;
+        switch (CODY::audio_adjustment_at(ui.audio_view, point)) {
+        case CODY::AudioAdjustment::VolumeDown: return Target::AudioVolumeDown;
+        case CODY::AudioAdjustment::VolumeUp: return Target::AudioVolumeUp;
+        case CODY::AudioAdjustment::GainDown: return Target::AudioGainDown;
+        case CODY::AudioAdjustment::GainUp: return Target::AudioGainUp;
+        case CODY::AudioAdjustment::None: break;
+        }
         return CODY::audio_close_at(ui.audio_view, point) ? Target::AudioClose : Target::None;
     }
     if (layer == Layer::CodexBrowser) {
@@ -1433,6 +1518,23 @@ esp_err_t activate(Target target)
     } else if (layer == Layer::Audio) {
         if (target == Target::AudioClose) {
             ui.audio_open = false;
+            invalidate();
+        } else if (target == Target::AudioVolumeDown || target == Target::AudioVolumeUp ||
+                   target == Target::AudioGainDown || target == Target::AudioGainUp) {
+            // A control may have become disabled while the finger was held.
+            if (target_at(ui.activity_touch_last) != target) return ESP_OK;
+            const bool volume = target == Target::AudioVolumeDown || target == Target::AudioVolumeUp;
+            const bool increase = target == Target::AudioVolumeUp || target == Target::AudioGainUp;
+            const uint32_t current = volume ? ui.audio_view.playback_volume : ui.audio_view.microphone_gain;
+            const uint32_t step = volume ? 10U : 3U;
+            const uint32_t maximum = volume ? 100U : 30U;
+            const uint32_t next = increase ? std::min(maximum, current + step) :
+                current < step ? 0U : current - step;
+            const auto preference = volume ? CODY::PreferenceId::PlaybackVolume : CODY::PreferenceId::MicrophoneGain;
+            const auto error = CODY::request_audio_preference(preference, next);
+            ui.audio_setting_error = error;
+            ui.audio_setting_pending = error == ESP_OK;
+            if (error != ESP_OK) ESP_LOGW(kTag, "Audio setting admission failed (%s)", esp_err_to_name(error));
             invalidate();
         }
     } else if (layer == Layer::Timer) {
@@ -1794,6 +1896,11 @@ esp_err_t sample_touch()
         const int dy = ui.activity_touch_last.y - ui.activity_touch_start.y;
         if (std::abs(dx) >= 48 && std::abs(dx) * 2 > std::abs(dy) * 3) {
             const bool previous = dx > 0;
+            if (ui.retired.layer == Layer::Counter) {
+                ui.counter_page = static_cast<uint8_t>((ui.counter_page + (previous ? 2U : 1U)) % 3U);
+                invalidate();
+                return ESP_OK;
+            }
             if (ui.retired.layer == Layer::Visibility) {
                 edit_visibility(previous ? Target::Previous : Target::Next);
                 return ESP_OK;
@@ -1848,6 +1955,44 @@ esp_err_t sample_touch()
 esp_err_t update_navigation()
 {
     auto &ui = *s_ui;
+    bool audio_refresh = false;
+    CODY::PreferenceId audio_preference = CODY::PreferenceId::PlaybackVolume;
+    esp_err_t audio_result = ESP_OK;
+    if (CODY::take_audio_preference_result(audio_refresh, audio_preference, audio_result)) {
+        ui.audio_setting_pending = false;
+        // A reconciliation returns its first error, so a permanent failure on one
+        // control must not hide a transient busy result on the other control.
+        LUNASHELL::CodyOptionsObservation audio_observed{};
+        const auto observation_error = DeviceSnapshotService::instance().readCodyOptionsObservation(audio_observed);
+        const bool preference_busy = observation_error == ESP_OK &&
+            (audio_observed.preferences.playback_volume_error == ESP_ERR_NOT_FINISHED ||
+             audio_observed.preferences.microphone_gain_error == ESP_ERR_NOT_FINISHED);
+        ui.audio_setting_error = audio_result == ESP_ERR_NOT_FINISHED ? ESP_OK : audio_result;
+        if (audio_result == ESP_ERR_NOT_FINISHED || preference_busy) {
+            ui.audio_refresh_needed = true;
+            ui.audio_refresh_retry_us = esp_timer_get_time() + 2000000;
+        }
+        if (ui.audio_open) invalidate();
+    }
+    if (ui.audio_refresh_needed && !ui.audio_setting_pending && !ui.asleep &&
+        !s_options_requested.load(std::memory_order_acquire) &&
+        !s_home_requested.load(std::memory_order_acquire) &&
+        !s_surprise_requested.load(std::memory_order_acquire) &&
+        esp_timer_get_time() >= ui.audio_refresh_retry_us) {
+        const auto error = CODY::request_audio_preferences_refresh();
+        if (error == ESP_OK) {
+            ui.audio_refresh_needed = false;
+            ui.audio_setting_pending = true;
+            ui.audio_setting_error = ESP_OK;
+            if (ui.audio_open) invalidate();
+        } else if (error == ESP_ERR_NOT_FINISHED) {
+            ui.audio_refresh_retry_us = esp_timer_get_time() + 2000000;
+        } else {
+            ui.audio_refresh_needed = false;
+            ui.audio_setting_error = error;
+            ESP_LOGW(kTag, "Audio preferences refresh admission failed (%s)", esp_err_to_name(error));
+        }
+    }
     if (s_boot_activity.exchange(false, std::memory_order_acq_rel)) {
         const int64_t button_at_us = esp_timer_get_time();
         ui.model.navigation.interact(button_at_us);
@@ -1961,6 +2106,7 @@ esp_err_t update_navigation()
     }
     case CODY::WidgetOpenRequest::CodexBrowser:
         ui.audio_open = false;
+        if (ui.counter_mode_enabled) break;
         if (CODY::onboarding_codex_tools_active()) {
             CODY::open_codex_browser(ui.codex_browser);
             ui.browser_destination = CODY::CodexBrowserDestination::None;
@@ -2015,6 +2161,11 @@ esp_err_t update_navigation()
     case CODY::WidgetOpenRequest::Audio:
         ui.timer_open = false;
         ui.audio_open = true;
+        if (ui.audio_setting_error != ESP_OK && !ui.audio_setting_pending) {
+            ui.audio_setting_error = ESP_OK;
+            ui.audio_refresh_needed = true;
+            ui.audio_refresh_retry_us = 0;
+        }
         invalidate();
         break;
     default: break;
@@ -2089,6 +2240,8 @@ esp_err_t apply_command(Command command)
         ui.activity_page = ActivityPage::Events;
         ui.mascot_home = true;
         ui.pixel_demo.showcase.reset(static_cast<uint32_t>(now_us));
+        ui.audio_refresh_needed = true;
+        ui.audio_refresh_retry_us = 0;
     }
     if (command == Command::Sleep || command == Command::Shutdown) {
         if (ui.animation_active) CODY::reset_muse_animation(0);
@@ -2176,6 +2329,18 @@ esp_err_t prepare_offline_standby()
 esp_err_t update_and_draw(int64_t now_us)
 {
     auto &ui = *s_ui;
+    LUNASHELL::CodyOptionsObservation counter_options{};
+    const auto counter_error = DeviceSnapshotService::instance().readCodyOptionsObservation(counter_options);
+    if (counter_error == ESP_OK && counter_options.preferences.counter_mode_valid &&
+        ui.counter_mode_enabled != counter_options.preferences.counter_mode_enabled) {
+        ui.counter_mode_enabled = counter_options.preferences.counter_mode_enabled;
+        ui.counter_page = 0;
+        if (ui.counter_mode_enabled && ui.animation_active) {
+            ui.animation_active = false;
+            CODY::reset_muse_animation(0);
+        }
+        invalidate();
+    }
     const int64_t delta = ui.last_active_us == 0 ? 0 : now_us - ui.last_active_us;
     ui.awake_us += delta;
     ui.last_active_us = now_us;
@@ -2632,15 +2797,32 @@ extern "C" esp_err_t CODY_companion_start(void)
 {
     if (s_ui != nullptr) return ESP_ERR_INVALID_STATE;
     s_ui = new (s_ui_storage) DeviceUi{};
+    LUNASHELL_audio_begin_cody_output_policy();
     CODY::initialize_device_uptime(s_ui->model.dashboard);
     CODY::OnboardingSettings settings{};
     auto error = CODY::load_onboarding_settings(settings);
     if (error == ESP_OK) error = CODY::load_companion_preferences();
     if (error == ESP_OK) error = CODY::onboarding_service_init();
     if (error != ESP_OK) return error;
+    LUNASHELL::CodyOptionsObservation startup_options{};
+    const auto options_error = DeviceSnapshotService::instance().readCodyOptionsObservation(startup_options);
+    if (options_error == ESP_OK && startup_options.preferences.counter_mode_valid) {
+        s_ui->counter_mode_enabled = startup_options.preferences.counter_mode_enabled;
+    }
+    // Restore the saved output policy before any optional Cody cue can play.
+    const auto startup_volume_error = CODY::reconcile_audio_output_preference();
+    // Reconcile input and retry transient output contention on the action worker.
+    s_ui->audio_refresh_needed = true;
+    s_ui->audio_refresh_retry_us = 0;
     // The acquisition owner has initialized the codec; prepare its shared notification worker.
     // A failed optional sound worker does not remove pairing or power controls.
     (void)CODY::prepare_device_effects(s_ui->model.effects);
+    if (startup_volume_error != ESP_OK) {
+        s_ui->model.effects.boot_cue_requested = true;
+        s_ui->model.effects.boot_audio_error = startup_volume_error;
+        ESP_LOGW(kTag, "Boot cue omitted: saved output policy unavailable (%s)",
+            esp_err_to_name(startup_volume_error));
+    }
     s_ui->first_boot = settings.effective_first_boot;
     s_ui->birth_pending = settings.birth_intro_pending && esp_reset_reason() != ESP_RST_DEEPSLEEP;
     s_ui->setup_progress_pending = settings.setup_progress_pending;

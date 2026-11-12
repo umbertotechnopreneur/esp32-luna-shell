@@ -348,7 +348,8 @@
         "config/sdkconfig/v1/products/lunashell.defaults",
         "config/sdkconfig/v1/features/connectivity.defaults",
         "config/sdkconfig/v1/profiles/cody-companion.defaults",
-        "config/sdkconfig/v1/features/wake-word.defaults"
+        "config/sdkconfig/v1/features/wake-word.defaults",
+        "config/sdkconfig/v1/features/tts-flash.defaults"
       ],
       "component_roots": [
         "main",
@@ -368,7 +369,8 @@
         "waveshare__qmi8658",
         "cube32esp__xpowerslib",
         "fatfs",
-        "espressif__esp-sr"
+        "espressif__esp-sr",
+        "LUNASHELL_tts"
       ],
       "component_dirs": [
         "main",
@@ -377,7 +379,8 @@
         "components/esp32_s3_touch_amoled_1_75",
         "components/CODY2D",
         "components/CODY_domain",
-        "components/CODY_companion"
+        "components/CODY_companion",
+        "components/LUNASHELL_tts"
       ],
       "dependency_lock": "config/dependency-locks/v1/waveshare-esp32s3-touch-amoled-1.75/cody-companion-wake-word.lock",
       "generated_sdkconfig": "artifacts/sdkconfig/v1/cody-companion-wake-word",

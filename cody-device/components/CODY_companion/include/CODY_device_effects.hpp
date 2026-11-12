@@ -21,6 +21,9 @@ struct DeviceEventSoundRecord {
     char request_id[33]{};
     int64_t reminder_at_us = 0;
     uint16_t announced_kinds = 0;
+    uint8_t speech_announced = 0;
+    uint16_t reply_segment_announced = 0;
+    bool reply_segment_valid = false;
     bool delivery_announced = false;
 };
 
@@ -52,6 +55,11 @@ struct DeviceEffectsModel {
     esp_err_t wake_audio_error = ESP_OK;
     esp_err_t jump_audio_error = ESP_OK;
     esp_err_t pet_audio_error = ESP_OK;
+    esp_err_t event_speech_error = ESP_OK;
+    uint32_t reply_speech_request_id = 0;
+    uint16_t reply_speech_segment = 0;
+    char reply_speech_event_id[33]{};
+    int64_t next_event_speech_attempt_us = 0;
     lunashell_audio_cue_status_t pet_audio_status{};
     esp_err_t preparation_error = ESP_ERR_INVALID_STATE;
     esp_err_t event_error = ESP_ERR_INVALID_STATE;
@@ -72,12 +80,13 @@ struct DeviceEffectsModel {
     bool wifi_ready = false;
     bool wifi_result_known = false;
     bool event_online = false;
+    bool event_speech_pending = false;
     bool pairing_terminal_announced = false;
     bool voice_start_announced = false;
     bool voice_send_announced = false;
     bool voice_close_announced = false;
 };
-static_assert(sizeof(DeviceEffectsModel) <= 4096,
+static_assert(sizeof(DeviceEffectsModel) <= 4608,
     "Device effects retain bounded observations and identities in the device model");
 
 // model: Persistent effects state, initialized after the audio driver and sound preference.
