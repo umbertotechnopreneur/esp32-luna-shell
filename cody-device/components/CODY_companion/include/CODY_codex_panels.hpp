@@ -9,7 +9,7 @@
 namespace CODY {
 
 enum class CodexPanelKind : uint8_t { Events, CurrentTurn, Reply };
-enum class TurnGlyph : uint8_t { None, Shell, Web, Editing, Compacting };
+enum class TurnGlyph : uint8_t { None, Shell, Web, Editing, Tool, Compacting };
 
 struct CodexPanelView {
     LUNASHELL::CodexInboxPage page{};

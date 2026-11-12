@@ -130,12 +130,17 @@ constexpr Segment kCompacting[]{
 esp_err_t draw_glyph(TurnGlyph glyph, CODY2D::Surface strip, uint16_t row, uint16_t column)
 {
     if (glyph == TurnGlyph::None || row >= 247 || row + strip.height <= 180) return ESP_OK;
+    if (glyph == TurnGlyph::Tool) {
+        return CODY2D::draw_action_icon_rows(CODY2D::ActionIcon::Gear, {103, 185, 56, 56},
+            kCyan, strip, row, column);
+    }
     const Segment *segments = nullptr;
     size_t count = 0;
     switch (glyph) {
     case TurnGlyph::Shell: segments = kShell; count = std::size(kShell); break;
     case TurnGlyph::Web: segments = kWeb; count = std::size(kWeb); break;
     case TurnGlyph::Editing: segments = kEditing; count = std::size(kEditing); break;
+    case TurnGlyph::Tool: return ESP_OK; // Rendered with the shared browser glyph above.
     case TurnGlyph::Compacting: segments = kCompacting; count = std::size(kCompacting); break;
     case TurnGlyph::None: return ESP_OK;
     }
@@ -349,6 +354,7 @@ esp_err_t prepare_current_turn(CodexPanelView &view, const LUNASHELL::CodexTechn
                 glyph = TurnGlyph::Web;
             } else {
                 status = std::strncmp(activity.description, "Tool: ", 6) == 0 ? "Using a tool" : "Working";
+                if (std::strncmp(activity.description, "Tool: ", 6) == 0) glyph = TurnGlyph::Tool;
             }
             break;
         case Phase::ResponseReady: status = "Reply ready"; break;
@@ -360,7 +366,7 @@ esp_err_t prepare_current_turn(CodexPanelView &view, const LUNASHELL::CodexTechn
         case Phase::Unavailable: break;
         }
         if (activity.state == Phase::Working || activity.state == Phase::Running || activity.state == Phase::Editing) {
-            detail = glyph == TurnGlyph::Web ? "" : activity.description;
+            detail = activity.description;
         }
     }
     const bool same_view = view.valid && view.kind == CodexPanelKind::CurrentTurn;
@@ -368,14 +374,30 @@ esp_err_t prepare_current_turn(CodexPanelView &view, const LUNASHELL::CodexTechn
     auto error = prepare_chat_title(view.chat_title, title, live ? activity.chat_id : "", SceneData::body_font,
         now_us, !same_view, title_changed);
     if (error != ESP_OK) return error;
+    if (!same_view || std::strcmp(view.detail, detail) != 0) view.marquee_started_us = now_us;
+    uint16_t detail_offset = 0;
+    if (detail[0] != '\0') {
+        uint32_t width = 0;
+        const CODY2D::TextSpan span{detail, static_cast<uint16_t>(std::strlen(detail))};
+        error = CODY2D::measure_text_width(SceneData::body_font, span, width);
+        if (error != ESP_OK) return error;
+        if (width > 320) {
+            constexpr int64_t step_us = 50000;
+            const int64_t travel = width - 320;
+            const auto cycle = 2800000 + travel * step_us;
+            const auto elapsed_time = std::max<int64_t>(0, now_us - view.marquee_started_us) % cycle;
+            detail_offset = static_cast<uint16_t>(std::clamp<int64_t>((elapsed_time - 1200000) / step_us, 0, travel));
+        }
+    }
     if (same_view && !title_changed && view.glyph == glyph && std::strcmp(view.detail, detail) == 0 &&
-        std::strcmp(view.elapsed, elapsed) == 0 && view.line_count >= 2 &&
+        view.marquee_offset == detail_offset && std::strcmp(view.elapsed, elapsed) == 0 && view.line_count >= 2 &&
         std::strcmp(view.lines[1].text.characters, status) == 0) {
         return attach(view, content);
     }
     view.valid = false;
     view.kind = CodexPanelKind::CurrentTurn;
     view.glyph = glyph;
+    view.marquee_offset = detail_offset;
     view.line_count = 0;
     std::snprintf(view.detail, sizeof(view.detail), "%s", detail);
     std::snprintf(view.elapsed, sizeof(view.elapsed), "%s", elapsed);
@@ -392,7 +414,7 @@ esp_err_t prepare_current_turn(CodexPanelView &view, const LUNASHELL::CodexTechn
             error = add_line(view, "Elapsed", Typography::system(), {73, 306, 320, 27}, kMuted);
         }
     } else if (error == ESP_OK) {
-        error = add_line(view, view.detail, SceneData::body_font, {73, 264, 320, 28}, kWhite);
+        error = add_line(view, view.detail, SceneData::body_font, {73, 264, 320, 28}, kWhite, true, detail_offset);
     }
     return finish(view, content, error);
 }

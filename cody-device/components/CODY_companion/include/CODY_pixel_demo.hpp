@@ -65,6 +65,7 @@ struct PixelDemoView {
     PixelAvatarDamage damage{};
     uint64_t elapsed_us = 0;
     uint64_t reaction_started_us = 0;
+    uint64_t last_interaction_us = 0;
     int64_t observed_active_us = 0;
     int64_t touch_started_us = 0;
     int64_t touch_sampled_us = 0;
@@ -81,6 +82,7 @@ struct PixelDemoView {
     bool visible = false;
     bool retired_valid = false;
     bool reaction_active = false;
+    bool tap_expression_active = false;
     bool touch_candidate = false;
 };
 static_assert(sizeof(PixelDemoView) <= 10 * 1024, "Keep mascot frames in the display owner's PSRAM budget");

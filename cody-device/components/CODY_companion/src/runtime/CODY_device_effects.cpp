@@ -255,13 +255,13 @@ void observe_event(DeviceEffectsModel &model, int64_t now_us, SoundRequest &requ
         schedule_event_sound(model, CodexAudioCue::ResponseReady, now_us);
         break;
     case Kind::ApprovalOnPc:
-        choose(request, CodexAudioCue::ApprovalRequired, SoundPriority::Attention);
+        schedule_event_sound(model, CodexAudioCue::ApprovalRequired, now_us);
         break;
     case Kind::ChecksFailed:
-        choose(request, CodexAudioCue::ChecksFailed, SoundPriority::Attention);
+        schedule_event_sound(model, CodexAudioCue::ChecksFailed, now_us);
         break;
     case Kind::ChecksPassed:
-        choose(request, CodexAudioCue::ChecksPassed, SoundPriority::Confirmation);
+        schedule_event_sound(model, CodexAudioCue::ChecksPassed, now_us);
         break;
     default:
         // A generic notice, PR opening or work transition is not a completed response.

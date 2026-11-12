@@ -435,7 +435,9 @@ completion first. The limit preserves active calls. `PostToolUse` can also
 follow a failed command. Hosted tools and other paths that bypass the
 hooks have incomplete coverage. An exact active background turn can report its
 own progress without changing the followed chat. The current device activity
-projection still follows one chat.
+projection still follows one chat. While that chat has an active observed tool,
+the newest active tool label takes precedence over the reported progress text;
+the progress text returns when no tool is active, provided it is still current.
 
 The desktop storage, credential protection, process launch and exclusive
 socket setup use `mcp/ccp_windows.py` on the existing Windows/Linux paths.

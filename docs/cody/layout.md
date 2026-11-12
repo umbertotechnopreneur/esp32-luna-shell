@@ -141,9 +141,13 @@ its declared source context when one is supplied.
 Swipe left on Events for Current turn, and right for statistics. Swipe horizontally
 between statistics pages; swipe right from the first page to return to Events.
 Current turn uses the lateral Back
-control. It shows the currently followed chat, an observed Shell, Web search
-or Editing identity when available, and a separate compaction icon and measured
-elapsed time. A hosted web search without a native hook remains unavailable.
+control. It shows the currently followed chat, the newest observed active tool
+and its complete scrolling label when available, and a separate compaction icon
+and measured elapsed time. Shell, Web search and Editing retain their existing
+glyphs; other observed tools use the shared generic tool glyph. An active tool
+label takes precedence over the progress description until that tool returns.
+The display does not retain a completed call as active or infer its outcome.
+A hosted web search without a native hook remains unavailable.
 
 ## Setup, QR and Skin
 

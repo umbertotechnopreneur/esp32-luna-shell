@@ -9,6 +9,9 @@ namespace CODY {
 namespace {
 
 constexpr char kTag[] = "CODY_pixel_demo";
+// The Tamagotchi branch uses these awake-time intervals for transient expressions.
+constexpr uint64_t kExpressionUs = 3000000;
+constexpr uint64_t kIdleVariationUs = 20000000;
 // viewport: Logical artwork and tap bounds from the display adapter.
 constexpr CODY2D::Rect avatar_bounds(LogicalRect viewport)
 {
@@ -178,6 +181,23 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
         if (style.face.right_eye == MuseEyeStyle::Automatic) style.face.right_eye = MuseEyeStyle::Wide;
         if (style.face.mouth == MuseMouthStyle::Automatic) style.face.mouth = MuseMouthStyle::Round;
     }
+    // Expressions are decorative and must not replace a showcase pose, symbol,
+    // manual preview, motion reaction or the existing animated tap reaction.
+    const uint64_t since_interaction = view.elapsed_us - view.last_interaction_us;
+    const bool neutral_idle = !view.manual && !view.prepared_surprise && !view.reaction_active &&
+        pose.pose == PixelAvatarPose::Idle && !pose.working && pose.symbol == MuseSymbol::None;
+    if (view.tap_expression_active && view.elapsed_us - view.reaction_started_us >= kExpressionUs) {
+        view.tap_expression_active = false;
+    }
+    if (neutral_idle && view.tap_expression_active) {
+        if (style.face.left_eye == MuseEyeStyle::Automatic) style.face.left_eye = MuseEyeStyle::Happy;
+        if (style.face.right_eye == MuseEyeStyle::Automatic) style.face.right_eye = MuseEyeStyle::Happy;
+        if (style.face.mouth == MuseMouthStyle::Automatic) style.face.mouth = MuseMouthStyle::Smile;
+    } else if (neutral_idle && since_interaction >= kIdleVariationUs &&
+               since_interaction % kIdleVariationUs < kExpressionUs &&
+               style.face.mouth == MuseMouthStyle::Automatic) {
+        style.face.mouth = MuseMouthStyle::Thoughtful;
+    }
     if (view.manual && !view.manual_playing && view.retired_valid && !view.manual_needs_compose) {
         view.frames[view.write_buffer] = view.frames[1U - view.write_buffer];
         // The copied pixels retain their original semantics until a new frame is composed.
@@ -240,6 +260,7 @@ void hide_pixel_demo(PixelDemoView &view)
     view.visible = false;
     view.retired_valid = false;
     view.reaction_active = false;
+    view.tap_expression_active = false;
     view.touch_candidate = false;
     view.motion = {};
 }
@@ -261,6 +282,7 @@ bool observe_pixel_demo_touch(PixelDemoView &view, CODY2D::Point point,
         view.touch_revision = display_revision;
         view.touch_candidate = view.visible && view.retired_valid && sampled_at_us > 0 &&
             view.retired_viewport.contains(point.x, point.y);
+        if (view.touch_candidate) view.last_interaction_us = view.elapsed_us;
         return false;
     }
     if (!view.touch_candidate) return false;
@@ -286,6 +308,7 @@ void start_pixel_demo_reaction(PixelDemoView &view)
     if (!view.visible || !view.retired_valid) return;
     view.reaction_started_us = view.elapsed_us;
     view.reaction_active = true;
+    view.tap_expression_active = true;
 }
 
 } // namespace CODY

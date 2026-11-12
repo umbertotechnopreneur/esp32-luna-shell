@@ -650,12 +650,14 @@ class ActivityStore:
                 title = ChatTitleObservation()
             now = time.monotonic()
             phase = self._effective_phase(session) if session else Phase.NONE
-            description = (session.description if session and
-                phase in {Phase.WORKING, Phase.EDITING, Phase.RUNNING} and
-                now - session.description_observed_at <= ACTIVITY_LEASE_SECONDS else "")
-            if not description and session and session.tools and phase in {Phase.WORKING, Phase.EDITING, Phase.RUNNING}:
-                # Only the current native tool identity is exposed; arguments and shell commands stay on the PC.
+            description = ""
+            if session and session.tools and phase in {Phase.WORKING, Phase.EDITING, Phase.RUNNING}:
+                # The newest still-active invocation owns both the phase and label.
+                # Arguments and shell commands stay on the PC.
                 description = session.tool_labels[next(reversed(session.tools))]
+            elif (session and phase in {Phase.WORKING, Phase.EDITING, Phase.RUNNING} and
+                    now - session.description_observed_at <= ACTIVITY_LEASE_SECONDS):
+                description = session.description
             title_age = wire_milliseconds(now - title.observed_at) if title.observed_at is not None else "-"
             if title.state == TitleState.CURRENT and title_age == "-":
                 title = ChatTitleObservation(state=TitleState.ERROR)

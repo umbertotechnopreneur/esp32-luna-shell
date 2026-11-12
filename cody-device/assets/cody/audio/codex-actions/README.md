@@ -61,19 +61,21 @@ own event identity. The more audible notice levels
 retain digital headroom and do not override the user's speaker volume or Sounds switch.
 
 Pending questions use one 1,800-ms Question bell with a long fading tail,
-then one quieter 300-ms QuestionReminder every ten awake seconds. This replaces
+then one quieter 300-ms QuestionReminder every 60 awake seconds. This replaces
 the five/four-clip alert sequences rejected by the owner on 16 October.
 Only fresh, connected, visible Pending questions qualify. Admitted Send,
 terminal outcomes, stale observations and hidden views stop future reminders.
-Standby pauses the awake clock. Hidden/offline intervals start a fresh ten-second
-interval on return and do not replay the initial alert. Busy or suppressed attempts
-are consumed without a catch-up queue. Both cues use one filtered source layer,
+Standby pauses the awake clock. Hidden/offline intervals start a fresh 60-second
+interval on return and do not replay the initial alert. Initial questions, reply-ready,
+approvals and completed checks may retry a busy speaker for up to 2.5 seconds while
+the same event remains current. Suppressed attempts are consumed. Both question cues use one filtered source layer,
 a smooth attack/release and explicit digital headroom. Each request plays its sample once.
 
 Other cues trigger once on a semantic state change, never on each status packet, repaint,
 poll, tool output chunk or reconnect attempt. The display remains authoritative:
-a deliberately suppressed, expired or busy-dropped cue must not delay activity
-presentation or replay later. Reading is prepared as an asset only until its
+a suppressed or expired cue must not delay activity presentation or replay later.
+Busy event notices retry only within the bounded current-event window; no catch-up
+queue survives a source gap. Reading is prepared as an asset only until its
 event can be observed reliably.
 
 `CODY_codex_audio.hpp` provides `notify_codex_audio`, `notify_question_audio`, `set_codex_audio_suspended`,
