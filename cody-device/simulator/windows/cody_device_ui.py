@@ -702,6 +702,13 @@ class DeviceStudioWindow:
         self.show_battery_ring = True
         self.auto_time = True
         self.simulated_time_notice = ""
+        # Studio-only clock preferences; the preview never edits a physical Cody.
+        self.quiet_hours_enabled = False
+        self.quiet_hours_start = "22:00"
+        self.quiet_hours_end = "07:00"
+        self.quiet_edit_start = True
+        self.quiet_edit_hour = 22
+        self.quiet_edit_minute = 0
         self.info = SystemInfoModel()
         self.screensaver = ScreensaverModel()
         self.local_timer = LocalTimerModel()
@@ -1042,8 +1049,14 @@ class DeviceStudioWindow:
                 self.move_quick_guide(-1)
             elif self.route == "more_behavior":
                 self.open("behavior")
-            elif self.route == "synth_voice":
+            elif self.route == "behavior_more":
                 self.open("more_behavior")
+            elif self.route == "quiet_hours":
+                self.open("behavior_more")
+            elif self.route == "quiet_editor":
+                self.open("quiet_hours")
+            elif self.route == "synth_voice":
+                self.open("behavior_more")
             elif self.route is WifiSetupRoute.HOME_CHOICES:
                 self.open(self.wifi_choices_return)
             elif self.route is WifiSetupRoute.HOME_INTRO:
@@ -1210,6 +1223,43 @@ class DeviceStudioWindow:
     def change_auto_time(self):
         self.auto_time = not self.auto_time
 
+    # self: Isolated Studio preview; enabling never changes a physical device.
+    def toggle_quiet_hours(self):
+        if not self.quiet_hours_enabled and self.quiet_hours_start == self.quiet_hours_end:
+            messagebox.showerror("SIMULATED quiet hours", "Start and end must differ.", parent=self.root)
+            return
+        self.quiet_hours_enabled = not self.quiet_hours_enabled
+
+    # self: Isolated Studio preview holding the simulated local-time schedule.
+    # start: True edits the start; false edits the end of the interval.
+    def edit_quiet_hours(self, start):
+        value = self.quiet_hours_start if start else self.quiet_hours_end
+        self.quiet_edit_start = start
+        self.quiet_edit_hour, self.quiet_edit_minute = map(int, value.split(":"))
+        self.open("quiet_editor")
+
+    # self: Simulated edit state; no changes are applied until Save.
+    # hours: True adjusts hours; false adjusts minutes.
+    # delta: One increment or decrement chosen in the row.
+    def adjust_quiet_time(self, hours, delta):
+        if hours:
+            self.quiet_edit_hour = (self.quiet_edit_hour + delta) % 24
+        else:
+            self.quiet_edit_minute = (self.quiet_edit_minute + delta) % 60
+
+    # self: Apply the staged clock value to this Studio session only.
+    def save_quiet_time(self):
+        value = f"{self.quiet_edit_hour:02d}:{self.quiet_edit_minute:02d}"
+        other = self.quiet_hours_end if self.quiet_edit_start else self.quiet_hours_start
+        if self.quiet_hours_enabled and value == other:
+            messagebox.showerror("SIMULATED quiet hours", "Start and end must differ.", parent=self.root)
+            return
+        if self.quiet_edit_start:
+            self.quiet_hours_start = value
+        else:
+            self.quiet_hours_end = value
+        self.open("quiet_hours")
+
     # self: Simulated Sync time action; no device or PC time is fabricated.
     def request_simulated_time_sync(self):
         self.simulated_time_notice = "PC time unavailable in Studio"
@@ -1246,7 +1296,7 @@ class DeviceStudioWindow:
     # action: Callback when the button is enabled.
     # width: Complete hit width in logical pixels.
     # height: Complete hit height in logical pixels.
-    # secondary: Use the neutral gradient for a dismiss or postpone action.
+    # secondary: Preserve the semantic identity of a dismiss or postpone action.
     # destructive: Use the confirmation palette for an irreversible local action.
     # icon: Optional outline icon next to the caption.
     # caption_size: Font size chosen for the complete target.
@@ -1258,7 +1308,6 @@ class DeviceStudioWindow:
         palette = palette or (DESTRUCTIVE_CONTROL_PALETTE if destructive else (
             SECONDARY_CONTROL_PALETTE if secondary else CONTROL_PALETTE))
         color = FOREGROUND if action else MUTED
-        draw_control_pill(draw, box, palette)
         caption_x = center_x
         if icon:
             text_width = round(draw.textlength(name, font=font(caption_size)))
@@ -1385,7 +1434,6 @@ class DeviceStudioWindow:
                                  selected=False, now=0.0, target=None):
         box = (93, top, 373, top + height)
         if rssi is None:
-            draw.rounded_rectangle(box, radius=14, fill=studio_rgb("device_ui", "wifi_keyboard"))
             label(draw, name, top + (height - 18) // 2, 18, FOREGROUND, width=256)
         else:
             setup_icon(draw, "wifi", (120, top + height // 2), 24,
@@ -1461,7 +1509,6 @@ class DeviceStudioWindow:
             else:
                 left, top, width, height = 104 + (key - 12) * 88, 340, 82, 43
             box = (left, top, left + width, top + height)
-            draw.rounded_rectangle(box, radius=12, fill=studio_rgb("device_ui", "wifi_keyboard"))
             if key < 9:
                 caption = groups[key].upper() if mode == "letters" and self.wifi_key_uppercase else groups[key]
             else:
@@ -1469,7 +1516,8 @@ class DeviceStudioWindow:
                     "Space" if key == 10 else "Del" if key == 11 else "123" if key == 12 and mode == "letters" else
                     "ABC" if key == 12 else "Hide" if key == 13 and self.wifi_key_reveal else
                     "Show" if key == 13 else "Connect")
-            label(draw, caption, top + (height - 15) // 2, 15, FOREGROUND, x=left + width // 2, width=width - 6)
+            color = WIFI_CONNECTION_COLOR if key == 9 and mode == "letters" and self.wifi_key_uppercase else FOREGROUND
+            label(draw, caption, top + (height - 15) // 2, 15, color, x=left + width // 2, width=width - 6)
             self.targets[f"wifi-key-{key}"] = (box, lambda selected=key: self.activate_simulated_wifi_key(selected))
 
     # self: Preview owner drawing the same Wi-Fi menu as the native device.
@@ -2380,7 +2428,33 @@ class DeviceStudioWindow:
             elif self.route == "more_behavior":
                 self.screen_title(draw, "More behavior", OPTIONS_TITLE_TOP)
                 self.draw_option_rows(draw, (("Screensaver  " + ("On" if self.screensaver.enabled else "Off"), self.screensaver.toggle),
-                    ("Audio  N/A", None), ("Synth Voice", lambda: self.open("synth_voice"))))
+                    ("Audio  N/A", None), ("More...", lambda: self.open("behavior_more"))))
+                self.sidebar(draw, -1, self.back)
+            elif self.route == "behavior_more":
+                self.screen_title(draw, "More behavior", OPTIONS_TITLE_TOP)
+                self.draw_option_rows(draw, (("Quiet hours", lambda: self.open("quiet_hours")),
+                    ("Synth Voice", lambda: self.open("synth_voice"))))
+                self.sidebar(draw, -1, self.back)
+            elif self.route == "quiet_hours":
+                self.screen_title(draw, "Quiet hours", OPTIONS_TITLE_TOP)
+                self.draw_option_rows(draw, (("Quiet hours  " + ("On" if self.quiet_hours_enabled else "Off"), self.toggle_quiet_hours),
+                    ("Start  " + self.quiet_hours_start, lambda: self.edit_quiet_hours(True)),
+                    ("End  " + self.quiet_hours_end, lambda: self.edit_quiet_hours(False))))
+                label(draw, "SIMULATED", 345, 14, MUTED)
+                self.sidebar(draw, -1, self.back)
+            elif self.route == "quiet_editor":
+                self.screen_title(draw, "Start" if self.quiet_edit_start else "End", OPTIONS_TITLE_TOP)
+                hour = f"Hour  -   {self.quiet_edit_hour:02d}   +"
+                minute = f"Minute  -   {self.quiet_edit_minute:02d}   +"
+                self.draw_option_rows(draw, ((hour, lambda: None), (minute, lambda: None), ("Save", self.save_quiet_time)))
+                for index, (caption, hours) in enumerate(((hour, True), (minute, False))):
+                    self.targets.pop(caption, None)
+                    top = OPTIONS_ROW_TOP + index * SETTINGS_ROW_STEP
+                    self.targets[caption + " minus"] = ((93, top, 232, top + SETTINGS_ROW_HEIGHT),
+                        lambda selected=hours: self.adjust_quiet_time(selected, -1))
+                    self.targets[caption + " plus"] = ((233, top, 373, top + SETTINGS_ROW_HEIGHT),
+                        lambda selected=hours: self.adjust_quiet_time(selected, 1))
+                label(draw, "SIMULATED", 345, 14, MUTED)
                 self.sidebar(draw, -1, self.back)
             elif self.route == "synth_voice":
                 self.screen_title(draw, "Synth Voice", OPTIONS_TITLE_TOP)
@@ -2438,22 +2512,26 @@ class DeviceStudioWindow:
     # Returns a rotated image, or None after the simulated introduction completes.
     def birth_preview_image(self, now):
         elapsed_ms = max(0.0, (now - self.birth_preview_started_at) * 1000)
-        if elapsed_ms >= 5000:
+        if elapsed_ms >= 7000:
             self.birth_preview_started_at = None
             self.last_navigation = self.screensaver_idle_since = now
             return None
-        white = 255 if elapsed_ms < 600 else max(0, round((2000 - elapsed_ms) * 255 / 1400))
+        white = 255 if elapsed_ms < 850 else max(0, round((2750 - elapsed_ms) * 255 / 1900))
         image = Image.new("RGB", (SIZE, SIZE), (white, white, white))
-        if elapsed_ms >= 2000:
-            phase = int(elapsed_ms - 2000)
-            avatar = self.avatar_preview().face_image(MusePose.IDLE, phase, phase)
+        if elapsed_ms >= 2800:
+            phase = int(elapsed_ms - 2800)
+            greeting = elapsed_ms >= 5050
+            greeting_ms = int(elapsed_ms - 5050) if greeting else 0
+            avatar = self.avatar_preview().face_image(
+                MusePose.REPLY if greeting else MusePose.IDLE, phase,
+                greeting_ms if greeting else phase,
+                reaction_ms=greeting_ms if greeting else NO_REACTION)
             avatar = avatar.resize((256, 256), Image.Resampling.NEAREST)
-            avatar = ImageEnhance.Brightness(avatar).enhance(min(1.0, phase / 1550))
+            avatar = ImageEnhance.Brightness(avatar).enhance(min(1.0, phase / 2150))
             image.paste(avatar, (105, 72))
-        if elapsed_ms >= 3600:
+        if elapsed_ms >= 5050:
             welcome = Image.new("RGB", (SIZE, SIZE))
             screen_title(ImageDraw.Draw(welcome), "Welcome!", 356)
-            welcome = ImageEnhance.Brightness(welcome).enhance(min(1.0, (elapsed_ms - 3600) / 600))
             image = ImageChops.lighter(image, welcome)
         if self.brightness != 100:
             image = ImageEnhance.Brightness(image).enhance(self.brightness / 100)
@@ -2627,7 +2705,7 @@ class DeviceStudioWindow:
                     if self.route is WifiSetupRoute.HOME_INTRO and step > 0:
                         self.open(WifiSetupRoute.HOME_PAIR)
                         return
-                    if step < 0 and self.route in ("display", "display_rings", "display_time", "behavior", "more_behavior", "synth_voice",
+                    if step < 0 and self.route in ("display", "display_rings", "display_time", "behavior", "more_behavior", "behavior_more", "quiet_hours", "quiet_editor", "synth_voice",
                                                   "connections", "timer", "restart", "factory_reset",
                                                   WifiSetupRoute.INSTALL_APP, WifiSetupRoute.HOME_PLATFORM_QR,
                                                   WifiSetupRoute.HOME_PAIR):

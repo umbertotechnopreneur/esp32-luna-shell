@@ -94,9 +94,10 @@ My source and documentation use the [MIT License](LICENSE). Third-party code,
 models and assets keep their [own licenses and notices](THIRD_PARTY_NOTICES.md);
 the VibeWare identity has its own [reuse guidance](https://github.com/umbertotechnopreneur/VibeWare/blob/main/PRESS-KIT.md).
 
-On first import, check the official source and version, then run a targeted
-Microsoft Defender scan of the download and extracted dependencies. Use the
-import after the scan completes without detections.
+On first import of a compiled library or prebuilt executable, check its official
+source and version and run a targeted Microsoft Defender scan of its archive
+and extracted binaries. Use the import after the scan completes without
+detections. Do not scan non-executable files or scripts.
 
 ---
 

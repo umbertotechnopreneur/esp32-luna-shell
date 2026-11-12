@@ -935,7 +935,7 @@ class NativeRig:
             output[index * 3 + 2] = (value & 31) * 255 // 31
         image.paste(Image.frombytes('RGB', (466, 466), bytes(output)))
 
-    # self: PC driver transport selecting the actual shared CODY2D capsule raster.
+    # self: PC driver transport drawing the action caption without a background.
     # image: Logical RGB framebuffer updated only after successful native drawing.
     # bounds: Driver layout x/y/width/height within the authored circle.
     # label: Complete printable ASCII control caption, never part of teletype timing.
@@ -949,25 +949,10 @@ class NativeRig:
             raise ValueError('Native action bounds/admission rejected')
         if int(tone) not in (0, 1, 2, 3):
             raise ValueError('Native action tone must be Neutral/Positive/Negative/Info')
-        # Driver composition supplies theme/layout data; all coverage, gradient, border,
-        # and glyph pixel operations execute unchanged CODY2D production functions.
-        palettes = tuple(tuple(device_rgb565("controls", tone_name, part)
-                               for part in ("top", "bottom", "border", "icon"))
-                         for tone_name in ("secondary", "primary", "destructive", "info"))
         x, y, width, height = bounds
         card = height > 80
-        pixels = (C.c_uint16 * (466 * 466))()
-        for index, (red, green, blue) in enumerate(image.getdata()):
-            pixels[index] = (red >> 3) << 11 | (green >> 2) << 5 | blue >> 3
-        checked('draw_capsule_rows', self.api.cody_host_capsule(pixels, len(pixels), (C.c_uint16 * 4)(*bounds),
-            (C.c_uint16 * 4)(*palettes[int(tone) if enabled else 0]), NativeActionIcon.NONE, 0, 0,
-            28 if card else 0, enabled))
-        output = bytearray(len(pixels) * 3)
-        for index, value in enumerate(pixels):
-            output[index * 3] = ((value >> 11) & 31) * 255 // 31
-            output[index * 3 + 1] = ((value >> 5) & 63) * 255 // 63
-            output[index * 3 + 2] = (value & 31) * 255 // 31
-        prepared = Image.frombytes('RGB', (466, 466), bytes(output))
+        prepared = image.copy()
+        caption_color = device_rgb565("text", "bright" if enabled else "muted")
         center = x + width // 2
         top = y + (height - 25) // 2
         caption_width = width - 20
@@ -981,10 +966,10 @@ class NativeRig:
             second = label[split + 1:] if label[split:split + 1] == ' ' else label[split:]
             if len(first) > limit or len(second) > limit:
                 raise ValueError(f'Native action caption does not fit two complete lines: {label!r}')
-            self.paint_text(prepared, first, y + (height - 52) // 2, body=True, center_x=center, max_width=caption_width)
-            self.paint_text(prepared, second, y + (height - 52) // 2 + 27, body=True, center_x=center, max_width=caption_width)
+            self.paint_text(prepared, first, y + (height - 52) // 2, caption_color, body=True, center_x=center, max_width=caption_width)
+            self.paint_text(prepared, second, y + (height - 52) // 2 + 27, caption_color, body=True, center_x=center, max_width=caption_width)
         else:
-            self.paint_text(prepared, label, top, body=True, center_x=center, max_width=caption_width)
+            self.paint_text(prepared, label, top, caption_color, body=True, center_x=center, max_width=caption_width)
         image.paste(prepared)
 
 

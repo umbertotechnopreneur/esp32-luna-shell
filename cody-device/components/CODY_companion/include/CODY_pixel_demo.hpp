@@ -55,6 +55,10 @@ struct PixelDemoView {
     MuseShowcase showcase{};
     MuseSymbol prepared_symbol = MuseSymbol::None;
     MuseSymbol retired_symbol = MuseSymbol::None;
+    bool prepared_working = false;
+    bool retired_working = false;
+    bool prepared_surprise = false;
+    bool retired_surprise = false;
     MuseVisualStyle visual_style{};
     PixelDemoMotionState motion{};
     std::array<PixelAvatarFrame, 2> frames{};
@@ -69,6 +73,7 @@ struct PixelDemoView {
     uint8_t write_buffer = 0;
     bool manual = false;
     bool manual_playing = false;
+    bool manual_needs_compose = false;
     PixelAvatarPose manual_pose = PixelAvatarPose::Idle;
     MuseSymbol manual_symbol = MuseSymbol::None;
     bool manual_working = false;

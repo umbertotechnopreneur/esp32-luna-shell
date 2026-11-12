@@ -20,6 +20,9 @@ enum class CodexAudioCue : uint32_t {
     ChecksFailed = 0x4343000EU,
     ApprovalRequired = 0x4343000FU,
     QuestionReminder = 0x43430010U,
+    BookmarkSaved = 0x43430011U,
+    QuestionsOpen = 0x43430018U,
+    ActivityOpen = 0x43430019U,
 };
 namespace CodexAudioAssets {
 struct Clip {
@@ -28,7 +31,7 @@ struct Clip {
     size_t sample_count;
     uint32_t sample_rate_hz;
 };
-inline constexpr size_t clip_count = 16;
+inline constexpr size_t clip_count = 19;
 extern const Clip clips[clip_count];
 } // namespace CodexAudioAssets
 } // namespace CODY

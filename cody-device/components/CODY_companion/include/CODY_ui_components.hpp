@@ -76,4 +76,37 @@ inline esp_err_t prepare_button(CODY2D::CapsuleControl &control, const CODY2D::M
     return prepare_text(font, text, control.bounds, color, control.caption, maximum);
 }
 
+// control: Prepared action and unchanged interaction geometry.
+// strip: Borrowed RGB565 tile.
+// first_row: Logical tile y origin.
+// first_column: Logical tile x origin.
+// Exception: Returns the original icon raster error or rejects an out-of-bounds icon.
+inline esp_err_t draw_action_icon(const CODY2D::CapsuleControl &control, CODY2D::Surface strip,
+    uint16_t first_row, uint16_t first_column)
+{
+    if (control.icon == CODY2D::ActionIcon::None) return CODY2D::validate_surface(strip);
+    constexpr int size = 24;
+    const int left = control.icon_center.x - size / 2;
+    const int top = control.icon_center.y - size / 2;
+    const auto &bounds = control.bounds;
+    if (left < bounds.x || top < bounds.y || left + size > bounds.x + bounds.width ||
+        top + size > bounds.y + bounds.height) return ESP_ERR_INVALID_SIZE;
+    return CODY2D::draw_action_icon_rows(control.icon,
+        {static_cast<uint16_t>(left), static_cast<uint16_t>(top), size, size},
+        control.enabled ? control.icon_color : Palette::muted, strip, first_row, first_column);
+}
+
+// control: Prepared caption, optional existing icon and unchanged interaction geometry.
+// strip: Borrowed RGB565 tile.
+// first_row: Logical tile y origin.
+// first_column: Logical tile x origin.
+// Exception: Returns the original icon, text or surface raster error.
+inline esp_err_t draw_text_action(const CODY2D::CapsuleControl &control, CODY2D::Surface strip,
+    uint16_t first_row, uint16_t first_column)
+{
+    const auto error = draw_action_icon(control, strip, first_row, first_column);
+    if (error != ESP_OK || !control.caption.valid) return error;
+    return CODY2D::draw_text_rows(control.caption, control.caption.text.length, strip, first_row, first_column);
+}
+
 } // namespace CODY::UI

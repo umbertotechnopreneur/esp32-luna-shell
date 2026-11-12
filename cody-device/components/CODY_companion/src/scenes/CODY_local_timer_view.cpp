@@ -88,7 +88,7 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
     }
     for (const auto &action : view->actions) {
         if (action.id == LocalTimerControl::None) continue;
-        const esp_err_t error = CODY2D::draw_capsule_rows(action.control, strip, first_row, first_column);
+        const esp_err_t error = UI::draw_text_action(action.control, strip, first_row, first_column);
         if (error != ESP_OK) return result("draw action", error);
     }
     return ESP_OK;

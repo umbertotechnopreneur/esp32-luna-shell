@@ -621,6 +621,13 @@ esp_err_t LUNASHELL_audio_prepare_personality(const lunashell_personality_audio_
 // Exception: Returns rejected arguments or retained asynchronous errors.
 esp_err_t LUNASHELL_audio_notify_personality(const int16_t *samples, size_t sample_count,
     uint32_t sample_rate_hz, uint32_t cue_id, lunashell_audio_cue_status_t *status);
+// samples: Immutable pet PCM, mono 16 kHz, retained until playback ends.
+// sample_count: Exact number of samples, at most 32000.
+// cue_id: Stable pet event identity.
+// status: Receives dispatch, suppression or busy disposition from the shared worker.
+// Exception: Returns the original validation, preparation or audio-owner failure.
+esp_err_t LUNASHELL_audio_notify_pet(const int16_t *samples, size_t sample_count,
+    uint32_t cue_id, lunashell_audio_cue_status_t *status);
 // samples: Immutable mono PCM for the visible boot sequence, retained until playback ends.
 // sample_count: Exact 22.05 kHz mono length, at most 44100 samples.
 // cue_id: Stable boot cue identity for admission and playback telemetry.

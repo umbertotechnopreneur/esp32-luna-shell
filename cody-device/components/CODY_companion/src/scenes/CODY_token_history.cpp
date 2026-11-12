@@ -251,7 +251,7 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
             CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
     }
     if (error == ESP_OK) {
-        error = CODY2D::draw_capsule_rows(presentation.interval_control, strip, first_row, first_column);
+        error = UI::draw_text_action(presentation.interval_control, strip, first_row, first_column);
     }
     return result("draw rows", error);
 }

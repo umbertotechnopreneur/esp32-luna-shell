@@ -30,6 +30,7 @@
 #include "CODY2D_controls.hpp"
 #include "CODY_flat_menu_row.hpp"
 #include "CODY_theme_generated.hpp"
+#include "CODY_ui_components.hpp"
 #include "CODY_jelly.hpp"
 #include "scene_data.hpp"
 #include "esp_log.h"
@@ -424,7 +425,7 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
                                       strip, first_row, first_column);
     }
     if (error == ESP_OK && view.controls_visible) {
-        error = CODY2D::draw_capsule_rows(view.done, strip, first_row, first_column);
+        error = UI::draw_text_action(view.done, strip, first_row, first_column);
     }
     return error;
 }

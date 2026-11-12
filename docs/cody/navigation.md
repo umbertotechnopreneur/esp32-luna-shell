@@ -26,8 +26,19 @@ The native **Codex** hub in Options opens **Chats**, **Active calls**,
 to see its calls. The lateral Back control returns to the parent view.
 Pages use one canonical generation. If that generation changes, paging starts
 again at the first page. Historical and stale facts are labeled separately
-from current observations. **Resume** is available after the saved chat ID
-matches a record in the current paired source. The signed Events flow
+from current observations. Selecting a chat saves a local bookmark; its row
+shows **Saved** after storage confirms it. The hub's **Saved** control opens it
+when the ID matches a current paired-source record. This bookmark does not
+change the chat followed by Codex. The selected chat briefly shows a pulsing
+confirmation and requests one sound only after the saved result is visible.
+The Turns page also offers **PC chat activity**. It opens the existing Current
+turn view for the chat Codex actually follows on the PC, even if that differs
+from Cody's saved chat. If its observation is unavailable the view says so;
+Back returns to the originating Turns page. The entry control briefly pulses
+and the opened view requests a navigation cue once.
+The read-only Questions page offers **Open events** to reach the signed inbox;
+its control briefly pulses on entry and a navigation sound is requested once
+the Events page is visible. Back returns to Questions. The signed Events flow
 continues to own question review and Send. Cody saves the exact unresolved
 ticket and selected option before the first Send. On restart the saved
 reference is historical and cannot send an answer. Only the current signed

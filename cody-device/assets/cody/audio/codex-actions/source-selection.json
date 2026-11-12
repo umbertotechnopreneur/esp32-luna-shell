@@ -34,6 +34,14 @@
     "digital": {
       "path": "1001 Sound Effects/Sci Fi/Sci Fi Beep 05.wav",
       "sha256": "af783ff70b432962971dc591068c87b77965b1e53a05cfdbdddd8cb2b445f6fe"
+    },
+    "synthetic_chirp": {
+      "path": "SONY Loops/Electronics/Synthetic Chirp.wav",
+      "sha256": "e60824e2b54b52a7bafd5eb3b4a6003ac514424350ac8421674d018a5a7b3591"
+    },
+    "arcade_chirp": {
+      "path": "1001 Sound Effects/Video Game Sounds/Arcade Chirp 03.wav",
+      "sha256": "519edb3b35f367c8b7374af079cdf98ca398e73980304fb1afd779d327011e6b"
     }
   },
   "cues": [
@@ -85,9 +93,10 @@
     {
       "name": "ResponseReady", "id": 1128464389, "slug": "response-ready", "sample_rate_hz": 16000,
       "duration_ms": 350, "target_peak_dbfs": -14.0,
-      "intent": "One clear, gentle chime for a completed assistant response; does not claim task success.",
+      "intent": "A soft chime with a playful electronic sparkle for a completed assistant response; not task success.",
       "layers": [
-        {"source": "chime", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 350, "pitch_ratio": 1.06, "gain": 1.0, "highpass_hz": 180, "lowpass_hz": 3200, "fade_in_ms": 10, "fade_out_ms": 160}
+        {"source": "chime", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 350, "pitch_ratio": 1.06, "gain": 1.0, "highpass_hz": 180, "lowpass_hz": 3200, "fade_in_ms": 10, "fade_out_ms": 160},
+        {"source": "synthetic_chirp", "window_start_ms": 0, "window_end_ms": 235, "offset_ms": 80, "duration_ms": 120, "pitch_ratio": 1.0, "gain": 0.2, "highpass_hz": 180, "lowpass_hz": 2800, "fade_in_ms": 8, "fade_out_ms": 70}
       ]
     },
     {
@@ -127,10 +136,11 @@
     {
       "name": "ConnectionRestored", "id": 1128464394, "slug": "connection-restored", "sample_rate_hz": 16000,
       "duration_ms": 340, "target_peak_dbfs": -16.0,
-      "intent": "Two joined rising chimes when authenticated PC liveness returns.",
+      "intent": "A gentle two-part electronic lift when authenticated connection returns.",
       "layers": [
         {"source": "chime", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 200, "pitch_ratio": 0.71, "gain": 0.75, "highpass_hz": 180, "lowpass_hz": 2900, "fade_in_ms": 10, "fade_out_ms": 90},
-        {"source": "chime", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 115, "duration_ms": 225, "pitch_ratio": 0.95, "gain": 0.85, "highpass_hz": 180, "lowpass_hz": 2900, "fade_in_ms": 10, "fade_out_ms": 110}
+        {"source": "chime", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 115, "duration_ms": 225, "pitch_ratio": 0.95, "gain": 0.85, "highpass_hz": 180, "lowpass_hz": 2900, "fade_in_ms": 10, "fade_out_ms": 110},
+        {"source": "arcade_chirp", "window_start_ms": 0, "window_end_ms": 400, "offset_ms": 120, "duration_ms": 140, "pitch_ratio": 1.0, "gain": 0.22, "highpass_hz": 180, "lowpass_hz": 2800, "fade_in_ms": 8, "fade_out_ms": 80}
       ]
     },
     {
@@ -144,17 +154,18 @@
     {
       "name": "AnswerReceived", "id": 1128464396, "slug": "answer-received", "sample_rate_hz": 16000,
       "duration_ms": 250, "target_peak_dbfs": -16.0,
-      "intent": "A short digital receipt only after the agent confirms delivery of the reply.",
+      "intent": "A distinct compact arcade chirp after the agent confirms delivery of the reply.",
       "layers": [
-        {"source": "digital", "window_start_ms": 0, "window_end_ms": 600, "offset_ms": 0, "duration_ms": 250, "pitch_ratio": 1.0, "gain": 1.0, "highpass_hz": 200, "lowpass_hz": 3100, "fade_in_ms": 5, "fade_out_ms": 70}
+        {"source": "arcade_chirp", "window_start_ms": 0, "window_end_ms": 400, "offset_ms": 0, "duration_ms": 220, "pitch_ratio": 1.0, "gain": 1.0, "highpass_hz": 180, "lowpass_hz": 3000, "fade_in_ms": 8, "fade_out_ms": 120}
       ]
     },
     {
       "name": "ChecksPassed", "id": 1128464397, "slug": "checks-passed", "sample_rate_hz": 16000,
       "duration_ms": 350, "target_peak_dbfs": -14.0,
-      "intent": "A bright single bell for explicitly observed passed checks, never inferred from response completion.",
+      "intent": "A bright bell with an electronic lift for explicitly observed passed checks.",
       "layers": [
-        {"source": "bell", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 350, "pitch_ratio": 1.15, "gain": 1.0, "highpass_hz": 180, "lowpass_hz": 3600, "fade_in_ms": 5, "fade_out_ms": 180}
+        {"source": "bell", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 350, "pitch_ratio": 1.15, "gain": 1.0, "highpass_hz": 180, "lowpass_hz": 3600, "fade_in_ms": 5, "fade_out_ms": 180},
+        {"source": "synthetic_chirp", "window_start_ms": 0, "window_end_ms": 235, "offset_ms": 120, "duration_ms": 120, "pitch_ratio": 1.0, "gain": 0.23, "highpass_hz": 180, "lowpass_hz": 2800, "fade_in_ms": 8, "fade_out_ms": 70}
       ]
     },
     {
@@ -180,6 +191,31 @@
       "intent": "One short, quieter soft bell for a pending-question reminder; no repeating beep sequence.",
       "layers": [
         {"source": "chime", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 300, "pitch_ratio": 1.05, "gain": 1.0, "highpass_hz": 150, "lowpass_hz": 2600, "fade_in_ms": 12, "fade_out_ms": 220}
+      ]
+    },
+    {
+      "name": "BookmarkSaved", "id": 1128464401, "slug": "bookmark-saved", "sample_rate_hz": 16000,
+      "duration_ms": 280, "target_peak_dbfs": -20.0,
+      "intent": "A light confirmation after the selected chat bookmark is saved and displayed on Cody.",
+      "layers": [
+        {"source": "chime", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 280, "pitch_ratio": 1.2, "gain": 0.8, "highpass_hz": 180, "lowpass_hz": 2800, "fade_in_ms": 10, "fade_out_ms": 160},
+        {"source": "arcade_chirp", "window_start_ms": 0, "window_end_ms": 400, "offset_ms": 70, "duration_ms": 130, "pitch_ratio": 1.0, "gain": 0.25, "highpass_hz": 180, "lowpass_hz": 2600, "fade_in_ms": 8, "fade_out_ms": 80}
+      ]
+    },
+    {
+      "name": "QuestionsOpen", "id": 1128464408, "slug": "questions-open", "sample_rate_hz": 16000,
+      "duration_ms": 220, "target_peak_dbfs": -22.0,
+      "intent": "A quiet navigation cue when the authenticated events view opens from questions.",
+      "layers": [
+        {"source": "synthetic_chirp", "window_start_ms": 0, "window_end_ms": 235, "offset_ms": 0, "duration_ms": 160, "pitch_ratio": 1.0, "gain": 1.0, "highpass_hz": 180, "lowpass_hz": 2400, "fade_in_ms": 10, "fade_out_ms": 100}
+      ]
+    },
+    {
+      "name": "ActivityOpen", "id": 1128464409, "slug": "activity-open", "sample_rate_hz": 16000,
+      "duration_ms": 240, "target_peak_dbfs": -22.0,
+      "intent": "A gentle navigation cue when the PC-followed activity view opens.",
+      "layers": [
+        {"source": "chime", "window_start_ms": 0, "window_end_ms": 650, "offset_ms": 0, "duration_ms": 240, "pitch_ratio": 1.15, "gain": 1.0, "highpass_hz": 180, "lowpass_hz": 2600, "fade_in_ms": 10, "fade_out_ms": 150}
       ]
     }
   ]

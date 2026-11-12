@@ -22,8 +22,8 @@ Show it with a valid previous route. Retain the complete circular touch target
 and keep it separate from central content and primary/footer actions.
 The native style is subdued graphite with a light chevron.
 
-Actions use semantic colors and restrained gradients. Standard buttons center a
-text-only caption in the complete control. Device-first pairing adds outline
+Actions use text without a filled background or border, and retain their full
+touch bounds. Existing action icons precede their captions. Device-first pairing uses outline
 glyphs to identify the Wi-Fi, QR and Bluetooth actions. The Connections page
 uses the Options heading position, a short instruction, and two standalone
 glyphs side by side. Codex has a violet link and Wi-Fi has a mint signal icon.
@@ -34,7 +34,7 @@ no typewriter timing or character audio.
 
 | Control | Logical rectangle |
 | --- | --- |
-| Two cards | (73,260,154,104) and (239,260,154,104), 28-pixel corners |
+| Two action targets | (73,260,154,104) and (239,260,154,104) |
 | Saved PC management | Three standalone 36-pixel icons, with 90 x 90 touch areas at x=83/188/293, y=302 |
 | Connections actions | 54-pixel glyphs at (148,219) and (318,219), with 140 × 168 touch areas |
 | Check relay, when configured | Text-only footer at (123,366,220,52). The latest check replaces the Connections hint at y=136. |
@@ -66,6 +66,14 @@ introduction for the next restart. A confirmed write changes the row to
 **Next restart**. This action preserves settings and pairing, and does not
 restart the device. A failed write is shown with an explicit retry action.
 
+**Preferences > Behavior > More behavior > More... > Quiet hours** controls
+the saved quiet-hours switch, start and end in local wall time. Selecting an
+endpoint opens an editor: tap the left or right half of the Hour or Minute row
+to decrement or increment that component, then select Save. Minutes have
+one-minute precision and a window may cross midnight. While enabled, start and
+end must differ; equal saved values can be edited while disabled but cannot be
+enabled. Existing timezone and the other endpoint are preserved.
+
 Saved PC uses a link glyph above the title, an explicit PC-name-unavailable
 caption, and the canonical configured Wi-Fi name. The current link projection has no
 human-readable PC name. Printable SSIDs occupy up to two complete rows; stale,
@@ -80,10 +88,10 @@ pending. The choice view keeps the question and its source context above the
 rows. Reply rows contain one numbered line, with at most two visible rows. A vertical
 swipe opens the page containing the third reply. Long row captions show an
 explicit ellipsis; the tap opens their complete canonical label and description,
-without sending anything. Review uses a rounded, read-only panel at
+without sending anything. Review uses an unframed, read-only area at
 (73,191,320,134) with five 26-pixel-spaced lines at y=196..300.
 Swipe moves backward/forward; a tap in the panel advances a page and
-returns to the first page after the last. The separate `Send reply` capsule at
+returns to the first page after the last. The separate `Send reply` action at
 (113,352,240,72) is the only initial reply submission action. Scrolling never
 replays text audio. Orientation, source changes and hidden controls cancel
 uncompleted gestures.
@@ -112,7 +120,7 @@ beside its first line and appears with that line. When its owner has
 no admitted title, the body says `Open the other chat in Codex`; it never repeats
 the headline or borrows the currently followed chat's identity. Project context
 is subordinate at y=312, with explicit unavailable/offline/error text when needed.
-The `OK` capsule shows a check mark, retains (113,352,240,72) and
+The `OK` action shows a check mark, retains (113,352,240,72) and
 acknowledges the current LAN notice through its authenticated dismissal.
 Controls appear only after the full narrative;
 reply readiness implies neither task success nor passed checks. Generic notices
@@ -126,7 +134,7 @@ shows three rows, with open questions first and ready replies after them. A
 vertical swipe moves one row. The lead question preview scrolls horizontally
 inside its row; its event label and chat caption stay fixed. Tapping an exact
 row opens the existing choice flow or the `Chat waiting` detail. Its `OK`
-capsule shows a check mark and returns to Events after the broker confirms
+action shows a check mark and returns to Events after the broker confirms
 read dismissal. A question caption comes from
 its declared source context when one is supplied.
 
@@ -159,7 +167,7 @@ control deferred. Cody remains full-size on Home during normal interaction.
 The existing recovery entry retains the prior device-first pairing screens below.
 They use the same title and body fonts, left chevron, and capsule geometry as the
 dashboard and Options. The dark canvas, amber offline
-glyph and restrained Options-style button gradients carry across the Wi-Fi
+glyph and background-free actions carry across the Wi-Fi
 setup journey.
 Both QR screens keep their white area within the square code tile.
 
@@ -251,7 +259,7 @@ canonical snapshot. Stale, future, invalid or moving observations remove `Still`
 and retain the explicit HAR result or failure. `Still` means measured absence of
 motion; it does not identify Sitting, Standing or another posture.
 
-Model & Context contains the qualitative Standard catalog price capsule and
+Model & Context contains the qualitative Standard catalog price text and
 thinking effort; the model name appears once in the shared header. Device contains
 the PC connection state at y=268, the device's own canonical Wi-Fi IP at y=288,
 and device ID with IMU status at y=308. Compilation date/time occupies y=335;

@@ -27,6 +27,7 @@ enum class PreferenceId : uint8_t {
     ShakeWake = 0, AutoRotate = 1, Sounds = 2, Orientation = 3, UsageMode = 4, Brightness = 5,
     Dictation = 6, Screensaver = 7, SynthEnabled = 8, SynthVolume = 9, SynthVoice = 10,
     AssistantQuotaRing = 11, BatteryRing = 12, AutoTime = 13,
+    QuietEnabled = 14, QuietStart = 15, QuietEnd = 16,
 };
 
 // No parameters: loads exact persisted values, creating only genuinely absent keys.
@@ -34,7 +35,7 @@ enum class PreferenceId : uint8_t {
 esp_err_t load_companion_preferences();
 
 // preference: Stable identity of the explicit user choice.
-// value: Boolean/mode 0/1, manual angle 0/180, or brightness percent 10 through 100.
+// value: Boolean/mode 0/1, manual angle 0/180, brightness percent or local quiet minute 0..1439.
 // Exception: Returns the real validation, persistence, application or publication error.
 esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value);
 

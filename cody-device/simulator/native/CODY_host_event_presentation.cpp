@@ -19,6 +19,7 @@
 #include "CODY_approval_notice.hpp"
 #include "CODY_debug_views.hpp"
 #include "CODY_title_style.hpp"
+#include "CODY_ui_components.hpp"
 #include "scene_data.hpp"
 #include "esp_log.h"
 #include <cstring>
@@ -330,8 +331,7 @@ CODY_HOST_EXPORT int cody_host_event_paint_actions(uint16_t *pixels, uint32_t ca
     }
     CODY2D::Surface surface{pixels, 466, 466, 466, capacity};
     for (uint32_t index = 0; index < count; ++index) {
-        // The production capsule renderer already composites its first caption once.
-        esp_err_t error = CODY2D::draw_capsule_rows(controls[index], surface, 0, 0);
+        esp_err_t error = CODY::UI::draw_text_action(controls[index], surface, 0, 0);
         if (error == ESP_OK && second_lines[index].valid) {
             const auto &second = second_lines[index];
             error = CODY2D::draw_text_rows(second, second.text.length, surface, 0, 0);
@@ -462,9 +462,6 @@ CODY_HOST_EXPORT int cody_host_event_paint_frame(uint16_t *pixels, uint32_t capa
     const uint16_t visible = timed ? CODY::scene_content_characters(frame, narrative_length, 0) : narrative_length;
     const bool ready = frame.visible_characters >= title_length &&
         Presentation::controls_ready(*plan, visible, title_length);
-    if (error == ESP_OK && ready && plan->route == Presentation::Route::DecisionConfirm27) {
-        error = Presentation::draw_review_panel(canvas, 0, 0);
-    }
     if (error == ESP_OK && plan->route == Presentation::Route::ApprovalOnPc) {
         error = cody_host_event_paint_approval(pixels, capacity, request_id, approval_chat, elapsed_us, ready);
     }

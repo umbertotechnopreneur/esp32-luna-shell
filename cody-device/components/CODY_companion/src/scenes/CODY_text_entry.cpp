@@ -1,5 +1,6 @@
 #include "CODY_text_entry.hpp"
 #include "CODY_title_style.hpp"
+#include "CODY_ui_components.hpp"
 #include "CODY_theme_generated.hpp"
 
 #include <cstring>
@@ -90,7 +91,7 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
     if (error == ESP_OK) error = CODY2D::draw_capsule_rows(view->field, strip, first_row, first_column);
     for (const auto &key : view->keys) {
         if (error != ESP_OK) break;
-        error = CODY2D::draw_capsule_rows(key, strip, first_row, first_column);
+        error = UI::draw_text_action(key, strip, first_row, first_column);
     }
     return error;
 }
@@ -338,6 +339,9 @@ esp_err_t prepare_text_entry_view(const TextEntry &entry, const char *title, con
         }
         control.enabled = i != 13 || entry.secret;
         error = centered_line(font, label_storage.data(), control.bounds, control.caption);
+        if (error == ESP_OK && !control.enabled) control.caption.color = Theme::text_muted;
+        if (error == ESP_OK && i == 9 && entry.mode == TextEntryMode::Letters && entry.uppercase)
+            control.caption.color = Theme::secondary_bright;
     }
     if (error != ESP_OK) { clear_text_entry_view(view); return error; }
     view.revision = revision;

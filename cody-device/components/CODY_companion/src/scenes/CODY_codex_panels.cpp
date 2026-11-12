@@ -1,5 +1,6 @@
 #include "CODY_codex_panels.hpp"
 #include "CODY_title_style.hpp"
+#include "CODY_ui_components.hpp"
 #include "CODY_typography.hpp"
 #include "CODY_theme_generated.hpp"
 
@@ -175,7 +176,7 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
     } else if (error == ESP_OK) {
         error = draw_glyph(view.glyph, strip, row, column);
         if (error == ESP_OK && view.kind == CodexPanelKind::Reply) {
-            error = CODY2D::draw_capsule_rows(view.reply_action, strip, row, column);
+            error = UI::draw_text_action(view.reply_action, strip, row, column);
         } else if (error == ESP_OK && view.kind == CodexPanelKind::CurrentTurn) {
             error = draw_chat_title(view.chat_title, strip, row, column);
         }

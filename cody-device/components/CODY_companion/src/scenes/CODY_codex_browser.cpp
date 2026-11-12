@@ -227,10 +227,18 @@ void read_hub(CodexBrowser &browser)
                 static_cast<unsigned long>(attention.pending_questions));
         }
         if (attention.calls_complete) {
-            std::snprintf(draft.note.data(), draft.note.size(), "%lu active calls",
+            std::snprintf(draft.rows[1].detail.data(), draft.rows[1].detail.size(), "%lu active calls",
                 static_cast<unsigned long>(attention.active_calls));
         } else {
-            copy(draft.note, "Activity incomplete");
+            copy(draft.rows[1].detail, "Activity incomplete");
+        }
+        // Counts only describe current turns; incomplete coverage cannot prove zero.
+        if (attention.turns_complete) {
+            std::snprintf(draft.note.data(), draft.note.size(), "%lu working / %lu waiting",
+                static_cast<unsigned long>(attention.running_turns),
+                static_cast<unsigned long>(attention.waiting_turns));
+        } else {
+            copy(draft.note, "Turn activity incomplete");
         }
     }
 
@@ -275,7 +283,8 @@ Domain::StateQuery page_request(const CodexBrowser &browser, const CodexBrowserT
 
 // draft: Bounded visual projection owned by the display worker.
 // source: Copied rows from one committed generation.
-void project_chats(CodexBrowserPage &draft, const Domain::StateChatPage &source)
+// saved: Confirmed local bookmark, or an empty identity while unavailable.
+void project_chats(CodexBrowserPage &draft, const Domain::StateChatPage &source, Domain::ChatId saved)
 {
     draft.count = source.count;
     for (uint8_t index = 0; index < source.count; ++index) {
@@ -290,6 +299,9 @@ void project_chats(CodexBrowserPage &draft, const Domain::StateChatPage &source)
             note || stale_title ? kAmber : kCyan, {Action::Chat, row.id.value});
         append_stale_state(visual, row.lifecycle.fact, lifecycle(row.lifecycle.value));
         if (stale_title && !note) copy(visual.detail, "Title not current");
+        if (saved.valid() && row.id == saved && !note && !stale_title) {
+            std::snprintf(visual.detail.data(), visual.detail.size(), "Saved / %s", lifecycle(row.lifecycle.value));
+        }
     }
 }
 
@@ -380,7 +392,8 @@ void project_questions(CodexBrowserPage &draft, const Domain::StateQuestionPage 
 }
 
 // browser: Current scope, page trail, and caller-owned query scratch.
-void read_page(CodexBrowser &browser)
+// now_us: Monotonic display-owner time for the temporary saved confirmation.
+void read_page(CodexBrowser &browser, int64_t now_us)
 {
     auto &service = DeviceSnapshotService::instance();
     auto &draft = browser.draft;
@@ -420,7 +433,10 @@ void read_page(CodexBrowser &browser)
         error = service.readCodexDomainObservation(page_request(browser, position), browser.observation);
     }
     if (error != ESP_OK) {
-        if (error == ESP_ERR_NOT_FOUND && (browser.route == Route::Turns || browser.route == Route::Calls)) {
+        if (browser.route == Route::PendingQuestions && error == ESP_ERR_NOT_SUPPORTED) {
+            // The signed inbox can still serve questions without state-v1 question coverage.
+            copy(draft.note, "Use events for questions");
+        } else if (error == ESP_ERR_NOT_FOUND && (browser.route == Route::Turns || browser.route == Route::Calls)) {
             copy(draft.note, "Selection unavailable");
         } else {
             show_error(draft.note, error);
@@ -434,7 +450,10 @@ void read_page(CodexBrowser &browser)
     draft.next = result.next;
     draft.previous = position.count != 0;
     if (const auto *chats = std::get_if<Domain::StateChatPage>(&result.page)) {
-        project_chats(draft, *chats);
+        Domain::ChatId saved{};
+        // A pending or failed save is never presented as a confirmed selection.
+        if (service.readCodexSelection(saved) != ESP_OK) saved = {};
+        project_chats(draft, *chats, saved);
     } else if (const auto *turns = std::get_if<Domain::StateTurnPage>(&result.page)) {
         project_turns(draft, *turns, header_generation == result.generation ? current : Domain::TurnId{});
     } else if (const auto *calls = std::get_if<Domain::StateCallPage>(&result.page)) {
@@ -482,14 +501,21 @@ void read_page(CodexBrowser &browser)
     if (browser.saving_bookmark.valid()) {
         Domain::ChatId saved{};
         const auto saved_error = service.readCodexSelection(saved);
-        if (saved_error == ESP_ERR_NOT_FINISHED) {
+        if (saved_error == ESP_ERR_NOT_FINISHED || saved_error == ESP_ERR_TIMEOUT) {
             copy(draft.note, "Saving bookmark");
         } else {
             if (saved_error != ESP_OK || saved != browser.saving_bookmark) {
                 browser.selection_error = saved_error != ESP_OK ? saved_error : ESP_ERR_INVALID_RESPONSE;
+            } else if (browser.route == Route::Turns && browser.chat == browser.saving_bookmark) {
+                // If the user left this chat, do not replay a delayed success cue elsewhere.
+                browser.bookmark_sound_pending = true;
+                browser.bookmark_saved_until_us = now_us + 3000000;
             }
             browser.saving_bookmark = {};
         }
+    }
+    if (browser.bookmark_saved_until_us > now_us && browser.route == Route::Turns) {
+        copy(draft.note, "Chat saved on Cody");
     }
     if (browser.selection_error != ESP_OK) {
         std::snprintf(draft.note.data(), draft.note.size(), "Selection: %s", esp_err_to_name(browser.selection_error));
@@ -594,7 +620,7 @@ esp_err_t prepare_layout(CodexBrowser &browser)
     const auto &page = browser.page;
     auto error = add_line(browser, heading(browser.route), SceneData::title_font, {73, 89, 320, 44}, kWhite, true);
     if (error == ESP_OK) error = add_line(browser, page.note.data(), SceneData::body_font,
-        {73, 136, 320, 26}, kMuted, true);
+        {73, 136, 320, 26}, browser.bookmark_pulse ? kCyan : kMuted, true);
     for (uint8_t index = 0; error == ESP_OK && index < page.count; ++index) {
         const auto y = static_cast<uint16_t>(168 + index * 60);
         const auto &row = page.rows[index];
@@ -624,8 +650,16 @@ esp_err_t prepare_layout(CodexBrowser &browser)
         error = add_button(browser, 3, statistics, {Action::Statistics}, "Statistics");
         if (error == ESP_OK) error = add_button(browser, 4, events, {Action::Events}, "Events");
         if (error == ESP_OK && resume) {
-            error = add_button(browser, 5, {299, 350, 80, 42}, {Action::Resume, page.resume.value}, "Resume");
+            error = add_button(browser, 5, {299, 350, 80, 42}, {Action::Resume, page.resume.value}, "Saved");
         }
+    } else if (browser.route == Route::PendingQuestions) {
+        // Canonical previews are read-only; only signed Events can send a reply.
+        error = add_button(browser, 3, {113, 350, 240, 42}, {Action::Events}, "Open events");
+        if (error == ESP_OK && browser.navigation_pulse) browser.controls[3].caption.color = kCyan;
+    } else if (browser.route == Route::Turns) {
+        // This opens the PC-followed chat, which can differ from the local bookmark.
+        error = add_button(browser, 3, {113, 350, 240, 42}, {Action::CurrentTurn}, "PC chat activity");
+        if (error == ESP_OK && browser.navigation_pulse) browser.controls[3].caption.color = kCyan;
     } else if ((page.previous || page.next.after != 0) &&
                (page.known_page_count == 0 || page.known_page_count > 16)) {
         // Only a cursor is known; invite paging without presenting a made-up total.
@@ -654,7 +688,7 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
         if (control.bounds.width == 0) continue;
         const auto error = index < browser.page.count ?
             draw_flat_menu_row(control, 30, strip, row, column) :
-            CODY2D::draw_capsule_rows(control, strip, row, column);
+            UI::draw_text_action(control, strip, row, column);
         if (error != ESP_OK) return error;
     }
     for (uint8_t index = 0; index < browser.line_count; ++index) {
@@ -669,7 +703,9 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
         if (error != ESP_OK) return error;
     }
     if (browser.route != Route::Hub && browser.page.known_page_count > 1 && browser.page.known_page_count <= 16) {
-        return draw_page_marks(browser.page.page_index, browser.page.known_page_count, strip, row, column);
+        // Questions reserve the footer for the signed Events action.
+        const uint16_t top = browser.route == Route::PendingQuestions || browser.route == Route::Turns ? 345 : 370;
+        return draw_page_marks(browser.page.page_index, browser.page.known_page_count, strip, row, column, top);
     }
     return ESP_OK;
 }
@@ -679,6 +715,9 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
 // bookmark: True only for an explicit choice on the Chats page.
 void choose_chat(CodexBrowser &browser, Domain::ChatId chat, bool bookmark)
 {
+    browser.bookmark_sound_pending = false;
+    browser.bookmark_saved_until_us = 0;
+    browser.bookmark_pulse = false;
     const auto error = read_chat(browser, chat);
     const auto *page = std::get_if<Domain::StateChatPage>(&browser.observation.page);
     if (error != ESP_OK || !page || page->count != 1 || page->rows[0].id != chat ||
@@ -701,6 +740,8 @@ void open_codex_browser(CodexBrowser &browser)
     browser.route = Route::Hub;
     browser.refresh_at_us = 0;
     browser.selection_error = ESP_OK;
+    browser.bookmark_sound_pending = false;
+    browser.bookmark_saved_until_us = 0;
 }
 
 // browser: Display-owned browser retaining the page of each caller.
@@ -728,6 +769,10 @@ esp_err_t prepare_codex_browser(CodexBrowser &browser, int64_t now_us, SceneCont
     if (browser.route == Route::Closed) return ESP_ERR_INVALID_STATE;
     if (browser.refresh_at_us == 0 || now_us >= browser.refresh_at_us || browser.drawn_route != browser.route) {
         browser.refresh_at_us = now_us + kRefreshUs;
+        if ((browser.route == Route::PendingQuestions || browser.route == Route::Turns) &&
+            browser.drawn_route != browser.route) {
+            browser.navigation_animation_until_us = now_us + 2100000;
+        }
         auto &draft = browser.draft;
         draft.note.fill(0);
         draft.source = {};
@@ -739,8 +784,18 @@ esp_err_t prepare_codex_browser(CodexBrowser &browser, int64_t now_us, SceneCont
         draft.known_page_count = 0;
         draft.previous = false;
         if (browser.route == Route::Hub) read_hub(browser);
-        else read_page(browser);
-        if (browser.route != browser.drawn_route || !same_page(browser.page, draft)) {
+        else read_page(browser, now_us);
+        const bool pulse = browser.route == Route::Turns && browser.bookmark_saved_until_us > now_us &&
+            ((browser.bookmark_saved_until_us - now_us) / kRefreshUs) % 2 == 0;
+        const bool pulse_changed = pulse != browser.bookmark_pulse;
+        browser.bookmark_pulse = pulse;
+        const bool navigation_pulse = (browser.route == Route::PendingQuestions || browser.route == Route::Turns) &&
+            browser.navigation_animation_until_us > now_us &&
+            ((browser.navigation_animation_until_us - now_us) / kRefreshUs) % 2 == 0;
+        const bool navigation_pulse_changed = navigation_pulse != browser.navigation_pulse;
+        browser.navigation_pulse = navigation_pulse;
+        if (browser.route != browser.drawn_route || pulse_changed || navigation_pulse_changed ||
+            !same_page(browser.page, draft)) {
             browser.page = draft;
             const auto error = prepare_layout(browser);
             if (error != ESP_OK) {
@@ -793,6 +848,8 @@ CodexBrowserDestination activate_codex_browser(CodexBrowser &browser, CodexBrows
         break;
     case Action::Events:
         return Destination::Events;
+    case Action::CurrentTurn:
+        return Destination::CurrentTurn;
     case Action::Statistics:
         return Destination::Statistics;
     case Action::Resume:

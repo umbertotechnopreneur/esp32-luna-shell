@@ -159,6 +159,7 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
         pose = {view.manual_pose, pose_ms, view.manual_working, view.manual_symbol};
     }
     view.prepared_symbol = pose.symbol;
+    view.prepared_working = pose.working;
     uint32_t reaction_ms = kPixelAvatarReactionMs;
     if (view.reaction_active) {
         const uint64_t elapsed_ms = (view.elapsed_us - view.reaction_started_us) / 1000U;
@@ -168,14 +169,21 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
     auto style = view.visual_style;
     style.symbol.symbol = pose.symbol;
     apply_pixel_demo_motion(style, view.motion);
-    if (view.motion.surprised && !view.reaction_active && !view.manual &&
-        pose.pose != PixelAvatarPose::Waking && pose.pose != PixelAvatarPose::Sleep) {
+    view.prepared_surprise = view.motion.surprised && !view.reaction_active && !view.manual &&
+        pose.pose != PixelAvatarPose::Waking && pose.pose != PixelAvatarPose::Sleep &&
+        (style.face.left_eye == MuseEyeStyle::Automatic || style.face.right_eye == MuseEyeStyle::Automatic ||
+         style.face.mouth == MuseMouthStyle::Automatic);
+    if (view.prepared_surprise) {
         if (style.face.left_eye == MuseEyeStyle::Automatic) style.face.left_eye = MuseEyeStyle::Wide;
         if (style.face.right_eye == MuseEyeStyle::Automatic) style.face.right_eye = MuseEyeStyle::Wide;
         if (style.face.mouth == MuseMouthStyle::Automatic) style.face.mouth = MuseMouthStyle::Round;
     }
-    if (view.manual && !view.manual_playing && view.retired_valid) {
+    if (view.manual && !view.manual_playing && view.retired_valid && !view.manual_needs_compose) {
         view.frames[view.write_buffer] = view.frames[1U - view.write_buffer];
+        // The copied pixels retain their original semantics until a new frame is composed.
+        view.prepared_symbol = view.retired_symbol;
+        view.prepared_working = view.retired_working;
+        view.prepared_surprise = view.retired_surprise;
     } else {
         compose_pixel_avatar(view.frames[view.write_buffer], pose.pose,
             static_cast<uint32_t>((view.manual ? view.manual_elapsed_us : view.elapsed_us) / 1000U), pose.pose_ms,
@@ -217,6 +225,9 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
 void retire_pixel_demo(PixelDemoView &view)
 {
     view.retired_symbol = view.prepared_symbol;
+    view.retired_working = view.prepared_working;
+    view.retired_surprise = view.prepared_surprise;
+    view.manual_needs_compose = false;
     view.retired_viewport = view.visual_viewport;
     view.write_buffer = static_cast<uint8_t>(1U - view.write_buffer);
     view.retired_valid = true;

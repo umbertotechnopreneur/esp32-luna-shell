@@ -76,7 +76,6 @@ struct HomeDashboardPresentation {
     uint16_t prior_colors[6]{};
     CODY2D::Point prior_origins[6]{};
     const CODY2D::MonoFont *prior_fonts[6]{};
-    CODY2D::CapsuleControl price_capsule{};
     HomeTextMarquee chat_title{};
     // General: identity/motion, build timezone, build computer. Chat: genuine activity in slot zero.
     HomeTextMarquee detail_marquees[3]{};

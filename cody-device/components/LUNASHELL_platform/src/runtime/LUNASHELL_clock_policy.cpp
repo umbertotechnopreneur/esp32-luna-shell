@@ -25,13 +25,13 @@ bool clock_observation_current(const ClockSnapshot &clock)
         clock.last_success_at_us > 0;
 }
 
-// clock: Explicitly disabled routines permit cues without guessing a local hour.
+// clock: Explicitly disabled quiet hours permit cues without guessing a local hour.
 ClockCuePolicy clock_cue_policy(const ClockSnapshot &clock)
 {
     if (!clock.preferences_valid) {
         return ClockCuePolicy::SettingsUnavailable;
     }
-    if (!clock.routines_enabled || !clock.quiet_hours_enabled) {
+    if (!clock.quiet_hours_enabled) {
         return ClockCuePolicy::Allowed;
     }
     if (!clock_observation_current(clock)) {

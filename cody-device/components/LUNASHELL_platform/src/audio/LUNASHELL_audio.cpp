@@ -1835,7 +1835,7 @@ namespace {
 // Transport resource limits are independent of product authoring policy.
 constexpr uint32_t PERSONALITY_STACK_BYTES = 4096;
 constexpr int64_t CODEX_ACTIVITY_COOLDOWN_US = 1500000;
-enum class ApplicationAudioChannel : uint8_t { Personality = 0, Codex = 1, Boot = 2 };
+enum class ApplicationAudioChannel : uint8_t { Personality = 0, Codex = 1, Boot = 2, Pet = 3 };
 struct PersonalityAudioEvent {
     const int16_t *samples = nullptr;
     size_t sample_count = 0;
@@ -2064,8 +2064,20 @@ esp_err_t handle_personality_event(const PersonalityAudioEvent &event, lunashell
     if (mutex == nullptr) {
         return retain_personality_failure(ESP_ERR_NO_MEM, event.sample_rate_hz, 0);
     }
-    if (xSemaphoreTake(mutex, pdMS_TO_TICKS(50)) != pdTRUE) {
-        outcome = LUNASHELL_CUE_DROPPED_BUSY;
+    // A pet cue was already accepted by the nonblocking UI-facing mailbox.
+    // Let its worker wait up to the remaining freshness window for a transient
+    // transport owner; other channels retain their existing short wait.
+    TickType_t mutex_wait = pdMS_TO_TICKS(50);
+    if (event.channel == ApplicationAudioChannel::Pet) {
+        const int64_t remaining_us = event.request_expiry_us - (esp_timer_get_time() - event.requested_at_us);
+        if (remaining_us <= 0) {
+            outcome = LUNASHELL_CUE_EXPIRED;
+            return ESP_OK;
+        }
+        mutex_wait = std::max<TickType_t>(1, pdMS_TO_TICKS((remaining_us + 999) / 1000));
+    }
+    if (xSemaphoreTake(mutex, mutex_wait) != pdTRUE) {
+        outcome = event.channel == ApplicationAudioChannel::Pet ? LUNASHELL_CUE_EXPIRED : LUNASHELL_CUE_DROPPED_BUSY;
         return ESP_OK;
     }
     if (esp_timer_get_time() - event.requested_at_us > event.request_expiry_us) {
@@ -2192,10 +2204,11 @@ static esp_err_t notify_application_audio(const int16_t *samples, size_t sample_
 {
     const bool codex = channel == ApplicationAudioChannel::Codex;
     const bool boot = channel == ApplicationAudioChannel::Boot;
+    const bool pet = channel == ApplicationAudioChannel::Pet;
     const bool invalid_kind = codex && kind != LUNASHELL_CODEX_CUE_ACTIVITY && kind != LUNASHELL_CODEX_CUE_NOTICE;
     const bool invalid_identity = codex && (cue_id & 0xFFFF0000U) != 0x43430000U;
     const bool sustained_notice = codex && kind == LUNASHELL_CODEX_CUE_NOTICE && repetitions == 1;
-    const size_t sample_limit = boot ? 44100 : (sustained_notice ? 32000 : 5600);
+    const size_t sample_limit = boot ? 44100 : ((sustained_notice || pet) ? 32000 : 5600);
     LUNASHELL::AudioCueSequenceLayout sequence{};
     const bool invalid_sequence = !LUNASHELL::prepare_audio_cue_sequence(sample_count, sample_rate_hz,
         sample_rate_hz, repetitions, gap_ms, sequence, boot) ||
@@ -2243,7 +2256,7 @@ static esp_err_t notify_application_audio(const int16_t *samples, size_t sample_
     const bool enabled = s_personality_mailbox.policy.enabled && (!codex || s_personality_mailbox.codex_enabled) &&
         LUNASHELL_audio_user_sounds_enabled();
     const bool suspended = codex ? s_personality_mailbox.codex_suspended : s_personality_mailbox.suspended;
-    const int64_t cooldown_us = codex ?
+    const int64_t cooldown_us = pet ? 0 : codex ?
         (kind == LUNASHELL_CODEX_CUE_ACTIVITY ? CODEX_ACTIVITY_COOLDOWN_US : 0) :
         s_personality_mailbox.policy.cooldown_us;
     const bool have_played = codex ? s_personality_mailbox.codex_have_played : s_personality_mailbox.have_played;
@@ -2296,6 +2309,18 @@ extern "C" esp_err_t LUNASHELL_audio_notify_personality(const int16_t *samples, 
 {
     return notify_application_audio(samples, sample_count, sample_rate_hz, cue_id,
         ApplicationAudioChannel::Personality, LUNASHELL_CODEX_CUE_ACTIVITY, 1, 0, status);
+}
+
+// samples: Immutable mono 16 kHz PCM owned until this request completes.
+// sample_count: Exact sample count, no more than 32000.
+// cue_id: Stable pet event identity.
+// status: Receives the nonblocking admission, suppression or busy result.
+// Exception: Returns the original validation or shared audio-owner error.
+extern "C" esp_err_t LUNASHELL_audio_notify_pet(const int16_t *samples, size_t sample_count,
+    uint32_t cue_id, lunashell_audio_cue_status_t *status)
+{
+    return notify_application_audio(samples, sample_count, 16000, cue_id,
+        ApplicationAudioChannel::Pet, LUNASHELL_CODEX_CUE_NOTICE, 1, 0, status);
 }
 
 // samples: Immutable mono PCM at the boot cue's authored rate.

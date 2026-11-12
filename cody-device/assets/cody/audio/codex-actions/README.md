@@ -1,6 +1,6 @@
 # Cody boot and Codex action sounds
 
-The 2026-10-10 set uses seven recordings from the owner's purchased local SFX
+The current set uses nine recordings from the owner's purchased local SFX
 archive. Only transformed Cody cues are versioned. Original source recordings
 stay read-only outside the repository. `source-selection.json` records their
 relative paths, SHA-256 identities, chosen windows, pitch, filters, envelopes,
@@ -42,6 +42,9 @@ does not remove the selected sounds.
 | ChecksFailed | 340 ms | Explicitly observed checks fail |
 | ApprovalRequired | 300 ms | Permission must be handled on the PC |
 | QuestionReminder | 300 ms | One quieter bell for a still-pending question |
+| BookmarkSaved | 280 ms | A confirmed local chat bookmark after its result is visible |
+| QuestionsOpen | 220 ms | Open the signed events list from question previews |
+| ActivityOpen | 240 ms | Open the PC-followed current activity view |
 
 BootRise is a warm overlapping rise with a soft tail at 22,050 Hz. The action
 cues are mono 16 kHz PCM16. Ordinary activity and repeated clips retain the
@@ -52,8 +55,9 @@ digital levels, not measured loudness on Cody's speaker. Boundary samples are
 zero. No continuous busy bed or speech is included.
 
 Questions use one softened Soft Chime recording, failed checks use descending bell notes, and
-confirmed reply delivery uses a short digital receipt. These identities are
-independent of the assistant response-ready cue. The more audible notice levels
+confirmed reply delivery uses a short arcade chirp. Response-ready, passed checks and restored
+connection have subtle electronic layers drawn from the owner's SFX collection. Each cue keeps its
+own event identity. The more audible notice levels
 retain digital headroom and do not override the user's speaker volume or Sounds switch.
 
 Pending questions use one 1,800-ms Question bell with a long fading tail,

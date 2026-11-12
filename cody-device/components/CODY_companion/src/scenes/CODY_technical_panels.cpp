@@ -790,15 +790,6 @@ esp_err_t draw_companion_panel_rows(const PanelPresentation &presentation, CODY2
 {
     if (!presentation.valid) { return panel_result("draw_state", ESP_ERR_INVALID_STATE); }
     esp_err_t error = CODY2D::validate_surface(strip);
-    if (error == ESP_OK && presentation.cost_line.valid) {
-        CODY2D::CapsuleControl badge{};
-        badge.bounds = {101, static_cast<uint16_t>(presentation.banner[0] == '\0' ? 206 : 234), 264, 28};
-        const uint16_t color = cost_band_color(presentation.cost_band);
-        badge.top_color = CODY2D::blend_rgb565(color, 0, 40);
-        badge.bottom_color = CODY2D::blend_rgb565(color, 0, 20);
-        badge.border_color = CODY2D::blend_rgb565(color, 0, 112);
-        error = CODY2D::draw_capsule_rows(badge, strip, first_row, first_column);
-    }
     const CODY2D::TextLine *fixed[] = {&presentation.page_line,
         &presentation.banner_line, &presentation.hint_line, &presentation.cost_line};
     for (const auto *line : fixed) {

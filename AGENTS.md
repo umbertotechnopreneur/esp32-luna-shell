@@ -40,11 +40,12 @@ agent contract, including for Copilot.
   Use `scripts/commands/`, `scripts/common/`, `scripts/generators/` and
   `scripts/checks/` for implementations, helpers, generators and checks.
 - Build Debug apps and packages from current source. Obtain dependencies from
-  official sources. Stage first imports, verify source and version, and run
-  one on-demand Defender scan of the archive and extracted imports. Require a
-  clean result and reuse it for unchanged imports in that staging session.
+  official sources. For a first import of a compiled library or prebuilt
+  executable, verify source and version and scan its archive and extracted
+  binaries with Defender. Require a clean result and reuse it for unchanged
+  imports in that staging session. Do not scan non-executable files or scripts.
   Keep gates in memory and a short rule in maintained READMEs. Stop on failed
-  or unavailable scans. No broad scans, bypass or old certifications.
+  or unavailable required scans. No broad scans, bypass or old certifications.
 
 ## UI contracts
 
@@ -72,10 +73,9 @@ Back geometry and QR clearance.
   largest free block and remaining free space, without addresses. Back goes
   via overview to the retained route. Authenticated Normal restores it. Keep build-mode selection and
   facial channels out of UI/storage. Retain internal animation channels.
-- Use text-only actions, with a capsule for one, two rounded gradient cards
-  side by side for two and a centered card below for three. Use semantic colors
-  and restrained gradients. Follow the approved single- and multi-action images
-  in `docs/cody/ui-proposals/20261009/`. Questions show at most two numbered
+- Use actions without filled cards, gradients or borders, retaining existing
+  icons before their text and the complete touch targets. Before adding a new
+  icon to a text action, ask the owner. Questions show at most two numbered
   single-line full-width rows, with scrolling and full review before Send.
 - Reveal complete controls after the title and body. Enable touch only while
   visible. Captions have no typewriter timing or audio count. Give each manga

@@ -392,12 +392,23 @@ esp_err_t compose_character_direction(const CharacterDirectionState &state, Resp
     const float work_accent = std::sin(2.f * kPi * work_phase);
     const bool editing = state.work_kind == CharacterWorkKind::Editing;
     const bool running = state.work_kind == CharacterWorkKind::Running;
+    const bool thinking = state.work_kind == CharacterWorkKind::Thinking;
     offset_channel(face, FaceChannel::BrowHeightLeft, state.work * (.08f + .035f * work_accent));
     offset_channel(face, FaceChannel::BrowHeightRight, state.work * (editing ? .1f : .035f));
     offset_channel(face, FaceChannel::EyeUpperLeft, -.08f * state.work);
     offset_channel(face, FaceChannel::EyeUpperRight, -.08f * state.work);
     // Keep the acquired gaze target; only a small cheek/brow asymmetry accents long work.
     offset_channel(face, FaceChannel::CheekRaiseRight, .05f * state.work * work_accent);
+    // Distinct, quiet acting follows the real work category without inventing events.
+    if (thinking) {
+        offset_channel(face, FaceChannel::BrowCurveRight, .10f * state.work * work_accent);
+    } else if (editing) {
+        offset_channel(face, FaceChannel::EyeCurveLeft, -.09f * state.work);
+        offset_channel(face, FaceChannel::BrowHeightRight, .06f * state.work * work_accent);
+    } else if (running) {
+        offset_channel(face, FaceChannel::CheekRaiseLeft, .08f * state.work * work_accent);
+        offset_channel(face, FaceChannel::BrowHeightRight, .06f * state.work * work_accent);
+    }
     offset_channel(face, FaceChannel::BrowHeightLeft, .14f * state.compaction);
     offset_channel(face, FaceChannel::EyeCurveLeft, -.1f * state.compaction);
     offset_channel(face, FaceChannel::EyeCurveRight, -.1f * state.compaction);

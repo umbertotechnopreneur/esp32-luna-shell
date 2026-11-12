@@ -591,6 +591,40 @@ esp_err_t play_device_boot_cue(DeviceEffectsModel &model)
     return error;
 }
 
+// model: Receives the actual admission disposition and original optional failure.
+// cue: Explicit pet event selected by the retired animation or boot owner.
+// voice: Canonical voice observation, or null when voice is unavailable at startup.
+// Exception: Returns the original asset, preparation or audio-owner error.
+esp_err_t play_pet_cue(DeviceEffectsModel &model, PetCue cue, const LUNASHELL::VoiceSnapshot *voice)
+{
+    model.pet_audio_status = {LUNASHELL_CUE_UNAVAILABLE, ESP_OK, 0, static_cast<uint32_t>(cue)};
+    if (!model.prepared || model.preparation_error != ESP_OK) {
+        model.pet_audio_error = model.prepared ? model.preparation_error : ESP_ERR_INVALID_STATE;
+        model.pet_audio_status.last_error = model.pet_audio_error;
+        return model.pet_audio_error;
+    }
+    if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
+            !voice_sound_state_known(*voice, esp_timer_get_time()))) {
+        model.pet_audio_status.state = LUNASHELL_CUE_SUPPRESSED;
+        return ESP_OK;
+    }
+    PetAudioClip clip{};
+    auto error = pet_audio_clip(cue, clip);
+    if (error == ESP_OK) {
+        error = LUNASHELL_audio_notify_pet(clip.samples, clip.sample_count,
+            static_cast<uint32_t>(cue), &model.pet_audio_status);
+    } else {
+        model.pet_audio_status.state = LUNASHELL_CUE_FAILED;
+        model.pet_audio_status.last_error = error;
+    }
+    if (error != ESP_OK && error != model.pet_audio_error) {
+        ESP_LOGW(kTag, "Pet cue %lu admission failed (%s)",
+            static_cast<unsigned long>(cue), esp_err_to_name(error));
+    }
+    model.pet_audio_error = error;
+    return error;
+}
+
 // model: Retains the optional tap result without delaying touch handling.
 // voice: Latest canonical input observation, or null for builds without voice.
 void play_device_tap_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice)
@@ -624,6 +658,51 @@ void play_device_preference_cue(DeviceEffectsModel &model, const LUNASHELL::Voic
         ESP_LOGW(kTag, "Preference cue admission failed (%s)", esp_err_to_name(error));
     }
     model.preference_audio_error = error;
+}
+
+// model: Retains the optional confirmed-bookmark admission result.
+// voice: Current voice observation, or null when voice is excluded.
+void play_device_bookmark_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice)
+{
+    if (!model.prepared || model.preparation_error != ESP_OK) return;
+    if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
+            !voice_sound_state_known(*voice, esp_timer_get_time()))) return;
+    CodexAudioStatus status{};
+    const auto error = notify_codex_audio(CodexAudioCue::BookmarkSaved, status);
+    if (error != ESP_OK && error != model.bookmark_audio_error) {
+        ESP_LOGW(kTag, "Bookmark cue admission failed (%s)", esp_err_to_name(error));
+    }
+    model.bookmark_audio_error = error;
+}
+
+// model: Retains the optional Events navigation cue's actual admission result.
+// voice: Current voice observation, or null when voice is excluded.
+void play_device_questions_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice)
+{
+    if (!model.prepared || model.preparation_error != ESP_OK) return;
+    if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
+            !voice_sound_state_known(*voice, esp_timer_get_time()))) return;
+    CodexAudioStatus status{};
+    const auto error = notify_codex_audio(CodexAudioCue::QuestionsOpen, status);
+    if (error != ESP_OK && error != model.questions_audio_error) {
+        ESP_LOGW(kTag, "Questions navigation cue admission failed (%s)", esp_err_to_name(error));
+    }
+    model.questions_audio_error = error;
+}
+
+// model: Retains the optional current-activity navigation cue's actual result.
+// voice: Current voice observation, or null when voice is excluded.
+void play_device_activity_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice)
+{
+    if (!model.prepared || model.preparation_error != ESP_OK) return;
+    if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
+            !voice_sound_state_known(*voice, esp_timer_get_time()))) return;
+    CodexAudioStatus status{};
+    const auto error = notify_codex_audio(CodexAudioCue::ActivityOpen, status);
+    if (error != ESP_OK && error != model.activity_audio_error) {
+        ESP_LOGW(kTag, "Activity navigation cue admission failed (%s)", esp_err_to_name(error));
+    }
+    model.activity_audio_error = error;
 }
 
 // model: Retains optional admission failures without waiting for the speaker.
@@ -674,14 +753,39 @@ void play_device_jump_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnaps
     model.jump_audio_error = error;
 }
 
+// cue: Existing immutable authored clip selected for a visible pet expression.
+// status: Receives the independent pet-channel admission result.
+// Exception: Returns an unknown asset or the original shared-owner failure.
+static esp_err_t notify_pet_expression(CodexAudioCue cue, lunashell_audio_cue_status_t &status)
+{
+    for (const auto &clip : CodexAudioAssets::clips) {
+        if (clip.cue != cue) continue;
+        if (clip.sample_rate_hz != 16000) return ESP_ERR_INVALID_SIZE;
+        return LUNASHELL_audio_notify_pet(clip.samples, clip.sample_count, static_cast<uint32_t>(cue), &status);
+    }
+    return ESP_ERR_NOT_FOUND;
+}
+
 // model: Receives the optional icon cue's original admission error.
 // symbol: One newly presented overlay, never a fabricated assistant event.
 // voice: Current voice observation used to avoid interrupting capture.
-void play_device_symbol_cue(DeviceEffectsModel &model, MuseSymbol symbol, const LUNASHELL::VoiceSnapshot *voice)
+lunashell_audio_cue_status_t play_device_symbol_cue(DeviceEffectsModel &model, MuseSymbol symbol,
+    const LUNASHELL::VoiceSnapshot *voice)
 {
-    if (!model.prepared || model.preparation_error != ESP_OK || symbol == MuseSymbol::None) return;
+    lunashell_audio_cue_status_t status{LUNASHELL_CUE_UNAVAILABLE, ESP_OK, 0, 0};
+    if (!model.prepared || model.preparation_error != ESP_OK) {
+        status.last_error = model.prepared ? model.preparation_error : ESP_ERR_INVALID_STATE;
+        return status;
+    }
+    if (symbol == MuseSymbol::None) {
+        status.state = LUNASHELL_CUE_SUPPRESSED;
+        return status;
+    }
     if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
-            !voice_sound_state_known(*voice, esp_timer_get_time()))) return;
+            !voice_sound_state_known(*voice, esp_timer_get_time()))) {
+        status.state = LUNASHELL_CUE_SUPPRESSED;
+        return status;
+    }
     CodexAudioCue cue = CodexAudioCue::None;
     switch (symbol) {
     case MuseSymbol::Question: cue = CodexAudioCue::Question; break;
@@ -692,14 +796,46 @@ void play_device_symbol_cue(DeviceEffectsModel &model, MuseSymbol symbol, const 
     case MuseSymbol::Sweat: cue = CodexAudioCue::Interrupted; break;
     case MuseSymbol::Tension: cue = CodexAudioCue::ChecksFailed; break;
     case MuseSymbol::Sleep: cue = CodexAudioCue::SessionEnded; break;
-    case MuseSymbol::None: case MuseSymbol::Count: return;
+    case MuseSymbol::None: case MuseSymbol::Count:
+        status.state = LUNASHELL_CUE_SUPPRESSED;
+        return status;
     }
-    CodexAudioStatus status{};
-    const auto error = notify_codex_audio(cue, status);
+    const auto error = notify_pet_expression(cue, status);
     if (error != ESP_OK && error != model.symbol_audio_error) {
         ESP_LOGW(kTag, "Muse icon cue %u failed (%s)", static_cast<unsigned>(symbol), esp_err_to_name(error));
     }
     model.symbol_audio_error = error;
+    if (error != ESP_OK) {
+        status.state = LUNASHELL_CUE_FAILED;
+        status.last_error = error;
+    }
+    return status;
+}
+
+// model: Retains the observed working-animation cue's admission result.
+// voice: Current canonical voice observation, or null when voice is excluded.
+lunashell_audio_cue_status_t play_device_working_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice)
+{
+    lunashell_audio_cue_status_t status{LUNASHELL_CUE_UNAVAILABLE, ESP_OK, 0, 0};
+    if (!model.prepared || model.preparation_error != ESP_OK) {
+        status.last_error = model.prepared ? model.preparation_error : ESP_ERR_INVALID_STATE;
+        return status;
+    }
+    if (voice != nullptr && (!voice_input_stopped(voice->input.phase) ||
+            !voice_sound_state_known(*voice, esp_timer_get_time()))) {
+        status.state = LUNASHELL_CUE_SUPPRESSED;
+        return status;
+    }
+    const auto error = notify_pet_expression(CodexAudioCue::Working, status);
+    if (error != ESP_OK && error != model.symbol_audio_error) {
+        ESP_LOGW(kTag, "Muse working cue failed (%s)", esp_err_to_name(error));
+    }
+    model.symbol_audio_error = error;
+    if (error != ESP_OK) {
+        status.state = LUNASHELL_CUE_FAILED;
+        status.last_error = error;
+    }
+    return status;
 }
 
 // model: Retained effect identities and canonical projection scratch, never a scene-owned cache.

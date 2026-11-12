@@ -152,7 +152,7 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
         }
         if (error != ESP_OK) return result("draw level", error);
     }
-    return result("draw Close", CODY2D::draw_capsule_rows(view->close, strip, first_row, first_column));
+    return result("draw Close", UI::draw_text_action(view->close, strip, first_row, first_column));
 }
 
 // view: Persistent prepared view with stable caption storage.

@@ -268,8 +268,8 @@ void check_choice_cards()
         for (uint8_t index = 0; index < s_view.event_choice_count; ++index) {
             const auto &control = s_view.event_choices[index].control;
             require_circle(control.bounds);
-            require(control.icon == CODY2D::ActionIcon::None && control.top_color != control.bottom_color,
-                "every reply is text-only and retains its semantic gradient");
+            require(control.icon == CODY2D::ActionIcon::None,
+                "numbered reply rows remain text-only");
             require(control.bounds.x == 73 && control.bounds.width == 320 && !s_view.event_choices[index].second.valid,
                 "numbered replies occupy a single line across the full safe width");
             require(std::strcmp(s_view.event_choices[index].id, s_presented_event.choices[index].id) == 0,
@@ -278,11 +278,11 @@ void check_choice_cards()
                 static_cast<int16_t>(control.bounds.y + control.bounds.height / 2U)}),
                 "complete card retains its shared raster/hit geometry");
         }
-        require(s_view.event_choices[0].control.top_color != s_view.event_choices[1].control.top_color,
-            "positive and negative choices do not share a blue-only palette");
         require(draw_content(&s_view, surface, 0, 0) == ESP_OK, "all complete cards render after narration");
         require(std::any_of(pixels.begin() + 260U * 466U, pixels.end(), [](uint16_t value) { return value != 0; }),
-            "visible card pixels appear only after the gate");
+            "visible reply text appears only after the gate");
+        require(pixels[261U * 466U + 80U] == 0,
+            "reply rows do not paint a card background");
     }
 }
 

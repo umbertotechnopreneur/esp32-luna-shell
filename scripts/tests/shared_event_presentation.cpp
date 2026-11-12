@@ -88,7 +88,7 @@ void verify_shared_event_presentation()
     assert(plan.actions[0].id == Presentation::ActionId::Send && !plan.actions[0].enabled);
     assert(Presentation::prepare_control(plan.actions[0], CODY::SceneData::body_font, control, second) == ESP_OK);
     assert(plan.actions[0].tone == LUNASHELL::CodexChoiceTone::Positive);
-    assert(control.icon == CODY2D::ActionIcon::None && control.top_color == 0x1147);
+    assert(control.icon == CODY2D::ActionIcon::Arrow && control.caption.color == CODY::Theme::text_muted);
     assert(!control.enabled && control.bounds.y == 352);
     assert(std::strcmp(plan.actions[0].label, "Send reply") == 0);
     assert(Presentation::activate(event, context, plan.actions[0], navigation, effect) == ESP_ERR_INVALID_STATE);

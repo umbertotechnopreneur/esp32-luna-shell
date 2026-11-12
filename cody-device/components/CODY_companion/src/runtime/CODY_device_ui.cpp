@@ -61,8 +61,14 @@ static_assert(kMuseViewport.width != 0, "The Cody display must admit a full Muse
 constexpr uint32_t kFrameBudgetMs = 500;
 constexpr uint32_t kPollMs = 100;
 constexpr uint32_t kPowerTimeoutMs = 2500;
-constexpr uint32_t kBirthFrameCount = 100;
+constexpr uint32_t kBirthFrameCount = 140;
 constexpr uint32_t kBirthFrameMs = 50;
+constexpr int64_t kStartupCueWaitUs = 3000000;
+constexpr int64_t kMuseCueWaitUs = 4000000;
+constexpr uint32_t kBirthWhiteHoldFrames = 17;
+constexpr uint32_t kBirthMuseStartFrame = 56;
+constexpr uint32_t kBirthMuseFadeFrames = 44;
+constexpr uint32_t kBirthWelcomeFrame = 101;
 // Ready includes one complete branding cycle after the radio owners release the display.
 constexpr uint32_t kReadyTimeoutMs = kPowerTimeoutMs + VIBEWARE_BOOT_DURATION_MS +
     VIBEWARE_BOOT_FRAME_COUNT * (kFrameBudgetMs + kPollMs) +
@@ -152,23 +158,36 @@ struct DeviceUi {
     bool status_retired = false;
     bool show_battery_percentage = true;
     int64_t chrome_imu_at_us = 0;
+    int64_t screensaver_last_touch_us = 0;
     float chrome_acceleration[3]{};
     CODY::BootBranding::Presentation branding{};
     CODY::BootBranding::Scratch branding_scratch{};
     int64_t branding_due_us = 0;
+    int64_t boot_ding_deadline_us = 0;
     uint16_t branding_frame = 0;
     BrandingPhase branding_phase = BrandingPhase::Inactive;
     CODY::PixelAvatarFrame birth_avatar{};
     CODY::StyledTitle birth_welcome{};
     int64_t birth_due_us = 0;
+    int64_t birth_rise_deadline_us = 0;
     uint32_t birth_frame = 0;
     uint16_t birth_background = 0;
     bool birth_pending = false;
     bool birth_active = false;
+    bool boot_ding_pending = false;
+    bool birth_rise_pending = false;
+    bool pet_tap_cue_pending = false;
 
     CODY::DeviceView view{};
     CODY::PixelDemoView pixel_demo{kMuseViewport};
     CODY::MuseSymbol announced_symbol = CODY::MuseSymbol::None;
+    Layer announced_cue_layer = Layer::Blank;
+    bool announced_working = false;
+    bool announced_surprise = false;
+    bool symbol_cue_pending = false;
+    bool working_cue_pending = false;
+    int64_t symbol_cue_deadline_us = 0;
+    int64_t working_cue_deadline_us = 0;
     CODY::PixelDemoView animation_preview{kMuseViewport};
 #if CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
     LUNASHELL::CodexAnimationScene animation_scene = LUNASHELL::CodexAnimationScene::Idle;
@@ -185,6 +204,8 @@ struct DeviceUi {
     char touched_event[33]{};
     ActivityPage activity_page = ActivityPage::Events;
     bool reply_dismiss_pending = false;
+    bool questions_navigation_sound_pending = false;
+    bool activity_navigation_sound_pending = false;
     bool statistics_entry = false;
     bool current_turn_available = false;
     RetiredFrame retired{};
@@ -632,9 +653,10 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         !ui.timer_open && !ui.audio_open && !voice_busy &&
         ui.model.vouchers.warning_expiry == 0 &&
         !CODY::device_effects_require_attention(ui.model.effects) && ui.model.battery_banner.sequence == 0 &&
-        !(ui.model.widgets.selected_screen == WidgetScreen::About && ui.model.info_page == CODY::InfoPage::ProjectLink);
+        !(!ui.mascot_home && ui.model.widgets.selected_screen == WidgetScreen::About &&
+          ui.model.info_page == CODY::InfoPage::ProjectLink);
     CODY::update_screensaver(ui.model.screensaver, saver_eligible,
-        ui.model.navigation.last_touch_us, now_us);
+        ui.screensaver_last_touch_us, now_us);
     frame.navigation_opacity = ui.model.navigation.opacity(now_us);
     if (ui.model.screensaver.phase == CODY::ScreensaverPhase::Visible) {
         frame.layer = Layer::Screensaver;
@@ -741,7 +763,8 @@ esp_err_t prepare_current_view(FrameView &frame, int64_t now_us, esp_err_t motio
         CODY::update_device_statistics(model.dashboard);
         const auto &turn = model.dashboard.context;
         ui.current_turn_available = CODY::current_turn_has_data(turn, now_us);
-        if (ui.activity_page == ActivityPage::CurrentTurn && !ui.current_turn_available) {
+        if (ui.activity_page == ActivityPage::CurrentTurn && !ui.current_turn_available &&
+            ui.browser_destination != CODY::CodexBrowserDestination::CurrentTurn) {
             ui.activity_page = ActivityPage::Events;
             invalidate();
         }
@@ -1061,12 +1084,12 @@ esp_err_t render(const FrameView &frame, bool force = false)
                 error = draw_surprise_rows(ui.surprise_page, strip, row, left);
             } else if (error == ESP_OK && frame.layer == Layer::Branding) {
                 error = CODY::BootBranding::draw_rows(ui.branding, ui.branding_scratch, ui.branding_frame, strip, row);
-            } else if (error == ESP_OK && frame.layer == Layer::Birth && ui.birth_frame >= 40) {
+            } else if (error == ESP_OK && frame.layer == Layer::Birth && ui.birth_frame >= kBirthMuseStartFrame) {
                 error = CODY::draw_pixel_avatar_rows(ui.birth_avatar, {105, 72, 256, 256}, strip, row, left);
-                if (error == ESP_OK && ui.birth_frame >= 72) {
+                if (error == ESP_OK && ui.birth_frame >= kBirthWelcomeFrame) {
                     const auto &welcome = ui.birth_welcome;
                     const auto width = CODY::TitleStyleDetail::width(welcome.text.length, welcome.scale);
-                    const auto elapsed_us = (ui.birth_frame - 72U) * kBirthFrameMs * 1000ULL;
+                    const auto elapsed_us = (ui.birth_frame - kBirthWelcomeFrame) * kBirthFrameMs * 1000ULL;
                     error = CODY::draw_styled_title_rows(welcome, strip, row, left, welcome.text.length, false,
                         CODY::styled_title_scroll_offset(width, welcome.bounds.width, elapsed_us));
                 }
@@ -1204,7 +1227,11 @@ Target target_at(CODY2D::Point point)
     if (layer == Layer::Events) return Target::EventsGesture;
     if (layer == Layer::CurrentTurn || layer == Layer::EventReply) {
         if (ui.retired.navigation_opacity == 255 &&
-            CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) return Target::ActivityBack;
+            CODY::lateral_navigation_at(point) == CODY::LateralNavigation::Previous) {
+            return layer == Layer::CurrentTurn &&
+                ui.browser_destination == CODY::CodexBrowserDestination::CurrentTurn
+                ? Target::CodexBrowserBack : Target::ActivityBack;
+        }
         if (layer == Layer::EventReply && !ui.reply_dismiss_pending &&
             point.x >= 113 && point.x < 353 && point.y >= 330 && point.y < 386) return Target::EventDismiss;
         return Target::None;
@@ -1346,14 +1373,24 @@ esp_err_t activate(Target target)
             const auto error = CODY::return_to_options_tools(ui.scene);
             if (error != ESP_OK) return error;
             if (!CODY::onboarding_codex_tools_active()) return ESP_OK;
+            const auto origin = ui.browser_destination;
             ui.browser_destination = CODY::CodexBrowserDestination::None;
-            CODY::open_codex_browser(ui.codex_browser);
+            if ((origin == CODY::CodexBrowserDestination::Events &&
+                 ui.codex_browser.route == CODY::CodexBrowserRoute::PendingQuestions) ||
+                (origin == CODY::CodexBrowserDestination::CurrentTurn &&
+                 ui.codex_browser.route == CODY::CodexBrowserRoute::Turns)) {
+                ui.codex_browser.refresh_at_us = 0;
+            } else {
+                CODY::open_codex_browser(ui.codex_browser);
+            }
         }
         invalidate();
     } else if (target == Target::CodexBrowserControl && layer == Layer::CodexBrowser) {
         const auto start = CODY::codex_browser_control_at(ui.codex_browser, ui.activity_touch_start);
         const auto end = CODY::codex_browser_control_at(ui.codex_browser, ui.activity_touch_last);
         if (start.action == CODY::CodexBrowserAction::None || !(start == end)) return ESP_OK;
+        const bool questions_to_events = ui.codex_browser.route == CODY::CodexBrowserRoute::PendingQuestions &&
+            start.action == CODY::CodexBrowserAction::Events;
         const auto destination = CODY::activate_codex_browser(ui.codex_browser, start);
         if (destination != CODY::CodexBrowserDestination::None) {
             const auto error = CODY::open_device_dashboard(ui.scene);
@@ -1362,8 +1399,12 @@ esp_err_t activate(Target target)
             ui.browser_destination = destination;
             if (destination == CODY::CodexBrowserDestination::Statistics) {
                 select_statistics();
+            } else if (destination == CODY::CodexBrowserDestination::CurrentTurn) {
+                ui.activity_page = ActivityPage::CurrentTurn;
+                ui.activity_navigation_sound_pending = true;
             } else {
                 ui.activity_page = ActivityPage::Events;
+                ui.questions_navigation_sound_pending = questions_to_events;
             }
         }
         invalidate();
@@ -1512,6 +1553,42 @@ void play_preference_cue(DeviceUi &ui)
     CODY::play_device_preference_cue(ui.model.effects, voice);
 }
 
+// ui: Display-owned effects and current voice state for a confirmed bookmark.
+void play_bookmark_cue(DeviceUi &ui)
+{
+    const auto alarm = ui.model.timer.alarm;
+    if (alarm == CODY::LocalTimerAlarm::Pending || alarm == CODY::LocalTimerAlarm::Playing) return;
+    const LUNASHELL::VoiceSnapshot *voice = nullptr;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    voice = &ui.model.voice;
+#endif
+    CODY::play_device_bookmark_cue(ui.model.effects, voice);
+}
+
+// ui: Display-owned effects for navigation to the authenticated events list.
+void play_questions_cue(DeviceUi &ui)
+{
+    const auto alarm = ui.model.timer.alarm;
+    if (alarm == CODY::LocalTimerAlarm::Pending || alarm == CODY::LocalTimerAlarm::Playing) return;
+    const LUNASHELL::VoiceSnapshot *voice = nullptr;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    voice = &ui.model.voice;
+#endif
+    CODY::play_device_questions_cue(ui.model.effects, voice);
+}
+
+// ui: Display-owned effects for navigation to the PC-followed activity.
+void play_activity_cue(DeviceUi &ui)
+{
+    const auto alarm = ui.model.timer.alarm;
+    if (alarm == CODY::LocalTimerAlarm::Pending || alarm == CODY::LocalTimerAlarm::Playing) return;
+    const LUNASHELL::VoiceSnapshot *voice = nullptr;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    voice = &ui.model.voice;
+#endif
+    CODY::play_device_activity_cue(ui.model.effects, voice);
+}
+
 // No parameters: read touch and dispatch it only to the retired visible route.
 // Exception: Returns a mandatory input acquisition or route error.
 // Pet delivery is optional for display operation; its failure remains in dashboard.pet.
@@ -1534,7 +1611,11 @@ esp_err_t sample_touch()
     ui.pressed = sample.pressed;
     // The contact can reveal chrome even while a new route or orientation
     // is awaiting its first frame. Action dispatch still uses the retired frame.
-    if (sample.pressed || was_pressed) ui.model.navigation.interact(esp_timer_get_time());
+    if (sample.pressed || was_pressed) {
+        const int64_t touch_at_us = esp_timer_get_time();
+        ui.model.navigation.interact(touch_at_us);
+        ui.screensaver_last_touch_us = touch_at_us;
+    }
     const CODY2D::Point point{static_cast<int16_t>(sample.x), static_cast<int16_t>(sample.y)};
     if (ui.surprise_page != 0) {
         if (pressed_edge && ui.retired.valid && ui.retired.layer == Layer::Surprise &&
@@ -1591,7 +1672,7 @@ esp_err_t sample_touch()
     }
     if (pressed_edge) {
         LUNASHELL_power_manager_note_activity();
-        play_touch_cue(ui);
+        if (ui.retired.layer != Layer::Mascot) play_touch_cue(ui);
     }
     if (ui.model.screensaver.phase == CODY::ScreensaverPhase::Visible || ui.retired.layer == Layer::Screensaver) {
         CODY::dismiss_screensaver(ui.model.screensaver, esp_timer_get_time());
@@ -1639,6 +1720,7 @@ esp_err_t sample_touch()
                 return ESP_OK;
             }
             CODY::start_pixel_demo_reaction(ui.pixel_demo);
+            ui.pet_tap_cue_pending = true;
         }
         return ESP_OK;
     }
@@ -1739,8 +1821,11 @@ esp_err_t sample_touch()
             if (previous && (ui.retired.layer == Layer::Timer || ui.retired.layer == Layer::AboutLink))
                 return activate(Target::Previous);
             if (previous && ui.retired.layer == Layer::Audio) return activate(Target::AudioClose);
-            if (previous && (ui.retired.layer == Layer::CurrentTurn || ui.retired.layer == Layer::EventReply))
-                return activate(Target::ActivityBack);
+            if (previous && (ui.retired.layer == Layer::CurrentTurn || ui.retired.layer == Layer::EventReply)) {
+                return activate(ui.retired.layer == Layer::CurrentTurn &&
+                    ui.browser_destination == CODY::CodexBrowserDestination::CurrentTurn
+                    ? Target::CodexBrowserBack : Target::ActivityBack);
+            }
         }
     }
     if (was_pressed && ui.retired.layer == Layer::Dashboard &&
@@ -1764,7 +1849,9 @@ esp_err_t update_navigation()
 {
     auto &ui = *s_ui;
     if (s_boot_activity.exchange(false, std::memory_order_acq_rel)) {
-        ui.model.navigation.interact(esp_timer_get_time());
+        const int64_t button_at_us = esp_timer_get_time();
+        ui.model.navigation.interact(button_at_us);
+        ui.screensaver_last_touch_us = button_at_us;
     }
     esp_err_t saved = ESP_OK;
     if (CODY::take_widget_visibility_save_result(saved)) {
@@ -2174,6 +2261,7 @@ esp_err_t update_and_draw(int64_t now_us)
             ui.animation_preview.manual_working = entry.working;
             ui.animation_preview.manual_elapsed_us = 0;
             ui.animation_preview.manual_playing = false;
+            ui.animation_preview.manual_needs_compose = true;
             ui.animation_active = true;
             ui.animation_deadline_us = frame_now_us + 300000000;
             CODY::dismiss_screensaver(ui.model.screensaver, frame_now_us);
@@ -2208,18 +2296,90 @@ esp_err_t update_and_draw(int64_t now_us)
     FrameView frame{};
     error = prepare_current_view(frame, frame_now_us, navigation.motion_error);
     if (error == ESP_OK) error = render(frame);
-    if (error == ESP_OK && ui.retired.valid && ui.retired.layer == Layer::Mascot) {
-        const auto symbol = ui.pixel_demo.retired_symbol;
-        if (symbol != ui.announced_symbol) {
-            ui.announced_symbol = symbol;
-            const LUNASHELL::VoiceSnapshot *voice = nullptr;
-#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
-            voice = &ui.model.voice;
-#endif
-            CODY::play_device_symbol_cue(ui.model.effects, symbol, voice);
+    if (error == ESP_OK && ui.retired.valid && ui.retired.layer == Layer::CodexBrowser &&
+        ui.codex_browser.bookmark_sound_pending) {
+        ui.codex_browser.bookmark_sound_pending = false;
+        play_bookmark_cue(ui);
+    }
+    if (error == ESP_OK && ui.questions_navigation_sound_pending) {
+        ui.questions_navigation_sound_pending = false;
+        if (ui.retired.valid && ui.retired.layer == Layer::Events &&
+            ui.browser_destination == CODY::CodexBrowserDestination::Events &&
+            ui.codex_browser.route == CODY::CodexBrowserRoute::PendingQuestions) {
+            play_questions_cue(ui);
         }
+    }
+    if (error == ESP_OK && ui.activity_navigation_sound_pending) {
+        ui.activity_navigation_sound_pending = false;
+        if (ui.retired.valid && ui.retired.layer == Layer::CurrentTurn &&
+            ui.browser_destination == CODY::CodexBrowserDestination::CurrentTurn) {
+            play_activity_cue(ui);
+        }
+    }
+    if (error == ESP_OK && ui.retired.valid &&
+        (ui.retired.layer == Layer::Mascot || ui.retired.layer == Layer::Animation)) {
+        const auto &visible = ui.retired.layer == Layer::Mascot ? ui.pixel_demo : ui.animation_preview;
+        if (ui.announced_cue_layer != ui.retired.layer) {
+            ui.announced_symbol = CODY::MuseSymbol::None;
+            ui.announced_working = false;
+            ui.announced_surprise = false;
+            ui.symbol_cue_pending = false;
+            ui.working_cue_pending = false;
+            ui.announced_cue_layer = ui.retired.layer;
+        }
+        const LUNASHELL::VoiceSnapshot *voice = nullptr;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        voice = &ui.model.voice;
+#endif
+        if (ui.pet_tap_cue_pending && ui.retired.layer == Layer::Mascot) {
+            ui.pet_tap_cue_pending = false;
+            const auto cue_error = CODY::play_pet_cue(ui.model.effects, CODY::PetCue::Tap, voice);
+            if (cue_error != ESP_OK) ESP_LOGW(kTag, "Muse tap cue admission failed (%s)", esp_err_to_name(cue_error));
+        } else if (ui.retired.layer != Layer::Mascot) {
+            ui.pet_tap_cue_pending = false;
+        }
+        if (visible.retired_symbol != ui.announced_symbol) {
+            ui.announced_symbol = visible.retired_symbol;
+            ui.symbol_cue_pending = visible.retired_symbol != CODY::MuseSymbol::None;
+            ui.symbol_cue_deadline_us = frame_now_us + kMuseCueWaitUs;
+        }
+        if (visible.retired_working != ui.announced_working) {
+            ui.announced_working = visible.retired_working;
+            ui.working_cue_pending = visible.retired_working;
+            ui.working_cue_deadline_us = frame_now_us + kMuseCueWaitUs;
+        }
+        // The shared speaker may be busy with a different event. Retry only while
+        // the corresponding retired visual is still present and the cue is fresh.
+        // Working has priority; a simultaneously visible symbol can follow it.
+        if (ui.working_cue_pending) {
+            if (frame_now_us >= ui.working_cue_deadline_us) {
+                ui.working_cue_pending = false;
+            } else {
+                const auto status = CODY::play_device_working_cue(ui.model.effects, voice);
+                if (status.state != LUNASHELL_CUE_DROPPED_BUSY) ui.working_cue_pending = false;
+            }
+        }
+        if (ui.symbol_cue_pending && !ui.working_cue_pending) {
+            if (frame_now_us >= ui.symbol_cue_deadline_us) {
+                ui.symbol_cue_pending = false;
+            } else {
+                const auto status = CODY::play_device_symbol_cue(ui.model.effects, ui.announced_symbol, voice);
+                if (status.state != LUNASHELL_CUE_DROPPED_BUSY) ui.symbol_cue_pending = false;
+            }
+        }
+        if (visible.retired_surprise && !ui.announced_surprise) {
+            const auto cue_error = CODY::play_pet_cue(ui.model.effects, CODY::PetCue::Surprise, voice);
+            if (cue_error != ESP_OK) ESP_LOGW(kTag, "Muse surprise cue admission failed (%s)", esp_err_to_name(cue_error));
+        }
+        ui.announced_surprise = visible.retired_surprise;
     } else if (error == ESP_OK) {
         ui.announced_symbol = CODY::MuseSymbol::None;
+        ui.announced_working = false;
+        ui.announced_surprise = false;
+        ui.symbol_cue_pending = false;
+        ui.working_cue_pending = false;
+        ui.announced_cue_layer = Layer::Blank;
+        ui.pet_tap_cue_pending = false;
     }
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNA_SHELL_CODY_ENABLE_CODEX
     if (animation_result == ESP_OK) {
@@ -2256,6 +2416,24 @@ esp_err_t update_and_draw(int64_t now_us)
     return error;
 }
 
+// ui: Display-owned audio outcome and canonical voice observation.
+// cue: One startup transition whose sound has not yet been admitted.
+// Returns false only when another cue currently owns the shared audio mailbox.
+bool try_startup_pet_cue(DeviceUi &ui, CODY::PetCue cue)
+{
+    const LUNASHELL::VoiceSnapshot *voice = nullptr;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    const auto observation_error = DeviceSnapshotService::instance().readVoiceObservation(ui.model.voice);
+    if (observation_error != ESP_OK) {
+        ESP_LOGW(kTag, "Startup pet cue voice observation failed (%s)", esp_err_to_name(observation_error));
+        return true;
+    }
+    voice = &ui.model.voice;
+#endif
+    const auto error = CODY::play_pet_cue(ui.model.effects, cue, voice);
+    return error != ESP_OK || ui.model.effects.pet_audio_status.state != LUNASHELL_CUE_DROPPED_BUSY;
+}
+
 // ui: Serialized boot frame state. Each resource frame receives its original visible dwell.
 // Exception: Returns the real display frame error; a parked panel can be retried.
 esp_err_t advance_branding(DeviceUi &ui)
@@ -2267,11 +2445,21 @@ esp_err_t advance_branding(DeviceUi &ui)
         // Until then, the first retired frame stays visible without consuming animation time.
         const auto request = s_command.load(std::memory_order_acquire);
         if (static_cast<Command>(request & 0xffU) != Command::Ready) return ESP_OK;
-    } else if (esp_timer_get_time() < ui.branding_due_us) {
+    } else if (ui.boot_ding_pending) {
+        const auto now_us = esp_timer_get_time();
+        if (now_us >= ui.boot_ding_deadline_us) {
+            ESP_LOGW(kTag, "Boot ding was not admitted before its deadline");
+            ui.boot_ding_pending = false;
+        } else if (try_startup_pet_cue(ui, CODY::PetCue::BootDing)) {
+            ui.boot_ding_pending = false;
+        }
+    }
+    if (!starting && esp_timer_get_time() < ui.branding_due_us) {
         return ESP_OK;
     }
     const uint16_t next = starting ? 0 : static_cast<uint16_t>(ui.branding_frame + 1U);
     if (next == VIBEWARE_BOOT_FRAME_COUNT) {
+        if (ui.boot_ding_pending) return ESP_OK;
         ui.branding_phase = BrandingPhase::Inactive;
         ui.birth_active = ui.birth_pending;
         ESP_LOGI(kTag, "Boot disk animation completed: %u frames retired", VIBEWARE_BOOT_FRAME_COUNT);
@@ -2286,6 +2474,8 @@ esp_err_t advance_branding(DeviceUi &ui)
         ui.branding_due_us = esp_timer_get_time() + VIBEWARE_boot_frames[next].duration_ms * 1000LL;
         if (starting) {
             ui.branding_phase = BrandingPhase::Playing;
+            ui.boot_ding_pending = true;
+            ui.boot_ding_deadline_us = esp_timer_get_time() + kStartupCueWaitUs;
             ESP_LOGI(kTag, "Boot disk visible cycle started after service readiness");
         }
     } else if (error == ESP_ERR_NOT_FINISHED) {
@@ -2299,16 +2489,36 @@ esp_err_t advance_branding(DeviceUi &ui)
 esp_err_t advance_birth_intro(DeviceUi &ui)
 {
     if (!LUNASHELL_display_runtime_writes_allowed() || esp_timer_get_time() < ui.birth_due_us) return ESP_OK;
-    if (ui.birth_frame == 0) (void)CODY::play_device_boot_cue(ui.model.effects);
+    if (ui.birth_rise_pending) {
+        const int64_t now_us = esp_timer_get_time();
+        if (now_us >= ui.birth_rise_deadline_us) {
+            ESP_LOGW(kTag, "Birth rise was not admitted before its deadline");
+            ui.birth_rise_pending = false;
+        } else if (!ui.boot_ding_pending && try_startup_pet_cue(ui, CODY::PetCue::BirthRise)) {
+            ui.birth_rise_pending = false;
+        } else {
+            // Keep the first white frame on screen while the admitted ding retires.
+            ui.birth_due_us = now_us + kBirthFrameMs * 1000LL;
+            return ESP_OK;
+        }
+    }
     uint8_t white = 0;
-    if (ui.birth_frame < 12) white = 255;
-    else if (ui.birth_frame < 40) white = static_cast<uint8_t>((39U - ui.birth_frame) * 255U / 27U);
+    if (ui.birth_frame < kBirthWhiteHoldFrames) white = 255;
+    else if (ui.birth_frame < kBirthMuseStartFrame) {
+        white = static_cast<uint8_t>((kBirthMuseStartFrame - 1U - ui.birth_frame) * 255U /
+                                     (kBirthMuseStartFrame - kBirthWhiteHoldFrames - 1U));
+    }
     ui.birth_background = CODY2D::fade_rgb565_to_black(CODY::Theme::text_bright, white);
-    if (ui.birth_frame >= 40) {
-        CODY::compose_pixel_avatar(ui.birth_avatar, CODY::PixelAvatarPose::Idle,
-            (ui.birth_frame - 40U) * kBirthFrameMs, (ui.birth_frame - 40U) * kBirthFrameMs,
-            CODY::kPixelAvatarReactionMs);
-        const auto opacity = static_cast<uint8_t>(std::min<uint32_t>(255U, (ui.birth_frame - 40U) * 255U / 31U));
+    if (ui.birth_frame >= kBirthMuseStartFrame) {
+        const bool greeting = ui.birth_frame >= kBirthWelcomeFrame;
+        const uint32_t avatar_ms = (ui.birth_frame - kBirthMuseStartFrame) * kBirthFrameMs;
+        const uint32_t greeting_ms = greeting ? (ui.birth_frame - kBirthWelcomeFrame) * kBirthFrameMs : 0;
+        CODY::compose_pixel_avatar(ui.birth_avatar,
+            greeting ? CODY::PixelAvatarPose::Reply : CODY::PixelAvatarPose::Idle,
+            avatar_ms, greeting ? greeting_ms : avatar_ms,
+            greeting ? greeting_ms : CODY::kPixelAvatarReactionMs);
+        const auto opacity = static_cast<uint8_t>(std::min<uint32_t>(255U,
+            (ui.birth_frame - kBirthMuseStartFrame) * 255U / (kBirthMuseFadeFrames - 1U)));
         for (auto &color : ui.birth_avatar.palette) color = CODY2D::fade_rgb565_to_black(color, opacity);
         for (auto &color : ui.birth_avatar.dim_palette) color = CODY2D::fade_rgb565_to_black(color, opacity);
     }
@@ -2316,6 +2526,12 @@ esp_err_t advance_birth_intro(DeviceUi &ui)
     frame.layer = Layer::Birth;
     const auto error = render(frame, true);
     if (error != ESP_OK) return error;
+    if (ui.birth_frame == 0) {
+        ui.birth_rise_pending = true;
+        ui.birth_rise_deadline_us = esp_timer_get_time() + kStartupCueWaitUs;
+    } else if (ui.birth_frame == kBirthWelcomeFrame) {
+        (void)try_startup_pet_cue(ui, CODY::PetCue::BirthGreeting);
+    }
     ++ui.birth_frame;
     ui.birth_due_us = esp_timer_get_time() + kBirthFrameMs * 1000LL;
     return ESP_OK;
@@ -2425,10 +2641,6 @@ extern "C" esp_err_t CODY_companion_start(void)
     // The acquisition owner has initialized the codec; prepare its shared notification worker.
     // A failed optional sound worker does not remove pairing or power controls.
     (void)CODY::prepare_device_effects(s_ui->model.effects);
-    // Ordinary boots retain the early cue; the first-run cue belongs to the birth sequence.
-    if (esp_reset_reason() != ESP_RST_DEEPSLEEP && !settings.birth_intro_pending) {
-        (void)CODY::play_device_boot_cue(s_ui->model.effects);
-    }
     s_ui->first_boot = settings.effective_first_boot;
     s_ui->birth_pending = settings.birth_intro_pending && esp_reset_reason() != ESP_RST_DEEPSLEEP;
     s_ui->setup_progress_pending = settings.setup_progress_pending;

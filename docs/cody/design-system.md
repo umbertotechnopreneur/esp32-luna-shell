@@ -35,6 +35,11 @@ open until their scrolling, status and layout behavior can be verified.
 
 ## Menus and navigation
 
+Actions use text without filled cards, gradient backgrounds or borders. Keep
+existing action icons before their captions and retain their complete touch
+areas. When an additional icon would improve an action, ask the owner before
+adding it. Unavailable and selected actions remain visually distinguishable.
+
 Settings and other menus use flat rows with a semantic icon at the left, a
 label, an optional value beneath it, and a thin separator. The whole row is the
 touch target. Selected and unavailable states remain distinguishable without

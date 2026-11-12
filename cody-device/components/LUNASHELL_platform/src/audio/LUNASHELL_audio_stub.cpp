@@ -266,6 +266,17 @@ extern "C" esp_err_t LUNASHELL_audio_notify_boot(const int16_t *samples, size_t 
     return LUNASHELL_audio_notify_personality(samples, sample_count, 22050, cue_id, status);
 }
 
+// samples: Immutable pet PCM for the excluded output route.
+// sample_count: Exact mono sample count.
+// cue_id: Stable rejected pet identity.
+// status: Receives the unavailable result.
+// Exception: Returns the selected-route error or invalid output pointer.
+extern "C" esp_err_t LUNASHELL_audio_notify_pet(const int16_t *samples, size_t sample_count,
+    uint32_t cue_id, lunashell_audio_cue_status_t *status)
+{
+    return LUNASHELL_audio_notify_personality(samples, sample_count, 16000, cue_id, status);
+}
+
 // suspended: Requested gate for a route absent from this build.
 // Exception: Returns the selected-route error without claiming a worker exists.
 extern "C" esp_err_t LUNASHELL_audio_set_personality_suspended(bool suspended)

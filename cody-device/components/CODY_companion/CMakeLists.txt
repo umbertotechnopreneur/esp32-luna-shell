@@ -43,6 +43,7 @@ idf_component_register(
         "../../assets/branding/VibeWare/generated/vibeware_boot_data.c"
         "src/runtime/CODY_device_model.cpp"
         "src/runtime/CODY_device_effects.cpp"
+        "src/runtime/CODY_pet_audio.cpp"
         "src/runtime/CODY_local_timer.cpp"
         "src/model/CODY_battery_alerts.cpp"
         "src/scenes/CODY_scene.cpp"
@@ -115,6 +116,21 @@ _binary_cody_device_boot_rise_end:
 ")
     set_source_files_properties("${cody_boot_assembly}" PROPERTIES OBJECT_DEPENDS "${cody_boot_pcm}")
     target_sources(${COMPONENT_LIB} PRIVATE "${cody_boot_assembly}")
+
+    # Pet cues are a separate immutable catalogue with the same PCM alignment contract.
+    set(cody_pet_assembly "${CMAKE_CURRENT_BINARY_DIR}/cody_pet_audio.S")
+    set(cody_pet_assembly_content ".section .rodata.cody_pet_audio,\"a\",@progbits\n")
+    set(cody_pet_pcm_files "")
+    foreach(cody_pet_name boot-ding birth-rise birth-greeting tap jump surprise)
+        string(REPLACE "-" "_" cody_pet_symbol "${cody_pet_name}")
+        set(cody_pet_pcm "${PROJECT_DIR}/assets/cody/audio/pet/generated/${cody_pet_name}.pcm16le")
+        list(APPEND cody_pet_pcm_files "${cody_pet_pcm}")
+        string(APPEND cody_pet_assembly_content
+            ".balign 4\n.global _binary_cody_pet_${cody_pet_symbol}_start\n_binary_cody_pet_${cody_pet_symbol}_start:\n.incbin \"${cody_pet_pcm}\"\n.global _binary_cody_pet_${cody_pet_symbol}_end\n_binary_cody_pet_${cody_pet_symbol}_end:\n")
+    endforeach()
+    file(GENERATE OUTPUT "${cody_pet_assembly}" CONTENT "${cody_pet_assembly_content}")
+    set_source_files_properties("${cody_pet_assembly}" PROPERTIES OBJECT_DEPENDS "${cody_pet_pcm_files}")
+    target_sources(${COMPONENT_LIB} PRIVATE "${cody_pet_assembly}")
 endif()
 
 # Embed authored display images as immutable RGB565 bytes in flash.

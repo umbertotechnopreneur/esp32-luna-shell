@@ -45,6 +45,7 @@
 
 #include "CODY2D_controls.hpp"
 #include "CODY_title_style.hpp"
+#include "CODY_ui_components.hpp"
 #include "CODY_flat_menu_row.hpp"
 #include "CODY_settings.hpp"
 #include "CODY_page_marks.hpp"
@@ -237,11 +238,13 @@ enum class OnboardingAction : uint8_t {
     Connections, CodexStatistics, VisibleScreens, OpenPairingGuide,
     FactoryReset, ConfirmFactoryReset, LocalTimer, RestartDevice, ConfirmRestart, QuickGuide,
     CheckRelay, SynthOptions, BrowseCodex, AndroidApp, AppleApp, LocalWifi, AudioLevels, OpenAbout,
+    MoreBehaviorSettings, QuietHours, QuietToggle, QuietStart, QuietEnd, QuietHour, QuietMinute, QuietSave,
     OpenEvent = 64, ViewFailures = 65, SendReply = 66, DismissEvent = 67, RetryEvent = 68
 };
 enum class GestureAxis : uint8_t { Undecided, Horizontal, Vertical };
 enum class OptionsPage : uint8_t {
-    Menu, MenuMore, MenuMaintenance, Display, DisplayRings, Time, Behavior, BehaviorMore,
+    Menu, MenuMore, MenuMaintenance, Display, DisplayRings, Time, Behavior, BehaviorMore, BehaviorMoreSettings,
+    QuietHours, QuietEdit,
     RestartConfirm, RestartPending, ResetConfirm, ResetPending, ResetFailed,
     GuideButtons, GuideTouch, GuideOffline, SynthVoice
 };
@@ -341,9 +344,9 @@ struct ContentView {
     PreferenceControl preferences[kPreferencesPerPage]{};
     uint8_t preference_count = 0;
     uint8_t menu_page = 0;
+    uint8_t menu_page_count = 3;
     EventChoiceControl event_choices[3]{};
     uint8_t event_choice_count = 0;
-    bool event_review_panel = false;
     bool chat_waiting = false;
     QrModules qr{};
     CODY2D::Rect qr_bounds{};
@@ -470,6 +473,9 @@ esp_err_t s_restart_error = ESP_OK;
 PreferenceId s_requested_preference = PreferenceId::ShakeWake;
 uint32_t s_requested_preference_value = 0;
 LUNASHELL::CodyOptionsObservation s_presented_options{};
+LUNASHELL::ClockSnapshot s_quiet_clock{};
+uint16_t s_quiet_draft = 0;
+bool s_quiet_edit_start = true;
 // The settings worker owns this scratch; the display reads only the completed result.
 LUNASHELL::CodyOptionsObservation s_preference_before_write{};
 bool s_preference_confirmation = false;
@@ -905,10 +911,22 @@ void execute_command(const Command &command, Result &result)
             ESP_LOGE(kTag, "Preference write retired before persistence (%s)", esp_err_to_name(result.error));
             return;
         }
-        const auto read_error = LUNASHELL::DeviceSnapshotService::instance()
-            .readCodyOptionsObservation(s_preference_before_write);
-        const bool changed = read_error == ESP_OK && preference_would_change(command.preference,
-            command.preference_value, s_preference_before_write);
+        bool changed = false;
+        if (command.preference == PreferenceId::QuietEnabled || command.preference == PreferenceId::QuietStart ||
+            command.preference == PreferenceId::QuietEnd) {
+            LUNASHELL::ClockSnapshot clock{};
+            const auto read_error = LUNASHELL::DeviceSnapshotService::instance().readClockObservation(clock);
+            if (read_error == ESP_OK && clock.preferences_valid) {
+                const uint32_t previous = command.preference == PreferenceId::QuietEnabled ? clock.quiet_hours_enabled :
+                    command.preference == PreferenceId::QuietStart ? clock.quiet_start_minute : clock.quiet_end_minute;
+                changed = previous != command.preference_value;
+            }
+        } else {
+            const auto read_error = LUNASHELL::DeviceSnapshotService::instance()
+                .readCodyOptionsObservation(s_preference_before_write);
+            changed = read_error == ESP_OK && preference_would_change(command.preference,
+                command.preference_value, s_preference_before_write);
+        }
         result.error = persist_companion_preference(command.preference, command.preference_value);
         result.preference_changed = result.error == ESP_OK && changed;
         return;
@@ -1306,7 +1324,8 @@ bool options_previous_page_by_swipe()
     return s_route == Route::MakeItYours10 &&
         (s_options_page == OptionsPage::MenuMore || s_options_page == OptionsPage::MenuMaintenance ||
          s_options_page == OptionsPage::GuideTouch || s_options_page == OptionsPage::GuideOffline ||
-         s_options_page == OptionsPage::DisplayRings || s_options_page == OptionsPage::Time);
+         s_options_page == OptionsPage::DisplayRings || s_options_page == OptionsPage::Time ||
+         s_options_page == OptionsPage::BehaviorMoreSettings);
 }
 
 // action: Footer identity that requires a complete, released Options gesture.
@@ -1322,7 +1341,8 @@ bool options_next_page_available()
     return s_route == Route::MakeItYours10 && s_preference_error == ESP_OK &&
         (s_options_page == OptionsPage::Menu || (kDeviceFirstSetup && s_options_page == OptionsPage::MenuMore) ||
          s_options_page == OptionsPage::GuideButtons || s_options_page == OptionsPage::GuideTouch ||
-         (kDeviceFirstSetup && (s_options_page == OptionsPage::Display || s_options_page == OptionsPage::DisplayRings)));
+         (kDeviceFirstSetup && (s_options_page == OptionsPage::Display || s_options_page == OptionsPage::DisplayRings ||
+                               s_options_page == OptionsPage::BehaviorMore)));
 }
 
 // action: Stable action identity; the returned English label has flash lifetime.
@@ -1372,9 +1392,17 @@ esp_err_t action_label(OnboardingAction action, const char *&label)
         label = "Behavior";
         break;
     case OnboardingAction::MoreBehavior:
+    case OnboardingAction::MoreBehaviorSettings:
     case OnboardingAction::MoreDisplay:
         label = "More...";
         break;
+    case OnboardingAction::QuietHours: label = "Quiet hours"; break;
+    case OnboardingAction::QuietToggle: label = "Quiet hours"; break;
+    case OnboardingAction::QuietStart: label = "Start"; break;
+    case OnboardingAction::QuietEnd: label = "End"; break;
+    case OnboardingAction::QuietHour: label = "Hour -"; break;
+    case OnboardingAction::QuietMinute: label = "Minute -"; break;
+    case OnboardingAction::QuietSave: label = "Save"; break;
     case OnboardingAction::OpenTime:
         label = "Time";
         break;
@@ -1590,7 +1618,7 @@ esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rec
     const uint16_t caption_left = bounds.x + (setup_row ? caption_inset : (bounds.width - width) / 2U);
     esp_err_t error = CODY2D::prepare_text_line(font, {label, length},
         {static_cast<int16_t>(caption_left), static_cast<int16_t>(top)},
-        Theme::text_bright, control.caption);
+        enabled ? Theme::text_bright : Theme::text_muted, control.caption);
     if (error == ESP_OK && space != nullptr) {
         const char *text = space + 1;
         const uint16_t count = static_cast<uint16_t>(std::strlen(text));
@@ -1601,7 +1629,7 @@ esp_err_t prepare_button(OnboardingAction action, const char *label, CODY2D::Rec
         }
         error = CODY2D::prepare_text_line(font, {text, count},
             {static_cast<int16_t>(bounds.x + (bounds.width - line_width) / 2U),
-             static_cast<int16_t>(top + font.height + 2U)}, Theme::text_bright, second);
+             static_cast<int16_t>(top + font.height + 2U)}, enabled ? Theme::text_bright : Theme::text_muted, second);
     }
     return error;
 }
@@ -1936,11 +1964,11 @@ esp_err_t draw_about_project_rows(const void *state, CODY2D::Surface strip,
 #endif
 
 // control: Prepared action geometry and glyph.
-// icon_size: Standalone glyph size, or zero for a capsule.
+// icon_size: Standalone glyph size, or zero for a text-only action.
 // strip: Caller-owned content tile.
 // first_row: Logical tile y origin.
 // first_column: Logical tile x origin.
-// Exception: Returns the original native glyph or capsule drawing error.
+// Exception: Returns the original native glyph or surface error.
 esp_err_t draw_action_visual(const CODY2D::CapsuleControl &control, uint16_t icon_size,
     CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
 {
@@ -1954,9 +1982,7 @@ esp_err_t draw_action_visual(const CODY2D::CapsuleControl &control, uint16_t ico
         return CODY2D::draw_action_icon_rows(control.icon, icon_bounds, color,
             strip, first_row, first_column);
     }
-    auto capsule = control;
-    capsule.caption = {};
-    return CODY2D::draw_capsule_rows(capsule, strip, first_row, first_column);
+    return UI::draw_action_icon(control, strip, first_row, first_column);
 }
 
 // line: Prepared caption with flash-owned glyphs.
@@ -2017,7 +2043,7 @@ esp_err_t draw_preference_row(const PreferenceControl &preference, CODY2D::Surfa
 {
     const auto &control = preference.control;
     if (!kDeviceFirstSetup) {
-        return CODY2D::draw_capsule_rows(control, strip, first_row, first_column);
+        return UI::draw_text_action(control, strip, first_row, first_column);
     }
     const auto &bounds = control.bounds;
     // Menu destinations and setting values share the same flat icon-and-divider style.
@@ -2147,9 +2173,6 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
     if (error == ESP_OK && view.approval_notice != nullptr && view.approval_notice_visible) {
         error = draw_approval_notice_rows(*view.approval_notice, strip, first_row, first_column);
     }
-    if (error == ESP_OK && view.event_review_panel && view.actions_visible) {
-        error = event_presentation::draw_review_panel(strip, first_row, first_column);
-    }
     for (uint8_t index = 0; error == ESP_OK && index < view.line_count; ++index) {
         if (index == 0 && view.chat_waiting && view.visible_characters[index] != 0) {
             error = event_presentation::draw_chat_waiting_dot(view.lines[index], strip, first_row, first_column);
@@ -2207,14 +2230,14 @@ esp_err_t draw_content(const void *state, CODY2D::Surface strip,
         }
     }
     if (error == ESP_OK && view.actions_visible && view.menu_page != 0)
-        error = draw_page_marks(view.menu_page - 1U, 3, strip, first_row, first_column);
+        error = draw_page_marks(view.menu_page - 1U, view.menu_page_count, strip, first_row, first_column);
     if (error == ESP_OK && view.actions_visible && kDeviceFirstSetup && s_route == Route::MakeItYours10 &&
         (s_options_page == OptionsPage::Display || s_options_page == OptionsPage::DisplayRings || s_options_page == OptionsPage::Time))
         error = draw_page_marks(s_options_page == OptionsPage::Display ? 0 : s_options_page == OptionsPage::DisplayRings ? 1 : 2,
             3, strip, first_row, first_column);
     for (uint8_t index = 0; error == ESP_OK && view.actions_visible && index < view.event_choice_count; ++index) {
         const auto &choice = view.event_choices[index];
-        error = CODY2D::draw_capsule_rows(choice.control, strip, first_row, first_column);
+        error = UI::draw_text_action(choice.control, strip, first_row, first_column);
         if (error == ESP_OK && choice.second.valid) {
             error = CODY2D::draw_text_rows(choice.second, choice.second.text.length,
                 strip, first_row, first_column);
@@ -2699,6 +2722,9 @@ const char *options_title()
     case OptionsPage::Time: return "Time";
     case OptionsPage::Behavior: return "Behavior";
     case OptionsPage::BehaviorMore: return "More behavior";
+    case OptionsPage::BehaviorMoreSettings: return "More behavior";
+    case OptionsPage::QuietHours: return "Quiet hours";
+    case OptionsPage::QuietEdit: return s_quiet_edit_start ? "Quiet start" : "Quiet end";
     case OptionsPage::SynthVoice: return "Synth Voice";
     case OptionsPage::RestartConfirm: return s_restart_error == ESP_OK ? "Restart device" : "Restart failed";
     case OptionsPage::RestartPending: return "Restarting...";
@@ -2973,6 +2999,11 @@ PreferencePresentation project_preference(PreferenceId identity,
             observation.brightness_percent <= 100U;
         result.value = observation.brightness_percent;
         break;
+    case PreferenceId::QuietEnabled:
+    case PreferenceId::QuietStart:
+    case PreferenceId::QuietEnd:
+        result.available = false; // Quiet hours use the time owner's independent snapshot.
+        break;
     }
     if (!result.available) {
         result.active = false;
@@ -3036,6 +3067,8 @@ MenuAppearance menu_appearance(OnboardingAction action)
     case OnboardingAction::OpenAbout: return {Icon::PlanAccount, Theme::primary_muted, "Device information"};
     case OnboardingAction::MoreDisplay: return {Icon::Orientation, Theme::accent_cyan, "More display settings"};
     case OnboardingAction::MoreBehavior: return {Icon::Motion, Theme::primary_muted, "More behavior settings"};
+    case OnboardingAction::MoreBehaviorSettings: return {Icon::Motion, Theme::primary_muted, "More behavior settings"};
+    case OnboardingAction::QuietHours: return {Icon::Clock, Theme::accent_warm, "Quiet schedule"};
     case OnboardingAction::SynthOptions: return {Icon::Sound, Theme::accent_warm, "Voice settings"};
     case OnboardingAction::ScheduleBirthIntro: return {Icon::Retry, Theme::secondary_default, "Next restart"};
     default: return {Icon::None, kPairingCaption, ""};
@@ -3121,6 +3154,64 @@ esp_err_t append_options_action(OnboardingAction action, bool enabled)
     return error;
 }
 
+// minute: Validated local minute in the day.
+// value: Receives a terminated HH:MM label.
+void format_quiet_time(uint16_t minute, char (&value)[6])
+{
+    const auto hour = minute / 60U;
+    const auto within_hour = minute % 60U;
+    value[0] = static_cast<char>('0' + hour / 10U);
+    value[1] = static_cast<char>('0' + hour % 10U);
+    value[2] = ':';
+    value[3] = static_cast<char>('0' + within_hour / 10U);
+    value[4] = static_cast<char>('0' + within_hour % 10U);
+    value[5] = '\0';
+}
+
+// action: Stable local quiet-hours control.
+// value: Optional printable value copied into display-owned storage.
+// enabled: Whether the row admits a released touch.
+// Exception: Returns the original control or text preparation error.
+esp_err_t append_quiet_row(OnboardingAction action, const char *value, bool enabled)
+{
+    if (s_view.preference_count >= kPreferencesPerPage) return ESP_ERR_INVALID_SIZE;
+    auto &row = s_view.preferences[s_view.preference_count];
+    row = {};
+    row.action = action;
+    const auto top = static_cast<uint16_t>(kPreferenceTop + s_view.preference_count * kPreferenceStep);
+    const char *label = nullptr;
+    auto error = action_label(action, label);
+    CODY2D::TextLine unused{};
+    if (error == ESP_OK) error = prepare_button(action, label,
+        {kPreferenceLeft, top, kPreferenceWidth, kPreferenceHeight}, enabled, false, row.control, unused);
+    if (error == ESP_OK) {
+        row.control.icon = CODY2D::ActionIcon::Clock;
+        row.control.icon_color = Theme::accent_warm;
+        row.control.icon_center = {static_cast<int16_t>(kPreferenceLeft + 18U), static_cast<int16_t>(top + kPreferenceHeight / 2U)};
+        error = CODY2D::prepare_text_line(SceneData::body_font,
+            {label, static_cast<uint16_t>(std::strlen(label))},
+            {static_cast<int16_t>(kPreferenceLeft + 48U), static_cast<int16_t>(top + (value ? 2U : 14U))},
+            kPairingTitle, row.control.caption);
+    }
+    if (error == ESP_OK && value != nullptr) {
+        std::snprintf(row.value_text, sizeof(row.value_text), "%s", value);
+        error = CODY2D::prepare_text_line(SceneData::body_font,
+            {row.value_text, static_cast<uint16_t>(std::strlen(row.value_text))},
+            {static_cast<int16_t>(kPreferenceLeft + 48U), static_cast<int16_t>(top + 28U)},
+            Theme::secondary_default, row.value);
+    }
+    if (error == ESP_OK && (action == OnboardingAction::QuietHour || action == OnboardingAction::QuietMinute)) {
+        if (s_view.line_count >= kContentLineCapacity) return ESP_ERR_INVALID_SIZE;
+        const auto index = s_view.line_count;
+        error = CODY2D::prepare_text_line(SceneData::body_font, {"+", 1},
+            {static_cast<int16_t>(kPreferenceLeft + kPreferenceWidth - 48U), static_cast<int16_t>(top + 2U)},
+            kPairingTitle, s_view.lines[index]);
+        if (error == ESP_OK) { s_view.instant_lines[index] = true; ++s_view.line_count; }
+    }
+    if (error == ESP_OK) ++s_view.preference_count;
+    return error;
+}
+
 // scene: Screen 10 receiving actual canonical values or a visible write failure.
 // captured: Optional observation already read by this update; avoids a second snapshot lock/copy.
 // Exception: Returns the original snapshot or text preparation failure.
@@ -3130,6 +3221,7 @@ esp_err_t prepare_options_content(SceneFrame &scene,
     s_view.line_count = 0;
     s_view.preference_count = 0;
     s_view.menu_page = 0;
+    s_view.menu_page_count = 3;
     s_view.header_icon = CODY2D::ActionIcon::None;
     s_view.header_icon_bounds = {};
     s_view.header_icon_color = 0;
@@ -3209,6 +3301,53 @@ esp_err_t prepare_options_content(SceneFrame &scene,
             return ESP_OK;
         }
         return prepare_action(OnboardingAction::Done, true);
+    }
+    if (s_options_page == OptionsPage::BehaviorMoreSettings) {
+        s_view.menu_page = 2;
+        s_view.menu_page_count = 2;
+        error = append_options_action(OnboardingAction::QuietHours, !s_command_pending);
+        if (error == ESP_OK) error = append_options_action(OnboardingAction::SynthOptions, !s_command_pending);
+        return error == ESP_OK ? prepare_action(OnboardingAction::None, false) : error;
+    }
+    if (s_options_page == OptionsPage::QuietHours || s_options_page == OptionsPage::QuietEdit) {
+        LUNASHELL::ClockSnapshot clock{};
+        error = LUNASHELL::DeviceSnapshotService::instance().readClockObservation(clock);
+        const bool available = error == ESP_OK && clock.preferences_valid &&
+            clock.quiet_start_minute < 1440U && clock.quiet_end_minute < 1440U;
+        if (available) s_quiet_clock = clock;
+        char value[6]{};
+        if (s_options_page == OptionsPage::QuietHours) {
+            const bool equal_disabled = available && !clock.quiet_hours_enabled &&
+                clock.quiet_start_minute == clock.quiet_end_minute;
+            error = append_quiet_row(OnboardingAction::QuietToggle,
+                available ? (clock.quiet_hours_enabled ? "On" : "Off") : "N/A",
+                available && !equal_disabled && !s_command_pending);
+            if (error == ESP_OK) {
+                if (available) format_quiet_time(clock.quiet_start_minute, value);
+                error = append_quiet_row(OnboardingAction::QuietStart, available ? value : "N/A", available && !s_command_pending);
+            }
+            if (error == ESP_OK) {
+                if (available) format_quiet_time(clock.quiet_end_minute, value);
+                error = append_quiet_row(OnboardingAction::QuietEnd, available ? value : "N/A", available && !s_command_pending);
+            }
+            if (error == ESP_OK && equal_disabled) {
+                error = prepare_caption("Times must differ", 320, s_view.lines[s_view.line_count]);
+                if (error == ESP_OK) { s_view.instant_lines[s_view.line_count] = true; ++s_view.line_count; }
+            }
+        } else {
+            format_quiet_time(s_quiet_draft, value);
+            error = append_quiet_row(OnboardingAction::QuietHour, value, available && !s_command_pending);
+            if (error == ESP_OK) error = append_quiet_row(OnboardingAction::QuietMinute, value, available && !s_command_pending);
+            const bool equal = available && clock.quiet_hours_enabled && s_quiet_draft ==
+                (s_quiet_edit_start ? clock.quiet_end_minute : clock.quiet_start_minute);
+            if (error == ESP_OK) error = append_quiet_row(OnboardingAction::QuietSave, nullptr,
+                available && !equal && !s_command_pending);
+            if (error == ESP_OK && equal) {
+                error = prepare_caption("Times must differ", 320, s_view.lines[s_view.line_count]);
+                if (error == ESP_OK) { s_view.instant_lines[s_view.line_count] = true; ++s_view.line_count; }
+            }
+        }
+        return error == ESP_OK ? prepare_action(OnboardingAction::None, false) : error;
     }
     LUNASHELL::CodyOptionsObservation loaded;
     if (captured == nullptr) {
@@ -3410,6 +3549,8 @@ esp_err_t prepare_options_content(SceneFrame &scene,
         return error == ESP_OK ? prepare_action(OnboardingAction::None, false) : error;
     }
     if (s_options_page == OptionsPage::BehaviorMore) {
+        s_view.menu_page = 1;
+        s_view.menu_page_count = 2;
         if (kDeviceFirstSetup) {
             auto &target = s_view.preferences[s_view.preference_count];
             target = {};
@@ -3424,8 +3565,8 @@ esp_err_t prepare_options_content(SceneFrame &scene,
             if (error != ESP_OK) return error;
             ++s_view.preference_count;
         }
-        if (!kDeviceFirstSetup) return prepare_action(OnboardingAction::SynthOptions, !s_command_pending);
-        error = append_options_action(OnboardingAction::SynthOptions, !s_command_pending);
+        if (!kDeviceFirstSetup) return prepare_action(OnboardingAction::MoreBehaviorSettings, !s_command_pending);
+        error = append_options_action(OnboardingAction::MoreBehaviorSettings, !s_command_pending);
         return error == ESP_OK ? prepare_action(OnboardingAction::None, false) : error;
     }
     if (s_options_page == OptionsPage::SynthVoice) {
@@ -3584,7 +3725,6 @@ esp_err_t prepare_event_content(SceneFrame &scene)
         ESP_LOGE(kTag, "Shared event presentation rejected (%s)", esp_err_to_name(error));
         return error;
     }
-    s_view.event_review_panel = s_event_plan.route == Route::DecisionConfirm27;
     for (uint8_t index = 0; error == ESP_OK && index < s_event_plan.line_count; ++index) {
         error = append_event_line(s_event_plan.lines[index]);
     }
@@ -5841,7 +5981,7 @@ esp_err_t draw_local_wifi_rows(const void *state, CODY2D::Surface strip,
             error = draw_wifi_hourglass(strip, first_row, first_column, view.hourglass_frame);
         }
         const auto draw = [&](const CODY2D::CapsuleControl &control) {
-            return control.caption.valid ? CODY2D::draw_capsule_rows(control, strip, first_row, first_column) : ESP_OK;
+            return control.caption.valid ? UI::draw_text_action(control, strip, first_row, first_column) : ESP_OK;
         };
         for (size_t i = 0; i < 4 && error == ESP_OK; ++i) {
             const auto &row = view.rows[i];
@@ -7000,9 +7140,13 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
             s_retry_birth_intro = result.command.work == Work::ScheduleBirthIntro && result.error != ESP_OK;
             if (result.command.work == Work::ScheduleBirthIntro && result.error == ESP_OK)
                 s_birth_intro_scheduled = true;
-            error = prepare_options_content(scene);
-            if (error == ESP_OK) {
-                error = attach_content(scene);
+            if (result.error == ESP_OK && result.command.work == Work::SavePreference &&
+                (result.command.preference == PreferenceId::QuietStart || result.command.preference == PreferenceId::QuietEnd) &&
+                s_options_page == OptionsPage::QuietEdit) {
+                error = show_options_page(scene, OptionsPage::QuietHours);
+            } else {
+                error = prepare_options_content(scene);
+                if (error == ESP_OK) error = attach_content(scene);
             }
         } else if (result.error != ESP_OK) {
             if (result.command.work == Work::Cancel) s_home_wifi_exit_pending = false;
@@ -7640,9 +7784,12 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
             auto parent = OptionsPage::MenuMore;
             if (s_options_page == OptionsPage::MenuMore) parent = OptionsPage::Menu;
             if (s_options_page == OptionsPage::BehaviorMore) parent = OptionsPage::Behavior;
+            if (s_options_page == OptionsPage::BehaviorMoreSettings) parent = OptionsPage::BehaviorMore;
+            if (s_options_page == OptionsPage::QuietHours) parent = OptionsPage::BehaviorMoreSettings;
+            if (s_options_page == OptionsPage::QuietEdit) parent = OptionsPage::QuietHours;
             if (s_options_page == OptionsPage::DisplayRings) parent = OptionsPage::Display;
             if (s_options_page == OptionsPage::Time) parent = OptionsPage::DisplayRings;
-            if (s_options_page == OptionsPage::SynthVoice) parent = OptionsPage::BehaviorMore;
+            if (s_options_page == OptionsPage::SynthVoice) parent = OptionsPage::BehaviorMoreSettings;
             if (on_maintenance_page()) parent = OptionsPage::MenuMaintenance;
             if (s_options_page == OptionsPage::GuideButtons) parent = OptionsPage::MenuMaintenance;
             if (s_options_page == OptionsPage::GuideTouch) parent = OptionsPage::GuideButtons;
@@ -7743,6 +7890,10 @@ esp_err_t activate_onboarding_navigation(SceneFrame &scene, NavigationDirection 
         }
         if (s_options_page == OptionsPage::Behavior && s_view.action_id == OnboardingAction::MoreBehavior) {
             return show_options_page(scene, OptionsPage::BehaviorMore);
+        }
+        if (s_options_page == OptionsPage::BehaviorMore &&
+            (page_forward || s_view.action_id == OnboardingAction::MoreBehaviorSettings)) {
+            return show_options_page(scene, OptionsPage::BehaviorMoreSettings);
         }
         if (s_options_page == OptionsPage::BehaviorMore && s_view.action_id == OnboardingAction::SynthOptions) {
             return show_options_page(scene, OptionsPage::SynthVoice);
@@ -8281,6 +8432,39 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
                     return show_options_page(scene, OptionsPage::DisplayRings);
                 case OnboardingAction::MoreBehavior:
                     return show_options_page(scene, OptionsPage::BehaviorMore);
+                case OnboardingAction::MoreBehaviorSettings:
+                    return show_options_page(scene, OptionsPage::BehaviorMoreSettings);
+                case OnboardingAction::QuietHours:
+                    return show_options_page(scene, OptionsPage::QuietHours);
+                case OnboardingAction::QuietStart:
+                case OnboardingAction::QuietEnd:
+                    s_quiet_edit_start = row.action == OnboardingAction::QuietStart;
+                    s_quiet_draft = s_quiet_edit_start ? s_quiet_clock.quiet_start_minute : s_quiet_clock.quiet_end_minute;
+                    return show_options_page(scene, OptionsPage::QuietEdit);
+                case OnboardingAction::QuietHour:
+                case OnboardingAction::QuietMinute: {
+                    const int direction = s_swipe_start.x < kPreferenceLeft + kPreferenceWidth / 2 ? -1 : 1;
+                    if (row.action == OnboardingAction::QuietHour) {
+                        s_quiet_draft = static_cast<uint16_t>((s_quiet_draft + direction * 60 + 1440) % 1440);
+                    } else {
+                        const int hour = s_quiet_draft / 60;
+                        const int minute = (s_quiet_draft % 60 + direction + 60) % 60;
+                        s_quiet_draft = static_cast<uint16_t>(hour * 60 + minute);
+                    }
+                    auto error = prepare_options_content(scene);
+                    return error == ESP_OK ? attach_content(scene) : error;
+                }
+                case OnboardingAction::QuietToggle:
+                case OnboardingAction::QuietSave: {
+                    const auto preference = row.action == OnboardingAction::QuietToggle ? PreferenceId::QuietEnabled :
+                        s_quiet_edit_start ? PreferenceId::QuietStart : PreferenceId::QuietEnd;
+                    const uint32_t value = row.action == OnboardingAction::QuietToggle ?
+                        static_cast<uint32_t>(!s_quiet_clock.quiet_hours_enabled) : s_quiet_draft;
+                    auto error = enqueue_preference(preference, value);
+                    if (error != ESP_OK) s_preference_error = error;
+                    error = prepare_options_content(scene);
+                    return error == ESP_OK ? attach_content(scene) : error;
+                }
                 case OnboardingAction::SynthOptions:
                     return show_options_page(scene, OptionsPage::SynthVoice);
                 case OnboardingAction::OpenAbout:

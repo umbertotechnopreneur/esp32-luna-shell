@@ -6,7 +6,9 @@
 #include "CODY_battery_alerts.hpp"
 #include "CODY_codex_audio.hpp"
 #include "CODY_muse_style.hpp"
+#include "CODY_pet_audio.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_platform.h"
 
 namespace CODY {
 
@@ -43,9 +45,14 @@ struct DeviceEffectsModel {
     esp_err_t boot_audio_error = ESP_ERR_INVALID_STATE;
     esp_err_t tap_audio_error = ESP_OK;
     esp_err_t preference_audio_error = ESP_OK;
+    esp_err_t bookmark_audio_error = ESP_OK;
+    esp_err_t questions_audio_error = ESP_OK;
+    esp_err_t activity_audio_error = ESP_OK;
     esp_err_t symbol_audio_error = ESP_OK;
     esp_err_t wake_audio_error = ESP_OK;
     esp_err_t jump_audio_error = ESP_OK;
+    esp_err_t pet_audio_error = ESP_OK;
+    lunashell_audio_cue_status_t pet_audio_status{};
     esp_err_t preparation_error = ESP_ERR_INVALID_STATE;
     esp_err_t event_error = ESP_ERR_INVALID_STATE;
     esp_err_t pairing_error = ESP_ERR_INVALID_STATE;
@@ -81,6 +88,12 @@ esp_err_t prepare_device_effects(DeviceEffectsModel &model);
 // Exception: Retains original asset or shared audio-owner errors as optional feedback.
 esp_err_t play_device_boot_cue(DeviceEffectsModel &model);
 
+// model: Retains the pet cue's actual shared-worker admission outcome.
+// cue: Explicit visual or boot event, never an inferred Codex action.
+// voice: Current voice observation, or null when voice input is excluded.
+// Exception: Returns the original asset, preparation or audio-owner error.
+esp_err_t play_pet_cue(DeviceEffectsModel &model, PetCue cue, const LUNASHELL::VoiceSnapshot *voice);
+
 // model: Retains optional admission errors from the shared audio owner.
 // voice: Latest canonical voice observation, or null when voice is excluded.
 // No replay is queued when the contact occurs during capture or playback.
@@ -90,6 +103,18 @@ void play_device_tap_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapsh
 // voice: Latest canonical voice observation, or null when voice is excluded.
 // No replay is queued when capture or playback already owns audio.
 void play_device_preference_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice);
+
+// model: Retains the confirmed bookmark cue's actual admission error.
+// voice: Current voice observation, or null when voice is excluded.
+void play_device_bookmark_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice);
+
+// model: Retains the optional question-navigation cue's admission error.
+// voice: Current voice observation, or null when voice is excluded.
+void play_device_questions_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice);
+
+// model: Retains the optional current-activity navigation cue's admission error.
+// voice: Current voice observation, or null when voice is excluded.
+void play_device_activity_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice);
 
 // model: Retains the optional keyboard cue's admission error.
 // voice: Current voice observation, or null when voice is excluded.
@@ -105,9 +130,16 @@ void play_device_wake_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnaps
 void play_device_jump_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice);
 
 // model: Retains the current optional icon sound's real admission error.
-// symbol: Newly retired manga overlay; None never produces a cue.
+// symbol: Retired manga overlay; None never produces a cue.
 // voice: Canonical voice observation, or null when the feature is excluded.
-void play_device_symbol_cue(DeviceEffectsModel &model, MuseSymbol symbol, const LUNASHELL::VoiceSnapshot *voice);
+// Returns the actual shared-worker disposition; a busy caller may retry while visible.
+lunashell_audio_cue_status_t play_device_symbol_cue(DeviceEffectsModel &model, MuseSymbol symbol,
+    const LUNASHELL::VoiceSnapshot *voice);
+
+// model: Retains the cue's original admission result.
+// voice: Current voice observation, or null when voice input is excluded.
+// Returns the actual shared-worker disposition; a busy caller may retry while visible.
+lunashell_audio_cue_status_t play_device_working_cue(DeviceEffectsModel &model, const LUNASHELL::VoiceSnapshot *voice);
 
 // model: Sole owner of consumed event identities and observed playback disposition.
 // status: Already-aged connection snapshot shared with the device model.

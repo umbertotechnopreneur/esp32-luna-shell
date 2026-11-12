@@ -18,6 +18,7 @@
 #include "CODY_widget_state.hpp"
 #include "LUNASHELL_settings.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
+#include "LUNASHELL_clock.hpp"
 #include "LUNASHELL_codex_name.hpp"
 #include "LUNASHELL_platform.h"
 #include "sdkconfig.h"
@@ -533,10 +534,31 @@ esp_err_t persist_companion_usage_mode(LUNASHELL::CodyUsageMode mode)
 }
 
 // preference: Stable identity of the choice pressed on screen 10.
-// value: Boolean/mode 0/1, manual angle 0/180, or brightness percent 10 through 100.
+// value: Boolean/mode 0/1, manual angle 0/180, brightness percent or local quiet minute 0..1439.
 // Exception: Returns the original validation, persistence, policy or publication error.
 esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
 {
+    if (preference == PreferenceId::QuietEnabled || preference == PreferenceId::QuietStart ||
+        preference == PreferenceId::QuietEnd) {
+        const bool enabled_change = preference == PreferenceId::QuietEnabled;
+        if (value > (enabled_change ? 1U : 1439U)) {
+            ESP_LOGE(kTag, "Quiet preference %u rejected value=%lu (%s)",
+                static_cast<unsigned>(preference), static_cast<unsigned long>(value), esp_err_to_name(ESP_ERR_INVALID_ARG));
+            return ESP_ERR_INVALID_ARG;
+        }
+        LUNASHELL::ClockPreferences updated{};
+        bool initialized = false;
+        const int enabled = enabled_change ? static_cast<int>(value) : -1;
+        const int start = preference == PreferenceId::QuietStart ? static_cast<int>(value) : -1;
+        const int end = preference == PreferenceId::QuietEnd ? static_cast<int>(value) : -1;
+        const auto error = LUNASHELL::apply_remote_clock_preferences(LUNASHELL::ClockRemoteOperation::Configure,
+            LUNASHELL::kClockOffsetUnchanged, enabled, start, end, updated, initialized);
+        if (error != ESP_OK) {
+            ESP_LOGE(kTag, "Quiet preference %u save failed (%s)",
+                static_cast<unsigned>(preference), esp_err_to_name(error));
+        }
+        return error;
+    }
     if (preference == PreferenceId::AutoTime) {
         if (value > 1U) {
             ESP_LOGE(kTag, "Auto time rejected value=%lu (%s)", static_cast<unsigned long>(value), esp_err_to_name(ESP_ERR_INVALID_ARG));

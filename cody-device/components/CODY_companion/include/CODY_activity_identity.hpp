@@ -428,25 +428,17 @@ inline esp_err_t draw_activity_identity(const ActivityIdentityState &state, CODY
     }
     if (error == ESP_OK && state.selected == ActivityIdentityKind::Model && state.opacity != 0 &&
         state.project_line.valid && state.cost_line.valid) {
-        CODY2D::CapsuleControl chip{};
         // Keep the complete price phrase beside the independent timer within the existing damage row.
-        chip.bounds = {static_cast<uint16_t>(state.timer_visible ? 73 : (466 - kActivityCostChipWidth) / 2),
+        const CODY2D::Rect bounds{static_cast<uint16_t>(state.timer_visible ? 73 : (466 - kActivityCostChipWidth) / 2),
             330, kActivityCostChipWidth, 28};
-        const uint16_t color = CODY2D::blend_rgb565(cost_band_color(state.cost_band), 0, state.opacity);
-        chip.top_color = CODY2D::blend_rgb565(color, 0, 64);
-        chip.bottom_color = CODY2D::blend_rgb565(color, 0, 32);
-        chip.border_color = color;
-        error = CODY2D::draw_capsule_rows(chip, strip, first_row, first_column);
-        if (error == ESP_OK) {
-            // One small borrowed line relocates with the timer; its counted text stays in the owner.
-            static_assert(sizeof(CODY2D::TextLine) <= 64, "Cost placement must not copy caption storage");
-            CODY2D::TextLine caption = state.cost_line;
-            caption.color = CODY2D::blend_rgb565(caption.color, 0, state.opacity);
-            const uint16_t width = (caption.text.length - 1U) * caption.font->advance + caption.font->width;
-            caption.origin.x = static_cast<int16_t>(chip.bounds.x + (chip.bounds.width - width) / 2);
-            caption.bounds.x = caption.origin.x;
-            error = CODY2D::draw_text_rows(caption, caption.text.length, strip, first_row, first_column);
-        }
+        // One small borrowed line relocates with the timer; its counted text stays in the owner.
+        static_assert(sizeof(CODY2D::TextLine) <= 64, "Cost placement must not copy caption storage");
+        CODY2D::TextLine caption = state.cost_line;
+        caption.color = CODY2D::blend_rgb565(caption.color, 0, state.opacity);
+        const uint16_t width = (caption.text.length - 1U) * caption.font->advance + caption.font->width;
+        caption.origin.x = static_cast<int16_t>(bounds.x + (bounds.width - width) / 2);
+        caption.bounds.x = caption.origin.x;
+        error = CODY2D::draw_text_rows(caption, caption.text.length, strip, first_row, first_column);
     }
     return error;
 }

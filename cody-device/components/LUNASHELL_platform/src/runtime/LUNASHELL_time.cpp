@@ -263,13 +263,14 @@ esp_err_t publish_clock_observation()
         strlcpy(clock.source, s_reported_system_time_source, sizeof(clock.source));
         if (clock.routines_enabled) {
             clock.period = routine_period(clock.local_minute);
-            const uint16_t start = clock.quiet_start_minute;
-            const uint16_t end = clock.quiet_end_minute;
-            const bool in_window = start < end
-                ? clock.local_minute >= start && clock.local_minute < end
-                : clock.local_minute >= start || clock.local_minute < end;
-            clock.quiet = clock.quiet_hours_enabled && in_window;
         }
+        // Quiet hours are an independent user preference, not a routine toggle.
+        const uint16_t start = clock.quiet_start_minute;
+        const uint16_t end = clock.quiet_end_minute;
+        const bool in_window = start < end
+            ? clock.local_minute >= start && clock.local_minute < end
+            : clock.local_minute >= start || clock.local_minute < end;
+        clock.quiet = clock.quiet_hours_enabled && in_window;
         snapshot_detail::mark_sample_success(clock, attempted_at_us, esp_timer_get_time());
     } else {
         // No plausible hour, period or cue permission escapes an unavailable clock.

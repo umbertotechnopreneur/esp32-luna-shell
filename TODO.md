@@ -2,6 +2,16 @@
 
 This file tracks open implementation and acceptance. See [planned-todo.md](planned-todo.md) for deferred work and development history. Apply [AGENTS.md](AGENTS.md) to each operation. Activating work does not authorize builds, tests, simulator runs, asset generation or device operations.
 
+## Codex actions from Cody
+
+- Continue the existing Codex interaction flows described in the
+  [batched device action plan](docs/cody/codex-actions-plan.md). Voice and
+  usage-screen changes are deferred by the owner.
+  Verify public Desktop capabilities before enabling chat input, work control
+  or desktop focus; keep unsupported and unconfirmed outcomes explicit.
+- Select and audition the owner's SFX. Complete static review and separately
+  authorized platform and physical acceptance.
+
 ## CODY-NEXT - Multi-chat domain and Muse
 
 Work is tracked on `feat/cody-vNext`. Keep the status below aligned with the [phase plan](planned-todo.md#cody-next---domain-model-and-muse-implementation-plan), its task markers and progress summary. Retain reusable screen sources and IDs. The vNext contracts may change without compatibility layers or automatic migration.

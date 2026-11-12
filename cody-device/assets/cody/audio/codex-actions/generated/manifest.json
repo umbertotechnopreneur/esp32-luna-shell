@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "selection_sha256": "c6aaa3aa195ecf53d40581a2fefac7c052de2f965728d90ab06ff3159e504e50",
+  "selection_sha256": "43cf8f77b74916be3a1f5a78a09bbde89b71a8c8c9adb14f262775c3cf4d5e47",
   "generator": "scripts/device.ps1 generate -Generator cody-codex-sfx",
   "generator_sha256": "acef3ac06bf610f5347bd346b192b7e13a612c7df61cfd282db08bd58e0b2f27",
-  "contract_sha256": "3c592b64434f934497ca0d0b4a370006a0b869891f9762deb51803a10a6da117",
+  "contract_sha256": "f7e29d08fede7d59da256fa1c40eb7386a977c290f0d807c027ba1a0ae889011",
   "licensing": {
     "status": "owner_confirmed_purchased_commercial",
     "scope": "The owner confirmed purchased perpetual commercial-use SFX licences on 2026-10-04 and requested this selection on 2026-10-10. Licence documents were not present in the inspected archive; the PDF files are package indexes.",
@@ -12,7 +12,7 @@
   "channels": 1,
   "encoding": "PCM16LE",
   "listening_review": "Authored first pass; perceived sound and device playback have not been evaluated.",
-  "action_pcm_bytes": 197120,
+  "action_pcm_bytes": 220800,
   "cues": [
     {
       "id": 1128464384,
@@ -458,16 +458,16 @@
       "id": 1128464389,
       "name": "ResponseReady",
       "slug": "response-ready",
-      "intent": "One clear, gentle chime for a completed assistant response; does not claim task success.",
+      "intent": "A soft chime with a playful electronic sparkle for a completed assistant response; not task success.",
       "sample_rate_hz": 16000,
       "sample_count": 5600,
       "pcm_bytes": 11200,
       "duration_ms": 350.0,
       "target_peak_dbfs": -14.0,
-      "linear_gain_after_mix": 6537.876027458528,
+      "linear_gain_after_mix": 6445.413200511646,
       "peak_dbfs": -14.000100374307355,
-      "rms_dbfs": -20.475433679643956,
-      "pcm_sha256": "cbf2586ddb27b658476343567aba2d07111038176c0c8b05006d862bb67a1333",
+      "rms_dbfs": -20.57833230975806,
+      "pcm_sha256": "d16553af80886c2b71afe0fd07ca0fd0339ba38f3b0e6923a4eb4d9346ac7a24",
       "layers": [
         {
           "source": "chime",
@@ -503,9 +503,44 @@
           "actual_pitch_ratio": 1.06,
           "fade_curve": "sine-squared",
           "normalization_gain_before_mix": 4.5167083346962436
+        },
+        {
+          "source": "synthetic_chirp",
+          "window_start_ms": 0,
+          "window_end_ms": 235,
+          "offset_ms": 80,
+          "duration_ms": 120,
+          "pitch_ratio": 1.0,
+          "gain": 0.2,
+          "highpass_hz": 180,
+          "lowpass_hz": 2800,
+          "fade_in_ms": 8,
+          "fade_out_ms": 70,
+          "source_path": "SONY Loops/Electronics/Synthetic Chirp.wav",
+          "source_sha256": "e60824e2b54b52a7bafd5eb3b4a6003ac514424350ac8421674d018a5a7b3591",
+          "source_format": {
+            "duration_seconds": 0.243311,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.235000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=2800:p=2",
+            "aresample=16000",
+            "asetrate=16000",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 560,
+          "actual_pitch_ratio": 1.0,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.028522252274404
         }
       ],
-      "wav_sha256": "5edcc7450e8359110d5ed7136e06fb98884107e758faaf1ca4d8e976cc5f66f0"
+      "wav_sha256": "4eafe67e00c57f79bb47f6722bc85b9fed88751b7cb293082c281e28ee9b1bbe"
     },
     {
       "id": 1128464390,
@@ -793,16 +828,16 @@
       "id": 1128464394,
       "name": "ConnectionRestored",
       "slug": "connection-restored",
-      "intent": "Two joined rising chimes when authenticated PC liveness returns.",
+      "intent": "A gentle two-part electronic lift when authenticated connection returns.",
       "sample_rate_hz": 16000,
       "sample_count": 5440,
       "pcm_bytes": 10880,
       "duration_ms": 340.0,
       "target_peak_dbfs": -16.0,
-      "linear_gain_after_mix": 3745.1747426562056,
+      "linear_gain_after_mix": 3327.419491949791,
       "peak_dbfs": -16.000632247293233,
-      "rms_dbfs": -25.70899951136419,
-      "pcm_sha256": "367722db61082c4e7963c3ddb0c20289cf885267112d12d86f9a0feb24fb34b2",
+      "rms_dbfs": -26.711391395454854,
+      "pcm_sha256": "19fffe4515c825eb66a7af382787cb54766d3d2ebc96595c47182df11f5d0ce4",
       "layers": [
         {
           "source": "chime",
@@ -873,9 +908,44 @@
           "actual_pitch_ratio": 0.95,
           "fade_curve": "sine-squared",
           "normalization_gain_before_mix": 4.526435138951298
+        },
+        {
+          "source": "arcade_chirp",
+          "window_start_ms": 0,
+          "window_end_ms": 400,
+          "offset_ms": 120,
+          "duration_ms": 140,
+          "pitch_ratio": 1.0,
+          "gain": 0.22,
+          "highpass_hz": 180,
+          "lowpass_hz": 2800,
+          "fade_in_ms": 8,
+          "fade_out_ms": 80,
+          "source_path": "1001 Sound Effects/Video Game Sounds/Arcade Chirp 03.wav",
+          "source_sha256": "519edb3b35f367c8b7374af079cdf98ca398e73980304fb1afd779d327011e6b",
+          "source_format": {
+            "duration_seconds": 0.408844,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.400000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=2800:p=2",
+            "aresample=16000",
+            "asetrate=16000",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 3760,
+          "actual_pitch_ratio": 1.0,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 1.1732607683769558
         }
       ],
-      "wav_sha256": "6ce487e2d7ed924d60923f568ac0d89db8be37fd2e39bcc2c4742da9f01f4997"
+      "wav_sha256": "d916056cbb06da1f7bb145494dd886d35e81a4b460a22126c946c78dbfa78c78"
     },
     {
       "id": 1128464395,
@@ -934,7 +1004,7 @@
       "id": 1128464396,
       "name": "AnswerReceived",
       "slug": "answer-received",
-      "intent": "A short digital receipt only after the agent confirms delivery of the reply.",
+      "intent": "A distinct compact arcade chirp after the agent confirms delivery of the reply.",
       "sample_rate_hz": 16000,
       "sample_count": 4000,
       "pcm_bytes": 8000,
@@ -942,61 +1012,61 @@
       "target_peak_dbfs": -16.0,
       "linear_gain_after_mix": 5193.219523737331,
       "peak_dbfs": -16.000632247293233,
-      "rms_dbfs": -27.079099314459395,
-      "pcm_sha256": "ebd398df601772fe0781da942f9ab65613bc40d646a746639c9862cfd3debdc5",
+      "rms_dbfs": -29.306907200905563,
+      "pcm_sha256": "3d726c203b9d64e76f11446f28088b36aca11dd99c363d78b9dd1d9d5c3ea7d4",
       "layers": [
         {
-          "source": "digital",
+          "source": "arcade_chirp",
           "window_start_ms": 0,
-          "window_end_ms": 600,
+          "window_end_ms": 400,
           "offset_ms": 0,
-          "duration_ms": 250,
+          "duration_ms": 220,
           "pitch_ratio": 1.0,
           "gain": 1.0,
-          "highpass_hz": 200,
-          "lowpass_hz": 3100,
-          "fade_in_ms": 5,
-          "fade_out_ms": 70,
-          "source_path": "1001 Sound Effects/Sci Fi/Sci Fi Beep 05.wav",
-          "source_sha256": "af783ff70b432962971dc591068c87b77965b1e53a05cfdbdddd8cb2b445f6fe",
+          "highpass_hz": 180,
+          "lowpass_hz": 3000,
+          "fade_in_ms": 8,
+          "fade_out_ms": 120,
+          "source_path": "1001 Sound Effects/Video Game Sounds/Arcade Chirp 03.wav",
+          "source_sha256": "519edb3b35f367c8b7374af079cdf98ca398e73980304fb1afd779d327011e6b",
           "source_format": {
-            "duration_seconds": 0.609569,
+            "duration_seconds": 0.408844,
             "sample_rate_hz": 44100,
             "channels": 1,
             "codec": "pcm_s16le"
           },
           "ffmpeg_filters": [
-            "atrim=start=0.000000:end=0.600000",
+            "atrim=start=0.000000:end=0.400000",
             "asetpts=PTS-STARTPTS",
             "pan=mono|c0=c0",
-            "highpass=f=200:p=2",
-            "lowpass=f=3100:p=2",
+            "highpass=f=180:p=2",
+            "lowpass=f=3000:p=2",
             "aresample=16000",
             "asetrate=16000",
             "aresample=16000"
           ],
-          "active_excerpt_offset_frames_after_pitch": 1040,
+          "active_excerpt_offset_frames_after_pitch": 2640,
           "actual_pitch_ratio": 1.0,
           "fade_curve": "sine-squared",
-          "normalization_gain_before_mix": 1.6386457968695305
+          "normalization_gain_before_mix": 1.120656634746922
         }
       ],
-      "wav_sha256": "529d8eec0c44994cec60ddbda4100bd8dd0abaee4e5582d1686b19f94990acb0"
+      "wav_sha256": "db5ba797395015b813dafb3d74b7d63e6d97d954df8d31eadda064e2d9f962c3"
     },
     {
       "id": 1128464397,
       "name": "ChecksPassed",
       "slug": "checks-passed",
-      "intent": "A bright single bell for explicitly observed passed checks, never inferred from response completion.",
+      "intent": "A bright bell with an electronic lift for explicitly observed passed checks.",
       "sample_rate_hz": 16000,
       "sample_count": 5600,
       "pcm_bytes": 11200,
       "duration_ms": 350.0,
       "target_peak_dbfs": -14.0,
-      "linear_gain_after_mix": 6537.876027458528,
+      "linear_gain_after_mix": 6224.171258857633,
       "peak_dbfs": -14.000100374307355,
-      "rms_dbfs": -24.04773761167344,
-      "pcm_sha256": "adb01ff1c6897f09c44304719646be28885489194a2371374d9141d3ca74a566",
+      "rms_dbfs": -24.417566975262957,
+      "pcm_sha256": "28e04ae964ff52c9a53ee907bf307d85e44ea61ad092db9fddb8625ce4d95ba9",
       "layers": [
         {
           "source": "bell",
@@ -1032,9 +1102,44 @@
           "actual_pitch_ratio": 1.15,
           "fade_curve": "sine-squared",
           "normalization_gain_before_mix": 2.883664449732422
+        },
+        {
+          "source": "synthetic_chirp",
+          "window_start_ms": 0,
+          "window_end_ms": 235,
+          "offset_ms": 120,
+          "duration_ms": 120,
+          "pitch_ratio": 1.0,
+          "gain": 0.23,
+          "highpass_hz": 180,
+          "lowpass_hz": 2800,
+          "fade_in_ms": 8,
+          "fade_out_ms": 70,
+          "source_path": "SONY Loops/Electronics/Synthetic Chirp.wav",
+          "source_sha256": "e60824e2b54b52a7bafd5eb3b4a6003ac514424350ac8421674d018a5a7b3591",
+          "source_format": {
+            "duration_seconds": 0.243311,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.235000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=2800:p=2",
+            "aresample=16000",
+            "asetrate=16000",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 560,
+          "actual_pitch_ratio": 1.0,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.028522252274404
         }
       ],
-      "wav_sha256": "ff14af66565939f2c16d367714ab2912c970a325315d59a69dc2a1d1e595a9fd"
+      "wav_sha256": "22b2c66346a0eca452ccd7d1327117fd535b11e41085fd2ba8284fd49c15a4c4"
     },
     {
       "id": 1128464398,
@@ -1229,6 +1334,200 @@
         }
       ],
       "wav_sha256": "6e13737425c1bf5b3fd4864066fe572534ac75ef0baa807406958a94b7098260"
+    },
+    {
+      "id": 1128464401,
+      "name": "BookmarkSaved",
+      "slug": "bookmark-saved",
+      "intent": "A light confirmation after the selected chat bookmark is saved and displayed on Cody.",
+      "sample_rate_hz": 16000,
+      "sample_count": 4480,
+      "pcm_bytes": 8960,
+      "duration_ms": 280.0,
+      "target_peak_dbfs": -20.0,
+      "linear_gain_after_mix": 3864.4980308960567,
+      "peak_dbfs": -19.999469871546843,
+      "rms_dbfs": -27.23749460877029,
+      "pcm_sha256": "732d91686b3b2dfd676fc6b7c95d6a311c7a82b98ce92b01be5bcae25c055d16",
+      "layers": [
+        {
+          "source": "chime",
+          "window_start_ms": 0,
+          "window_end_ms": 650,
+          "offset_ms": 0,
+          "duration_ms": 280,
+          "pitch_ratio": 1.2,
+          "gain": 0.8,
+          "highpass_hz": 180,
+          "lowpass_hz": 2800,
+          "fade_in_ms": 10,
+          "fade_out_ms": 160,
+          "source_path": "SONY Loops/Vintage Cartoon/Hits & Tones/Soft Chime.wav",
+          "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
+          "source_format": {
+            "duration_seconds": 4.364717,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.650000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=2800:p=2",
+            "aresample=16000",
+            "asetrate=19200",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 1760,
+          "actual_pitch_ratio": 1.2,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.521339249958364
+        },
+        {
+          "source": "arcade_chirp",
+          "window_start_ms": 0,
+          "window_end_ms": 400,
+          "offset_ms": 70,
+          "duration_ms": 130,
+          "pitch_ratio": 1.0,
+          "gain": 0.25,
+          "highpass_hz": 180,
+          "lowpass_hz": 2600,
+          "fade_in_ms": 8,
+          "fade_out_ms": 80,
+          "source_path": "1001 Sound Effects/Video Game Sounds/Arcade Chirp 03.wav",
+          "source_sha256": "519edb3b35f367c8b7374af079cdf98ca398e73980304fb1afd779d327011e6b",
+          "source_format": {
+            "duration_seconds": 0.408844,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.400000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=2600:p=2",
+            "aresample=16000",
+            "asetrate=16000",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 3280,
+          "actual_pitch_ratio": 1.0,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 1.201922018853391
+        }
+      ],
+      "wav_sha256": "48ee50a3ea8b85d5594e9c09cd6b5a85ec74eade905f20400b9a29b5594ed1c5"
+    },
+    {
+      "id": 1128464408,
+      "name": "QuestionsOpen",
+      "slug": "questions-open",
+      "intent": "A quiet navigation cue when the authenticated events view opens from questions.",
+      "sample_rate_hz": 16000,
+      "sample_count": 3520,
+      "pcm_bytes": 7040,
+      "duration_ms": 220.0,
+      "target_peak_dbfs": -22.0,
+      "linear_gain_after_mix": 2602.775326721053,
+      "peak_dbfs": -21.999515337009644,
+      "rms_dbfs": -34.86205400973886,
+      "pcm_sha256": "28547d22658f72a7737d045a9807bdd0187a9d2cd02d2a537d9ba79504a13d67",
+      "layers": [
+        {
+          "source": "synthetic_chirp",
+          "window_start_ms": 0,
+          "window_end_ms": 235,
+          "offset_ms": 0,
+          "duration_ms": 160,
+          "pitch_ratio": 1.0,
+          "gain": 1.0,
+          "highpass_hz": 180,
+          "lowpass_hz": 2400,
+          "fade_in_ms": 10,
+          "fade_out_ms": 100,
+          "source_path": "SONY Loops/Electronics/Synthetic Chirp.wav",
+          "source_sha256": "e60824e2b54b52a7bafd5eb3b4a6003ac514424350ac8421674d018a5a7b3591",
+          "source_format": {
+            "duration_seconds": 0.243311,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.235000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=2400:p=2",
+            "aresample=16000",
+            "asetrate=16000",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 560,
+          "actual_pitch_ratio": 1.0,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 5.075588599752169
+        }
+      ],
+      "wav_sha256": "0bf57b4d72be0f5eca2d7d730fb721ef720dce5e284b0ff0a862ae7a59179305"
+    },
+    {
+      "id": 1128464409,
+      "name": "ActivityOpen",
+      "slug": "activity-open",
+      "intent": "A gentle navigation cue when the PC-followed activity view opens.",
+      "sample_rate_hz": 16000,
+      "sample_count": 3840,
+      "pcm_bytes": 7680,
+      "duration_ms": 240.0,
+      "target_peak_dbfs": -22.0,
+      "linear_gain_after_mix": 2602.775326721053,
+      "peak_dbfs": -21.999515337009644,
+      "rms_dbfs": -28.84523169257627,
+      "pcm_sha256": "2731878444345a75d10f6f2299e3a6395fc5b4e025776017a287208501fb4660",
+      "layers": [
+        {
+          "source": "chime",
+          "window_start_ms": 0,
+          "window_end_ms": 650,
+          "offset_ms": 0,
+          "duration_ms": 240,
+          "pitch_ratio": 1.15,
+          "gain": 1.0,
+          "highpass_hz": 180,
+          "lowpass_hz": 2600,
+          "fade_in_ms": 10,
+          "fade_out_ms": 150,
+          "source_path": "SONY Loops/Vintage Cartoon/Hits & Tones/Soft Chime.wav",
+          "source_sha256": "e95df1844a29250f1141232ec17a3d0424246eddfa6af64246f0cc55111098b0",
+          "source_format": {
+            "duration_seconds": 4.364717,
+            "sample_rate_hz": 44100,
+            "channels": 1,
+            "codec": "pcm_s16le"
+          },
+          "ffmpeg_filters": [
+            "atrim=start=0.000000:end=0.650000",
+            "asetpts=PTS-STARTPTS",
+            "pan=mono|c0=c0",
+            "highpass=f=180:p=2",
+            "lowpass=f=2600:p=2",
+            "aresample=16000",
+            "asetrate=18400",
+            "aresample=16000"
+          ],
+          "active_excerpt_offset_frames_after_pitch": 1840,
+          "actual_pitch_ratio": 1.15,
+          "fade_curve": "sine-squared",
+          "normalization_gain_before_mix": 4.514247936837398
+        }
+      ],
+      "wav_sha256": "53f00c71d04aeab5a0e3a5756eaae557c2491eed1e247ac43f55f02fcd114e53"
     }
   ],
   "audition": {
@@ -1319,6 +1618,21 @@
         "cue": "QuestionReminder",
         "start_ms": 24660,
         "duration_ms": 300.0
+      },
+      {
+        "cue": "BookmarkSaved",
+        "start_ms": 25960,
+        "duration_ms": 280.0
+      },
+      {
+        "cue": "QuestionsOpen",
+        "start_ms": 27240,
+        "duration_ms": 220.0
+      },
+      {
+        "cue": "ActivityOpen",
+        "start_ms": 28460,
+        "duration_ms": 240.0
       }
     ]
   }

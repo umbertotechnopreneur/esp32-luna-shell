@@ -151,7 +151,7 @@ esp_err_t draw_message_rows(const void *state, CODY2D::Surface strip, uint16_t f
     }
     for (const auto &action : plain.actions) {
         if (action.enabled) {
-            const esp_err_t error = CODY2D::draw_capsule_rows(action, strip, first_row, first_column);
+            const esp_err_t error = UI::draw_text_action(action, strip, first_row, first_column);
             if (error != ESP_OK) {
                 return error;
             }
@@ -297,7 +297,7 @@ esp_err_t draw_overview_rows(const void *state, CODY2D::Surface strip, uint16_t 
     }
     if (error == ESP_OK) error = draw_line(overview->chat_line);
     if (error == ESP_OK && overview->record.enabled) {
-        error = CODY2D::draw_capsule_rows(overview->record, strip, first_row, first_column);
+        error = UI::draw_text_action(overview->record, strip, first_row, first_column);
     }
     return error;
 }

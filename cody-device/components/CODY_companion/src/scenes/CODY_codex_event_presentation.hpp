@@ -130,20 +130,6 @@ inline constexpr Bounds kReviewPanel{73, 191, 320, 134};
 inline constexpr uint16_t kReviewPanelRadius = 12;
 inline constexpr uint16_t kQuestionAccent = Theme::accent_question;
 
-// strip: Borrowed logical tile; this read-only background is never a control.
-// first_row: Logical y origin of the tile.
-// first_column: Logical x origin of the tile.
-// Exception: Returns the original native raster error.
-inline esp_err_t draw_review_panel(CODY2D::Surface strip, uint16_t first_row, uint16_t first_column)
-{
-    CODY2D::CapsuleControl panel{};
-    panel.bounds = {kReviewPanel.x, kReviewPanel.y, kReviewPanel.width, kReviewPanel.height};
-    panel.corner_radius = kReviewPanelRadius;
-    panel.top_color = Theme::surface_review_top;
-    panel.bottom_color = Theme::surface_review_bottom;
-    panel.border_color = Theme::events_review_border;
-    return CODY2D::draw_capsule_rows(panel, strip, first_row, first_column);
-}
 struct Line {
     char text[64]{};
     uint16_t top = 0;
@@ -300,7 +286,8 @@ inline esp_err_t prepare_read_confirmation(const CODY2D::MonoFont &font, CODY2D:
         static_cast<int16_t>(bounds.y + bounds.height / 2)};
     return CODY2D::prepare_text_line(font, label,
         {static_cast<int16_t>(left + icon_size + icon_gap),
-         static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2)}, Theme::text_bright, control.caption);
+         static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2)},
+        control.enabled ? Theme::text_bright : Theme::text_muted, control.caption);
 }
 
 // action: Model-owned semantic style, exact bounds and full untimed caption.
@@ -335,9 +322,21 @@ inline esp_err_t prepare_control(const Action &action, const CODY2D::MonoFont &f
     const uint16_t height = space != nullptr ? font.height * 2U + 2U : font.height;
     if (height > bounds.height) { return ESP_ERR_INVALID_SIZE; }
     const uint16_t top = bounds.y + (bounds.height - height) / 2;
-    const uint16_t left = action.row ? bounds.x + 10U : bounds.x + (bounds.width - width) / 2;
+    uint16_t left = action.row ? bounds.x + 10U : bounds.x + (bounds.width - width) / 2;
+    if (action.icon != CODY2D::ActionIcon::None) {
+        constexpr uint16_t icon_size = 24;
+        constexpr uint16_t icon_gap = 8;
+        if (space != nullptr || bounds.height < icon_size || width + icon_size + icon_gap > text_width)
+            return ESP_ERR_INVALID_SIZE;
+        const uint16_t group_left = bounds.x + (bounds.width - width - icon_size - icon_gap) / 2;
+        control.icon = action.icon;
+        control.icon_center = {static_cast<int16_t>(group_left + icon_size / 2),
+            static_cast<int16_t>(bounds.y + bounds.height / 2)};
+        left = group_left + icon_size + icon_gap;
+    }
     esp_err_t error = CODY2D::prepare_text_line(font, {label, length},
-        {static_cast<int16_t>(left), static_cast<int16_t>(top)}, Theme::text_bright, control.caption);
+        {static_cast<int16_t>(left), static_cast<int16_t>(top)},
+        action.enabled ? Theme::text_bright : Theme::text_muted, control.caption);
     if (error == ESP_OK && space != nullptr) {
         const char *text = space + 1;
         const uint16_t count = static_cast<uint16_t>(std::strlen(text));
@@ -345,7 +344,8 @@ inline esp_err_t prepare_control(const Action &action, const CODY2D::MonoFont &f
         if (width_second > text_width) { return ESP_ERR_INVALID_SIZE; }
         error = CODY2D::prepare_text_line(font, {text, count},
             {static_cast<int16_t>(bounds.x + (bounds.width - width_second) / 2),
-             static_cast<int16_t>(top + font.height + 2U)}, Theme::text_bright, second);
+             static_cast<int16_t>(top + font.height + 2U)},
+            action.enabled ? Theme::text_bright : Theme::text_muted, second);
     }
     return error;
 }
@@ -655,6 +655,8 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         add_action(plan, context.ui_error == ESP_OK ? ActionId::Send : ActionId::Retry,
             context.ui_error == ESP_OK ? "Send reply" : "Try again",
             context.online && event.state == State::Pending && !context.reply_admitted, Tone::Positive);
+        plan.actions[plan.action_count - 1U].icon = context.ui_error == ESP_OK ?
+            CODY2D::ActionIcon::Arrow : CODY2D::ActionIcon::Retry;
     } else if (plan.route == Route::CheckFailures24) {
         if (event.failure_count > 6 || navigation.failure_page > 1) { return ESP_ERR_INVALID_SIZE; }
         plan.page_index = navigation.failure_page;

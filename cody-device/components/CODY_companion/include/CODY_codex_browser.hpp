@@ -14,9 +14,9 @@ enum class CodexBrowserRoute : uint8_t {
     Closed = 0, Hub = 101, Chats = 102, Turns = 103, Calls = 104, ActiveCalls = 105, PendingQuestions = 106,
 };
 enum class CodexBrowserAction : uint8_t {
-    None, Chats, ActiveCalls, Events, Statistics, Resume, PreviousPage, NextPage, Chat, Turn, PendingQuestions,
+    None, Chats, ActiveCalls, Events, Statistics, Resume, PreviousPage, NextPage, Chat, Turn, PendingQuestions, CurrentTurn,
 };
-enum class CodexBrowserDestination : uint8_t { None, Statistics, Events };
+enum class CodexBrowserDestination : uint8_t { None, Statistics, Events, CurrentTurn };
 
 struct CodexBrowserControl {
     CodexBrowserAction action = CodexBrowserAction::None;
@@ -84,9 +84,14 @@ struct CodexBrowser {
     std::array<CodexBrowserControl, 6> actions{};
     esp_err_t selection_error = ESP_OK;
     int64_t refresh_at_us = 0;
+    int64_t bookmark_saved_until_us = 0;
+    int64_t navigation_animation_until_us = 0;
     uint32_t revision = 0;
     uint8_t line_count = 0;
     CodexBrowserRoute drawn_route = CodexBrowserRoute::Closed;
+    bool bookmark_sound_pending = false; // Consumed only after a confirmed saved frame retires.
+    bool bookmark_pulse = false;
+    bool navigation_pulse = false;
 };
 
 // browser: Display-owned route and projection.

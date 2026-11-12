@@ -738,7 +738,6 @@ esp_err_t prepare_home_dashboard(CompanionPanel panel,
     presentation.price_visible = false;
     presentation.minimum_dwell_us = kHomeDashboardRotationUs;
     presentation.chat_title.window.valid = false;
-    presentation.price_capsule = {};
     presentation.arc_units = presentation.animation_step = 0;
     presentation.arc_state = HomeDashboardArcState::Unavailable;
     presentation.panel = panel;
@@ -785,11 +784,6 @@ esp_err_t prepare_home_dashboard(CompanionPanel panel,
         error = add_line(presentation, body_font, caption, 294, price_color);
         if (error == ESP_OK) {
             presentation.price_visible = true;
-            presentation.price_capsule.bounds = {89, 288, 288, 38};
-            presentation.price_capsule.top_color = CODY2D::blend_rgb565(price_color, 0, 35);
-            presentation.price_capsule.bottom_color = CODY2D::blend_rgb565(price_color, 0, 12);
-            presentation.price_capsule.border_color = CODY2D::blend_rgb565(price_color, 0, 110);
-            presentation.price_capsule.enabled = false;
             const char *effort = inputs.effort_state == PanelValueState::Current ? inputs.effort : metric_status(inputs.effort_state);
             const int count = std::snprintf(caption, sizeof(caption), "Thinking %s", effort);
             if (count < 0 || count >= static_cast<int>(sizeof(caption))) { return dashboard_result("effort_format", ESP_ERR_INVALID_SIZE); }
@@ -944,9 +938,6 @@ esp_err_t draw_home_dashboard_rows(const HomeDashboardPresentation &presentation
         const auto &path = presentation.arc_paths[index];
         error = CODY2D::fill_path_rows(strip, first_row, path.vertices, path.vertex_count,
             kArcPalette, path.color_slot, path.color_slot, 255, first_column, CODY2D::FillAntialiasing::Coverage);
-    }
-    if (error == ESP_OK && presentation.price_visible) {
-        error = CODY2D::draw_capsule_rows(presentation.price_capsule, strip, first_row, first_column);
     }
     for (unsigned row = 0; error == ESP_OK && row < presentation.line_count; ++row) {
         error = CODY2D::draw_text_rows(presentation.lines[row], presentation.lines[row].text.length, strip, first_row, first_column);

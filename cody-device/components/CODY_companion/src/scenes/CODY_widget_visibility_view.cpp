@@ -139,9 +139,9 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
         if (error != ESP_OK) break;
     }
 #else
-    error = CODY2D::draw_capsule_rows(view.toggle, strip, first_row, first_column);
+    error = UI::draw_text_action(view.toggle, strip, first_row, first_column);
     if (error == ESP_OK && view.subscreens_visible) {
-        error = CODY2D::draw_capsule_rows(view.subscreens, strip, first_row, first_column);
+        error = UI::draw_text_action(view.subscreens, strip, first_row, first_column);
     }
 #endif
     return result("draw control", error);
