@@ -4,11 +4,7 @@
 
 #include "CODY_account_dashboard.hpp"
 #include "CODY_battery_alerts.hpp"
-#include "CODY_device_effects.hpp"
 #include "CODY_pet_service.hpp"
-#include "CODY_screensaver.hpp"
-#include "CODY_companion_gestures.hpp"
-#include "CODY_navigation_visibility.hpp"
 #include "CODY_system_info.hpp"
 #include "CODY_token_history.hpp"
 #include "CODY_widget_state.hpp"
@@ -17,6 +13,8 @@
 #include "LUNASHELL_build_metadata.hpp"
 
 namespace CODY {
+
+struct DeviceUiModel;
 
 // Canonical model projections. The display renderer borrows these read-only.
 struct DeviceDashboardData {
@@ -53,31 +51,21 @@ struct VoucherModel {
     uint32_t warning_expiry = 0;
     uint8_t expiry_count = 0;
     uint8_t dismissed_count = 0;
-    uint8_t first_row = 0;
 };
 static_assert(sizeof(VoucherModel) <= 96, "Voucher cards and dismissal identities stay bounded in RAM");
 
+// Consumer projections of device/domain owners, with their actual source errors.
+// Routes, gesture recognition, character animation and settings live elsewhere.
 struct DeviceModel {
-    DeviceEffectsModel effects{};
-    ScreensaverModel screensaver{};
-    WidgetRouteState widgets{};
     DeviceDashboardData dashboard{};
     VoucherModel vouchers{};
     LUNASHELL::DiagnosticsObservation diagnostics{};
-    InfoPage info_page = InfoPage::System;
     esp_err_t diagnostics_error = ESP_ERR_INVALID_STATE;
     BatteryAlertModel battery{};
-    BatteryAlertNotice battery_banner{};
-    int64_t battery_banner_until_us = 0;
-    NavigationVisibility navigation{};
-    CompanionShakeState shake{};
+    LUNASHELL::CodexInboxSnapshot inbox{};
     LUNASHELL::MotionPowerObservation motion{};
-    TokenHistoryInterval interval = TokenHistoryInterval::FiveHours;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     LUNASHELL::VoiceSnapshot voice{};
-    CODY2D::Point voice_touch_start{};
-    int64_t voice_touch_started_us = 0;
-    int64_t voice_tapped_us = 0;
 #endif
 };
 
@@ -96,19 +84,23 @@ uint32_t pending_device_voucher_warning(const DeviceModel &model);
 // model: Receives a once-per-expiry dismissal for the current account and uptime.
 void dismiss_device_voucher_warning(DeviceModel &model);
 
-// model: Current reported dates and viewport offset.
+// model: Current reported dates.
+// first_row: UI-owned viewport offset, clamped before applying the step.
 // step: Explicit up/down movement through the list; it stops at the ends.
-void step_device_voucher(VoucherModel &model, WidgetStep step);
+void step_device_voucher(const VoucherModel &model, uint8_t &first_row, WidgetStep step);
 
 // model: Current live list; exposes only the rows that fit on Credits.
-VoucherList project_device_voucher_list(const DeviceModel &model);
+// first_row: UI-owned viewport offset, bounded to the current reported rows.
+VoucherList project_device_voucher_list(const DeviceModel &model, uint8_t first_row);
 
 // data: Historical data admitted for the retained pairing while Codex is unavailable.
 // screen: Current dashboard page, used to select its independent saved source.
 int64_t device_saved_page_epoch(const DeviceDashboardData &data, WidgetScreen screen);
 
-// Ages the battery banner against canonical observations and its display dwell.
-void update_device_battery(DeviceModel &model, int64_t now_us);
+// model: Canonical battery observations and threshold acknowledgements.
+// ui: Retains the visible notice and its display dwell.
+// now_us: Monotonic clock for notice expiration.
+void update_device_battery(DeviceModel &model, DeviceUiModel &ui, int64_t now_us);
 
 // Projects the currently valid perimeter fill, in basis points.
 uint16_t device_allowance_ring(const DeviceDashboardData &data);
@@ -130,9 +122,10 @@ void project_device_statistics_calendar(DeviceDashboardData &data, WidgetScreen 
 // interval: Window to inspect for at least one measured count, including zero.
 bool device_history_has_data(const DeviceDashboardData &data, TokenHistoryInterval interval);
 
-// model: Retains the selected Info page and its one canonical diagnostics projection.
+// model: Retains the one canonical diagnostics projection.
+// page: Selected UI page; it is never stored in the device observation model.
 // Exception: Preserves snapshot read failures; immutable Firmware/ProjectLink pages need no acquisition.
-esp_err_t read_device_info(DeviceModel &model);
+esp_err_t read_device_info(DeviceModel &model, InfoPage page);
 
 // Boot owner captures the previous RTC sample before the worker overwrites it.
 void initialize_device_uptime(DeviceDashboardData &data);
@@ -145,7 +138,8 @@ struct DeviceNavigationUpdate {
 };
 
 // model: Receives the canonical projection shared by gestures and dictation artwork.
+// ui: Retains gesture recognition and navigation visibility, independently of observations.
 // now_us: Monotonic time shared by touch, gesture recognition and the frame owner.
-DeviceNavigationUpdate update_device_navigation(DeviceModel &model, int64_t now_us);
+DeviceNavigationUpdate update_device_navigation(DeviceModel &model, DeviceUiModel &ui, int64_t now_us);
 
 } // namespace CODY

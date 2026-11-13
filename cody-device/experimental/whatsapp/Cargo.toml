@@ -1,0 +1,31 @@
+[package]
+name = "cody-whatsapp-prototype"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+publish = false
+
+[lib]
+crate-type = ["staticlib", "rlib"]
+
+[dependencies]
+anyhow = "1"
+esp-idf-svc = { version = "0.53", default-features = false, features = ["std", "critical-section"] }
+whatsapp-esp32 = { path = "vendor/whatsapp-esp32", default-features = false }
+whatsapp-rust = { git = "https://github.com/oxidezap/whatsapp-rust", rev = "7e5c198e1a25ea405faa7a69a47bc727ea15484c", default-features = false }
+
+[build-dependencies]
+embuild = "0.33.5"
+
+# esp-idf-sys 0.38.1 CMake-first builds must track their external build inputs.
+# The local crate preserves upstream sources and adds the missing Cargo tracking.
+[patch.crates-io]
+esp-idf-sys = { path = "vendor/esp-idf-sys" }
+
+[profile.dev]
+opt-level = "z"
+panic = "abort"
+
+[profile.release]
+opt-level = "z"
+panic = "abort"

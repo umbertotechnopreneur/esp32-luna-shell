@@ -81,7 +81,7 @@ function Show-DeviceHelp {
     foreach ($name in @('clean','fullclean')) {
         Write-DeviceHelpEntry -Syntax "Device.ps1 $name" -Description $firmware[$name].Description -Width $width
     }
-    Write-DeviceHelpEntry -Syntax 'Device.ps1 clean-artifacts' -Description 'Remove transient logs, captures, reports and previews; retain firmware builds, configuration and Python caches.' -Detail 'The same transient cleanup runs before build, flash, combo and recover.' -Width $width
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 clean-artifacts' -Description 'Remove transient logs, captures, reports and previews; retain firmware builds, configuration and Python caches.' -Detail 'Cleanup is performed only for this explicitly requested action.' -Width $width
 
     Write-DeviceHelpSection -Title 'DEVICE AND SERIAL' -Icon '🔌' -Width $width -Color Yellow
     Write-DeviceHelpSection -Title 'Connection and serial output' -Icon '📟' -Width $width -Color Yellow -Subsection
@@ -99,6 +99,7 @@ function Show-DeviceHelp {
     Write-DeviceHelpEntry -Syntax 'Device.ps1 sd-log -Port COM10 -StoredLog previous' -Description 'Download the retained previous SD log over native USB into artifacts/serial/sd-log-previous.log.' -Detail 'Requires the updated firmware, an awake device and a mounted SD. Close the monitor first. No reset or format is requested; each block is checked before replacing the local output file.' -Width $width
     Write-DeviceHelpEntry -Syntax 'Device.ps1 endurance-read -Port COM10' -Description 'Read canonical current and previous endurance records into artifacts/serial/endurance.json plus the checked .wire frame.' -Detail 'Works at Release WARN logging. Close the monitor first; requires matching firmware. No reset, sensor refresh or device write. An unavailable recorder saves its verified failure state and returns a failing command result; USB transfer success is separate. USB connection itself may end a battery-only session; elapsed time remains a lower bound, never a measured death time.' -Width $width
     Write-DeviceHelpSection -Title 'Programming and recovery' -Icon '⚡' -Width $width -Color Yellow -Subsection
+    Write-DeviceHelpEntry -Syntax 'Device.ps1 inspect-flash -Port COM8 -BuildDir <build> -IdfPath <idf> -PythonExe <python>' -Description $firmware['inspect-flash'].Description -Detail 'Requires a completed source build and the paired identity in process environment CODY_INSPECT_DEVICE_ID. Reads table, OTA metadata and the WhatsApp gap into memory only; refuses occupied or ambiguous state. It may leave the device in download mode.' -Width $width
     foreach ($name in @('flash','reset','combo','recover','erase')) {
         Write-DeviceHelpEntry -Syntax "Device.ps1 $name -Port $examplePort" -Description $firmware[$name].Description -Width $width
     }

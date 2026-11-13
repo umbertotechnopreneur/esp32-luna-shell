@@ -44,6 +44,7 @@ function Get-DeviceActionParameters {
         banner = @('ToolArguments')
         build = $idf + $relay + @('Jobs'); clean = $idf + $relay; fullclean = $idf + $relay
         flash = $idf + $relay + $serial + @('Jobs'); reset = $idf + $serial
+        'inspect-flash' = @('Port','Baud','BuildDir','IdfPath','PythonExe')
         monitor = $idf + $relay + $serial + @('ResetBeforeMonitor')
         capture = $idf + $relay + $serial + @('DurationSeconds','OutputPath','ResetBeforeCapture')
         'sd-log' = $serial + @('StoredLog','OutputPath')
@@ -165,6 +166,18 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
         return
     }
     switch ($RequestedAction) {
+        'inspect-flash' {
+            foreach ($required in @('Port','BuildDir','IdfPath','PythonExe')) {
+                if (-not $Options.ContainsKey($required) -or [string]::IsNullOrWhiteSpace([string]$Options[$required])) {
+                    throw "inspect-flash requires -$required."
+                }
+            }
+            $python = Resolve-HostPython $Options.PythonExe
+            $baud = if ($Options.ContainsKey('Baud')) { $Options.Baud } else { 115200 }
+            $arguments = @('--port', $Options.Port, '--baud', [string]$baud,
+                '--build-dir', $Options.BuildDir, '--idf-path', $Options.IdfPath)
+            Invoke-HostTool (Join-Path $ProjectRoot 'scripts/commands/inspect_flash.py') $arguments $python
+        }
         'relay' {
             $relayOptions = @{}
             foreach ($key in (Get-DeviceActionParameters).relay) {

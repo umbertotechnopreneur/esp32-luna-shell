@@ -2,6 +2,8 @@
 nvs,data,nvs,0x9000,0x6000,
 phy_init,data,phy,0xf000,0x1000,
 otadata,data,ota,0x10000,0x2000,
+# WhatsApp state uses the existing gap; no existing partition moves.
+wa_store,data,nvs,0x12000,0xe000,
 # Executable images and ESP-SR model data use the 24-bit cache window.
 ota_0,app,ota_0,0x20000,0x770000,
 ota_1,app,ota_1,0x790000,0x770000,

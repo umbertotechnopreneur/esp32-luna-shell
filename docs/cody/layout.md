@@ -16,7 +16,7 @@ describe the current 466 x 466 adapter; they are not requirements of every futur
 
 ## Content, actions and Back
 
-Software standby blanks the display while the device model retains the current
+Software standby blanks the display while the UI model retains the current
 route. Logical placement, clipping and wake use the selected orientation.
 
 The onboarding button guide places its 136 x 136 button-press illustration at
@@ -25,6 +25,15 @@ The onboarding button guide places its 136 x 136 button-press illustration at
 the optional Skip tour action retain their existing lower positions. Voice-input
 builds describe the BOOT hold as voice input, and other builds describe Settings.
 Physical legibility and touch behavior remain to be verified.
+
+The saved-setup Connecting/Reconnecting scene has its centered title at y=82,
+phase caption at y=130 and optional offline hint at y=158. Cody's existing
+192 x 192 avatar occupies (137,190); Use offline uses the separate footer
+(123,390,220,44). Captions update from real connection phases, and the avatar
+animates while the single 30-second connection window remains active. The
+scene takes priority over retained Home/Counters presentation and cannot enter
+the screensaver during that window. Its footer becomes interactive after the
+title reveal, using the same rectangle for drawing and hit testing.
 
 Use the central [73,393) square as a baseline. Expand into the circle only with
 local-chord admission of artwork, controls and complete hit bounds. Keep QR
@@ -41,7 +50,8 @@ glyphs to identify the Wi-Fi, QR and Bluetooth actions. The Connections page
 uses the Options heading position, a short instruction, and two standalone
 glyphs side by side. Codex has a violet link and Wi-Fi has a mint signal icon.
 The labels and their PC link and Join network hints share the glyphs' touch
-areas. The lateral chevron handles Back. Complete controls appear after the
+areas. A separate text action below them opens the experimental WhatsApp setup;
+when enabled it presents the transient pairing QR and connection state. The lateral chevron handles Back. Complete controls appear after the
 title and main body lines, with touch admitted at the same time. Captions have
 no typewriter timing or character audio.
 
@@ -49,10 +59,11 @@ no typewriter timing or character audio.
 | --- | --- |
 | Two action targets | (73,260,154,104) and (239,260,154,104) |
 | Saved PC management | Three standalone 36-pixel icons, with 90 x 90 touch areas at x=83/188/293, y=302 |
-| Connections actions | 54-pixel glyphs at (148,219) and (318,219), with 140 × 168 touch areas |
-| Check relay, when configured | Text-only footer at (123,366,220,52). The latest check replaces the Connections hint at y=136. |
+| Connections actions | 54-pixel glyphs at (148,219) and (318,219), with 140 × 158 touch areas |
+| WhatsApp setup | Text action at (93,330,280,40); opt-in experimental builds show pairing and connection state. |
+| Check relay, when configured | Text-only footer at (123,376,220,42). The latest check replaces the Connections hint at y=136. |
 | Options and category rows | Up to four rows at x=93, width 280, height 56, y=130/188/246/304. Destinations and settings use flat rows with semantic icons and separators. |
-| BOOT quick menu | Four separate icon-and-label targets arranged radially for Settings, Events, Counters and About |
+| BOOT quick menu | Four separate icon-and-label targets arranged radially for Settings, Notifications, Counters and About |
 | Options menu | Swipe between pages; page marks show the current position |
 | Restart / factory reset confirmation | Cancel at (93,250,280,56), confirmation at (93,310,280,56); both use icon-and-separator rows |
 | Ordinary single action | (113,352,240,72) |
@@ -77,6 +88,19 @@ marks below its content. Cursor-based views do not invent an unknown page count.
 introduction for the next restart. A confirmed write changes the row to
 **Next restart**. This action preserves settings and pairing, and does not
 restart the device. A failed write is shown with an explicit retry action.
+
+After confirming a local restart, **Restarting...** and **Please wait** share the
+display's horizontal center above a 192 x 192 Cody at (137,190). The existing
+Muse farewell holds its waving phase while the local restart waits 1.5 seconds
+before execution. The terminal page reuses the Wi-Fi mascot buffer on the
+display owner, adds no second avatar allocation, and offers no touch actions.
+Physical presentation and timing remain to be verified.
+
+A failed background intro/setup save leaves the controls active and uses the
+shared status caption at [80,65,386,72) for `Settings not saved: retrying`. The
+caption remains until confirmed recovery and has no hit target. A first-boot
+music persistence failure instead shows `Boot sound settings not saved`; that
+boot stays silent. These captions do not cover a QR quiet zone or boot artwork.
 
 **Preferences > Behavior**, swipe to the third page, then **Quiet hours** controls
 the saved quiet-hours switch, start and end in local wall time. Selecting an
@@ -125,41 +149,79 @@ y=354. The indicator has no touch target, typewriter cadence or character audio.
 Firmware and Studio use the same native color policy. Device-first presents a
 complete frame; the legacy Studio inspector retains its animated reveal.
 
-A typed `ReplyReady` notification uses the compact character at (233,92), scale
-42, and one violet `Chat waiting` headline at y=150. The originating chat's complete
-bounded title occupies up to three body rows at y=214/242/270. A red dot sits
-beside its first line and appears with that line. When its owner has
-no admitted title, the body says `Open the other chat in Codex`; it never repeats
-the headline or borrows the currently followed chat's identity. Project context
-is subordinate at y=312, with explicit unavailable/offline/error text when needed.
-The `OK` action shows a check mark, retains (113,352,240,72) and
-acknowledges the current LAN notice through its authenticated dismissal.
-Controls appear only after the full narrative;
-reply readiness implies neither task success nor passed checks. Generic notices
-also omit body text when it is identical to their title. Terminal request outcomes
-retain their own expired, cancelled or rejected captions.
+## Notifications and Activity
 
-## Events and Current turn
+Notifications is the connected dashboard's starting page. Its authenticated
+PC inbox retains pending questions and unread informational events: ready replies,
+PC approval notices, pull requests, checks and generic notices. Questions retain
+their original answer and delivery lifecycle. Other events remain unread until
+the owner explicitly marks the exact event as read; showing a cue, opening its
+detail, going Back or confirming speech transport does not read it.
 
-Events is the connected dashboard's starting page. Its authenticated queue
-shows three rows, with open questions first and ready replies after them. A
-vertical swipe moves one row. The lead question preview scrolls horizontally
-inside its row; its event label and chat caption stay fixed. Tapping an exact
-row opens the existing choice flow or the `Chat waiting` detail. Its `OK`
-action shows a check mark and returns to Events after the broker confirms
-read dismissal. A question caption comes from
-its declared source context when one is supplied.
+The same list also includes local notifications, including admitted WhatsApp
+messages. Local records are kept in a separate 32-record RAM history, newest
+first, before the PC inbox rows. Reading a local record changes its read flag
+without removing it. Overflow evicts the oldest local record and increments
+the visible dropped count; a device restart clears this local history. Local
+records remain accessible without a PC. Remote unread retention belongs to the
+broker and does not inherit these local eviction or restart semantics.
 
-Swipe left on Events for Current turn, and right for statistics. Swipe horizontally
-between statistics pages; swipe right from the first page to return to Events.
-Current turn uses the lateral Back
-control. It shows the currently followed chat, the newest observed active tool
-and its complete scrolling label when available, and a separate compaction icon
-and measured elapsed time. Shell, Web search and Editing retain their existing
-glyphs; other observed tools use the shared generic tool glyph. An active tool
-label takes precedence over the progress description until that tool returns.
-The display does not retain a completed call as active or infer its outcome.
-A hosted web search without a native hook remains unavailable.
+The list shows three flat 78-pixel rows in (73,155,320,234), with a typed icon,
+an event label and a separate source or originating-chat caption. Both text rows use
+pixel-measured `...` when they exceed their bounds. A vertical swipe moves one
+row; tapping a row requests its exact event, without guessing from its caption
+or the currently followed chat. Stale retained rows are muted and identified as
+saved; source errors remain visible, and unavailable rows cannot be opened.
+The empty list says `No notifications`; a separate PC status still identifies
+unavailable, saved or failed remote data.
+
+List selection and incoming events use one shared detail projection. It shows
+the complete admitted originating title first, then the distinct body, project,
+optional speech status, transport state and check failures when provided.
+The five-line read-only area is (73,191,320,134), with rows at y=196..300.
+Swipe vertically to page; a tap in that area advances and wraps to page one.
+Long origins remain complete across pages; IDs never become captions. Missing
+origin titles are explicit. Speech failures never replace the originating title.
+`Reply ready` means a reply is available, not that the task or its checks passed.
+
+Questions offer `Choose a reply`, followed by the existing numbered choices,
+complete review and explicit Send flow. Other pending notices offer `Mark as
+read` in the separate action slot (113,352,240,72). Read dismissal requires the
+authenticated owner's confirmation. Back leaves a detail unread. Native PC
+permissions still require a decision on the computer; reading their notification
+does not grant permission. Offline details retain their source and show their
+actual unavailable/error state, with remote actions disabled. Local details use
+the same read-only paging and explicit read language without requiring a PC;
+an evicted selected record is identified instead of being replaced. Terminal question
+outcomes retain their expired, cancelled, rejected or unconfirmed captions.
+
+Optional character reactions are short cues for retained events. An eligible
+cue shows the event title above the animated character and a brief origin on a
+readable card layered over its lower edge; tapping it opens that exact event.
+For a PC notice with an authenticated severity, Cody uses a distinct information,
+warning or critical pose and motion; a missing severity is never inferred from
+the message. The selected PC notice detail retains the animated character behind
+an opaque, readable text panel for as long as that detail is visible. Existing
+paging, Back and explicit Mark as read controls retain their original behavior.
+The animation itself never creates or reads a notification. If another screen
+temporarily prevents a cue, the UI does not consume it merely for being
+ineligible. The unread event remains recoverable through Notifications.
+
+Swipe left on Notifications for Activity, and right for statistics. Swipe
+horizontally between statistics pages; swipe right from the first page to
+return to Notifications. Activity keeps its lateral Back control, followed-chat
+heading and one current activity row: the existing semantic glyph plus a short
+label, with pixel-measured `...` instead of a scrolling tool description.
+Shell, Web search and Editing retain their glyphs; other observed tools use the
+shared generic tool glyph. Compaction retains its separate icon and measured
+elapsed time. An active observed tool takes precedence over progress text until
+it returns; completed calls are not retained as active or assigned an inferred
+outcome. Missing data leaves an explicit state on the selected screen instead
+of automatically switching to statistics. A hosted web search without a native
+hook remains unavailable. Native route and screen IDs are preserved.
+
+These changes are implemented in source; build, integration, simulator and
+physical acceptance remain pending.
 
 ## Setup, QR and Skin
 
@@ -323,8 +385,10 @@ The body faces derive from the vendored OFL Telex face. Screen headings use the
 shared arcade glyph treatment. No bitmap/video playback or polling task is added.
 
 The common status layer is drawn on awake content screens, including the
-screensaver, with date at (122,32), local HH:MM at (122,47),
-and Wi-Fi/Bluetooth/battery at y=43-64. Seconds are omitted. Battery is gray
+screensaver, with date at (188,20), local HH:MM at (204,34),
+Bluetooth at (155,34), Wi-Fi at (100,61), and battery at (335,61).
+The connection and battery icons sit four pixels farther from the circular edge.
+Seconds are omitted. Battery is gray
 when absent, red when low, orange midrange, green healthy, and cyan/white charging.
 Flash row masks and canonical projections require no LVGL or hardware reads.
 Touch and valid measured IMU movement reveal the layer; inactivity starts its fade.

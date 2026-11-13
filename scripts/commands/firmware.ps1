@@ -542,6 +542,11 @@ $ProfileCanonicalDependencyLockPath = Resolve-ProfileCatalogPath(
 $ProfileSdkconfigPath = Resolve-ArtifactPath(
     "$($SelectedProfileVariant.generated_sdkconfig)-$($modeSelection.ArtifactSuffix)$hostArtifactSuffix"
 )
+$WhatsAppExperimentalConfig = $env:LUNASHELL_WHATSAPP_EXPERIMENT -eq '1'
+if ($WhatsAppExperimentalConfig) {
+    # New Rust component defaults must not mutate the ordinary firmware config.
+    $ProfileSdkconfigPath += '-whatsapp'
+}
 # No parameters: selected generated configuration must match its explicit feature and board.
 # Throws before build/size/flash if the selected graph or generated settings disagree.
 function Assert-BoardSdkconfig {
@@ -756,8 +761,23 @@ if ($IsWindows) {
             $pathEntries.Add($entry)
         }
     }
-    foreach ($name in @('git', 'cmake', 'ninja', 'xtensa-esp32s3-elf-gcc',
-                        'cmd', 'where', 'findstr', 'powershell', 'pwsh', 'bash', 'sh', 'tar')) {
+    $hostTools = @('git', 'cmake', 'ninja', 'xtensa-esp32s3-elf-gcc',
+                   'cmd', 'where', 'findstr', 'powershell', 'pwsh', 'bash', 'sh', 'tar')
+    if ($env:LUNASHELL_WHATSAPP_EXPERIMENT -eq '1') {
+        # The Rust component needs these explicitly after SDK PATH filtering.
+        $hostTools += @('cargo', 'rustup', 'clang')
+        # Espup's std-only distribution supplies DLLs without a clang.exe.
+        # Preserve the dependency directory even when no executable exists.
+        if ($env:LIBCLANG_PATH) {
+            $clangDirectory = if (Test-Path -LiteralPath $env:LIBCLANG_PATH -PathType Container) {
+                $env:LIBCLANG_PATH
+            } else {
+                Split-Path -Parent $env:LIBCLANG_PATH
+            }
+            if ($clangDirectory -and $seenPathEntries.Add($clangDirectory)) { $pathEntries.Add($clangDirectory) }
+        }
+    }
+    foreach ($name in $hostTools) {
         $tool = Get-Command $name -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
         if ($null -eq $tool) { continue }
         $directory = Split-Path -Parent $tool.Source
@@ -1503,7 +1523,7 @@ function Invoke-ProfileConfiguration(
         $RefreshDependencyLock `
         $RefreshDependencyLock
 
-    if (Test-Path -LiteralPath $ProfileSdkconfigPath -PathType Leaf) {
+    if ((Test-Path -LiteralPath $ProfileSdkconfigPath -PathType Leaf) -and -not $WhatsAppExperimentalConfig) {
         $backupPath = "$ProfileSdkconfigPath.old"
         $backupIndex = 0
         while (Test-Path -LiteralPath $backupPath) {

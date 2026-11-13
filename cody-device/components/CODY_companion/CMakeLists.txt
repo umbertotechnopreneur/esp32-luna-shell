@@ -61,7 +61,14 @@ idf_component_register(
         "src/scenes/CODY_home_identity.cpp"
         "../../assets/cody/home-dashboard-fonts/generated/home_dashboard_fonts.cpp"
         "src/runtime/CODY_settings.cpp"
+        "src/runtime/CODY_settings_service.cpp"
+        "src/model/CODY_settings_view.cpp"
+        "src/scenes/CODY_guide_presenter.cpp"
+        "src/scenes/CODY_wifi_list_presenter.cpp"
         "src/runtime/CODY_codex_audio.cpp"
+        "src/runtime/CODY_notifications.cpp"
+        "src/runtime/CODY_whatsapp_audio.cpp"
+        "src/runtime/CODY_whatsapp_service.cpp"
         "../../assets/cody/audio/codex-actions/generated/codex_audio_assets.cpp"
         "src/scenes/CODY_account_dashboard.cpp"
         "src/scenes/CODY_token_history.cpp"
@@ -94,6 +101,15 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION AND CONFIG_LUNASHELL_CODY_RELAY_PROBE)
     target_sources(${COMPONENT_LIB} PRIVATE "src/runtime/CODY_relay_probe.cpp")
 endif()
 
+if(NOT CMAKE_BUILD_EARLY_EXPANSION AND "$ENV{LUNASHELL_WHATSAPP_EXPERIMENT}" STREQUAL "1")
+    if(NOT CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION OR NOT CONFIG_LUNASHELL_BUILD_ENABLE_WIFI OR
+       NOT CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM OR NOT CONFIG_SPIRAM)
+        message(FATAL_ERROR "WhatsApp experiment requires Cody, Wi-Fi and PSRAM task stacks")
+    endif()
+    idf_component_optional_requires(PRIVATE whatsapp)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE CODY_WHATSAPP_EXPERIMENT=1)
+endif()
+
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
 target_compile_definitions(${COMPONENT_LIB} PUBLIC
     CODY_DEVICE_UI_ONLY=1
@@ -102,22 +118,6 @@ target_compile_definitions(${COMPONENT_LIB} PUBLIC
 )
 
 if(NOT CMAKE_BUILD_EARLY_EXPANSION)
-    # The shared PCM owner reads int16_t samples in place. IDF's binary embed
-    # helper omits section alignment, so keep the authored bytes in an aligned section.
-    set(cody_boot_pcm "${PROJECT_DIR}/assets/cody/audio/codex-actions/generated/boot-rise.pcm16le")
-    set(cody_boot_assembly "${CMAKE_CURRENT_BINARY_DIR}/cody_device_boot_rise.S")
-    file(GENERATE OUTPUT "${cody_boot_assembly}" CONTENT
-".section .rodata.cody_device_boot_rise,\"a\",@progbits
-.balign 4
-.global _binary_cody_device_boot_rise_start
-_binary_cody_device_boot_rise_start:
-.incbin \"${cody_boot_pcm}\"
-.global _binary_cody_device_boot_rise_end
-_binary_cody_device_boot_rise_end:
-")
-    set_source_files_properties("${cody_boot_assembly}" PROPERTIES OBJECT_DEPENDS "${cody_boot_pcm}")
-    target_sources(${COMPONENT_LIB} PRIVATE "${cody_boot_assembly}")
-
     # Pet cues are a separate immutable catalogue with the same PCM alignment contract.
     set(cody_pet_assembly "${CMAKE_CURRENT_BINARY_DIR}/cody_pet_audio.S")
     set(cody_pet_assembly_content ".section .rodata.cody_pet_audio,\"a\",@progbits\n")
@@ -149,9 +149,9 @@ _binary_cody_first_boot_music_end:
     target_sources(${COMPONENT_LIB} PRIVATE "${cody_first_boot_assembly}")
 endif()
 
-# Embed indexed onboarding images and separate RGB565 surprise images in flash.
+# Embed indexed onboarding and surprise images in flash.
 if(NOT CMAKE_BUILD_EARLY_EXPANSION)
-    foreach(name IN ITEMS welcome sofia button)
+    foreach(name IN ITEMS sofia button)
         set(asset "${PROJECT_DIR}/assets/cody/onboarding/generated/${name}.rgb565")
         set(assembly "${CMAKE_CURRENT_BINARY_DIR}/cody_onboarding_${name}.S")
         file(GENERATE OUTPUT "${assembly}" CONTENT
@@ -167,7 +167,7 @@ cody_onboarding_${name}_end:
         target_sources(${COMPONENT_LIB} PRIVATE "${assembly}")
     endforeach()
     foreach(name IN ITEMS portrait vietnam italy)
-        set(asset "${PROJECT_DIR}/assets/cody/surprise/${name}.rgb565")
+        set(asset "${PROJECT_DIR}/assets/cody/surprise/generated/${name}.indexed565")
         set(assembly "${CMAKE_CURRENT_BINARY_DIR}/cody_surprise_${name}.S")
         file(GENERATE OUTPUT "${assembly}" CONTENT
 ".section .rodata.cody_surprise_${name},\"a\",@progbits
