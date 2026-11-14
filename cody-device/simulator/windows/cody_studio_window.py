@@ -71,7 +71,7 @@ class StudioWindow:
         root.protocol('WM_DELETE_WINDOW', self.close)
         self.build()
         self.show_scenario()
-        root.after(40, self.poll)
+        self.poll_id = root.after(40, self.poll)
         root.after_idle(self.apply)
 
     # No parameters: restore host visibility preferences, with visible parse errors.
@@ -133,7 +133,29 @@ class StudioWindow:
     def toggle(self, name):
         self.sections[name][2] = not self.sections[name][2]
         self.refresh_section(name)
+        if name in ('Animation', 'Routes', 'Atlas'):
+            self.arrange_bottom()
+            self.bottom_canvas.yview_moveto(0)
         self.persist()
+
+    # No parameters: collapsed lower sections share one compact row so small
+    # windows retain an inspectable device preview and keyboard-accessible titles.
+    def arrange_bottom(self):
+        names = ('Animation', 'Routes', 'Atlas')
+        compact = all(not self.sections[name][2] for name in names)
+        width = max(1, self.bottom_canvas.winfo_width())
+        for name in names:
+            heading, body, opened, _ = self.sections[name]
+            heading.pack_forget()
+            body.pack_forget()
+            heading.configure(font=('TkDefaultFont', 11 if compact else 16, 'bold'),
+                              wraplength=max(100, width // 3 - 18) if compact else 0)
+            if compact:
+                heading.pack(side='left', fill='both', expand=True, pady=(6, 3))
+            else:
+                heading.pack(fill='x', pady=(12, 3))
+                if opened:
+                    body.pack(fill='x', padx=(20, 0))
 
     # No parameters: construct the approved host composition with visible focus.
     def build(self):
@@ -142,6 +164,16 @@ class StudioWindow:
         style.configure('Studio.Treeview', background=BG, fieldbackground=BG, foreground=FG,
                         borderwidth=0, rowheight=28, font=('TkDefaultFont', 11))
         style.map('Studio.Treeview', background=[('selected', FIELD)], foreground=[('selected', ORANGE)])
+        style.layout('Studio.Treeview', [('Treeview.treearea', {'sticky': 'nswe'})])
+        style.configure('Studio.TCombobox', fieldbackground=FIELD, background=FIELD,
+                        foreground=FG, arrowcolor=FG, borderwidth=0, padding=3)
+        style.map('Studio.TCombobox', fieldbackground=[('readonly', FIELD)],
+                  foreground=[('readonly', FG)], selectbackground=[('readonly', FIELD)],
+                  selectforeground=[('readonly', FG)])
+        self.root.option_add('*TCombobox*Listbox.background', FIELD)
+        self.root.option_add('*TCombobox*Listbox.foreground', FG)
+        self.root.option_add('*TCombobox*Listbox.selectBackground', BG)
+        self.root.option_add('*TCombobox*Listbox.selectForeground', ORANGE)
         header = tk.Frame(self.root, bg=BG)
         header.pack(fill='x', padx=24, pady=12)
         caption(header, 'Cody Studio', 22, True).pack(side='left')
@@ -178,7 +210,7 @@ class StudioWindow:
         self.field(self.left, self.search).pack(fill='x', pady=(4, 8))
         self.filter = tk.StringVar(value='All')
         ttk.Combobox(self.left, textvariable=self.filter, values=('All', 'Supported', 'Unsupported'),
-                     state='readonly', width=25).pack(fill='x')
+                     state='readonly', width=25, style='Studio.TCombobox').pack(fill='x')
         self.tree = ttk.Treeview(self.left, show='tree', style='Studio.Treeview', height=15)
         self.tree.pack(fill='both', expand=True, pady=10)
         self.tree.bind('<<TreeviewSelect>>', self.selection)
@@ -194,24 +226,46 @@ class StudioWindow:
         modes = tk.Frame(self.center, bg=BG)
         modes.pack(fill='x')
         self.mode = tk.StringVar(value='current')
+        self.mode_controls = []
         for text, mode in (('Current', 'current'), ('Before / After', 'side-by-side'),
                            ('Overlay', 'overlay'), ('Difference', 'difference')):
-            tk.Radiobutton(modes, text=text, value=mode, variable=self.mode, command=self.draw,
+            control = tk.Radiobutton(modes, text=text, value=mode, variable=self.mode, command=self.draw,
                            bg=BG, fg=FG, selectcolor=FIELD, indicatoron=False, relief='flat', bd=0,
                            activeforeground=ORANGE, activebackground=FIELD, highlightcolor=ORANGE,
-                           highlightbackground=BG, highlightthickness=2).pack(side='left')
-        self.canvas = tk.Canvas(self.center, bg=BG, highlightthickness=0, height=400)
+                           highlightbackground=BG, highlightthickness=2, padx=7, pady=4)
+            control.pack(side='left')
+            self.mode_controls.append((mode, control))
+        self.canvas = tk.Canvas(self.center, bg=BG, highlightthickness=0, height=180)
         self.canvas.pack(fill='both', expand=True, pady=8)
         self.canvas.bind('<Configure>', lambda event: self.draw())
-        animation = self.section(self.center, 'Animation', False)
+        bottom_host = tk.Frame(self.center, bg=BG)
+        bottom_host.pack(side='bottom', fill='x', before=self.canvas)
+        bottom_scroll = tk.Scrollbar(bottom_host, orient='vertical')
+        bottom_scroll.pack(side='right', fill='y')
+        self.bottom_canvas = tk.Canvas(bottom_host, bg=BG, highlightthickness=0, height=280,
+                                       yscrollcommand=bottom_scroll.set)
+        self.bottom_canvas.pack(fill='x', expand=True)
+        bottom_scroll.configure(command=self.bottom_canvas.yview)
+        bottom = tk.Frame(self.bottom_canvas, bg=BG)
+        bottom_item = self.bottom_canvas.create_window(0, 0, window=bottom, anchor='nw')
+
+        # event: Actual size after an expander changes; keep content reachable.
+        def resize_bottom(event):
+            self.bottom_canvas.configure(scrollregion=self.bottom_canvas.bbox('all'),
+                                         height=min(280, max(36, event.height)))
+
+        bottom.bind('<Configure>', resize_bottom)
+        self.bottom_canvas.bind('<Configure>', lambda event: self.bottom_canvas.itemconfigure(bottom_item, width=event.width))
+        self.bottom_canvas.bind('<Configure>', lambda event: self.arrange_bottom(), add='+')
+        animation = self.section(bottom, 'Animation', False)
         self.refresh_section('Animation', 'Animation · static sample only')
         caption(animation, 'Playback, stepping and worker replay are not supported by this P04 contract.',
                 wraplength=580).pack(anchor='w')
-        routes = self.section(self.center, 'Routes', True)
+        routes = self.section(bottom, 'Routes', True)
         self.route_summary = tk.StringVar()
         caption(routes, textvariable=self.route_summary, wraplength=590).pack(anchor='w')
         caption(routes, 'Source analysis · route replay unavailable · no observed replay', 10).pack(anchor='w')
-        atlas = self.section(self.center, 'Atlas', True)
+        atlas = self.section(bottom, 'Atlas', True)
         self.thumbnails = tk.Frame(atlas, bg=BG)
         self.thumbnails.pack(fill='x')
         action(atlas, 'Open saved capture…', self.open_capture).pack(anchor='w')
@@ -235,7 +289,8 @@ class StudioWindow:
             variable = self.inputs[key] = tk.StringVar()
             if key in ('network', 'orientation'):
                 values = ('Connected', 'Disconnected') if key == 'network' else ('0', '180')
-                ttk.Combobox(scenario, textvariable=variable, values=values, state='readonly').pack(fill='x')
+                ttk.Combobox(scenario, textvariable=variable, values=values, state='readonly',
+                             style='Studio.TCombobox').pack(fill='x')
             else:
                 self.field(scenario, variable).pack(fill='x')
         self.auto_rotate = tk.BooleanVar()
@@ -257,10 +312,13 @@ class StudioWindow:
         self.note.pack(fill='x')
         self.review = tk.StringVar(value='unreviewed')
         ttk.Combobox(notes, textvariable=self.review, values=('unreviewed', 'annotated', 'approved'),
-                     state='readonly').pack(fill='x', pady=4)
+                     state='readonly', style='Studio.TCombobox').pack(fill='x', pady=4)
         action(notes, 'Save capture review', self.save_note).pack(anchor='w')
         self.refresh_section('Review notes', 'Review notes · 0')
-        caption(self.root, textvariable=self.status, size=10, wraplength=1300).pack(fill='x', padx=24, pady=10)
+        self.arrange_bottom()
+        self.status_label = caption(self.root, textvariable=self.status, size=10, wraplength=1300)
+        self.status_label.pack(side='bottom', fill='x', padx=24, pady=10, before=work)
+        self.status_label.bind('<Configure>', lambda event: self.status_label.configure(wraplength=max(120, event.width)))
         self.columns()
         self.tree.selection_set('ui-v1:display')
 
@@ -379,7 +437,7 @@ class StudioWindow:
             else:
                 self.set_current(record)
                 self.status.set(f'Acquired · native completed frame · {record.metadata_path.name} · physical acceptance pending')
-        self.root.after(40, self.poll)
+        self.poll_id = self.root.after(40, self.poll)
 
     # record: A verified immutable capture record; never automatically becomes baseline.
     def set_current(self, record):
@@ -406,6 +464,8 @@ class StudioWindow:
 
     # No parameters: present proportional native pixels or a compatible comparison.
     def draw(self):
+        for mode, control in self.mode_controls:
+            control.configure(fg=ORANGE if self.mode.get() == mode else FG)
         if self.current is None:
             return
         try:
@@ -539,5 +599,6 @@ class StudioWindow:
     def close(self):
         self.persist()
         self.closed = True
+        self.root.after_cancel(self.poll_id)
         self.executor.shutdown(wait=False, cancel_futures=True)
         self.root.destroy()

@@ -2,7 +2,9 @@
 
 Invoke through ``device.ps1 check -Check cody-studio`` after obtaining approval.
 The default suite does not load a native library or build one. ``--native`` also
-captures P04 twice in fresh processes with independent settings stores. Generated
+captures P04 twice in fresh processes with independent settings stores. ``--ui``
+uses the real Tk/native product in an isolated session and exports host screenshots.
+It needs a display, for example Xvfb on Linux. Generated
 fixtures and captures remain in artifacts/ for inspection and manual cleanup.
 """
 
@@ -12,9 +14,11 @@ import argparse
 from copy import deepcopy
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
+import time
 import unittest
 from unittest.mock import patch
 from uuid import uuid4
@@ -400,12 +404,364 @@ class NativeWorkerTests(unittest.TestCase):
         self.assertEqual(compare_captures(*captures).status, "unchanged")
 
 
+class NativeUiTests(unittest.TestCase):
+    """Exercise the real Tk product and native owner, without manual dialogs.
+
+    File dialogs select retained fixture paths and message boxes are observed
+    without blocking the suite. Native preparation, capture, comparison, widget
+    activation and Tk geometry remain the actual product implementation.
+    """
+
+    # self: One native/Tk workflow, isolated from the interactive settings/UI state.
+    # Raises the original display/bootstrap error or an assertion on owner failures.
+    def setUp(self):
+        import tkinter as tk
+        from cody_native_device import NativeDevice
+        import cody_studio_window
+
+        self.tk, self.ui_module = tk, cody_studio_window
+        self.directory = fixture_directory()
+        self.state_path = self.directory / "ui-state.json"
+        self.preferences_patch = patch.object(cody_studio_window, "STATE_PATH", self.state_path)
+        self.preferences_patch.start()
+        self.addCleanup(self.preferences_patch.stop)
+        self.errors, self.callback_errors = [], []
+        self.message_patch = patch.object(cody_studio_window.messagebox, "showerror", side_effect=self.record_error)
+        self.message_patch.start()
+        self.addCleanup(self.message_patch.stop)
+        self.device = NativeDevice({"reason": "SIMULATED-STUDIO-UI-CHECK"}, self.directory / "session.nvs",
+                                   80, True, 1, deterministic_clock=True)
+        self.device.start()
+        self.window = None
+        self.addCleanup(self.close_window)
+        self.open_window(default_scenario())
+
+    # args: Actual message-box title and error text from the UI error boundary.
+    # kwargs: Tk parent and optional dialog settings; no dialog is displayed.
+    def record_error(self, *args, **kwargs):
+        self.errors.append(str(args[1] if len(args) > 1 else kwargs.get("message", "")))
+
+    # error_type: Tk callback's original exception type.
+    # error: Actual callback exception, retained for assertions.
+    # traceback: Original callback traceback; no alternate UI behavior is supplied.
+    def callback_error(self, error_type, error, traceback):
+        self.callback_errors.append(f"{error_type.__name__}: {error}")
+
+    # No parameters: close only this fixture window and drain its bounded UI executor.
+    # Raises an executor/Tk failure instead of leaving it hidden after a failed test.
+    def close_window(self):
+        if self.window is not None:
+            if not self.window.closed:
+                self.window.close()
+            self.window.executor.shutdown(wait=True, cancel_futures=True)
+            self.window = None
+
+    # scenario: Strict complete case used by the actual initial Apply callback.
+    # Raises Tk/native errors; the existing NativeDevice remains process-owned.
+    def open_window(self, scenario):
+        self.root = self.tk.Tk()
+        self.root.report_callback_exception = self.callback_error
+        self.window = self.ui_module.StudioWindow(self.root, self.device, scenario)
+        self.wait_for(lambda: bool(self.errors) or (self.window.current is not None and not self.window.busy),
+                      "initial native UI capture", timeout=45)
+        self.assertEqual(self.errors, [], "Initial UI preparation failed")
+
+    # predicate: Observable completed state; no elapsed pause substitutes for completion.
+    # description: Assertion context when the bounded real event-loop wait expires.
+    # timeout: Real seconds, distinct from the controlled scenario clock.
+    # Raises AssertionError for a timeout or uncaught Tk callback failure.
+    def wait_for(self, predicate, description, timeout=15):
+        completed = self.tk.BooleanVar(master=self.root, value=False)
+        deadline, outcome = time.monotonic() + timeout, {"done": False}
+
+        # No parameters: inspect actual Tk/owner state, then schedule another event check.
+        def observe():
+            if self.callback_errors:
+                completed.set(True)
+            elif predicate():
+                outcome["done"] = True
+                completed.set(True)
+            elif time.monotonic() >= deadline:
+                completed.set(True)
+            else:
+                self.root.after(10, observe)
+
+        self.root.after_idle(observe)
+        self.root.wait_variable(completed)
+        self.assertEqual(self.callback_errors, [], "Uncaught Tk callback failure")
+        self.assertTrue(outcome["done"], f"Timed out waiting for {description}; UI: {self.window.status.get()}")
+
+    # name: Human-visible button caption, matched by its current UI text.
+    # Raises AssertionError if the requested action is absent or ambiguous.
+    def button(self, name):
+        pending, matches = [self.root], []
+        while pending:
+            widget = pending.pop()
+            pending.extend(widget.winfo_children())
+            if widget.winfo_class() == "Button" and str(widget.cget("text")) == name:
+                matches.append(widget)
+        self.assertEqual(len(matches), 1, f"Expected one actual UI button: {name}")
+        return matches[0]
+
+    # No parameters: activate the real Apply button and wait for a new saved native frame.
+    # Raises AssertionError if input is rejected, a worker fails or acquisition stalls.
+    def apply_form(self):
+        previous = self.window.current
+        count = len(self.errors)
+        self.window.apply_button.invoke()
+        self.wait_for(lambda: len(self.errors) > count or (not self.window.busy and self.window.current is not previous),
+                      "new native UI capture", timeout=45)
+        self.assertEqual(len(self.errors), count, "Valid form failed native preparation")
+        self.assertIsNot(self.window.current, previous)
+        return self.window.current
+
+    # scenario: Valid scenario to place into actual form controls before Apply.
+    def fill_scenario(self, scenario):
+        self.window.scenario = deepcopy(scenario)
+        self.window.show_scenario()
+
+    # filename: Fixture-owned PNG screenshot filename; the native image stays untouched.
+    # Raises display/image errors; screenshots document host UI, not device acceptance.
+    def screenshot(self, filename):
+        from PIL import ImageGrab
+
+        # Process queued Configure/scroll events before drawing and flushing X output.
+        self.root.update()
+        self.window.draw()
+        self.root.update_idletasks()
+        self.root.update()
+        left, top = self.root.winfo_rootx(), self.root.winfo_rooty()
+        bounds = (left, top, left + self.root.winfo_width(), top + self.root.winfo_height())
+        destination = self.directory / filename
+        ImageGrab.grab(bbox=bounds, xdisplay=os.environ.get("DISPLAY")).save(destination)
+        print(f"Studio UI screenshot: {destination}", flush=True)
+
+    # widget: Actual mapped control whose complete rectangle must be reachable.
+    # viewport: Root window or scrolling canvas bounding the visible region.
+    # Raises AssertionError when a control is hidden, clipped or given zero area.
+    def assert_widget_visible(self, widget, viewport):
+        self.root.update_idletasks()
+        self.assertTrue(widget.winfo_ismapped(), f"Hidden widget: {widget}")
+        left, top = widget.winfo_rootx(), widget.winfo_rooty()
+        width, height = widget.winfo_width(), widget.winfo_height()
+        view_left, view_top = viewport.winfo_rootx(), viewport.winfo_rooty()
+        self.assertGreater(width, 1)
+        self.assertGreater(height, 1)
+        self.assertGreaterEqual(left, view_left)
+        self.assertGreaterEqual(top, view_top)
+        self.assertLessEqual(left + width, view_left + viewport.winfo_width())
+        self.assertLessEqual(top + height, view_top + viewport.winfo_height())
+
+    # No parameters: require the operational status text to survive every layout size.
+    # Raises AssertionError if the reserved status area or its text is clipped.
+    def assert_status_visible(self):
+        label = self.window.status_label
+        self.assert_widget_visible(label, self.root)
+        self.assertGreaterEqual(label.winfo_width() + 2, label.winfo_reqwidth())
+        self.assertGreaterEqual(label.winfo_height() + 2, label.winfo_reqheight())
+
+    # No parameters: scroll the actual bottom viewport to the complete Atlas controls.
+    # Raises AssertionError if saved thumbnails remain below the visible scroll region.
+    def show_atlas(self):
+        window = self.window
+        if not window.sections["Atlas"][2]:
+            window.sections["Atlas"][0].invoke()
+        self.root.update()
+        viewport = window.bottom_canvas
+        viewport.yview_moveto(1.0)
+        self.root.update()
+        self.assert_widget_visible(viewport, self.root)
+        self.assertGreaterEqual(viewport.yview()[1], 0.999)
+        thumbnails = window.thumbnails.winfo_children()
+        self.assertTrue(thumbnails, "Atlas has no acquired thumbnail controls")
+        for control in thumbnails:
+            self.assert_widget_visible(control, viewport)
+        self.assert_widget_visible(self.button("Open saved capture…"), viewport)
+
+    # root: Existing Tcl interpreter, including after its Tk window is destroyed.
+    # Returns product poll timers independently of its chosen Python attribute name.
+    def pending_poll_callbacks(self, root):
+        scheduled = root.tk.splitlist(root.tk.call("after", "info"))
+        return {identity for identity in scheduled
+                if "poll" in str(root.tk.call("after", "info", identity)).lower()}
+
+    # expected_ratio: Native frame/comparison width-to-height ratio, before host scaling.
+    # minimum_height: Smallest readable rendered frame height admitted in host pixels.
+    # Raises AssertionError if the displayed image clips or changes native proportions.
+    def assert_frame_geometry(self, expected_ratio, minimum_height=2):
+        self.root.update_idletasks()
+        images = [item for item in self.window.canvas.find_all() if self.window.canvas.type(item) == "image"]
+        self.assertEqual(len(images), 1)
+        left, top, right, bottom = self.window.canvas.bbox(images[0])
+        width, height = self.window.canvas.winfo_width(), self.window.canvas.winfo_height()
+        self.assertGreater(right - left, 1)
+        self.assertGreaterEqual(bottom - top, minimum_height)
+        self.assertGreaterEqual(left, 0)
+        self.assertGreaterEqual(top, 0)
+        self.assertLessEqual(right, width)
+        self.assertLessEqual(bottom, height)
+        self.assertLessEqual(abs((right - left) - expected_ratio * (bottom - top)), 2)
+
+    # self: One real native owner reused through edits and a reopened Tk window.
+    # Raises AssertionError for frame contamination, broken controls or lost review state.
+    def test_native_ui_edit_compare_resize_focus_and_persistence(self):
+        window = self.window
+        original = default_scenario()
+        first = window.current
+        self.root.geometry("1440x960+0+0")
+        self.wait_for(lambda: window.canvas.winfo_width() > 100, "wide canvas geometry")
+        window.draw()
+        self.assert_frame_geometry(1)
+        self.show_atlas()
+        self.assert_status_visible()
+        self.screenshot("studio-wide.png")
+        self.button("Preserve current as baseline").invoke()
+        baseline = window.baseline
+        retained = (baseline.image_path.read_bytes(), baseline.metadata_path.read_bytes())
+        window.mode.set("side-by-side")
+        window.draw()
+        self.assert_frame_geometry(2)
+        self.show_atlas()
+        self.assert_status_visible()
+        self.screenshot("studio-compare.png")
+
+        window.left_visible.set(False)
+        window.right_visible.set(False)
+        window.columns()
+        for name in ("Animation", "Routes", "Atlas"):
+            if window.sections[name][2]:
+                window.sections[name][0].invoke()
+        self.root.geometry("720x540+0+0")
+        self.wait_for(lambda: self.root.winfo_width() == 720, "small window geometry")
+        window.mode.set("current")
+        window.draw()
+        self.assert_frame_geometry(1, minimum_height=180)
+        self.assertFalse(window.left.winfo_ismapped())
+        self.assertFalse(window.right_host.winfo_ismapped())
+        for name in ("Animation", "Routes", "Atlas"):
+            self.assertFalse(window.sections[name][2])
+            self.assert_widget_visible(window.sections[name][0], window.bottom_canvas)
+        self.assert_status_visible()
+        self.screenshot("studio-small.png")
+
+        self.root.geometry("1440x960+0+0")
+        window.left_visible.set(True)
+        window.right_visible.set(True)
+        window.columns()
+        self.root.update()
+        heading = window.sections["Scenario"][0]
+        before = window.sections["Scenario"][2]
+        heading.focus_force()
+        self.root.update()
+        self.assertEqual(self.root.focus_get(), heading)
+        self.assertGreater(int(heading.cget("highlightthickness")), 0)
+        self.assertEqual(heading.cget("highlightcolor"), self.ui_module.ORANGE)
+        heading.event_generate("<KeyPress-space>")
+        heading.event_generate("<KeyRelease-space>")
+        self.wait_for(lambda: window.sections["Scenario"][2] != before, "keyboard expander activation")
+        heading.event_generate("<KeyPress-Tab>")
+        heading.event_generate("<KeyRelease-Tab>")
+        self.root.update()
+        self.assertIsNotNone(self.root.focus_get())
+        self.assertNotEqual(self.root.focus_get(), heading)
+        if not window.sections["Scenario"][2]:
+            heading.invoke()
+
+        changed = deepcopy(original)
+        changed["common"]["settings"].update(brightness_percent=10, auto_rotate=True, orientation_degrees=180)
+        changed["common"]["observations"]["battery"]["level_percent"] = 0
+        changed["common"]["observations"]["network"] = {"connected": True, "ssid": "S" * 32, "rssi": -100}
+        changed["common"]["observations"]["clock"]["utc_offset_minutes"] = -840
+        self.fill_scenario(changed)
+        second = self.apply_form()
+        self.assertEqual(second.metadata["scenario_revision"], scenario_revision(changed))
+        self.assertIn("Not comparable", window.compare_status.get())
+        self.assertEqual(window.baseline.metadata_path, baseline.metadata_path)
+        saved = self.directory / "edited-scenario.json"
+        with patch.object(self.ui_module.filedialog, "asksaveasfilename", return_value=str(saved)):
+            self.button("Save scenario…").invoke()
+        self.assertEqual(load_scenario(saved), changed)
+
+        upper = deepcopy(changed)
+        upper["common"]["settings"].update(brightness_percent=100, auto_rotate=False, orientation_degrees=0)
+        upper["common"]["observations"]["battery"]["level_percent"] = 100
+        upper["common"]["observations"]["network"]["rssi"] = -1
+        upper["common"]["observations"]["clock"]["utc_offset_minutes"] = 840
+        self.fill_scenario(upper)
+        self.assertEqual(self.apply_form().metadata["scenario_revision"], scenario_revision(upper))
+        self.fill_scenario(original)
+        restored = self.apply_form()
+        self.assertEqual(restored.metadata["pixel_sha256"], first.metadata["pixel_sha256"],
+                         "A→B→C→A changed a controlled static native frame")
+        with patch.object(self.ui_module.filedialog, "askopenfilename", return_value=str(saved)):
+            self.button("Open scenario…").invoke()
+        self.assertEqual(window.form(), changed)
+        self.assertEqual(window.current.metadata_path, restored.metadata_path,
+                         "Loading a scenario must wait for explicit Apply")
+        replayed = self.apply_form()
+        self.assertEqual(replayed.metadata["pixel_sha256"], second.metadata["pixel_sha256"])
+
+        for name in ("Atlas", "Review notes"):
+            if not window.sections[name][2]:
+                window.sections[name][0].invoke()
+        self.show_atlas()
+        window.note.insert("1.0", "Inspect this exact native capture.")
+        window.review.set("approved")
+        self.button("Save capture review").invoke()
+        window.set_current(first)
+        with patch.object(self.ui_module.filedialog, "askopenfilename", return_value=str(replayed.metadata_path)):
+            self.button("Open saved capture…").invoke()
+        self.assertEqual(window.review.get(), "approved")
+        self.assertEqual(window.note.get("1.0", "end").strip(), "Inspect this exact native capture.")
+        self.assertIn("1", window.sections["Review notes"][3])
+
+        previous = window.current
+        failures = len(self.errors)
+        window.inputs["brightness"].set("9")
+        window.apply_button.invoke()
+        self.assertEqual(len(self.errors), failures + 1)
+        self.assertFalse(window.busy)
+        self.assertEqual(window.current.metadata_path, previous.metadata_path)
+        window.inputs["brightness"].set("10")
+        invalid = self.directory / "invalid-scenario.json"
+        invalid.write_text('{"schema":"unsupported"}', encoding="utf-8")
+        form_before = window.form()
+        with patch.object(self.ui_module.filedialog, "askopenfilename", return_value=str(invalid)):
+            self.button("Open scenario…").invoke()
+        self.assertEqual(len(self.errors), failures + 2)
+        self.assertEqual(window.form(), form_before)
+        self.assertEqual(window.current.metadata_path, previous.metadata_path)
+        self.assertEqual((baseline.image_path.read_bytes(), baseline.metadata_path.read_bytes()), retained)
+
+        for name in ("Comparison", "Changes", "Review notes", "Animation", "Routes", "Atlas"):
+            window.sections[name][0].invoke()
+        expected = {name: values[2] for name, values in window.sections.items()}
+        window.left_visible.set(False)
+        window.columns()
+        preferences = json.loads(self.state_path.read_text(encoding="utf-8"))
+        self.assertEqual(preferences["expanders"], expected)
+        old_root = self.root
+        pending_poll = self.pending_poll_callbacks(old_root)
+        self.assertTrue(pending_poll, "Live Studio has no scheduled result poll")
+        self.close_window()
+        self.assertFalse(pending_poll & self.pending_poll_callbacks(old_root),
+                         "Closed Studio retained a Tcl poll callback")
+        # Expected validation errors were observed; the reopened real window must succeed.
+        self.errors.clear()
+        self.open_window(original)
+        self.assertEqual({name: values[2] for name, values in self.window.sections.items()}, expected)
+        self.assertFalse(self.window.left_visible.get())
+        self.assertEqual((baseline.image_path.read_bytes(), baseline.metadata_path.read_bytes()), retained)
+
+
 # argv: Explicit suite flags after the public command dispatcher.
 # Returns the unit-test exit code; raises argparse errors for unknown options.
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--native", action="store_true",
                         help="Also capture P04 in two fresh prebuilt native processes")
+    parser.add_argument("--ui", action="store_true",
+                        help="Also exercise real Tk/native editing, comparisons, focus and resize; requires a display")
     arguments = parser.parse_args(argv)
     loader = unittest.TestLoader()
     suite = unittest.TestSuite([loader.loadTestsFromTestCase(CatalogContractTests),
@@ -414,6 +770,8 @@ def main(argv=None):
                                loader.loadTestsFromTestCase(BuildProvenanceContractTests)])
     if arguments.native:
         suite.addTests(loader.loadTestsFromTestCase(NativeWorkerTests))
+    if arguments.ui:
+        suite.addTests(loader.loadTestsFromTestCase(NativeUiTests))
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     print("Generated artifacts are retained; cleanup is manual.")
     return 0 if result.wasSuccessful() else 1
