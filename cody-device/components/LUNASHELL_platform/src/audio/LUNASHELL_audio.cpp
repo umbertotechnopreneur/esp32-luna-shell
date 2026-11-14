@@ -915,17 +915,32 @@ esp_err_t access_user_audio_control(bool input, bool write, uint8_t requested, u
 #endif
     esp_err_t error = LUNASHELL_audio_init();
     if (error != ESP_OK) return error;
-#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
-    // Do not delay the AFE feed behind a playback/codec lock. The settings
-    // worker may retry after the current RX buffer has retired.
-    std::unique_lock<std::mutex> voice_guard(LUNASHELL::voice_capture_guard(), std::defer_lock);
-    if (input && !voice_guard.try_lock()) return ESP_ERR_NOT_FINISHED;
-#endif
     SemaphoreHandle_t mutex = audio_mutex();
     if (mutex == nullptr) return ESP_ERR_NO_MEM;
+    bool audio_locked = false;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
+    // A single try every few seconds can repeatedly land during an RX read.
+    // Give the settings worker a short window to catch a gap between reads;
+    // never hold the feed guard while waiting for the playback/codec mutex.
+    std::unique_lock<std::mutex> voice_guard(LUNASHELL::voice_capture_guard(), std::defer_lock);
+    if (input) {
+        const int64_t deadline_us = esp_timer_get_time() + 40000;
+        do {
+            if (voice_guard.try_lock()) {
+                if (xSemaphoreTake(mutex, 0) == pdTRUE) {
+                    audio_locked = true;
+                    break;
+                }
+                voice_guard.unlock();
+            }
+            vTaskDelay(std::max<TickType_t>(1, pdMS_TO_TICKS(1)));
+        } while (esp_timer_get_time() < deadline_us);
+        if (!audio_locked) return ESP_ERR_NOT_FINISHED;
+    }
+#endif
     // Settings must not delay startup or a live capture/playback owner. The
     // caller retains the busy result and can retry when the route is available.
-    if (xSemaphoreTake(mutex, 0) != pdTRUE) return ESP_ERR_NOT_FINISHED;
+    if (!audio_locked && xSemaphoreTake(mutex, 0) != pdTRUE) return ESP_ERR_NOT_FINISHED;
     if (s_standby.load(std::memory_order_acquire) || s_audio_state_poisoned.load(std::memory_order_acquire) ||
         (input ? !s_microphone_open : !s_speaker_open)) {
         audio_unlock(mutex);

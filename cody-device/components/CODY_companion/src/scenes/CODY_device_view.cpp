@@ -29,9 +29,8 @@ constexpr CODY2D::Rect kVoiceHeading{73, 84, 320, 42};
 constexpr CODY2D::Rect kVoiceStatus{73, 127, 320, 25};
 constexpr CODY2D::Rect kVoiceDetail{73, 152, 320, 25};
 constexpr CODY2D::Rect kVoiceCountdownDigit{185, 176, 96, 74};
-constexpr CODY2D::Rect kVoiceFailureIcon{201, 142, 64, 64};
-constexpr CODY2D::Rect kVoiceFailureStatus{73, 220, 320, 40};
-constexpr CODY2D::Rect kVoiceFailureDetail{73, 270, 320, 28};
+constexpr CODY2D::Rect kVoiceFailureStatus{73, 250, 320, 40};
+constexpr CODY2D::Rect kVoiceFailureDetail{73, 294, 320, 28};
 static_assert(kVoiceDetail.y + kVoiceDetail.height <= kVoiceRibbonDamageTop,
     "Dictation captions must stay above the animation band");
 constexpr CODY2D::Rect kSingleAction{103, 269, 260, 50};
@@ -59,7 +58,7 @@ constexpr std::array<OverviewRowLayout, 3> kOverviewRows{{
     {"Codex", 164}, {"Wi-Fi", 216}, {"Battery", 268},
 }};
 
-enum class TextAlignment : uint8_t { Center, Left, Right };
+using TextAlignment = UI::TextAlignment;
 
 bool current(const LUNASHELL::ComponentSnapshot &observation)
 {
@@ -77,32 +76,8 @@ bool current(const LUNASHELL::ComponentSnapshot &observation)
 esp_err_t prepare_line(const char *text, const CODY2D::MonoFont &font, CODY2D::Rect bounds,
     uint16_t color, CODY2D::TextLine &line, TextAlignment alignment = TextAlignment::Center)
 {
-    if (text[0] == '\0') {
-        return ESP_OK;
-    }
-    const CODY2D::TextSpan span{text, static_cast<uint16_t>(std::strlen(text))};
-    uint32_t width = 0;
-    esp_err_t error = CODY2D::measure_text_width(font, span, width);
-    if (error != ESP_OK) {
-        return error;
-    }
-    const auto *selected = &font;
-    if (width > bounds.width && selected != &SceneData::body_font) {
-        selected = &SceneData::body_font;
-        error = CODY2D::measure_text_width(*selected, span, width);
-        if (error != ESP_OK) {
-            return error;
-        }
-    }
-    if (width > bounds.width || selected->height > bounds.height) {
-        return ESP_ERR_INVALID_SIZE;
-    }
-    uint32_t x = bounds.x;
-    if (alignment == TextAlignment::Center) x += (bounds.width - width) / 2U;
-    if (alignment == TextAlignment::Right) x += bounds.width - width;
-    return CODY2D::prepare_text_line(*selected, span,
-        {static_cast<int16_t>(x),
-         static_cast<int16_t>(bounds.y + (bounds.height - selected->height) / 2U)}, color, line);
+    return UI::prepare_text_with_fallback(font, text, bounds, color, line, 64,
+        &SceneData::body_font, alignment, true);
 }
 
 // text: Bounded action caption.
@@ -135,11 +110,7 @@ esp_err_t draw_message_rows(const void *state, CODY2D::Surface strip, uint16_t f
         return ESP_ERR_INVALID_STATE;
     }
     const auto &plain = *static_cast<const PlainView *>(state);
-    if (plain.layout == DeviceMessageLayout::VoiceFailure) {
-        const auto error = CODY2D::draw_action_icon_rows(CODY2D::ActionIcon::Microphone,
-            kVoiceFailureIcon, kAttention, strip, first_row, first_column);
-        if (error != ESP_OK) { return error; }
-    }
+
     for (const auto &line : plain.captions) {
         if (line.valid) {
             const auto error = CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
@@ -454,13 +425,15 @@ esp_err_t prepare_device_chrome(DeviceChrome &chrome, const DeviceDashboardData 
 // strip: Borrowed display tile.
 // first_row: Logical y of the tile.
 // first_column: Logical x of the tile.
+// status_override: Optional storage failure replacing the shared connection caption, never controls.
 // Exception: Returns the first original text or capsule raster error.
 esp_err_t draw_device_chrome(const DeviceChrome &chrome, CODY2D::Surface strip,
-    uint16_t first_row, uint16_t first_column)
+    uint16_t first_row, uint16_t first_column, const StatusCaption *status_override)
 {
     esp_err_t error = ESP_OK;
-    if (chrome.connection.valid) {
-        error = draw_status_caption_rows(chrome.connection, strip, first_row, first_column);
+    const auto &caption = status_override != nullptr ? *status_override : chrome.connection;
+    if (caption.valid) {
+        error = draw_status_caption_rows(caption, strip, first_row, first_column);
     }
     if (error == ESP_OK && chrome.battery_sequence != 0) {
         error = CODY2D::draw_capsule_rows(chrome.battery, strip, first_row, first_column);
@@ -532,7 +505,7 @@ esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
     if (error == ESP_OK && layout == DeviceMessageLayout::VoiceCountdown) {
         error = prepare_line(plain.text[5].data(), HomeFonts::value_font, kVoiceCountdownDigit, kWhite, plain.captions[2]);
     } else if (error == ESP_OK) {
-        const uint16_t top = voice_failure ? 312 : layout == DeviceMessageLayout::Dashboard ? 230 : 234;
+        const uint16_t top = voice_failure ? 326 : layout == DeviceMessageLayout::Dashboard ? 230 : 234;
         error = prepare_line(plain.text[5].data(), SceneData::body_font, {73, top, 320, 27},
             voice_failure ? kMuted : kWhite, plain.captions[2]);
     }
@@ -656,16 +629,17 @@ esp_err_t prepare_device_dashboard(DeviceView &view, DeviceFrameContent &frame,
 }
 
 // view: Persistent information presentation, changed after the previous frame retires.
-// frame: Receives native content only; navigation belongs to the retained model.
-// model: Canonical diagnostics, selected child and build identity supplied by the device owner.
+// frame: Receives native content only; navigation belongs to the display owner.
+// model: Canonical diagnostics and build identity supplied by the device owner.
+// page: Selected information page supplied separately by navigation.
 // Exception: Preserves original formatting and native geometry failures.
-esp_err_t prepare_device_info(DeviceView &view, DeviceFrameContent &frame, const DeviceModel &model)
+esp_err_t prepare_device_info(DeviceView &view, DeviceFrameContent &frame, const DeviceModel &model, InfoPage page)
 {
     frame = {};
     view.overview.valid = false;
     view.plain.valid = false;
     SystemInfoInput input{};
-    input.page = model.info_page;
+    input.page = page;
     input.diagnostics = &model.diagnostics;
     input.diagnostics_error = model.diagnostics_error;
     input.build = model.dashboard.build;

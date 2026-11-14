@@ -209,8 +209,8 @@ void read_hub(CodexBrowser &browser)
     draft.count = 3;
     set_row(draft.rows[0], "Chats", "Browse chats and turns", Icon::PlanAccount, kCyan, {Action::Chats});
     set_row(draft.rows[1], "Active calls", "Inspect tool activity", Icon::Motion, kMint, {Action::ActiveCalls});
-    set_row(draft.rows[2], "Questions", "View pending", Icon::Clock, kAmber,
-        {Action::PendingQuestions});
+    set_row(draft.rows[2], "Notifications", "Questions and updates", Icon::Clock, kAmber,
+        {Action::Events});
 
     auto &service = DeviceSnapshotService::instance();
     const auto summary_error = service.readCodexDomainObservation({}, browser.observation);
@@ -224,7 +224,7 @@ void read_hub(CodexBrowser &browser)
         const auto &attention = browser.observation.attention;
         if (attention.questions_complete) {
             auto &detail = draft.rows[2].detail;
-            std::snprintf(detail.data(), detail.size(), "%lu pending",
+            std::snprintf(detail.data(), detail.size(), "%lu pending questions",
                 static_cast<unsigned long>(attention.pending_questions));
         }
         if (attention.calls_complete) {
@@ -316,7 +316,7 @@ void project_turns(CodexBrowserPage &draft, const Domain::StateTurnPage &source,
         const auto &row = source.rows[index];
         const auto *note = state_note(row.execution.fact);
         auto &visual = draft.rows[index];
-        set_row(visual, row.id == current ? "Current turn" : "Turn",
+        set_row(visual, row.id == current ? "Current activity" : "Turn",
             note ? note : execution(row.execution.value), Icon::Clock, note ? kAmber : kCyan,
             {Action::Turn, row.id.value});
         append_stale_state(visual, row.execution.fact, execution(row.execution.value));
@@ -542,7 +542,7 @@ bool same_page(const CodexBrowserPage &left, const CodexBrowserPage &right)
 
 // browser: Display owner with fixed text-line slots.
 // text: ASCII source caption, copied and ellipsized before preparing glyphs.
-// font: Existing native fixed-advance scene font.
+// font: Existing native caption face; fitting uses measured glyph widths.
 // slot: Exact safe rectangle for the text line.
 // color: Native RGB565 ink.
 // centered: True for headings/footer rather than row titles.
@@ -562,25 +562,18 @@ esp_err_t add_line(CodexBrowser &browser, const char *text, const CODY2D::MonoFo
         ++browser.line_count;
         return ESP_OK;
     }
-    copy(prepared.text, text);
-    const auto maximum = static_cast<size_t>((slot.width - font.width) / font.advance + 1);
-    auto length = std::strlen(prepared.text.data());
-    if (length > maximum) {
-        if (maximum < 4) return ESP_ERR_INVALID_SIZE;
-        length = maximum;
-        std::memcpy(prepared.text.data() + length - 3, "...", 4);
-    }
-    const CODY2D::TextSpan span{prepared.text.data(), static_cast<uint16_t>(length)};
+    const auto error = FlatMenuRow::prepare_label(font, text, slot, color,
+        prepared.text.data(), prepared.text.size(), prepared.line);
+    if (error != ESP_OK) return error;
     uint32_t width = 0;
-    const auto measured = CODY2D::measure_text_width(font, span, width);
+    const auto measured = CODY2D::measure_text_width(font, prepared.line.text, width);
     if (measured != ESP_OK) return measured;
     if (width > slot.width) return ESP_ERR_INVALID_SIZE;
     const auto x = slot.x + (centered ? (slot.width - width) / 2U : 0U);
-    const auto y = slot.y + (slot.height - font.height) / 2U;
-    const auto error = CODY2D::prepare_text_line(font, span,
-        {static_cast<int16_t>(x), static_cast<int16_t>(y)}, color, prepared.line);
-    if (error == ESP_OK) ++browser.line_count;
-    return error;
+    prepared.line.origin.x = static_cast<int16_t>(x);
+    prepared.line.bounds.x = static_cast<uint16_t>(x);
+    ++browser.line_count;
+    return ESP_OK;
 }
 
 // browser: Last prepared panel.
@@ -655,16 +648,14 @@ esp_err_t prepare_layout(CodexBrowser &browser)
     if (error != ESP_OK) return error;
     if (browser.route == Route::Hub) {
         const bool resume = page.resume.valid();
-        const CODY2D::Rect statistics = resume ? CODY2D::Rect{87, 350, 116, 42} : CODY2D::Rect{91, 350, 138, 42};
-        const CODY2D::Rect events = resume ? CODY2D::Rect{211, 350, 80, 42} : CODY2D::Rect{237, 350, 138, 42};
+        const CODY2D::Rect statistics = resume ? CODY2D::Rect{91, 350, 138, 42} : CODY2D::Rect{113, 350, 240, 42};
         error = add_button(browser, 3, statistics, {Action::Statistics}, "Statistics", Icon::Statistics);
-        if (error == ESP_OK) error = add_button(browser, 4, events, {Action::Events}, "Events", Icon::Clock);
         if (error == ESP_OK && resume) {
-            error = add_button(browser, 5, {299, 350, 80, 42}, {Action::Resume, page.resume.value}, "Saved", Icon::Check);
+            error = add_button(browser, 5, {237, 350, 138, 42}, {Action::Resume, page.resume.value}, "Saved", Icon::Check);
         }
     } else if (browser.route == Route::PendingQuestions) {
-        // Canonical previews are read-only; only signed Events can send a reply.
-        error = add_button(browser, 3, {113, 350, 240, 42}, {Action::Events}, "Open events");
+        // Canonical previews are read-only; Notifications opens the signed detail.
+        error = add_button(browser, 3, {113, 350, 240, 42}, {Action::Events}, "Notifications");
         if (error == ESP_OK && browser.navigation_pulse) browser.controls[3].caption.color = kCyan;
     } else if (browser.route == Route::Turns) {
         // This opens the PC-followed chat, which can differ from the local bookmark.
@@ -713,7 +704,7 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
         if (error != ESP_OK) return error;
     }
     if (browser.route != Route::Hub && browser.page.known_page_count > 1 && browser.page.known_page_count <= 16) {
-        // Questions reserve the footer for the signed Events action.
+        // Questions reserve the footer for the signed Notifications action.
         const uint16_t top = browser.route == Route::PendingQuestions || browser.route == Route::Turns ? 345 : 370;
         return draw_page_marks(browser.page.page_index, browser.page.known_page_count, strip, row, column, top);
     }

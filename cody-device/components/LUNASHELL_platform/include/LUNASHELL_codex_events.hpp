@@ -30,6 +30,8 @@ enum class CodexEventState : uint8_t {
     None, Pending, Sending, Received, Delivered, Cancelled, Expired, Rejected,
 };
 enum class CodexChoiceTone : uint8_t { Neutral, Positive, Negative, Info };
+// None is reserved for legacy events which did not carry an explicit PC severity.
+enum class CodexEventSeverity : uint8_t { None = 0, Information = 1, Warning = 2, Critical = 3 };
 
 // state: Device transaction state independent of connection/activity freshness.
 [[nodiscard]] constexpr bool codexEventIsOpen(CodexEventState state)
@@ -95,10 +97,14 @@ struct CodexEncryptedReply {
 // Payloads are bounded UI data. Context is a declared label, never a chat identity.
 struct CodexEventPayload {
     CodexEventKind kind = CodexEventKind::None;
+    CodexEventSeverity severity = CodexEventSeverity::None;
     char context[25]{};
     char title[25]{};
     // ApprovalOnPc carries the complete originating title; other bodies retain 63 bytes.
     char body[256]{};
+    // Display metadata stays separate from immutable content and transport errors.
+    char origin_title[256]{};
+    char status[64]{};
     // Decrypted only after authenticated EVENT admission; never used as display text.
     char reply_speech[kCodexReplySpeechBytes + 1]{};
     uint16_t reply_segment_index = 0;
@@ -122,6 +128,7 @@ inline constexpr uint8_t kCodexInboxCapacity = 128;
 struct CodexInboxRow {
     CodexEventKind kind = CodexEventKind::None;
     char request_id[33]{};
+    char label[25]{};
     char title[64]{};
     char preview[64]{};
 };

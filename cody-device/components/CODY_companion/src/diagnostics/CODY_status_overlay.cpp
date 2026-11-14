@@ -37,20 +37,20 @@ using pixel_glyphs::kGlyphColumns;
 using pixel_glyphs::kGlyphRows;
 using pixel_glyphs::MonoGlyph;
 constexpr uint16_t kCharacterAdvance = 6;
-// The fixed positions follow the upper circular edge while preserving room for
-// the centered connection caption and the maximum-width status text.
+// Keep status icons four pixels farther from the circular edge while preserving
+// room for the centered connection caption and maximum-width status text.
 constexpr uint16_t kDateLeft = 188;
 constexpr uint16_t kDateTop = 20;
 constexpr uint16_t kTimeLeft = 204;
 constexpr uint16_t kTimeTop = 34;
 constexpr uint16_t kBatteryLeft = 335;
-constexpr uint16_t kBatteryTop = 57;
+constexpr uint16_t kBatteryTop = 61;
 constexpr uint16_t kBatteryTextLeft = 364;
-constexpr uint16_t kBatteryTextTop = 64;
+constexpr uint16_t kBatteryTextTop = 68;
 constexpr uint16_t kWifiLeft = 100;
-constexpr uint16_t kWifiTop = 57;
+constexpr uint16_t kWifiTop = 61;
 constexpr uint16_t kBluetoothLeft = 155;
-constexpr uint16_t kBluetoothTop = 30;
+constexpr uint16_t kBluetoothTop = 34;
 constexpr uint16_t kDateLight = Theme::chrome_date_on_dark;
 constexpr uint16_t kDateDark = Theme::chrome_date_on_light;
 constexpr uint16_t kTimeLight = Theme::chrome_time_on_dark;

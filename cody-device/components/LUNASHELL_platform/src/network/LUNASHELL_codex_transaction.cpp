@@ -45,7 +45,7 @@ bool validIdentity(const char *value, bool &zero)
 // right: Newly decoded content; selection is the only mutable payload field.
 bool sameContent(const CodexEventPayload &left, const CodexEventPayload &right)
 {
-    if (left.kind != right.kind || std::strcmp(left.context, right.context) != 0 ||
+    if (left.kind != right.kind || left.severity != right.severity || std::strcmp(left.context, right.context) != 0 ||
         std::strcmp(left.title, right.title) != 0 || std::strcmp(left.body, right.body) != 0 ||
         left.choice_count != right.choice_count || left.failure_count != right.failure_count ||
         left.progress_valid != right.progress_valid || left.passed != right.passed || left.total != right.total) {
@@ -113,10 +113,11 @@ bool decodeCodexEventState(const char *token, CodexEventState &state)
 // candidate: Valid decoded payload, or nullptr for absence/retirement.
 // now_us: Owner's monotonic receive time.
 // effect: Publication and transport effects applied by the owner after success.
+// observed_selection: Selection sent under this response's FIND nonce; unrelated replies cannot cancel newer navigation.
 // Exception: Returns original admission error without mutation.
 esp_err_t applyCodexEvent(CodexTransactionView current, const char *request_id,
     CodexEventState state, uint16_t ttl, const CodexEventPayload *candidate,
-    int64_t now_us, CodexTransactionEffect &effect)
+    int64_t now_us, CodexTransactionEffect &effect, const char *observed_selection)
 {
     effect = {};
     bool zero = false;
@@ -173,7 +174,7 @@ esp_err_t applyCodexEvent(CodexTransactionView current, const char *request_id,
              candidate->reply_segment_index != current.payload.reply_segment_index + 1U)) return ESP_ERR_INVALID_RESPONSE;
     }
     const bool explicit_handoff = current.state == CodexEventState::Pending &&
-        current.payload.selected_id[0] == '\0' && candidate->kind == CodexEventKind::Question &&
+        current.payload.selected_id[0] == '\0' &&
         state == CodexEventState::Pending && current.selection_request_id[0] != '\0' &&
         std::strcmp(request_id, current.selection_request_id) == 0;
     if (!same && current.payload.kind == CodexEventKind::Question && codexEventIsOpen(current.state) &&
@@ -193,15 +194,18 @@ esp_err_t applyCodexEvent(CodexTransactionView current, const char *request_id,
     }
     const bool keep_reply = same && state == CodexEventState::Pending &&
         (current.state == CodexEventState::Sending || current.state == CodexEventState::Received);
-    const bool elapsed = same && codexEventIsOpen(current.state) && now_us >= current.expires_at_us;
+    const bool elapsed = same && current.payload.kind == CodexEventKind::Question &&
+        codexEventIsOpen(current.state) && now_us >= current.expires_at_us;
     const int64_t deadline = now_us + static_cast<int64_t>(ttl) * 1000000LL;
     const bool queue_changed = same && !samePendingQuestions(current.payload, *candidate);
+    const bool metadata_changed = same && (std::strcmp(current.payload.origin_title, candidate->origin_title) != 0 ||
+        std::strcmp(current.payload.status, candidate->status) != 0);
     const bool speech_changed = same && (std::strcmp(current.payload.reply_speech, candidate->reply_speech) != 0 ||
         current.payload.reply_segment_index != candidate->reply_segment_index ||
         current.payload.reply_segment_count != candidate->reply_segment_count);
     const bool speech_advanced = speech_changed && current.payload.kind == CodexEventKind::ReplyReady &&
         candidate->reply_speech[0] != '\0' && candidate->reply_segment_index > current.payload.reply_segment_index;
-    effect.changed = !same || queue_changed || speech_changed || (!keep_reply && state != current.state);
+    effect.changed = !same || queue_changed || metadata_changed || speech_changed || (!keep_reply && state != current.state);
     effect.wake = !same && state == CodexEventState::Pending;
     if (!same) {
         current.payload = *candidate;
@@ -209,6 +213,10 @@ esp_err_t applyCodexEvent(CodexTransactionView current, const char *request_id,
         current.expires_at_us = deadline;
         current.selection_request_id[0] = '\0';
     } else {
+        if (metadata_changed) {
+            std::memcpy(current.payload.origin_title, candidate->origin_title, sizeof(current.payload.origin_title));
+            std::memcpy(current.payload.status, candidate->status, sizeof(current.payload.status));
+        }
         if (speech_changed) {
             std::memset(current.payload.reply_speech, 0, sizeof(current.payload.reply_speech));
             std::memcpy(current.payload.reply_speech, candidate->reply_speech,
@@ -220,7 +228,8 @@ esp_err_t applyCodexEvent(CodexTransactionView current, const char *request_id,
             std::memcpy(current.payload.selected_id, candidate->selected_id, sizeof(current.payload.selected_id));
         }
         // Only a completed and authenticated segment handoff renews the reply deadline.
-        current.expires_at_us = speech_advanced ? deadline : std::min(current.expires_at_us, deadline);
+        current.expires_at_us = speech_advanced || candidate->kind != CodexEventKind::Question
+            ? deadline : std::min(current.expires_at_us, deadline);
         current.payload.pending_question_count = candidate->pending_question_count;
         current.payload.pending_entry_count = candidate->pending_entry_count;
         std::memcpy(current.payload.pending_questions, candidate->pending_questions, sizeof(current.payload.pending_questions));
@@ -228,7 +237,8 @@ esp_err_t applyCodexEvent(CodexTransactionView current, const char *request_id,
     if (!keep_reply) {
         current.state = state;
     }
-    if (elapsed || (codexEventIsOpen(current.state) && now_us >= current.expires_at_us)) {
+    if (elapsed || (current.payload.kind == CodexEventKind::Question &&
+        codexEventIsOpen(current.state) && now_us >= current.expires_at_us)) {
         current.state = CodexEventState::Expired;
         effect.changed = true;
     }
@@ -236,14 +246,11 @@ esp_err_t applyCodexEvent(CodexTransactionView current, const char *request_id,
     if (codexEventIsTerminal(current.state)) {
         current.selection_request_id[0] = '\0';
     }
-    if (same && current.selection_request_id[0] != '\0') {
-        bool target_present = false;
-        for (uint8_t index = 0; index < candidate->pending_entry_count; ++index) {
-            target_present = target_present ||
-                std::strcmp(candidate->pending_questions[index].request_id, current.selection_request_id) == 0;
-        }
-        if (!target_present) {
-            // The requested question expired or was withdrawn before the authenticated handoff.
+    if (same && current.selection_request_id[0] != '\0' && observed_selection != nullptr &&
+        std::strcmp(current.selection_request_id, observed_selection) == 0) {
+        if (state == CodexEventState::Pending) {
+            // The exact authenticated response retained this request instead of
+            // following the requested inbox selection. Never show an endless opening state.
             current.selection_request_id[0] = '\0';
             current.last_error = ESP_ERR_NOT_FOUND;
             effect.changed = true;
@@ -311,17 +318,12 @@ esp_err_t applyCodexReplyAck(CodexTransactionView current, const char *request_i
 void expireCodexTransaction(CodexTransactionView current, int64_t now_us, CodexTransactionEffect &effect)
 {
     effect = {};
-    if (!codexEventIsOpen(current.state) || now_us < current.expires_at_us) {
+    if (current.payload.kind != CodexEventKind::Question ||
+        !codexEventIsOpen(current.state) || now_us < current.expires_at_us) {
         return;
     }
-    if (current.payload.kind == CodexEventKind::Question) {
-        current.state = CodexEventState::Expired;
-        current.last_error = ESP_ERR_TIMEOUT;
-    } else {
-        current.payload = {};
-        current.state = CodexEventState::None;
-        current.last_error = ESP_OK;
-    }
+    current.state = CodexEventState::Expired;
+    current.last_error = ESP_ERR_TIMEOUT;
     effect.changed = true;
     effect.clear_reply = true;
     current.selection_request_id[0] = '\0';

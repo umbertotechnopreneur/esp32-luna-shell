@@ -40,6 +40,8 @@
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI
 #include "esp_netif.h"
 #include "esp_netif_sntp.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
 #endif
 #include "esp_timer.h"
 
@@ -76,6 +78,18 @@ esp_err_t s_rtc_persistence_error = ESP_OK;
 LUNASHELL::ClockPreferences s_clock_preferences;
 bool s_clock_preferences_ready;
 esp_err_t s_clock_preferences_error = ESP_ERR_INVALID_STATE;
+// The time owner publishes a manual NTP request independently from current clock validity.
+LUNASHELL::NetworkTimeSyncState s_network_sync_state = LUNASHELL::NetworkTimeSyncState::Idle;
+esp_err_t s_network_sync_error = ESP_OK;
+esp_err_t s_network_auto_error = ESP_OK;
+int64_t s_network_sync_deadline_us = 0;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+// Protected by s_sntp_request_mutex; automatic preference is never changed by a one-shot.
+bool s_manual_sntp_one_shot = false;
+constexpr int64_t kNetworkSyncTimeoutUs = 30LL * 1000000LL;
+constexpr uint32_t kNetworkSyncWorkerStackBytes = 6144;
+std::atomic<TaskHandle_t> s_network_sync_worker{nullptr};
+#endif
 constexpr char kClockPreferencesKey[] = "clock_routine";
 constexpr char kClockCompanionInitializedKey[] = "clock_adopted";
 constexpr char kClockPcOffsetKey[] = "clock_offset";
@@ -215,13 +229,16 @@ LUNASHELL::RoutinePeriod routine_period(uint16_t minute)
     return LUNASHELL::RoutinePeriod::Night;
 }
 
-// No parameters: called under the time-owner mutex; system time is a real clock read.
-// Exception: Returns acquisition or snapshot publication failures.
-esp_err_t publish_clock_observation()
+// publication_only: Return the snapshot publication outcome while preserving any clock error in the snapshot.
+// Exception: Returns snapshot publication failure, or the clock acquisition failure unless publication_only is set.
+esp_err_t publish_clock_observation(bool publication_only = false)
 {
     using namespace LUNASHELL;
     ClockSnapshot clock;
     const int64_t attempted_at_us = esp_timer_get_time();
+    clock.network_sync_state = s_network_sync_state;
+    clock.network_sync_error = s_network_sync_error;
+    clock.network_auto_error = s_network_auto_error;
     clock.preferences_valid = s_clock_preferences_ready;
     if (s_clock_preferences_ready) {
         clock.timezone = ClockTimezone::FixedOffset;
@@ -286,7 +303,7 @@ esp_err_t publish_clock_observation()
         if (error != ESP_ERR_INVALID_STATE) {
             ESP_LOGE(TAG, "System clock observation failed (%s)", esp_err_to_name(error));
         }
-        return error;
+        if (!publication_only) return error;
     }
     return ESP_OK;
 }
@@ -661,6 +678,22 @@ void establish_drift_baseline(LUNASHELL::RtcDriftSnapshot &measurement, esp_err_
     }
 }
 
+// outcome: Result of this network sample; an elapsed deadline remains a timeout.
+// Exception: None; caller owns s_sync_mutex and publishes the resulting clock snapshot.
+void complete_network_sync_locked(esp_err_t outcome)
+{
+    if (s_network_sync_state != LUNASHELL::NetworkTimeSyncState::Pending) return;
+    if (s_network_sync_deadline_us > 0 && esp_timer_get_time() >= s_network_sync_deadline_us)
+        outcome = ESP_ERR_TIMEOUT;
+    s_network_sync_state = outcome == ESP_OK ? LUNASHELL::NetworkTimeSyncState::Applied : LUNASHELL::NetworkTimeSyncState::Failed;
+    s_network_sync_error = outcome;
+    s_network_sync_deadline_us = 0;
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    if (const auto worker = s_network_sync_worker.load(std::memory_order_acquire); worker != nullptr)
+        xTaskNotifyGive(worker);
+#endif
+}
+
 // time_value: SNTP's committed trusted UTC; reject malformed/out-of-calendar values.
 // Exception: Publishes synchronization/publication failures; absent RTC is an explicit capability.
 void sntp_sync_callback(struct timeval *time_value)
@@ -677,6 +710,7 @@ void sntp_sync_callback(struct timeval *time_value)
         // RTC/GPS/SNTP clock became invalid. Preserve that clock state while
         // publishing the real synchronization failure.
         report_time_failure_preserving_valid_clock(ESP_ERR_INVALID_RESPONSE);
+        complete_network_sync_locked(ESP_ERR_INVALID_RESPONSE);
         s_drift_baseline.valid = false;
         LUNASHELL::RtcDriftSnapshot failed_drift;
         LUNASHELL::snapshot_detail::mark_sample_failure(failed_drift, ESP_ERR_INVALID_RESPONSE, esp_timer_get_time());
@@ -698,6 +732,8 @@ void sntp_sync_callback(struct timeval *time_value)
     LUNASHELL::snapshot_detail::set_component(unavailable_drift, false, ESP_ERR_NOT_SUPPORTED);
     const esp_err_t drift_error = LUNASHELL::DeviceSnapshotService::instance().reportRtcDrift(unavailable_drift);
     const esp_err_t time_error = report_time(true, true, "sntp", ESP_OK);
+    if (time_error == ESP_OK) s_network_auto_error = ESP_OK;
+    complete_network_sync_locked(time_error);
     const esp_err_t publication_error = publish_clock_observation();
     s_initialization_result = drift_error != ESP_OK ? drift_error : time_error;
     if (s_initialization_result == ESP_OK) {
@@ -741,7 +777,9 @@ void sntp_sync_callback(struct timeval *time_value)
     s_initialization_result = rtc_result;
     // The system clock was already committed by SNTP. RTC persistence is a
     // separate component result and must not invalidate that real clock.
-    report_time(true, true, "sntp", ESP_OK);
+    const esp_err_t report_error = report_time(true, true, "sntp", ESP_OK);
+    if (report_error == ESP_OK) s_network_auto_error = ESP_OK;
+    complete_network_sync_locked(report_error);
     const esp_err_t clock_error = publish_clock_observation();
     if (clock_error != ESP_OK) {
         ESP_LOGE(TAG, "SNTP clock publication failed (%s)", esp_err_to_name(clock_error));
@@ -964,6 +1002,20 @@ extern "C" esp_err_t LUNASHELL_time_init(const char *timezone)
     return restore_result;
 }
 
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+// error: Actual periodic SNTP admission/restore outcome; independent of the manual request.
+// Exception: Logs snapshot publication failure without hiding the original outcome.
+void record_automatic_network_time_error(esp_err_t error)
+{
+    std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
+    if (s_network_auto_error == error) return;
+    s_network_auto_error = error;
+    const auto publication_error = publish_clock_observation(true);
+    if (publication_error != ESP_OK)
+        ESP_LOGE(TAG, "Automatic NTP state publication failed (%s)", esp_err_to_name(publication_error));
+}
+#endif
+
 // No parameters: Wi-Fi has acquired an IP. The callback confirms synchronization.
 extern "C" esp_err_t LUNASHELL_time_notify_wifi_online(void)
 {
@@ -995,6 +1047,7 @@ extern "C" esp_err_t LUNASHELL_time_notify_wifi_online(void)
         const auto init_error = initialize_network_time_service();
         if (init_error != ESP_OK) {
             ESP_LOGE(TAG, "SNTP reinitialization failed (%s)", esp_err_to_name(init_error));
+            record_automatic_network_time_error(init_error);
             return init_error;
         }
         s_sntp_configured = true;
@@ -1003,6 +1056,9 @@ extern "C" esp_err_t LUNASHELL_time_notify_wifi_online(void)
     // The SDK waits for the TCP/IP executor. A pending sync callback on that
     // executor must be able to take s_sync_mutex before the restart can run.
     const esp_err_t result = esp_netif_sntp_start();
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    record_automatic_network_time_error(result);
+#endif
     if (result == ESP_OK) {
 #if !CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
         s_sntp_started = true;
@@ -1032,17 +1088,34 @@ extern "C" esp_err_t LUNASHELL_time_apply_auto_sync(bool enabled)
     }
     s_cody_auto_time_enabled = enabled;
     if (!enabled) {
+        record_automatic_network_time_error(ESP_OK);
+        {
+            std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
+            if (s_network_sync_state == LUNASHELL::NetworkTimeSyncState::Pending) {
+                // A manually requested sample remains independent of the periodic preference.
+                s_manual_sntp_one_shot = true;
+                return ESP_OK;
+            }
+        }
         if (s_sntp_configured) {
             // ESP-NETIF serializes stop with its TCP/IP executor. Its public deinit API has no result.
             esp_netif_sntp_deinit();
             s_sntp_configured = false;
         }
+        s_manual_sntp_one_shot = false;
+        return ESP_OK;
+    }
+    if (s_manual_sntp_one_shot) {
+        // The one-shot is already running; it can continue as the periodic client.
+        s_manual_sntp_one_shot = false;
+        record_automatic_network_time_error(ESP_OK);
         return ESP_OK;
     }
     if (!s_sntp_configured) {
         const auto error = initialize_network_time_service();
         if (error != ESP_OK) {
             ESP_LOGE(TAG, "SNTP enable failed (%s)", esp_err_to_name(error));
+            record_automatic_network_time_error(error);
             return error;
         }
         s_sntp_configured = true;
@@ -1050,6 +1123,7 @@ extern "C" esp_err_t LUNASHELL_time_apply_auto_sync(bool enabled)
     const auto snapshot_error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(s_sntp_connectivity);
     if (snapshot_error != ESP_OK) {
         ESP_LOGE(TAG, "SNTP enable Wi-Fi observation failed (%s)", esp_err_to_name(snapshot_error));
+        record_automatic_network_time_error(snapshot_error);
         return snapshot_error;
     }
     const auto &wifi = s_sntp_connectivity.radios.wifi;
@@ -1059,13 +1133,160 @@ extern "C" esp_err_t LUNASHELL_time_apply_auto_sync(bool enabled)
     }
     if (!wifi.data_valid || wifi.data_stale || wifi.last_error != ESP_OK || !wifi.connection_state_valid) {
         ESP_LOGE(TAG, "SNTP enable Wi-Fi state unavailable (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        record_automatic_network_time_error(ESP_ERR_INVALID_STATE);
         return ESP_ERR_INVALID_STATE;
     }
     if (!wifi.connected || !wifi.ip_acquired || !wifi.ip_address[0])
         return ESP_OK; // The Wi-Fi owner will start SNTP on a later valid IP event.
     const auto start_error = esp_netif_sntp_start();
+    record_automatic_network_time_error(start_error);
     if (start_error != ESP_OK) ESP_LOGE(TAG, "SNTP enable start failed (%s)", esp_err_to_name(start_error));
     return start_error;
+#endif
+}
+
+#if CONFIG_LUNASHELL_BUILD_ENABLE_WIFI && CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+// context: Unused FreeRTOS task argument; the time owner is process-global.
+// Exception: Logs publication errors; this owner never fabricates a successful sample.
+void network_sync_worker(void *context)
+{
+    (void)context;
+    for (;;) {
+        (void)ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+        for (;;) {
+            int64_t remaining_us = 0;
+            bool pending = false;
+            {
+                std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
+                pending = s_network_sync_state == LUNASHELL::NetworkTimeSyncState::Pending;
+                if (pending) {
+                    const int64_t now = esp_timer_get_time();
+                    if (s_network_sync_deadline_us <= 0 || now >= s_network_sync_deadline_us) {
+                        s_network_sync_state = LUNASHELL::NetworkTimeSyncState::Failed;
+                        s_network_sync_error = s_network_sync_deadline_us <= 0 ? ESP_ERR_INVALID_STATE : ESP_ERR_TIMEOUT;
+                        s_network_sync_deadline_us = 0;
+                        const auto publication_error = publish_clock_observation(true);
+                        if (publication_error != ESP_OK)
+                            ESP_LOGE(TAG, "NTP timeout publication failed (%s)", esp_err_to_name(publication_error));
+                        pending = false;
+                    } else {
+                        remaining_us = s_network_sync_deadline_us - now;
+                    }
+                }
+            }
+            if (pending) {
+                const auto wait_ms = static_cast<uint32_t>((remaining_us + 999) / 1000);
+                TickType_t wait_ticks = pdMS_TO_TICKS(wait_ms);
+                if (wait_ticks == 0) wait_ticks = 1;
+                (void)ulTaskNotifyTake(pdTRUE, wait_ticks);
+                continue;
+            }
+            // A newer request can start before cleanup: recheck while holding the request owner.
+            std::lock_guard<std::mutex> request_lock(s_sntp_request_mutex);
+            {
+                std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
+                if (s_network_sync_state == LUNASHELL::NetworkTimeSyncState::Pending) continue;
+            }
+            if (s_manual_sntp_one_shot && !s_cody_auto_time_enabled && s_sntp_configured) {
+                // Deinitialization waits for TCP/IP; no time-owner mutex is held here.
+                esp_netif_sntp_deinit();
+                s_sntp_configured = false;
+            }
+            s_manual_sntp_one_shot = false;
+            break;
+        }
+    }
+}
+
+// No parameters: create the bounded time-owner worker on the first manual request.
+// Exception: Returns the real task-allocation failure; caller holds s_sntp_request_mutex.
+esp_err_t ensure_network_sync_worker()
+{
+    if (s_network_sync_worker.load(std::memory_order_acquire) != nullptr) return ESP_OK;
+    TaskHandle_t worker = nullptr;
+    if (xTaskCreate(network_sync_worker, "cody-ntp", kNetworkSyncWorkerStackBytes,
+        nullptr, tskIDLE_PRIORITY + 2, &worker) != pdPASS || worker == nullptr)
+        return ESP_ERR_NO_MEM;
+    s_network_sync_worker.store(worker, std::memory_order_release);
+    return ESP_OK;
+}
+#endif
+
+// No parameters: start one explicit network sample; retain the saved periodic setting.
+// Exception: Returns actual admission/start errors; completion is published asynchronously.
+extern "C" esp_err_t LUNASHELL_time_request_network_sync(void)
+{
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_WIFI || !CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    return ESP_ERR_NOT_SUPPORTED;
+#else
+    std::lock_guard<std::mutex> request_lock(s_sntp_request_mutex);
+    {
+        std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
+        if (!s_initialized || s_network_sync_state == LUNASHELL::NetworkTimeSyncState::Pending)
+            return ESP_ERR_INVALID_STATE;
+    }
+    auto error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(s_sntp_connectivity);
+    const auto &wifi = s_sntp_connectivity.radios.wifi;
+    bool client_reconfigured = false;
+    if (error == ESP_OK && (!wifi.data_valid || wifi.data_stale || !wifi.connection_state_valid ||
+        wifi.last_error != ESP_OK || !wifi.connected || !wifi.ip_acquired || wifi.ip_address[0] == '\0'))
+        error = wifi.last_error != ESP_OK ? wifi.last_error : ESP_ERR_INVALID_STATE;
+    if (error == ESP_OK) error = ensure_network_sync_worker();
+    if (error == ESP_OK) {
+        // Reinitialize outside s_sync_mutex: the TCP/IP executor may be completing an earlier callback.
+        client_reconfigured = true;
+        if (s_sntp_configured) {
+            esp_netif_sntp_deinit();
+            s_sntp_configured = false;
+        }
+        error = initialize_network_time_service();
+        if (error == ESP_OK) s_sntp_configured = true;
+    }
+    if (error == ESP_OK) {
+        std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
+        s_network_sync_state = LUNASHELL::NetworkTimeSyncState::Pending;
+        s_network_sync_error = ESP_OK;
+        s_network_sync_deadline_us = esp_timer_get_time() + kNetworkSyncTimeoutUs;
+        error = publish_clock_observation(true);
+    }
+    if (error == ESP_OK) {
+        s_manual_sntp_one_shot = !s_cody_auto_time_enabled;
+        error = esp_netif_sntp_start();
+        if (error == ESP_OK) xTaskNotifyGive(s_network_sync_worker.load(std::memory_order_acquire));
+    }
+    if (error != ESP_OK) {
+        {
+            std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
+            s_network_sync_state = LUNASHELL::NetworkTimeSyncState::Failed;
+            s_network_sync_error = error;
+            s_network_sync_deadline_us = 0;
+        }
+        esp_err_t automatic_error = ESP_OK;
+        if (s_cody_auto_time_enabled && client_reconfigured) {
+            // Manual restart may have stopped the periodic client. Restore it without
+            // reporting the manual request successful or holding the callback mutex.
+            if (!s_sntp_configured) {
+                automatic_error = initialize_network_time_service();
+                if (automatic_error == ESP_OK) s_sntp_configured = true;
+            }
+            if (automatic_error == ESP_OK) automatic_error = esp_netif_sntp_start();
+            if (automatic_error != ESP_OK)
+                ESP_LOGE(TAG, "Automatic NTP restoration failed after manual request (%s)", esp_err_to_name(automatic_error));
+        } else if (!s_cody_auto_time_enabled && s_sntp_configured) {
+            esp_netif_sntp_deinit();
+            s_sntp_configured = false;
+        }
+        s_manual_sntp_one_shot = false;
+        {
+            std::lock_guard<std::mutex> sync_lock(s_sync_mutex);
+            if (s_cody_auto_time_enabled && client_reconfigured) s_network_auto_error = automatic_error;
+            const auto publication_error = publish_clock_observation(true);
+            if (publication_error != ESP_OK)
+                ESP_LOGE(TAG, "NTP request failure publication failed (%s)", esp_err_to_name(publication_error));
+        }
+        ESP_LOGW(TAG, "Manual NTP request failed (%s)", esp_err_to_name(error));
+    }
+    return error;
 #endif
 }
 

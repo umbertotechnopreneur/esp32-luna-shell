@@ -11,6 +11,9 @@ state, time, touch and optional audio energy. Playback uses Cody's audio service
 Cody also exposes a seeded animation reset for authored scenarios. It resets
 palette blending, gaze and blink, speech gestures and hand transitions without
 changing the default startup sequence. The seed is only for artistic behavior.
+On ESP builds that enable external BSS, Cody places the non-sensitive frame and
+mask scratch grids in PSRAM. They are composed by the display task, not an ISR
+or DMA owner; host and non-PSRAM builds keep the original internal storage.
 The GCC/Clang printf annotation is guarded for the Windows Studio compiler.
 Cody exports checked semantic palette slots for its optional character themes;
 the Cody adapter recolors the copied frame after rendering. Theme zero leaves

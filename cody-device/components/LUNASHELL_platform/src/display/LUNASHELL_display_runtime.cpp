@@ -315,6 +315,7 @@ extern "C" esp_err_t LUNASHELL_display_frame_end(esp_err_t frame_error)
     s_frame_metrics.last_completion_wait_us = metrics.completion_wait_us;
     s_frame_metrics.last_buffer_count = metrics.buffer_count;
     s_frame_metrics.last_transfer_rows = metrics.transfer_rows;
+    s_frame_metrics.deadline_expired = metrics.deadline_expired;
     s_frame_metrics.last_completion_error = metrics.completion_error;
     s_frame_metrics.retained_dma_bytes = metrics.retained_dma_bytes;
     s_frame_metrics.reset_required = metrics.retained_dma_bytes != 0;

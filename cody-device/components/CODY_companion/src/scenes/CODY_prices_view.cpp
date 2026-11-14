@@ -8,6 +8,7 @@
 #include <limits>
 
 #include "CODY_flat_menu.hpp"
+#include "CODY_model_background.hpp"
 #include "CODY_page_marks.hpp"
 #include "CODY_screen_content.hpp"
 #include "CODY_ui_components.hpp"
@@ -40,12 +41,13 @@ void format_price(double value, bool valid, char *text, size_t size, const char 
 
 // font, source, top, color: One original caption and its logical line slot.
 // view, index: Display-owned storage and prepared line retained by the frame.
+// width: Logical maximum caption width, leaving room for optional artwork.
 // Exception: Preserves font measurement and bounds failures.
 esp_err_t prepare_caption(const CODY2D::MonoFont &font, const char *source, uint16_t top,
-    uint16_t color, PricesView &view, size_t index)
+    uint16_t color, PricesView &view, size_t index, uint16_t width = 280)
 {
     if (index >= view.lines.size()) return ESP_ERR_INVALID_ARG;
-    return FlatMenuRow::prepare_label(font, source, {93, top, 280, 25}, color,
+    return FlatMenuRow::prepare_label(font, source, {93, top, width, 25}, color,
         view.labels[index], sizeof(view.labels[index]), view.lines[index]);
 }
 
@@ -57,6 +59,18 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t first_row
     if (!state) return ESP_ERR_INVALID_ARG;
     const auto &view = *static_cast<const PricesView *>(state);
     auto error = CODY2D::validate_surface(strip);
+    // Preserve full price and status captions if they need the right-side space.
+    const bool art_fits = std::all_of(view.lines.begin() + 8, view.lines.end(), [](const CODY2D::TextLine &line) {
+        return !line.valid || static_cast<uint32_t>(line.bounds.x) + line.bounds.width <= 304U;
+    });
+    if (error == ESP_OK && view.detail && view.selected < view.row_count && art_fits) {
+        const char *id = view.quotes[view.selected].id;
+        if (std::strncmp(id, "openai/", 7) == 0) id += 7;
+        const CODY2D::TextSpan model{id, static_cast<uint16_t>(std::strlen(id))};
+        const auto background = model_background_for(model, true);
+        if (background != ModelBackground::None)
+            error = draw_model_background_rows(background, {304, 350, 64, 64}, strip, first_row, first_column);
+    }
     for (const auto &line : view.lines) {
         if (error == ESP_OK && line.valid)
             error = CODY2D::draw_text_rows(line, line.text.length, strip, first_row, first_column);
@@ -115,6 +129,23 @@ bool is_old_quote(const LUNASHELL::OpenRouterCatalogStatus &status,
         !(quote->model_not_found && quote->last_error == ESP_ERR_NOT_FOUND);
     return prerequisites_missing || failed_after_observation || now_us <= 0 ||
         now_us < fetched || now_us - fetched > kOldAfterUs;
+}
+
+// status: Actual catalog publication, including prerequisite and transport state.
+// Exception: Returns a static caption; it never infers a network failure from a missing quote.
+const char *catalog_status_caption(const LUNASHELL::OpenRouterCatalogStatus &status)
+{
+    if (!status.valid) return "Prices unavailable";
+    using Stage = LUNASHELL::OpenRouterCatalogStage;
+    switch (status.stage) {
+    case Stage::Starting: return status.last_error == ESP_ERR_NO_MEM ? "Price service unavailable" : "Loading prices";
+    case Stage::Wifi: return "Wi-Fi unavailable";
+    case Stage::Clock: return "Clock unavailable";
+    case Stage::Https: return "HTTPS unavailable";
+    case Stage::Response: return "OpenRouter response failed";
+    case Stage::Ready: return status.fetched_monotonic_us > 0 ? "Update time unavailable" : "No quotes available";
+    }
+    return "Prices unavailable";
 }
 } // namespace
 
@@ -184,8 +215,9 @@ esp_err_t prepare_prices_view(PricesView &view, const CODY2D::MonoFont &font,
     const int64_t clock_mono = selected_quote ? (authoritative ? selected_quote->clock_observed_monotonic_us : selected_quote->attempt_clock_monotonic_us) : status.clock_observed_monotonic_us;
     const int64_t event_mono = selected_quote ? (authoritative ? selected_quote->fetched_monotonic_us : selected_quote->attempt_completed_monotonic_us) : status.fetched_monotonic_us;
     char clock_text[48];
-    std::snprintf(clock_text, sizeof(clock_text), selected_quote ?
-        (checked_only ? "Checked: N/A" : "Updated: N/A") : "Latest: N/A");
+    const char *initial_caption = selected_quote && selected_quote->attempt_completed_monotonic_us > 0 ?
+        (checked_only ? "Check time unavailable" : "Update time unavailable") : catalog_status_caption(status);
+    std::snprintf(clock_text, sizeof(clock_text), "%s", initial_caption);
     if (clock_valid && clock_epoch > 0 && clock_epoch <= std::numeric_limits<int64_t>::max() - 2 &&
         clock_mono > 0 && event_mono > 0) {
         const int64_t delta = event_mono - clock_mono;
@@ -206,18 +238,29 @@ esp_err_t prepare_prices_view(PricesView &view, const CODY2D::MonoFont &font,
         const auto &quote = view.quotes[view.selected];
         error = prepare_caption(font, model_label(quote.id), 182, UI::Palette::cyan, view, 2);
         char text[48]{};
+        const double input = quote.input_usd_per_token * 1000000.0;
+        const double output = quote.output_usd_per_token * 1000000.0;
+        if (quote.quote_available && quote.input_valid && quote.output_valid &&
+            std::isfinite(input) && std::isfinite(output) &&
+            input >= 0 && output >= 0) {
+            // The tilde discloses the rounded three-significant-digit range; cached input is separate.
+            std::snprintf(text, sizeof(text), "I/O ~$%.3g-%.3g", std::min(input, output), std::max(input, output));
+        } else {
+            std::snprintf(text, sizeof(text), "I/O range: N/A");
+        }
+        if (error == ESP_OK) error = prepare_caption(font, text, 210, UI::Palette::cyan, view, 3);
         format_price(quote.input_usd_per_token, quote.input_valid, text, sizeof(text), "Input");
-        if (error == ESP_OK) error = prepare_caption(font, text, 210, UI::Palette::text, view, 3);
-        format_price(quote.output_usd_per_token, quote.output_valid, text, sizeof(text), "Output");
         if (error == ESP_OK) error = prepare_caption(font, text, 238, UI::Palette::text, view, 4);
-        format_price(quote.cached_input_usd_per_token, quote.cached_input_valid, text, sizeof(text), "Cache");
+        format_price(quote.output_usd_per_token, quote.output_valid, text, sizeof(text), "Output");
         if (error == ESP_OK) error = prepare_caption(font, text, 266, UI::Palette::text, view, 5);
+        format_price(quote.cached_input_usd_per_token, quote.cached_input_valid, text, sizeof(text), "Cache");
+        if (error == ESP_OK) error = prepare_caption(font, text, 294, UI::Palette::text, view, 6);
         if (quote.context_valid) std::snprintf(text, sizeof(text), "Context: %llu", static_cast<unsigned long long>(quote.context_tokens));
         else std::snprintf(text, sizeof(text), "Context: N/A");
-        if (error == ESP_OK) error = prepare_caption(font, text, 294, UI::Palette::text, view, 6);
+        if (error == ESP_OK) error = prepare_caption(font, text, 322, UI::Palette::text, view, 7);
         if (quote.max_output_valid) std::snprintf(text, sizeof(text), "Max out: %llu", static_cast<unsigned long long>(quote.max_output_tokens));
         else std::snprintf(text, sizeof(text), "Max out: N/A");
-        if (error == ESP_OK) error = prepare_caption(font, text, 322, UI::Palette::text, view, 7);
+        if (error == ESP_OK) error = prepare_caption(font, text, 350, UI::Palette::text, view, 8);
         const char *note = !quote.quote_available ?
             (quote.model_not_found ? "No OpenRouter quote" : "Not fetched") :
             !quote.tiered_valid ? "Base / tiers unknown" : quote.tiered ? "Base / tiers apply" : "Base rate";
@@ -233,7 +276,7 @@ esp_err_t prepare_prices_view(PricesView &view, const CODY2D::MonoFont &font,
                 std::snprintf(text, sizeof(text), "%s", quote.quote_available ? "Update failed" : "Fetch failed");
             note = text;
         }
-        if (error == ESP_OK) error = prepare_caption(font, note, 350, UI::Palette::warning, view, 8);
+        if (error == ESP_OK) error = prepare_caption(font, note, 378, UI::Palette::warning, view, 9);
     } else if (!view.row_count) {
         char message[48];
         if (!status.valid) std::snprintf(message, sizeof(message), "Unavailable: 0x%lx", static_cast<unsigned long>(status.last_error));

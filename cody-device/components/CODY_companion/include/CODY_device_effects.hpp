@@ -36,7 +36,7 @@ struct DeviceEventSound {
     uint32_t request_sequence = 0;
 };
 
-// Retained by DeviceModel, never by a scene or a second polling task.
+// Retained by CharacterModel, never by a scene or a second polling task.
 // The large event observation stays off the display worker's nested call stack.
 struct DeviceEffectsModel {
     LUNASHELL::CodexEventSnapshot event{};
@@ -68,6 +68,7 @@ struct DeviceEffectsModel {
     int64_t last_tick_us = 0;
     int64_t event_visual_at_us = 0;
     uint32_t event_visual_sequence = 0;
+    char event_visual_request[33]{};
     LUNASHELL::CodexEventKind event_visual_kind = LUNASHELL::CodexEventKind::None;
     int64_t connection_lost_at_us = 0;
     int64_t wifi_edge_since_us = 0;
@@ -90,15 +91,16 @@ struct DeviceEffectsModel {
     bool voice_close_announced = false;
 };
 static_assert(sizeof(DeviceEffectsModel) <= 4608,
-    "Device effects retain bounded observations and identities in the device model");
+    "Device effects retain bounded observations and identities in the character owner");
 
 // model: Persistent effects state, initialized after the audio driver and sound preference.
 // Exception: Returns the original shared audio-worker preparation error; no silent fallback.
 esp_err_t prepare_device_effects(DeviceEffectsModel &model);
 
-// model: Records the one startup cue admitted with the first visible animation frame.
-// Exception: Retains original asset or shared audio-owner errors as optional feedback.
-esp_err_t play_device_boot_cue(DeviceEffectsModel &model);
+// model: Existing feedback ledger owned by the character runtime.
+// request_id: Exact remote notification whose explicit open was admitted.
+// Navigation consumes initial cues only; recipient-confirmed delivery cues remain independent.
+void note_device_notification_opened(DeviceEffectsModel &model, const char *request_id);
 
 // model: Retains the pet cue's actual shared-worker admission outcome.
 // cue: Explicit visual or boot event, never an inferred Codex action.

@@ -21,10 +21,14 @@
 #include "CODY_scene.hpp"
 #include "LUNASHELL_codex_events.hpp"
 #include "LUNASHELL_speech_state.hpp"
+#if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
+struct CodyHostStudioCase;
+#endif
 
 namespace CODY {
 
 enum class PreferenceId : uint8_t;
+enum class MuseSymbol : uint8_t;
 
 // No parameters: create one bounded action worker before the renderer starts.
 esp_err_t onboarding_service_init();
@@ -67,20 +71,50 @@ void begin_onboarding();
 // No parameters: evaluate saved setup after the existing startup sequence completes.
 void request_saved_setup_startup();
 
+// No parameters: true only while the bounded boot connection scene is currently presented.
+bool onboarding_startup_active();
+
+// bounds: Receives the exact avatar rectangle only when the last update changed animation alone.
+// The renderer compares the current and retired content revisions before consuming this damage.
+bool onboarding_startup_animation_damage(DamageRect &bounds);
+
+// completed_scene: Successfully retired display frame, matched against the current startup revision.
+// Returns None for hidden, superseded or non-startup content; this query never emits audio or events.
+MuseSymbol onboarding_startup_retired_symbol(const SceneFrame &completed_scene);
+
 // scene: Display-owned startup frame, admitted after Wi-Fi and pairing services start.
 // first_boot: Effective local setup setting from the existing persistence owner.
 // tour_step: Persisted first-run tour page or completion, independent of connectivity setup.
 esp_err_t start_device_setup(SceneFrame &scene, bool first_boot, uint8_t tour_step);
 
-enum class OnboardingArtwork : uint8_t { None, Welcome, Sofia };
+enum class OnboardingArtwork : uint8_t { None = 0, Sofia = 2 };
 // No parameters: current guide background, independent of sensor state.
 OnboardingArtwork onboarding_artwork();
 
 // No parameters: true when the ordinary connection or activity route can show the dashboard.
 bool onboarding_dashboard_active();
 
+// No parameters: true only while displaying the selected PC alert detail.
+bool onboarding_pc_alert_detail_active();
+
+// No parameters: the first-run journey remains active through Wi-Fi, tutorial,
+// and optional Codex setup until the completion choice is durably saved.
+bool onboarding_first_run_active();
+
+// No parameters: decorative tutorial pose, or zero outside a mascot guide page.
+uint8_t onboarding_guide_visual();
+
+// No parameters: a local Wi-Fi operation is actually awaiting its result.
+bool onboarding_wifi_wait_mascot();
+
+// No parameters: 1 for a pending connection, 2 for a visible failure, 3 for idle guidance.
+uint8_t onboarding_connection_mascot();
+
 // No parameters: true only on a top-level Settings menu, not a subpage.
 bool onboarding_main_menu_active();
+
+// No parameters: display-owner-only guard for the terminal local restart farewell.
+bool onboarding_restart_pending();
 
 // x, y: Decorative pixel offsets; text and original touch controls remain fixed.
 void set_onboarding_menu_parallax(int8_t x, int8_t y);
@@ -157,6 +191,21 @@ esp_err_t return_to_options_page(SceneFrame &scene, uint8_t token);
 // Exception: Returns the original route or content preparation error.
 esp_err_t return_to_options_device(SceneFrame &scene);
 
+#if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
+// scene: Display-worker-owned frame receiving the complete local destination context.
+// request: Validated semantic target and bounded page input; never a firmware enum ordinal.
+// Exception: Preserves source route, service observation, settings and preparation errors.
+esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &request);
+
+// scene: Destination established by an actual owner-dispatched touch.
+// Exception: Preserves animation/content preparation errors; does not select a route.
+esp_err_t settle_studio_scene(SceneFrame &scene);
+
+// target: Semantic Studio identity to verify against the actual owner route/page.
+// Exception: No exceptions; false rejects any unsupported or different effective destination.
+bool studio_scene_active(const char *target);
+#endif
+
 // scene: Options frame to return to ordinary dashboard and authenticated event routing.
 esp_err_t open_device_dashboard(SceneFrame &scene);
 
@@ -171,9 +220,14 @@ enum class WidgetOpenRequest : uint8_t {
 // available: True after this device has received the broker's authenticated Events projection.
 void set_onboarding_inbox_available(bool available);
 
-// request_id: Exact question selected from the retired native Events list.
+// request_id: Exact event selected from the retired Notifications list.
 // Exception: Returns the original signed selection admission error.
-esp_err_t open_onboarding_inbox_question(const char *request_id);
+esp_err_t open_onboarding_notification(const char *request_id);
+
+// id: Exact retained local notification to present independently of the PC link.
+// Exception: Returns invalid zero IDs or busy-route admission errors; lookup
+// failures remain visible in the detail with Back and never select another row.
+esp_err_t open_onboarding_local_notification(uint32_t id);
 
 // No parameters: consumes one released Options selection owned by the display task.
 WidgetOpenRequest take_widget_open_request();

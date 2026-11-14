@@ -26,9 +26,11 @@
 namespace CODY {
 
 // Native status chrome reserves these logical half-open bounds on firmware and Studio.
-inline constexpr DamageRect kStatusOverlayBounds{100, 20, 394, 74};
+inline constexpr DamageRect kStatusOverlayBounds{100, 20, 394, 78};
 // Compact connection/saved caption directly beneath the shared status bar.
 inline constexpr DamageRect kStatusCaptionBounds{80, 65, 386, 72};
+inline constexpr char kSettingsRetryCaption[] = "Settings not saved: retrying";
+inline constexpr char kBootSoundSettingsCaption[] = "Boot sound settings not saved";
 
 struct StatusCaption {
     std::array<char, 32> text{};

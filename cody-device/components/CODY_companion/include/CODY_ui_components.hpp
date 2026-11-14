@@ -18,7 +18,45 @@ inline constexpr uint16_t positive = Theme::secondary_bright;
 inline constexpr uint16_t warning = Theme::status_warning_content;
 }
 
-enum class TextAlignment : uint8_t { Center, Left };
+enum class TextAlignment : uint8_t { Center, Left, Right };
+
+// font: Preferred immutable native glyphs retained by the display owner.
+// text: Caption borrowed through frame retirement; null is always rejected.
+// bounds: Admitted logical text slot.
+// color: Native RGB565 foreground.
+// line: Receives the prepared borrowed text line; admitted empty text leaves it unchanged.
+// maximum: Maximum accepted caption length for the calling view.
+// fallback: Optional face used only when the preferred face is too wide.
+// alignment: Horizontal placement within the slot.
+// allow_empty: Whether an absent optional caption is successful without preparing a line.
+// Exception: Preserves glyph errors and rejects text that cannot fit.
+inline esp_err_t prepare_text_with_fallback(const CODY2D::MonoFont &font, const char *text, CODY2D::Rect bounds,
+    uint16_t color, CODY2D::TextLine &line, size_t maximum, const CODY2D::MonoFont *fallback,
+    TextAlignment alignment = TextAlignment::Center, bool allow_empty = false)
+{
+    if (text == nullptr || (alignment != TextAlignment::Center && alignment != TextAlignment::Left &&
+        alignment != TextAlignment::Right)) return ESP_ERR_INVALID_ARG;
+    const auto length = std::strlen(text);
+    if (length == 0) return allow_empty ? ESP_OK : ESP_ERR_INVALID_SIZE;
+    if (length > maximum || length > std::numeric_limits<uint16_t>::max()) return ESP_ERR_INVALID_SIZE;
+    const CODY2D::TextSpan span{text, static_cast<uint16_t>(length)};
+    uint32_t width = 0;
+    auto error = CODY2D::measure_text_width(font, span, width);
+    if (error != ESP_OK) return error;
+    const auto *selected = &font;
+    if (width > bounds.width && fallback != nullptr && fallback != selected) {
+        selected = fallback;
+        error = CODY2D::measure_text_width(*selected, span, width);
+        if (error != ESP_OK) return error;
+    }
+    if (width > bounds.width || selected->height > bounds.height) return ESP_ERR_INVALID_SIZE;
+    uint32_t x = bounds.x;
+    if (alignment == TextAlignment::Center) x += (bounds.width - width) / 2U;
+    if (alignment == TextAlignment::Right) x += bounds.width - width;
+    return CODY2D::prepare_text_line(*selected, span,
+        {static_cast<int16_t>(x),
+         static_cast<int16_t>(bounds.y + (bounds.height - selected->height) / 2U)}, color, line);
+}
 
 // font: Immutable native glyphs retained by the display owner.
 // text: Nonempty caption borrowed through frame retirement.
@@ -27,21 +65,11 @@ enum class TextAlignment : uint8_t { Center, Left };
 // line: Receives the prepared borrowed text line.
 // maximum: Maximum accepted caption length for the calling view.
 // alignment: Horizontal placement within the slot.
-// Exception: Preserves glyph errors and rejects text that cannot fit.
+// Exception: Preserves glyph errors and rejects text that cannot fit without font substitution.
 inline esp_err_t prepare_text(const CODY2D::MonoFont &font, const char *text, CODY2D::Rect bounds,
     uint16_t color, CODY2D::TextLine &line, size_t maximum, TextAlignment alignment = TextAlignment::Center)
 {
-    const auto length = std::strlen(text);
-    if (length == 0 || length > maximum || length > std::numeric_limits<uint16_t>::max() ||
-        font.height > bounds.height) return ESP_ERR_INVALID_SIZE;
-    const CODY2D::TextSpan span{text, static_cast<uint16_t>(length)};
-    uint32_t width = 0;
-    const auto error = CODY2D::measure_text_width(font, span, width);
-    if (error != ESP_OK) return error;
-    if (width > bounds.width) return ESP_ERR_INVALID_SIZE;
-    return CODY2D::prepare_text_line(font, span,
-        {static_cast<int16_t>(bounds.x + (alignment == TextAlignment::Left ? 0U : (bounds.width - width) / 2U)),
-         static_cast<int16_t>(bounds.y + (bounds.height - font.height) / 2U)}, color, line);
+    return prepare_text_with_fallback(font, text, bounds, color, line, maximum, nullptr, alignment);
 }
 
 // Existing content-view gradients; these are distinct from the setup palette roles.

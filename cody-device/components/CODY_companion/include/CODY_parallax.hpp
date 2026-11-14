@@ -4,7 +4,6 @@
 #include <cmath>
 #include <cstdint>
 
-#include "CODY_pixel_demo.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 
 namespace CODY {
@@ -13,9 +12,12 @@ enum class ParallaxLevel : uint8_t { Off, Low, Medium, High };
 
 // Display-owner state only: no acquisition, extra polling or hardware cache.
 struct ParallaxState {
-    PixelDemoMotionState motion{};
+    float filtered_x = 0;
+    float filtered_y = 0;
+    int64_t sampled_at_us = 0;
     int8_t x = 0;
     int8_t y = 0;
+    bool primed = false;
 };
 static_assert(sizeof(ParallaxState) <= 64, "Parallax state must remain bounded");
 
@@ -35,34 +37,43 @@ inline bool update_parallax(ParallaxState &state, const LUNASHELL::ImuSnapshot &
     const int8_t old_y = state.y;
     if (!active || level == ParallaxLevel::Off || static_cast<uint8_t>(level) > 3U ||
         observation_error != ESP_OK || imu.health != LUNASHELL::DeviceHealth::Ready ||
-        !imu.data_valid || imu.data_stale || imu.last_error != ESP_OK) {
+        !imu.data_valid || imu.data_stale || imu.last_error != ESP_OK ||
+        imu.last_success_at_us <= 0 || now_us < imu.last_success_at_us ||
+        now_us - imu.last_success_at_us > 500000 ||
+        !std::isfinite(imu.acceleration_mps2[0]) || !std::isfinite(imu.acceleration_mps2[1]) ||
+        std::fabs(imu.acceleration_mps2[0]) > 256.0f || std::fabs(imu.acceleration_mps2[1]) > 256.0f ||
+        (rotation != 0 && rotation != 90 && rotation != 180 && rotation != 270)) {
         state = {};
         return old_x != 0 || old_y != 0;
     }
-    PixelDemoMotion sample{};
-    sample.valid = true;
-    sample.acceleration_x = imu.acceleration_mps2[0];
-    sample.acceleration_y = imu.acceleration_mps2[1];
-    sample.sampled_at_us = imu.last_success_at_us;
-    sample.rendering_rotation_degrees = rotation;
-    sample.angular_velocity_x = imu.angular_velocity_dps[0];
-    sample.angular_velocity_y = imu.angular_velocity_dps[1];
-    sample.angular_velocity_z = imu.angular_velocity_dps[2];
-    sample.angular_valid = std::isfinite(sample.angular_velocity_x) &&
-        std::isfinite(sample.angular_velocity_y) && std::isfinite(sample.angular_velocity_z);
-    advance_pixel_demo_motion(state.motion, sample, now_us);
-    float x = state.motion.offset_x;
-    float y = state.motion.offset_y;
-    switch (state.motion.rendering_rotation_degrees) {
-    case 90: x = state.motion.offset_y; y = -state.motion.offset_x; break;
-    case 180: x = -state.motion.offset_x; y = -state.motion.offset_y; break;
-    case 270: x = -state.motion.offset_y; y = state.motion.offset_x; break;
+    // Gravity gives a stable tilt instead of a temporary deviation from a
+    // moving baseline. Smooth only fresh samples; do not invent IMU data.
+    constexpr float kGravity = 9.80665f;
+    const float target_x = std::clamp(-imu.acceleration_mps2[1] / kGravity, -1.0f, 1.0f);
+    const float target_y = std::clamp(-imu.acceleration_mps2[0] / kGravity, -1.0f, 1.0f);
+    if (!state.primed || imu.last_success_at_us < state.sampled_at_us ||
+        imu.last_success_at_us - state.sampled_at_us > 500000) {
+        state.filtered_x = target_x;
+        state.filtered_y = target_y;
+        state.primed = true;
+    } else if (imu.last_success_at_us > state.sampled_at_us) {
+        const float seconds = static_cast<float>(imu.last_success_at_us - state.sampled_at_us) / 1000000.0f;
+        const float blend = seconds / (seconds + 0.15f);
+        state.filtered_x += (target_x - state.filtered_x) * blend;
+        state.filtered_y += (target_y - state.filtered_y) * blend;
+    }
+    state.sampled_at_us = imu.last_success_at_us;
+    float x = state.filtered_x;
+    float y = state.filtered_y;
+    switch (rotation) {
+    case 90: x = state.filtered_y; y = -state.filtered_x; break;
+    case 180: x = -state.filtered_x; y = -state.filtered_y; break;
+    case 270: x = -state.filtered_y; y = state.filtered_x; break;
     default: break;
     }
     const int limit = static_cast<int>(level) * 2;
-    const float scale = static_cast<float>(limit) / 4.0f;
-    state.x = static_cast<int8_t>(std::clamp(static_cast<int>(std::lround(x * scale)), -limit, limit));
-    state.y = static_cast<int8_t>(std::clamp(static_cast<int>(std::lround(y * scale)), -limit, limit));
+    state.x = static_cast<int8_t>(std::clamp(static_cast<int>(std::lround(x * limit)), -limit, limit));
+    state.y = static_cast<int8_t>(std::clamp(static_cast<int>(std::lround(y * limit)), -limit, limit));
     return old_x != state.x || old_y != state.y;
 }
 

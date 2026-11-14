@@ -27,6 +27,8 @@ inline constexpr int kClockOffsetUnchanged = std::numeric_limits<int>::min();
 
 // Stable setting identities, not positions in a timezone menu. RTC storage stays UTC.
 enum class ClockTimezone : uint8_t { Utc = 0, Rome = 1, HoChiMinh = 2, FixedOffset = 3 };
+// Outcome of an explicit network-time request, independent of PC connectivity.
+enum class NetworkTimeSyncState : uint8_t { Idle, Pending, Applied, Failed };
 enum class RoutinePeriod : uint8_t { Unavailable, Morning, Afternoon, Evening, Night };
 enum class ClockCuePolicy : uint8_t { Allowed, QuietHours, TimeUnavailable, SettingsUnavailable };
 struct ClockSnapshot;

@@ -16,9 +16,9 @@ struct PricesView {
     std::array<LUNASHELL::OpenRouterModelQuote, kRows> quotes{};
     std::array<CODY2D::CapsuleControl, kRows> rows{};
     std::array<bool, kRows> row_old{};
-    std::array<CODY2D::TextLine, 9> lines{};
+    std::array<CODY2D::TextLine, 10> lines{};
     char row_labels[kRows][65]{};
-    char labels[9][48]{};
+    char labels[10][48]{};
     LUNASHELL::OpenRouterCatalogStatus status{};
     const CODY2D::MonoFont *font = nullptr;
     uint32_t revision = 0;

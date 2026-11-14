@@ -203,6 +203,11 @@ esp_err_t LUNASHELL_time_notify_wifi_online(void);
 // Exception: Returns the original initialization, snapshot, or start error.
 esp_err_t LUNASHELL_time_apply_auto_sync(bool enabled);
 
+// No parameters: request a fresh NTP sample independently of automatic synchronization.
+// Exception: Returns the original Wi-Fi, initialization, start or publication error.
+// Success means the request was started; ClockSnapshot reports its asynchronous outcome.
+esp_err_t LUNASHELL_time_request_network_sync(void);
+
 // epoch: Authenticated PC UTC seconds in the supported RTC calendar.
 // offset_minutes: Actual fixed PC UTC offset in minutes, inclusive range -840..840.
 // Exception: Returns the original validation, settings, clock, RTC, or publication error.
@@ -243,6 +248,9 @@ typedef esp_err_t (*LUNASHELL_display_lifecycle_callback_t)(bool sleeping);
 esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
     LUNASHELL_display_lifecycle_callback_t callback
 );
+// No parameters: admit transitions only after the registered display completes startup.
+// Exception: Rejects missing/unstarted owners; excluded profiles return NOT_SUPPORTED.
+esp_err_t LUNASHELL_power_manager_complete_display_startup(void);
 // request: Optional UI owner that queues a two-second physical BOOT hold.
 // Exception: Rejects null, duplicate or late registration.
 esp_err_t LUNASHELL_power_manager_register_boot_options(void (*request)(void));

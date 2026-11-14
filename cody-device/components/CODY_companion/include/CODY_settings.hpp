@@ -17,6 +17,7 @@
 #pragma once
 #include "esp_err.h"
 #include <cstdint>
+#include "CODY_settings_model.hpp"
 
 namespace CODY {
 enum class PreferenceId : uint8_t {
@@ -45,15 +46,9 @@ esp_err_t reconcile_audio_preferences();
 // Exception: Returns the original NVS, codec, readback or snapshot-publication error.
 esp_err_t reconcile_audio_output_preference();
 
-struct OnboardingSettings {
-    bool persisted_first_boot = false;
-    bool force_first_boot = false;
-    bool effective_first_boot = false;
-    bool birth_intro_pending = false;
-    bool first_boot_music_pending = false;
-    uint8_t onboarding_tour_step = 5;
-    bool setup_progress_pending = false;
-};
+// No parameters: restore saved microphone gain before the continuous voice feed starts.
+// Exception: Returns the original NVS, codec, readback or snapshot-publication error.
+esp_err_t reconcile_audio_input_preference();
 
 // settings: Receives persisted/default/explicit-development decisions on success only.
 esp_err_t load_onboarding_settings(OnboardingSettings &settings);

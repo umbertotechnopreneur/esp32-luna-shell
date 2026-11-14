@@ -142,7 +142,7 @@ bool validCodexReplySpeech(const char *text, size_t length)
 // Exception: Returns original bounds and schema errors.
 esp_err_t decodeCodexInboxPage(const char *hex, size_t length, CodexInboxPage &page)
 {
-    constexpr size_t max_bytes = 3 + kCodexInboxRows * (1 + 16 + 1 + 63 + 1 + 63);
+    constexpr size_t max_bytes = 3 + kCodexInboxRows * (1 + 16 + 1 + 24 + 1 + 63 + 1 + 63);
     if (hex == nullptr || length < 6 || length > 2 * max_bytes || length % 2 != 0) {
         return ESP_ERR_INVALID_SIZE;
     }
@@ -155,14 +155,16 @@ esp_err_t decodeCodexInboxPage(const char *hex, size_t length, CodexInboxPage &p
         return ESP_ERR_INVALID_ARG;
     }
     constexpr char digits[] = "0123456789abcdef";
-    bool seen_reply = false;
+    bool seen_notice = false;
     for (uint8_t index = 0; index < page.count; ++index) {
         auto &row = page.rows[index];
         uint8_t kind = 0;
         if (!reader.byte(kind)) return reader.error;
         row.kind = static_cast<CodexEventKind>(kind);
-        if (row.kind == CodexEventKind::ReplyReady) seen_reply = true;
-        else if (row.kind != CodexEventKind::Question || seen_reply) return ESP_ERR_INVALID_ARG;
+        if (kind < static_cast<uint8_t>(CodexEventKind::Notice) || kind > static_cast<uint8_t>(CodexEventKind::ReplyReady))
+            return ESP_ERR_INVALID_ARG;
+        if (row.kind != CodexEventKind::Question) seen_notice = true;
+        else if (seen_notice) return ESP_ERR_INVALID_ARG;
         bool nonzero = false;
         for (size_t byte = 0; byte < 16; ++byte) {
             uint8_t value = 0;
@@ -175,10 +177,11 @@ esp_err_t decodeCodexInboxPage(const char *hex, size_t length, CodexInboxPage &p
         for (uint8_t previous = 0; previous < index; ++previous) {
             if (std::strcmp(page.rows[previous].request_id, row.request_id) == 0) return ESP_ERR_INVALID_ARG;
         }
-        if (!reader.text(row.title, true) || !reader.text(row.preview, row.kind == CodexEventKind::Question)) {
+        if (!reader.text(row.label, true) || !reader.text(row.title, true) ||
+            !reader.text(row.preview, row.kind == CodexEventKind::Question)) {
             return reader.error;
         }
-        if (row.kind == CodexEventKind::ReplyReady && row.preview[0] != '\0') return ESP_ERR_INVALID_ARG;
+        if (row.kind != CodexEventKind::Question && row.preview[0] != '\0') return ESP_ERR_INVALID_ARG;
     }
     return reader.offset == length ? ESP_OK : ESP_ERR_INVALID_SIZE;
 }
@@ -217,7 +220,7 @@ esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayl
 {
     candidate = {};
     if (encrypted_reply != nullptr) *encrypted_reply = {};
-    if (hex == nullptr || length == 0 || length > 3072 || length % 2 != 0) {
+    if (hex == nullptr || length == 0 || length > 3456 || length % 2 != 0) {
         return ESP_ERR_INVALID_SIZE;
     }
     PayloadReader reader{hex, length};
@@ -226,12 +229,13 @@ esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayl
     if (!reader.byte(version) || !reader.byte(kind)) {
         return reader.error;
     }
-    if ((version != 2 && version != 3) || kind < static_cast<uint8_t>(CodexEventKind::Notice) ||
+    if ((version != 4 && version != 5 && version != 6) || kind < static_cast<uint8_t>(CodexEventKind::Notice) ||
         kind > static_cast<uint8_t>(CodexEventKind::ReplyReady)) {
         return ESP_ERR_INVALID_ARG;
     }
     candidate.kind = static_cast<CodexEventKind>(kind);
-    if (version == 3 && (candidate.kind != CodexEventKind::ReplyReady || encrypted_reply == nullptr)) {
+    if (version == 6 && candidate.kind != CodexEventKind::Notice) return ESP_ERR_INVALID_ARG;
+    if (version == 5 && (candidate.kind != CodexEventKind::ReplyReady || encrypted_reply == nullptr)) {
         return ESP_ERR_INVALID_ARG;
     }
     if (!reader.text(candidate.context, false) || !reader.text(candidate.title, true) ||
@@ -317,7 +321,8 @@ esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayl
             }
         }
     }
-    if (version == 3) {
+    if (!reader.text(candidate.origin_title, false) || !reader.text(candidate.status, false)) return reader.error;
+    if (version == 5) {
         if (!reader.word(encrypted_reply->segment_index) || !reader.word(encrypted_reply->segment_count) ||
             !reader.word(encrypted_reply->length)) return reader.error;
         if (encrypted_reply->segment_count == 0 || encrypted_reply->segment_count > 64 ||
@@ -327,6 +332,13 @@ esp_err_t decodeCodexEventPayload(const char *hex, size_t length, CodexEventPayl
         for (auto &value : encrypted_reply->nonce) if (!reader.byte(value)) return reader.error;
         for (size_t index = 0; index < static_cast<size_t>(encrypted_reply->length) + 16U; ++index)
             if (!reader.byte(encrypted_reply->ciphertext[index])) return reader.error;
+    }
+    if (version == 6) {
+        uint8_t severity = 0;
+        if (!reader.byte(severity)) return reader.error;
+        if (severity < static_cast<uint8_t>(CodexEventSeverity::Information) ||
+            severity > static_cast<uint8_t>(CodexEventSeverity::Critical)) return ESP_ERR_INVALID_ARG;
+        candidate.severity = static_cast<CodexEventSeverity>(severity);
     }
     if (reader.offset != length || progress > 1) {
         return ESP_ERR_INVALID_ARG;

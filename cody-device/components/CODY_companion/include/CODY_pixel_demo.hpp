@@ -76,6 +76,9 @@ struct PixelDemoView {
     bool manual_playing = false;
     bool manual_needs_compose = false;
     bool fixed_touch_bounds = false; // Decorative viewport motion never moves the Home hit target.
+    bool override_background = false;
+    bool suppress_particles = false;
+    uint16_t background_color = 0;
     PixelAvatarPose manual_pose = PixelAvatarPose::Idle;
     MuseSymbol manual_symbol = MuseSymbol::None;
     bool manual_working = false;

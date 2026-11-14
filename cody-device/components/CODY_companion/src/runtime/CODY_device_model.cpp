@@ -1,4 +1,5 @@
 #include "CODY_device_model.hpp"
+#include "CODY_ui_model.hpp"
 
 #include <algorithm>
 
@@ -184,7 +185,6 @@ void update_device_vouchers(DeviceModel &model)
                 return std::find(vouchers.expiries.begin(), end, expiry) == end;
             });
         vouchers.dismissed_count = static_cast<uint8_t>(kept - vouchers.dismissed.begin());
-        vouchers.first_row = std::min(vouchers.first_row, VoucherList::last_offset(vouchers.expiry_count));
     }
     // A warning can never outlive its current source, trusted clock or admission window.
     if (vouchers.warning_expiry != 0 && pending_device_voucher_warning(model) != vouchers.warning_expiry) {
@@ -206,18 +206,21 @@ void dismiss_device_voucher_warning(DeviceModel &model)
     vouchers.warning_expiry = 0;
 }
 
-// model: The bounded chronological voucher viewport.
+// model: Current chronological voucher rows.
+// first_row: UI-owned viewport offset, bounded to these rows.
 // step: Scroll direction, independent of horizontal dashboard navigation.
-void step_device_voucher(VoucherModel &model, WidgetStep step)
+void step_device_voucher(const VoucherModel &model, uint8_t &first_row, WidgetStep step)
 {
+    first_row = std::min(first_row, VoucherList::last_offset(model.expiry_count));
     if (model.expiry_count < 2) return;
     const uint8_t last = VoucherList::last_offset(model.expiry_count);
-    if (step == WidgetStep::Previous && model.first_row > 0) --model.first_row;
-    if (step == WidgetStep::Next && model.first_row < last) ++model.first_row;
+    if (step == WidgetStep::Previous && first_row > 0) --first_row;
+    if (step == WidgetStep::Next && first_row < last) ++first_row;
 }
 
-// model: Retains current source validity and the viewport position.
-VoucherList project_device_voucher_list(const DeviceModel &model)
+// model: Retains current source validity.
+// first_row: UI-owned viewport position, bounded again before indexing.
+VoucherList project_device_voucher_list(const DeviceModel &model, uint8_t first_row)
 {
     VoucherList list{};
     list.current = device_voucher_expiries_current(model.dashboard);
@@ -225,7 +228,7 @@ VoucherList project_device_voucher_list(const DeviceModel &model)
     if (list.current) {
         const auto &vouchers = model.vouchers;
         list.series = vouchers.series;
-        list.first = vouchers.first_row;
+        list.first = std::min(first_row, VoucherList::last_offset(vouchers.expiry_count));
         list.count = vouchers.expiry_count;
         const size_t visible = std::min<size_t>(list.expiries.size(), list.count - list.first);
         std::copy_n(vouchers.expiries.begin() + list.first, visible, list.expiries.begin());
@@ -254,9 +257,10 @@ int64_t device_saved_page_epoch(const DeviceDashboardData &data, WidgetScreen sc
     }
 }
 
-// model: Battery threshold state and last banner awaiting or confirmed by the display.
+// model: Canonical battery threshold state.
+// ui: Last banner awaiting or confirmed by the display.
 // now_us: Monotonic time for the five-second visible dwell.
-void update_device_battery(DeviceModel &model, int64_t now_us)
+void update_device_battery(DeviceModel &model, DeviceUiModel &ui, int64_t now_us)
 {
     const auto old_error = model.battery.source_error;
     BatteryAlertNotice notice{};
@@ -264,12 +268,12 @@ void update_device_battery(DeviceModel &model, int64_t now_us)
     if (error != ESP_OK && error != old_error) {
         ESP_LOGW("CODY_device_model", "Battery notice rejected (%s)", esp_err_to_name(error));
     }
-    if (notice.sequence != 0 && notice.sequence != model.battery_banner.sequence) {
-        model.battery_banner = notice;
-        model.battery_banner_until_us = now_us + 5000000;
+    if (notice.sequence != 0 && notice.sequence != ui.battery_banner.sequence) {
+        ui.battery_banner = notice;
+        ui.battery_banner_until_us = now_us + 5000000;
     }
-    if (!model.battery.source_current || model.battery.external_power || now_us >= model.battery_banner_until_us) {
-        model.battery_banner = {};
+    if (!model.battery.source_current || model.battery.external_power || now_us >= ui.battery_banner_until_us) {
+        ui.battery_banner = {};
     }
 }
 
@@ -405,12 +409,13 @@ void project_device_statistics_calendar(DeviceDashboardData &data, WidgetScreen 
     }
 }
 
-// model: Retained child page and the diagnostics projection also used by the diagnostic overlay.
+// model: Diagnostics projection also used by the diagnostic overlay.
+// page: Selected UI page, borrowed only for this acquisition decision.
 // Exception: Returns the original read error and clears rejected data instead of retaining it as current.
-esp_err_t read_device_info(DeviceModel &model)
+esp_err_t read_device_info(DeviceModel &model, InfoPage page)
 {
-    if (model.info_page > InfoPage::ProjectLink) { return ESP_ERR_INVALID_ARG; }
-    if (model.info_page != InfoPage::System && model.info_page != InfoPage::Memory) { return ESP_OK; }
+    if (page > InfoPage::ProjectLink) { return ESP_ERR_INVALID_ARG; }
+    if (page != InfoPage::System && page != InfoPage::Memory) { return ESP_OK; }
     model.diagnostics_error = LUNASHELL::DeviceSnapshotService::instance().readDiagnosticsObservation(model.diagnostics);
     if (model.diagnostics_error != ESP_OK) { model.diagnostics = {}; }
     return model.diagnostics_error;
@@ -439,9 +444,10 @@ void update_device_uptime(DeviceDashboardData &data, int64_t now_us)
     }
 }
 
-// model: Receives the canonical projection and owns gesture and arrow timeout state.
+// model: Receives the canonical motion projection.
+// ui: Owns gesture recognition and arrow timeout state.
 // now_us: Monotonic time shared by touch, gesture recognition and the frame owner.
-DeviceNavigationUpdate update_device_navigation(DeviceModel &model, int64_t now_us)
+DeviceNavigationUpdate update_device_navigation(DeviceModel &model, DeviceUiModel &ui, int64_t now_us)
 {
     DeviceNavigationUpdate update{};
 #if CONFIG_LUNASHELL_BUILD_ENABLE_IMU || CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
@@ -463,11 +469,11 @@ DeviceNavigationUpdate update_device_navigation(DeviceModel &model, int64_t now_
     }
     // Power owns the gesture when shake-to-standby is selected, preventing a
     // single physical shake from also navigating Home.
-    update.shaken = observe_companion_shake(model.shake, sample, now_us,
+    update.shaken = observe_companion_shake(ui.shake, sample, now_us,
         !LUNASHELL_power_manager_shake_wake_enabled());
-    if (update.shaken) model.navigation.interact(now_us);
+    if (update.shaken) ui.navigation.interact(now_us);
 #endif
-    model.navigation.update(now_us, kNavigationTimeoutUs);
+    ui.navigation.update(now_us, kNavigationTimeoutUs);
     return update;
 }
 

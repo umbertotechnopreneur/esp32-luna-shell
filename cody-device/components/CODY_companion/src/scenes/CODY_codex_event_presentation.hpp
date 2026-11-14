@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cmath>
+#include <iterator>
 #include "CODY2D_controls.hpp"
 #include "CODY_theme_generated.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
@@ -37,7 +38,7 @@ enum class Route : uint8_t {
     PrPending21 = 64, ChecksRunning22 = 65, ChecksFailed23 = 66, CheckFailures24 = 67,
     DecisionNotice26 = 68, DecisionChoices27 = 69, DecisionConfirm27 = 70,
     DecisionWaiting = 71, ReplySent31 = 72, CodexNotice = 73, ApprovalOnPc = 74, EventUnavailable = 75,
-    DecisionQueue = 76
+    DecisionQueue = 76, WhatsAppSetup = 77
 };
 enum class EventStage : uint8_t { Notice = 0, Choices = 1, Confirm = 2, Waiting = 3, Failures = 4, Questions = 5 };
 enum class EventRetry : uint8_t { None = 0, Reply = 2, Dismiss = 3 };
@@ -460,20 +461,20 @@ inline esp_err_t prepare_row_label(Action &action, uint8_t number, const char *l
     return ESP_OK;
 }
 
-// plan: Receives only the requested five-line review viewport and its page count.
-// label: Full canonical response caption, read before its description.
-// detail: Full canonical detail (or the question body when detail is absent).
-// page: Explicit local review page; no owner state is changed while reading.
+// plan: Receives the requested five-line read-only viewport and its page count.
+// sources: Complete source fields, retained by their canonical owner.
+// source_count: Number of fields; empty fields are omitted without substitution.
+// page: Explicit local page; no owner state is changed while reading.
 // capacity: Measured body-font capacity, with no pixel or timing approximation.
 // Exception: Returns INVALID_SIZE for an invalid viewport/page or oversized field.
-inline esp_err_t prepare_detail_page(Plan &plan, const char *label, const char *detail,
-                                    uint8_t page, size_t capacity)
+inline esp_err_t prepare_text_page(Plan &plan, const char *const *sources, size_t source_count,
+                                  uint8_t page, size_t capacity)
 {
     if (capacity < 7 || capacity >= sizeof(Line::text)) { return ESP_ERR_INVALID_SIZE; }
     constexpr uint8_t lines_per_page = 5;
     uint16_t line_number = 0;
-    const char *sources[] = {label, detail};
-    for (const char *source : sources) {
+    for (size_t index = 0; index < source_count; ++index) {
+        const char *source = sources[index];
         const size_t length = std::strlen(source);
         size_t offset = 0;
         while (offset < length) {
@@ -504,6 +505,19 @@ inline esp_err_t prepare_detail_page(Plan &plan, const char *label, const char *
     plan.page_count = static_cast<uint8_t>(pages);
     plan.scrollable = pages > 1;
     return ESP_OK;
+}
+
+// plan: Receives the selected complete response review page.
+// label: Original response label, including its displayed ordinal.
+// detail: Original response detail or question body.
+// page: Explicit local review position.
+// capacity: Measured body-font character capacity.
+// Exception: Preserves the original page or glyph-capacity error.
+inline esp_err_t prepare_detail_page(Plan &plan, const char *label, const char *detail,
+                                    uint8_t page, size_t capacity)
+{
+    const char *sources[] = {label, detail};
+    return prepare_text_page(plan, sources, std::size(sources), page, capacity);
 }
 
 // plan: Prepared list viewport receiving one narrow hint below the safe square.
@@ -549,7 +563,8 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
     const char *identity = scene_name(plan.route);
     if (identity == nullptr) { return ESP_ERR_INVALID_STATE; }
     std::strcpy(plan.scene, identity);
-    plan.back = plan.route == Route::DecisionChoices27 || plan.route == Route::DecisionConfirm27 ||
+    plan.back = (!context.reply_admitted && !context.dismiss_admitted) ||
+        plan.route == Route::DecisionChoices27 || plan.route == Route::DecisionConfirm27 ||
         plan.route == Route::CheckFailures24 || plan.route == Route::DecisionQueue ||
         (plan.route == Route::ApprovalOnPc && !context.dismiss_admitted);
     uint16_t top = 196;
@@ -562,7 +577,50 @@ inline esp_err_t prepare(const LUNASHELL::CodexEventSnapshot &event,
         if (error == ESP_OK) { error = append_lines(plan, value, top, capacity, pitch, instant, words); }
     };
     char status[64]{};
-    if (plan.route == Route::EventUnavailable) {
+    if (navigation.stage == EventStage::Notice && context.observation_error == ESP_OK &&
+        event.kind != Kind::None && !LUNASHELL::codexEventIsTerminal(event.state) &&
+        !context.reply_admitted && event.state != State::Sending && event.state != State::Received) {
+        // One detail projection serves list selection and incoming notifications.
+        // Origin remains separate from body, project and optional speech status.
+        std::snprintf(plan.title, sizeof(plan.title), "%s", event.kind == Kind::ReplyReady ?
+            "Reply ready" : event.kind == Kind::Question ? "Answer needed" : event.title);
+        plan.title_color = event.kind == Kind::Question ? kQuestionAccent : Theme::text_bright;
+        if (context.ui_error != ESP_OK || event.last_error != ESP_OK) {
+            std::snprintf(status, sizeof(status), "Error: 0x%08lX", static_cast<unsigned long>(
+                context.ui_error != ESP_OK ? context.ui_error : event.last_error));
+        } else if (!context.online) {
+            std::strcpy(status, "Offline - saved notification");
+        } else if (event.progress_valid) {
+            std::snprintf(status, sizeof(status), "%u / %u checks passed", unsigned(event.passed), unsigned(event.total));
+        }
+        const char *origin = event.origin_title[0] != '\0' ? event.origin_title : "Chat title unavailable";
+        const char *severity = "";
+        switch (event.severity) {
+        case LUNASHELL::CodexEventSeverity::Information: severity = "Severity: Information"; break;
+        case LUNASHELL::CodexEventSeverity::Warning: severity = "Severity: Warning"; break;
+        case LUNASHELL::CodexEventSeverity::Critical: severity = "Severity: Critical"; break;
+        case LUNASHELL::CodexEventSeverity::None: break;
+        }
+        const char *sources[14]{origin,
+            std::strcmp(event.title, plan.title) != 0 && std::strcmp(event.title, event.body) != 0 ? event.title : "",
+            std::strcmp(event.body, origin) != 0 && std::strcmp(event.body, event.title) != 0 ? event.body : "",
+            event.context, event.status, status, event.kind == Kind::ApprovalOnPc ? "Continue on your PC" : "",
+            severity};
+        for (uint8_t index = 0; index < event.failure_count; ++index) sources[8U + index] = event.failed_checks[index];
+        error = prepare_text_page(plan, sources, 8U + event.failure_count, navigation.detail_page, capacity);
+        if (error != ESP_OK) return error;
+        if (plan.scrollable) {
+            top = 326;
+            std::snprintf(status, sizeof(status), "Swipe %u/%u", unsigned(plan.page_index + 1U), unsigned(plan.page_count));
+            text(status, true);
+        }
+        if (event.kind == Kind::Question) {
+            add_action(plan, ActionId::Open, "Choose a reply", event.state == State::Pending);
+        } else {
+            add_action(plan, context.ui_error == ESP_OK ? ActionId::Dismiss : ActionId::Retry,
+                context.ui_error == ESP_OK ? "Mark as read" : "Try again", context.online && !context.dismiss_admitted);
+        }
+    } else if (plan.route == Route::EventUnavailable) {
         text("Update unavailable");
         std::snprintf(status, sizeof(status), "Error: 0x%08lX", static_cast<unsigned long>(context.observation_error));
         text(status, true);
@@ -855,7 +913,7 @@ inline esp_err_t activate(const LUNASHELL::CodexEventSnapshot &event, const Cont
     if (!action.enabled) { return ESP_ERR_INVALID_STATE; }
     switch (action.id) {
     case ActionId::Open:
-        navigation.stage = event.pending_question_count > 1 ? EventStage::Questions : EventStage::Choices;
+        navigation.stage = EventStage::Choices;
         navigation.choice_page = navigation.detail_page = 0;
         effect = Effect::Render;
         break;
@@ -868,10 +926,9 @@ inline esp_err_t activate(const LUNASHELL::CodexEventSnapshot &event, const Cont
         effect = Effect::Render;
         break;
     case ActionId::Back:
-        if (event.kind == LUNASHELL::CodexEventKind::ApprovalOnPc) {
-            if (context.dismiss_admitted) { return ESP_ERR_INVALID_STATE; }
-            // Retire this read-only notice only; the native PC permission remains pending.
-            effect = Effect::Dismiss;
+        if (navigation.stage == EventStage::Notice) {
+            // The route owner returns to Notifications without changing unread state.
+            effect = Effect::Render;
             break;
         }
         if (navigation.stage != EventStage::Confirm && navigation.stage != EventStage::Choices &&
@@ -942,7 +999,7 @@ inline bool scroll(const Plan &plan, Navigation &navigation,
     if (!controls_visible || !plan.scrollable || std::abs(dy) < 36 ||
         std::abs(dy) * 2 <= std::abs(dx) * 3) { return false; }
     uint8_t *page = navigation.stage == EventStage::Choices ? &navigation.choice_page :
-        navigation.stage == EventStage::Confirm ? &navigation.detail_page :
+        navigation.stage == EventStage::Confirm || navigation.stage == EventStage::Notice ? &navigation.detail_page :
         navigation.stage == EventStage::Failures ? &navigation.failure_page : nullptr;
     if (page == nullptr || *page != plan.page_index) { return false; }
     const uint8_t previous = *page;
@@ -969,7 +1026,7 @@ inline Effect release(const Plan &plan, Navigation &navigation, bool controls_vi
     if (scroll(plan, navigation, controls_visible, dx, dy)) { return Effect::Render; }
     // A diagonal drag must not slip through two independent axis thresholds.
     if (dx * dx + dy * dy >= 144) { return Effect::None; }
-    if (navigation.stage == EventStage::Confirm && plan.scrollable &&
+    if ((navigation.stage == EventStage::Confirm || navigation.stage == EventStage::Notice) && plan.scrollable &&
         contains(kReviewPanel, start_x, start_y, kReviewPanelRadius) &&
         contains(kReviewPanel, end_x, end_y, kReviewPanelRadius)) {
         navigation.detail_page = (navigation.detail_page + 1U) % plan.page_count;
@@ -979,20 +1036,6 @@ inline Effect release(const Plan &plan, Navigation &navigation, bool controls_vi
     const Action *end = hit_action(plan, controls_visible, end_x, end_y);
     if (start != nullptr && start == end) { action = start; }
     return Effect::None;
-}
-
-// event: Coherent readonly checks result, never a question or native approval.
-// context: Actual owner admission/failure state.
-// controls_visible: Complete narrative reveal gate.
-// now_us: Existing pausable UI clock; host clocks remain explicitly SIMULATED.
-// readable_at_us: Caller-owned first readable timestamp, initially negative.
-inline bool checks_passed_dismiss_due(const LUNASHELL::CodexEventSnapshot &event,
-    const Context &context, bool controls_visible, int64_t now_us, int64_t &readable_at_us)
-{
-    if (event.kind != LUNASHELL::CodexEventKind::ChecksPassed || !controls_visible ||
-        context.dismiss_admitted || context.ui_error != ESP_OK) { return false; }
-    if (readable_at_us < 0) { readable_at_us = now_us; return false; }
-    return now_us - readable_at_us >= 3000000LL;
 }
 
 } // namespace CODY::event_presentation

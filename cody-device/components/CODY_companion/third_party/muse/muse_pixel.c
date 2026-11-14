@@ -8,6 +8,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+#if defined(ESP_PLATFORM)
+#include "esp_attr.h"
+#include "sdkconfig.h"
+#endif
+
+/* These are display-task scratch pixels, never DMA/ISR buffers or secrets.
+ * Keep scarce internal DRAM for cache-off-safe and TLS allocations. */
+#if defined(ESP_PLATFORM) && CONFIG_SPIRAM_ALLOW_BSS_SEG_EXTERNAL_MEMORY
+#define CODY_MUSE_FRAME_STORAGE EXT_RAM_BSS_ATTR
+#else
+#define CODY_MUSE_FRAME_STORAGE
+#endif
+
 #define W MUSE_PX_W
 #define H MUSE_PX_H
 #define TAU 6.2831853f
@@ -115,8 +128,8 @@ static bool s_scheme_init;
 static uint16_t s_pal[C_COUNT];
 static uint16_t s_pal_dim[C_COUNT];
 
-static uint8_t s_fb[W * H];
-static uint8_t s_mask[W * H];
+static CODY_MUSE_FRAME_STORAGE uint8_t s_fb[W * H];
+static CODY_MUSE_FRAME_STORAGE uint8_t s_mask[W * H];
 
 static const uint8_t BAYER4[4][4] = {
     { 0, 8, 2, 10 },

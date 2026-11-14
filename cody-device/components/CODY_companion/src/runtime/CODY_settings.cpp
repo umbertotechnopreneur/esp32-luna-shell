@@ -15,6 +15,7 @@
  * VBWR E */
 
 #include "CODY_settings.hpp"
+#include "CODY_settings_state.hpp"
 #include "LUNASHELL_settings.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_clock.hpp"
@@ -65,6 +66,30 @@ constexpr char kUserNameKey[] = "cody_user_name";
 constexpr char kDictationKey[] = "cody_dictation";
 #endif
 std::mutex s_preferences_mutex;
+
+// key: Existing owned NVS boolean key, never a caller-supplied storage path.
+// value: Exact requested value whose durable readback must match.
+// Exception: Returns the original write/readback failure or an explicit mismatch.
+esp_err_t save_verified_bool(const char *key, bool value)
+{
+    auto &store = LUNASHELL::UserSettingsService::instance();
+    auto error = store.setBool(key, value);
+    const char *operation = "write";
+    bool stored = !value;
+    if (error == ESP_OK) {
+        operation = "readback";
+        error = store.getBool(key, &stored);
+    }
+    if (error == ESP_OK && stored != value) {
+        operation = "readback mismatch";
+        error = ESP_ERR_INVALID_RESPONSE;
+    }
+    if (error != ESP_OK) {
+        ESP_LOGE(kTag, "Boolean preference %s '%s'=%u failed (%s)",
+            operation, key, value, esp_err_to_name(error));
+    }
+    return error;
+}
 
 // name: Exact user-provided printable ASCII, including empty explicit clear.
 // Exception: Returns invalid argument/size without trimming or transliterating input.
@@ -818,9 +843,11 @@ esp_err_t load_companion_preferences()
     return error;
 }
 
-// output_only: True restores just playback before startup sound admission.
+enum class AudioReconcileSelection : uint8_t { Both, Output, Input };
+
+// selection: Explicit output, input or both preferences owned by the codec service.
 // Exception: Returns the first NVS, driver/readback or canonical publication error.
-static esp_err_t reconcile_audio_preferences_locked(bool output_only)
+static esp_err_t reconcile_audio_preferences_locked(AudioReconcileSelection selection)
 {
     LUNASHELL::CodyOptionsObservation observed{};
     auto &snapshots = LUNASHELL::DeviceSnapshotService::instance();
@@ -832,7 +859,8 @@ static esp_err_t reconcile_audio_preferences_locked(bool output_only)
     esp_err_t first_error = ESP_OK;
     for (const auto preference : {PreferenceId::PlaybackVolume, PreferenceId::MicrophoneGain}) {
         const bool output = preference == PreferenceId::PlaybackVolume;
-        if (output_only && !output) continue;
+        if ((selection == AudioReconcileSelection::Output && !output) ||
+            (selection == AudioReconcileSelection::Input && output)) continue;
         auto &prefs = observed.preferences;
         auto &valid = output ? prefs.playback_volume_valid : prefs.microphone_gain_valid;
         auto &reported_error = output ? prefs.playback_volume_error : prefs.microphone_gain_error;
@@ -855,12 +883,12 @@ static esp_err_t reconcile_audio_preferences_locked(bool output_only)
     return first_error != ESP_OK ? first_error : publication_error;
 }
 
-// No parameters: reapply both stored preferences through the existing codec owner on a worker.
+// No parameters: reconcile stored audio preferences through the existing codec owner on a worker.
 // Exception: Returns the first NVS, driver/readback or canonical publication error.
 esp_err_t reconcile_audio_preferences()
 {
     std::lock_guard<std::mutex> guard(s_preferences_mutex);
-    return reconcile_audio_preferences_locked(false);
+    return reconcile_audio_preferences_locked(AudioReconcileSelection::Both);
 }
 
 // No parameters: restore saved playback policy on the startup task before its optional cue.
@@ -868,7 +896,15 @@ esp_err_t reconcile_audio_preferences()
 esp_err_t reconcile_audio_output_preference()
 {
     std::lock_guard<std::mutex> guard(s_preferences_mutex);
-    return reconcile_audio_preferences_locked(true);
+    return reconcile_audio_preferences_locked(AudioReconcileSelection::Output);
+}
+
+// No parameters: restore microphone gain before the continuous voice feed begins.
+// Exception: Returns the original NVS, codec, readback or canonical publication error.
+esp_err_t reconcile_audio_input_preference()
+{
+    std::lock_guard<std::mutex> guard(s_preferences_mutex);
+    return reconcile_audio_preferences_locked(AudioReconcileSelection::Input);
 }
 
 // preference: Stable identity of the choice pressed on screen 10.
@@ -1049,19 +1085,21 @@ esp_err_t persist_companion_preference(PreferenceId preference, uint32_t value)
 }
 
 // settings: Receives persisted/default/explicit-development decisions on success only.
+// Exception: Preserves the original failure and invalidates the canonical load projection.
 esp_err_t load_onboarding_settings(OnboardingSettings &settings)
 {
     auto &store = LUNASHELL::UserSettingsService::instance();
     esp_err_t error = store.isInitialized() ? ESP_OK : store.initialize();
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Settings initialization failed (%s)", esp_err_to_name(error));
+        SettingsState::publish_load_failure(error);
         return error;
     }
     OnboardingSettings loaded{};
     error = store.getBool(kFirstBootKey, &loaded.persisted_first_boot);
     if (error == ESP_ERR_NVS_NOT_FOUND) {
         ESP_LOGI(kTag, "First boot: key '%s' absent; persisting default=1", kFirstBootKey);
-        error = store.setBool(kFirstBootKey, true);
+        error = save_verified_bool(kFirstBootKey, true);
         if (error == ESP_OK) {
             loaded.persisted_first_boot = true;
         }
@@ -1069,6 +1107,7 @@ esp_err_t load_onboarding_settings(OnboardingSettings &settings)
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "First-boot read/default persistence '%s' failed (%s)",
             kFirstBootKey, esp_err_to_name(error));
+        SettingsState::publish_load_failure(error);
         return error;
     }
     error = store.getBool(kBirthIntroKey, &loaded.birth_intro_pending);
@@ -1084,6 +1123,7 @@ esp_err_t load_onboarding_settings(OnboardingSettings &settings)
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Birth intro read/default persistence '%s' failed (%s)",
             kBirthIntroKey, esp_err_to_name(error));
+        SettingsState::publish_load_failure(error);
         return error;
     }
     error = store.getBool(kFirstBootMusicKey, &loaded.first_boot_music_pending);
@@ -1097,24 +1137,28 @@ esp_err_t load_onboarding_settings(OnboardingSettings &settings)
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "First-boot music read/default '%s' failed (%s)",
             kFirstBootMusicKey, esp_err_to_name(error));
+        SettingsState::publish_load_failure(error);
         return error;
     }
     uint32_t tour_step = 0;
     error = store.getUInt32(kOnboardingTourKey, &tour_step);
     if (error == ESP_ERR_NVS_NOT_FOUND) {
-        const uint32_t default_step = loaded.persisted_first_boot ? 0U : 5U;
+        const uint32_t default_step = static_cast<uint32_t>(loaded.persisted_first_boot
+            ? OnboardingTourStep::Buttons : OnboardingTourStep::Completed);
         ESP_LOGI(kTag, "Onboarding tour: key '%s' absent; first-boot default=%lu",
             kOnboardingTourKey, static_cast<unsigned long>(default_step));
         error = persist_onboarding_tour_step(default_step);
         if (error == ESP_OK) tour_step = default_step;
     }
-    if (error == ESP_OK && tour_step > 6U) error = ESP_ERR_INVALID_ARG;
+    OnboardingTourStep decoded_step{};
+    if (error == ESP_OK && !decode_onboarding_tour_step(tour_step, decoded_step)) error = ESP_ERR_INVALID_ARG;
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Onboarding tour read/default '%s' failed (%s)",
             kOnboardingTourKey, esp_err_to_name(error));
+        SettingsState::publish_load_failure(error);
         return error;
     }
-    loaded.onboarding_tour_step = static_cast<uint8_t>(tour_step);
+    loaded.onboarding_tour_step = static_cast<uint8_t>(decoded_step);
     error = store.getBool(kSetupProgressKey, &loaded.setup_progress_pending);
     if (error == ESP_ERR_NVS_NOT_FOUND) {
         ESP_LOGI(kTag, "Setup progress: key '%s' absent; persisting default=1", kSetupProgressKey);
@@ -1124,6 +1168,7 @@ esp_err_t load_onboarding_settings(OnboardingSettings &settings)
     if (error != ESP_OK) {
         ESP_LOGE(kTag, "Setup progress read/default persistence '%s' failed (%s)",
             kSetupProgressKey, esp_err_to_name(error));
+        SettingsState::publish_load_failure(error);
         return error;
     }
 #if CONFIG_LUNASHELL_CODY_FORCE_FIRST_BOOT
@@ -1134,6 +1179,7 @@ esp_err_t load_onboarding_settings(OnboardingSettings &settings)
     ESP_LOGI(kTag, "First boot: key='%s' stored=%u force-development=%u effective=%u",
         kFirstBootKey, loaded.persisted_first_boot, loaded.force_first_boot, loaded.effective_first_boot);
     settings = loaded;
+    SettingsState::publish_loaded(loaded);
     return ESP_OK;
 }
 
@@ -1141,42 +1187,20 @@ esp_err_t load_onboarding_settings(OnboardingSettings &settings)
 // Exception: Returns the original write/readback error or ESP_ERR_INVALID_RESPONSE for a mismatched value.
 esp_err_t persist_first_boot(bool first_boot)
 {
-    auto &store = LUNASHELL::UserSettingsService::instance();
-    esp_err_t error = store.setBool(kFirstBootKey, first_boot);
-    if (error != ESP_OK) {
-        ESP_LOGE(kTag, "First-boot preference write '%s'=%u failed (%s)",
-            kFirstBootKey, first_boot, esp_err_to_name(error));
-        return error;
+    const auto error = save_verified_bool(kFirstBootKey, first_boot);
+    SettingsState::publish_write(SettingsState::Field::FirstBoot, first_boot, error);
+    if (error == ESP_OK) {
+        ESP_LOGI(kTag, "Explicit first-boot preference persisted: '%s'=%u", kFirstBootKey, first_boot);
     }
-    bool persisted = !first_boot;
-    error = store.getBool(kFirstBootKey, &persisted);
-    if (error != ESP_OK) {
-        ESP_LOGE(kTag, "First-boot preference readback '%s' failed (%s)",
-            kFirstBootKey, esp_err_to_name(error));
-        return error;
-    }
-    if (persisted != first_boot) {
-        ESP_LOGE(kTag, "First-boot preference readback mismatch: '%s' requested=%u stored=%u (%s)",
-            kFirstBootKey, first_boot, persisted, esp_err_to_name(ESP_ERR_INVALID_RESPONSE));
-        return ESP_ERR_INVALID_RESPONSE;
-    }
-    ESP_LOGI(kTag, "Explicit first-boot preference persisted: '%s'=%u", kFirstBootKey, first_boot);
-    return ESP_OK;
+    return error;
 }
 
 // pending: Whether a fully retired introduction remains outstanding.
 // Exception: Returns the original write/readback error or a readback mismatch.
 esp_err_t persist_birth_intro_pending(bool pending)
 {
-    auto &store = LUNASHELL::UserSettingsService::instance();
-    auto error = store.setBool(kBirthIntroKey, pending);
-    bool stored = !pending;
-    if (error == ESP_OK) error = store.getBool(kBirthIntroKey, &stored);
-    if (error == ESP_OK && stored != pending) error = ESP_ERR_INVALID_RESPONSE;
-    if (error != ESP_OK) {
-        ESP_LOGE(kTag, "Birth intro preference '%s'=%u failed (%s)",
-            kBirthIntroKey, pending, esp_err_to_name(error));
-    }
+    const auto error = save_verified_bool(kBirthIntroKey, pending);
+    SettingsState::publish_write(SettingsState::Field::BirthIntro, pending, error);
     return error;
 }
 
@@ -1184,15 +1208,8 @@ esp_err_t persist_birth_intro_pending(bool pending)
 // Exception: Returns the original storage error or a readback mismatch.
 esp_err_t persist_first_boot_music_pending(bool pending)
 {
-    auto &store = LUNASHELL::UserSettingsService::instance();
-    auto error = store.setBool(kFirstBootMusicKey, pending);
-    bool stored = !pending;
-    if (error == ESP_OK) error = store.getBool(kFirstBootMusicKey, &stored);
-    if (error == ESP_OK && stored != pending) error = ESP_ERR_INVALID_RESPONSE;
-    if (error != ESP_OK) {
-        ESP_LOGE(kTag, "First-boot music preference '%s'=%u failed (%s)",
-            kFirstBootMusicKey, pending, esp_err_to_name(error));
-    }
+    const auto error = save_verified_bool(kFirstBootMusicKey, pending);
+    SettingsState::publish_write(SettingsState::Field::FirstBootMusic, pending, error);
     return error;
 }
 
@@ -1200,8 +1217,10 @@ esp_err_t persist_first_boot_music_pending(bool pending)
 // Exception: Returns the original storage error or a readback mismatch.
 esp_err_t persist_onboarding_tour_step(uint32_t step)
 {
-    if (step > 6U) {
+    OnboardingTourStep decoded_step{};
+    if (!decode_onboarding_tour_step(step, decoded_step)) {
         ESP_LOGE(kTag, "Onboarding tour step rejected: %lu", static_cast<unsigned long>(step));
+        SettingsState::publish_write(SettingsState::Field::TourStep, step, ESP_ERR_INVALID_ARG);
         return ESP_ERR_INVALID_ARG;
     }
     auto &store = LUNASHELL::UserSettingsService::instance();
@@ -1213,6 +1232,7 @@ esp_err_t persist_onboarding_tour_step(uint32_t step)
         ESP_LOGE(kTag, "Onboarding tour preference '%s'=%lu failed (%s)",
             kOnboardingTourKey, static_cast<unsigned long>(step), esp_err_to_name(error));
     }
+    SettingsState::publish_write(SettingsState::Field::TourStep, step, error);
     return error;
 }
 
@@ -1220,15 +1240,8 @@ esp_err_t persist_onboarding_tour_step(uint32_t step)
 // Exception: Returns the original write/readback error or a readback mismatch.
 esp_err_t persist_setup_progress_pending(bool pending)
 {
-    auto &store = LUNASHELL::UserSettingsService::instance();
-    auto error = store.setBool(kSetupProgressKey, pending);
-    bool stored = !pending;
-    if (error == ESP_OK) error = store.getBool(kSetupProgressKey, &stored);
-    if (error == ESP_OK && stored != pending) error = ESP_ERR_INVALID_RESPONSE;
-    if (error != ESP_OK) {
-        ESP_LOGE(kTag, "Setup progress preference '%s'=%u failed (%s)",
-            kSetupProgressKey, pending, esp_err_to_name(error));
-    }
+    const auto error = save_verified_bool(kSetupProgressKey, pending);
+    SettingsState::publish_write(SettingsState::Field::SetupProgress, pending, error);
     return error;
 }
 } // namespace CODY

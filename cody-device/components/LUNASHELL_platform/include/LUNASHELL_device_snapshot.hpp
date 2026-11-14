@@ -130,6 +130,10 @@ struct RtcSnapshot : ComponentSnapshot {
 
 // Actual system-clock observation by the time owner, not an extrapolated RTC sample.
 struct ClockSnapshot : ComponentSnapshot {
+    NetworkTimeSyncState network_sync_state = NetworkTimeSyncState::Idle;
+    esp_err_t network_sync_error = ESP_OK;
+    // Independent error restoring periodic network time; not the manual request result.
+    esp_err_t network_auto_error = ESP_OK;
     int64_t utc_epoch_seconds = 0;
     uint16_t local_minute = 0;
     uint16_t local_year = 0;
@@ -532,7 +536,7 @@ struct CodexTokenIntervalObservation {
 struct CodexInboxSnapshot : ComponentSnapshot, CodexInboxPage {
     char acknowledged_reply[33]{};
 };
-static_assert(sizeof(CodexInboxSnapshot) <= 640, "Inbox page must fit its bounded owner projection");
+static_assert(sizeof(CodexInboxSnapshot) <= 704, "Inbox page includes separate bounded event and chat captions");
 
 struct CodexEventSnapshot : ComponentSnapshot, CodexEventPayload {
     CodexEventState state = CodexEventState::None;
@@ -541,7 +545,7 @@ struct CodexEventSnapshot : ComponentSnapshot, CodexEventPayload {
     int64_t expires_at_us = 0;
     char selection_request_id[33]{}; // Explicit navigation admission; never an answer.
 };
-static_assert(sizeof(CodexEventSnapshot) <= 2560, "Event projection includes bounded private speech and requires owner storage");
+static_assert(sizeof(CodexEventSnapshot) <= 2816, "Event projection includes origin, status and private speech in owner storage");
 
 enum class PcTimeSyncState : uint8_t { Idle, Pending, Applied, Failed };
 
@@ -773,6 +777,7 @@ struct OrientationSnapshot : ComponentSnapshot {
 
 struct DisplayFrameSnapshot {
     bool measured = false;
+    bool deadline_expired = false; // The BSP observed this frame's own rendering deadline.
     uint32_t completed_frames = 0;
     uint32_t failed_frames = 0;
     uint32_t last_lock_wait_us = 0;

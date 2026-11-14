@@ -10,16 +10,9 @@
 #include "esp_log.h"
 #include "esp_timer.h"
 
-extern "C" {
-extern const uint8_t boot_rise_start[] asm("_binary_cody_device_boot_rise_start");
-extern const uint8_t boot_rise_end[] asm("_binary_cody_device_boot_rise_end");
-}
-
 namespace CODY {
 namespace {
 constexpr char kTag[] = "CODY_effects";
-constexpr uint32_t kBootRiseCue = 0x43430000U;
-constexpr size_t kBootRiseSamples = 39690; // 1.8 seconds at the asset's authored 22.05 kHz.
 constexpr uint32_t kTapCue = 0x4343FF01U; // Local feedback within the shared application cue channel.
 constexpr uint32_t kKeyCue = 0x4343FF02U;
 constexpr uint32_t kWakeCue = 0x4343FF03U;
@@ -452,6 +445,7 @@ void observe_event(DeviceEffectsModel &model, int64_t now_us, SoundRequest &requ
         ++model.event_visual_sequence;
         model.event_visual_at_us = now_us;
         model.event_visual_kind = event.kind;
+        std::memcpy(model.event_visual_request, event.request_id, sizeof(model.event_visual_request));
     }
     switch (event.kind) {
     case Kind::ReplyReady:
@@ -760,6 +754,20 @@ esp_err_t dispatch_voice_warning(DeviceEffectsModel &model, const SoundRequest &
 }
 } // namespace
 
+// model: Bounded existing feedback ledger; no transport or playback owner is changed.
+// request_id: Exact printable request ID whose explicit selection succeeded.
+void note_device_notification_opened(DeviceEffectsModel &model, const char *request_id)
+{
+    if (request_id == nullptr || strnlen(request_id, 33) != 32) return;
+    auto &record = event_record(model, request_id);
+    record.announced_kinds |= 0x01feU; // Existing event kinds 1 through 8.
+    record.speech_announced |= 1U | 4U; // Pending question and ready reply only.
+    record.reminder_at_us = model.last_tick_us;
+    if (model.event_sound.state == LUNASHELL::CodexEventState::Pending &&
+        std::strcmp(model.event_sound.request_id, request_id) == 0) model.event_sound = {};
+    if (std::strcmp(model.event_visual_request, request_id) == 0) model.event_visual_at_us = 0;
+}
+
 // model: Persistent controller initialized once after the actual codec and saved sound policy.
 // Exception: Returns and retains the existing worker's original preparation error.
 esp_err_t prepare_device_effects(DeviceEffectsModel &model)
@@ -775,36 +783,6 @@ esp_err_t prepare_device_effects(DeviceEffectsModel &model)
         ESP_LOGE(kTag, "Notification audio preparation failed (%s)", esp_err_to_name(model.preparation_error));
     }
     return model.preparation_error;
-}
-
-// model: Retains the one boot attempt and its genuine admission result.
-// Exception: Returns original invalid asset or audio-owner failure without blocking animation.
-esp_err_t play_device_boot_cue(DeviceEffectsModel &model)
-{
-    if (model.boot_cue_requested) return model.boot_audio_error;
-    model.boot_cue_requested = true;
-    const auto begin = reinterpret_cast<uintptr_t>(boot_rise_start);
-    const auto end = reinterpret_cast<uintptr_t>(boot_rise_end);
-    lunashell_audio_cue_status_t status{LUNASHELL_CUE_UNAVAILABLE, ESP_OK, 0, kBootRiseCue};
-    auto error = model.preparation_error;
-    if (error == ESP_OK) {
-        if (end <= begin || begin % alignof(int16_t) != 0 ||
-            end - begin != kBootRiseSamples * sizeof(int16_t)) {
-            error = ESP_ERR_INVALID_SIZE;
-        } else {
-            const lunashell_audio_request_t request{reinterpret_cast<const int16_t *>(boot_rise_start),
-                kBootRiseSamples, 22050, kBootRiseCue, LUNASHELL_AUDIO_BOOT, LUNASHELL_CODEX_CUE_NOTICE,
-                1, 0, LUNASHELL_AUDIO_WAVE_PCM, 0, 1000, 0, 0, 0, 0, false, 0, 0};
-            error = LUNASHELL_audio_submit(&request, &status);
-        }
-    }
-    model.boot_audio_error = error;
-    if (error != ESP_OK) {
-        ESP_LOGW(kTag, "BootRise cue admission failed (%s)", esp_err_to_name(error));
-    } else {
-        ESP_LOGI(kTag, "BootRise cue admission: state=%u", static_cast<unsigned>(status.state));
-    }
-    return error;
 }
 
 // model: Receives the actual admission disposition and original optional failure.

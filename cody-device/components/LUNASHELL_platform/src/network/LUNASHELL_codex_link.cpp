@@ -144,6 +144,7 @@ char s_activation_pc_id[33]{};
 char s_activation_nonce[33]{};
 int64_t s_activation_replay_until_us = 0;
 uint8_t s_find_nonce[16]{};
+char s_find_selected_request_id[33]{};
 int64_t s_next_find_at_us = 0;
 int64_t s_last_ready_at_us = 0;
 // Diagnostic count under s_mutex; a successful send only means the local socket accepted FIND.
@@ -207,12 +208,14 @@ struct PcTimeExchange {
     bool waiting = false;
     bool applying = false;
     bool manual = false;
+    uint8_t transient_send_retries = 0;
     char nonce[33]{};
     char id[33]{};
     char address[16]{};
     uint32_t attempt = 0;
     int64_t issued_at_us = 0;
     int64_t deadline_us = 0;
+    int64_t retry_at_us = 0;
 };
 PcTimeExchange s_pc_time{};
 char s_name_consumed_nonce[33]{};
@@ -836,6 +839,25 @@ esp_err_t eraseLinkRecord(const char *key)
     return error;
 }
 
+// clear: True only when the retained pairing identity was replaced or forgotten.
+// Exception: Returns the original snapshot publication failure; historical rows never become current.
+esp_err_t invalidateInboxLocked(bool clear)
+{
+    if (clear) {
+        s_inbox_observation = {};
+        s_inbox_candidate = {};
+        s_inbox_offset = 0;
+        std::memset(s_inbox_dismiss, '0', 32);
+    } else {
+        s_inbox_observation.data_valid = false;
+        s_inbox_observation.data_stale = s_inbox_observation.last_success_at_us > 0;
+        s_inbox_observation.last_error = ESP_ERR_INVALID_STATE;
+        s_inbox_observation.health = LUNASHELL::DeviceHealth::Degraded;
+    }
+    s_inbox_requested = false;
+    return LUNASHELL::DeviceSnapshotService::instance().reportCodexInbox(s_inbox_observation);
+}
+
 // No parameters: caller holds s_mutex after an authenticated CONFIRM or candidate READY.
 // Exception: Partial persistence stays an error and keeps recovery state available.
 esp_err_t commitCandidateLocked()
@@ -859,6 +881,9 @@ esp_err_t commitCandidateLocked()
     }
     if (error == ESP_OK) error = persistLink(kPairingSetting, s_candidate_link);
     if (error == ESP_OK) {
+        error = invalidateInboxLocked(true);
+    }
+    if (error == ESP_OK) {
         // A persisted replacement must not inherit another association's generation.
         LUNASHELL::codex_state::disconnect(true);
         s_persisted_link = s_candidate_link;
@@ -881,14 +906,17 @@ esp_err_t commitCandidateLocked()
 // destination: Exact observed peer or IPv4 broadcast destination.
 // port: Destination UDP port in host byte order.
 // operation: Non-secret operation name for failure logs.
+// socket_errno: Optional destination for errno only when sendto returns a negative result.
 // Exception: Returns ESP_ERR_INVALID_SIZE or the actual socket admission failure.
 esp_err_t sendDatagram(
     const char *payload,
     const in_addr &destination,
     uint16_t port,
-    const char *operation
+    const char *operation,
+    int *socket_errno = nullptr
 )
 {
+    if (socket_errno != nullptr) *socket_errno = 0;
     const size_t size = payload == nullptr ? 0 : std::strlen(payload);
     if (size == 0 || size > kMaximumDatagramBytes) {
         return ESP_ERR_INVALID_SIZE;
@@ -907,6 +935,7 @@ esp_err_t sendDatagram(
     );
     if (sent != static_cast<int>(size)) {
         const int socket_error = errno;
+        if (sent < 0 && socket_errno != nullptr) *socket_errno = socket_error;
         ESP_LOGE(kTag, "%s send failed: errno=%d", operation, socket_error);
         return ESP_FAIL;
     }
@@ -996,6 +1025,17 @@ struct ReadyResponse {
     char proof[65]{};
 };
 static_assert(sizeof(ReadyResponse) <= 208, "CCP READY exceeded its bounded worker projection");
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+// Retry only the idempotent optional capability for this authenticated READY.
+ReadyResponse s_pc_alert_retry_ready{};
+sockaddr_in s_pc_alert_retry_source{};
+int64_t s_pc_alert_retry_due_us = 0;
+uint8_t s_pc_alert_retries = 0;
+bool s_pc_alert_retry_pending = false;
+// Send exactly one inbox request after negotiation or the legacy fallback deadline.
+bool s_pc_alert_inbox_deferred = false;
+int64_t s_pc_alert_inbox_due_us = 0;
+#endif
 
 // payload: Candidate canonical READY datagram.
 // response: Receives validated-width lowercase fields.
@@ -1772,6 +1812,7 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
         if (s_pending == Command::None &&
             (s_link_snapshot.state == State::Discovering || s_link_snapshot.state == State::Connected)) {
             std::memcpy(s_find_nonce, nonce, sizeof(nonce));
+            std::memcpy(s_find_selected_request_id, selected_id, sizeof(s_find_selected_request_id));
             s_find_speech_requested = speech_requested;
             std::memcpy(s_find_speech_ack, speech_ack, sizeof(s_find_speech_ack));
             s_activity_received_for_nonce = false;
@@ -1793,6 +1834,10 @@ esp_err_t sendFind(const LUNASHELL::WifiSnapshot &wifi)
             s_voucher_exchange = VoucherExchange::Idle;
             s_account_received_for_nonce = false;
             s_event_received_for_nonce = false;
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+            s_pc_alert_retry_pending = false;
+            s_pc_alert_inbox_deferred = false;
+#endif
             s_inbox_requested = false;
             wipe(s_ready_nonce, sizeof(s_ready_nonce));
             s_next_find_at_us = esp_timer_get_time() + kFindIntervalUs;
@@ -1841,11 +1886,7 @@ void startDiscovery()
     s_voucher_exchange = VoucherExchange::Idle;
     s_allowance_capability = AllowanceCapability::Subscription;
     s_account_received_for_nonce = false;
-    s_inbox_requested = false;
-    s_inbox_offset = 0;
-    std::memset(s_inbox_dismiss, '0', 32);
-    s_inbox_observation = {};
-    const auto inbox_error = LUNASHELL::DeviceSnapshotService::instance().reportCodexInbox(s_inbox_observation);
+    const auto inbox_error = invalidateInboxLocked(false);
     if (inbox_error != ESP_OK) ESP_LOGW(kTag, "CCP inbox invalidation failed (%s)", esp_err_to_name(inbox_error));
     publishLocked(State::Discovering, ESP_OK);
     ESP_LOGI(kTag, "CCP reconnect admitted with retained pairing; code window stays closed");
@@ -1891,6 +1932,36 @@ esp_err_t sendCommittedLocked(const ReadyResponse &response, const sockaddr_in &
 }
 
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+// response: Authenticated READY for the current durable association and nonce.
+// source: Exact responder endpoint receiving this optional signed capability.
+// Exception: Returns the original HMAC, encoding or network error.
+esp_err_t sendPcAlertCapabilityLocked(const ReadyResponse &response, const sockaddr_in &source)
+{
+    char input[160]{};
+    const int length = std::snprintf(input, sizeof(input), "pc-alert-cap-v1|%s|%s|%s|1",
+        response.device_id, response.pc_id, response.nonce);
+    uint8_t proof[32]{};
+    esp_err_t error = length > 0 && static_cast<size_t>(length) < sizeof(input)
+        ? hmacSha256(s_persisted_link.link_key, sizeof(s_persisted_link.link_key), input, proof)
+        : ESP_ERR_INVALID_SIZE;
+    char proof_hex[65]{};
+    if (error == ESP_OK) error = encodeHex(proof, sizeof(proof), proof_hex, sizeof(proof_hex));
+    char packet[320]{};
+    const int packet_length = std::snprintf(packet, sizeof(packet),
+        "CCP1|PCALERTCAP|device=%s|pc=%s|nonce=%s|cap=1|proof=%s",
+        response.device_id, response.pc_id, response.nonce, proof_hex);
+    if (error == ESP_OK) {
+        error = packet_length > 0 && static_cast<size_t>(packet_length) < sizeof(packet)
+            ? sendDatagram(packet, source.sin_addr, ntohs(source.sin_port), "CCP PCALERTCAP")
+            : ESP_ERR_INVALID_SIZE;
+    }
+    wipe(input, sizeof(input));
+    wipe(proof, sizeof(proof));
+    wipe(proof_hex, sizeof(proof_hex));
+    wipe(packet, sizeof(packet));
+    return error;
+}
+
 // response: Just-authenticated active READY, retaining the unchanged base FIND contract.
 // source: Exact responder endpoint receiving the signed optional Debug capability.
 // Exception: Returns real crypto/encoding/send errors; this optional failure is logged independently.
@@ -2007,6 +2078,8 @@ esp_err_t queuePcTimeLocked(bool manual)
         !LUNASHELL::codex_presence::ready_current(s_link_snapshot, now)) return ESP_ERR_INVALID_STATE;
     s_pc_time.queued = true;
     s_pc_time.manual = manual;
+    s_pc_time.transient_send_retries = 0;
+    s_pc_time.retry_at_us = 0;
     s_link_snapshot.pc_time_state = LUNASHELL::PcTimeSyncState::Pending;
     s_link_snapshot.pc_time_error = ESP_OK;
     const auto error = publishLinkObservationLocked();
@@ -2018,7 +2091,7 @@ esp_err_t queuePcTimeLocked(bool manual)
     return error;
 }
 
-// No parameters: send a queued request once, or expire its monotonic response deadline.
+// No parameters: send a queued request, retry unadmitted resource failures, or expire its response.
 void maintainPcTime()
 {
     std::lock_guard<std::mutex> guard(s_mutex);
@@ -2028,10 +2101,16 @@ void maintainPcTime()
         s_link_snapshot.state != State::Connected || std::strcmp(s_pc_time.address, s_link_snapshot.peer_ip_address) != 0)) {
         s_pc_time.waiting = false;
         s_link_snapshot.pc_time_state = LUNASHELL::PcTimeSyncState::Failed;
-        s_link_snapshot.pc_time_error = ESP_ERR_TIMEOUT;
-        (void)publishLinkObservationLocked();
+        const auto reason = now >= s_pc_time.issued_at_us && now >= s_pc_time.deadline_us
+            ? ESP_ERR_TIMEOUT : ESP_ERR_INVALID_STATE;
+        s_link_snapshot.pc_time_error = reason;
+        const auto publication_error = publishLinkObservationLocked();
+        ESP_LOGW(kTag, "CCP PC time request ended (%s)", esp_err_to_name(reason));
+        if (publication_error != ESP_OK) {
+            ESP_LOGE(kTag, "CCP PC time failure publication failed (%s)", esp_err_to_name(publication_error));
+        }
     }
-    if (!s_pc_time.queued) return;
+    if (!s_pc_time.queued || now < s_pc_time.retry_at_us) return;
     s_pc_time.queued = false;
     esp_err_t error = ESP_OK;
     if (!s_link_present || s_candidate_present || s_pending != Command::None ||
@@ -2062,7 +2141,8 @@ void maintainPcTime()
     if (error == ESP_OK && (packet_length <= 0 || static_cast<size_t>(packet_length) >= sizeof(packet)))
         error = ESP_ERR_INVALID_SIZE;
     if (error == ESP_OK && inet_pton(AF_INET, s_pc_time.address, &address) != 1) error = ESP_ERR_INVALID_STATE;
-    if (error == ESP_OK) error = sendDatagram(packet, address, kPluginPort, "CCP TIMEREQ");
+    int socket_error = 0;
+    if (error == ESP_OK) error = sendDatagram(packet, address, kPluginPort, "CCP TIMEREQ", &socket_error);
     wipe(proof, sizeof(proof));
     wipe(proof_hex, sizeof(proof_hex));
     wipe(input, sizeof(input));
@@ -2071,6 +2151,15 @@ void maintainPcTime()
         s_pc_time.waiting = true;
         s_pc_time.issued_at_us = now;
         s_pc_time.deadline_us = now + 4000000;
+    } else if ((socket_error == ENOMEM || socket_error == ENOBUFS || socket_error == EAGAIN) &&
+               s_pc_time.transient_send_retries < 4U) {
+        // A negative sendto result proves the datagram was not handed to UDP.
+        // Retry bounded resource pressure without blocking the socket owner.
+        ++s_pc_time.transient_send_retries;
+        s_pc_time.retry_at_us = now + 250000;
+        s_pc_time.queued = true;
+        ESP_LOGW(kTag, "CCP PC time send deferred: errno=%d retry=%u/4", socket_error,
+                 static_cast<unsigned>(s_pc_time.transient_send_retries));
     } else {
         s_link_snapshot.pc_time_state = LUNASHELL::PcTimeSyncState::Failed;
         s_link_snapshot.pc_time_error = error;
@@ -2332,10 +2421,24 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                     // retain the real error and retry COMMITTED on the next READY.
                     publishLocked(State::Connected, error);
                     if (error == ESP_OK) {
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+                        const auto alert_error = sendPcAlertCapabilityLocked(response, source);
+                        if (alert_error != ESP_OK) {
+                            ESP_LOGW(kTag, "Optional CCP PC alert capability failed (%s)", esp_err_to_name(alert_error));
+                        }
+                        s_pc_alert_retry_ready = response;
+                        s_pc_alert_retry_source = source;
+                        s_pc_alert_retries = 0;
+                        s_pc_alert_retry_due_us = esp_timer_get_time() + 250000;
+                        s_pc_alert_retry_pending = true;
+                        s_pc_alert_inbox_deferred = true;
+                        s_pc_alert_inbox_due_us = esp_timer_get_time() + 1600000;
+#else
                         const auto inbox_error = sendInboxCapabilityLocked(response, source);
                         if (inbox_error != ESP_OK) {
                             ESP_LOGW(kTag, "Optional CCP inbox capability failed (%s)", esp_err_to_name(inbox_error));
                         }
+#endif
                         const esp_err_t app_error = sendObservationCapabilityLocked(response, source,
                             ObservationCapability::AppPresence);
                         if (app_error != ESP_OK) {
@@ -2380,10 +2483,6 @@ esp_err_t acceptReady(const ReadyResponse &response, const sockaddr_in &source)
                     if (newly_connected) {
                         ESP_LOGI(kTag, "CCP peer authenticated: find_sent=%lu",
                                  static_cast<unsigned long>(find_count));
-                        if (error == ESP_OK) {
-                            const auto time_error = queuePcTimeLocked(false);
-                            if (time_error != ESP_OK) ESP_LOGW(kTag, "Automatic PC time admission failed (%s)", esp_err_to_name(time_error));
-                        }
                     }
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
                     const esp_err_t animation_error = sendAnimationCapabilityLocked(response, source);
@@ -4221,6 +4320,37 @@ esp_err_t acceptInbox(const char *payload, const sockaddr_in &source)
     return error;
 }
 
+// payload: Authenticated capability reply for this READY nonce.
+// source: Exact PC endpoint bound to the active association.
+// Exception: Returns envelope, proof or canonical snapshot publication errors.
+esp_err_t acceptPcAlertAcknowledgement(const char *payload, const sockaddr_in &source)
+{
+    static constexpr const char *names[] = {"device", "pc", "nonce", "status", "proof"};
+    char *values[5]{};
+    if (!parseEventFields(payload, "CCP1|PCALERTACK|", names, 5, values)) return ESP_ERR_INVALID_ARG;
+    std::lock_guard<std::mutex> guard(s_mutex);
+    auto error = admitEventEnvelopeLocked(source, values[0], values[1], values[2], InboundCommand::Maintenance);
+    if (error != ESP_OK) return error;
+    if (std::strcmp(values[3], "none") != 0 && std::strcmp(values[3], "ordinary") != 0 &&
+        std::strcmp(values[3], "sent") != 0) return ESP_ERR_INVALID_ARG;
+    const int length = std::snprintf(s_event_proof_input, sizeof(s_event_proof_input),
+        "pc-alert-ack-v1|%s|%s|%s|%s", values[0], values[1], values[2], values[3]);
+    if (length <= 0 || static_cast<size_t>(length) >= sizeof(s_event_proof_input)) return ESP_ERR_INVALID_SIZE;
+    error = verifyEventProofLocked(values[4]);
+    if (error != ESP_OK) return error;
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    s_pc_alert_retry_pending = false;
+    if (s_pc_alert_inbox_deferred) {
+        // One signed request per nonce: never replay a possibly admitted dismiss.
+        s_pc_alert_inbox_deferred = false;
+        const auto inbox_error = sendInboxCapabilityLocked(s_pc_alert_retry_ready, s_pc_alert_retry_source);
+        if (inbox_error != ESP_OK) ESP_LOGW(kTag, "Optional CCP inbox capability failed (%s)", esp_err_to_name(inbox_error));
+    }
+#endif
+    // Capability ACK confirms negotiation only, never event admission or display.
+    return ESP_OK;
+}
+
 // Clears private temporary copies when the serialized EVENT handler returns.
 struct ReplySpeechScratchGuard {
     ~ReplySpeechScratchGuard()
@@ -4306,7 +4436,7 @@ esp_err_t acceptEvent(const char *payload, const sockaddr_in &source)
     const bool freshness_changed = !s_event_snapshot.data_valid || s_event_snapshot.data_stale;
     LUNASHELL::CodexTransactionEffect effect;
     error = LUNASHELL::applyCodexEvent(eventTransactionLocked(), values[3], state, ttl,
-        absent ? nullptr : &s_event_candidate, now, effect);
+        absent ? nullptr : &s_event_candidate, now, effect, s_find_selected_request_id);
     if (error != ESP_OK) {
         return error;
     }
@@ -4723,6 +4853,11 @@ void handleDatagram(const char *payload, const sockaddr_in &source)
             }
             return;
         }
+        if (std::strncmp(payload, "CCP1|PCALERTACK|", sizeof("CCP1|PCALERTACK|") - 1U) == 0) {
+            const auto error = acceptPcAlertAcknowledgement(payload, source);
+            if (error != ESP_OK) reportDatagramRejection("PCALERTACK", error);
+            return;
+        }
         if (std::strncmp(payload, "CCP1|EVENT|", 11) == 0 ||
             std::strncmp(payload, "CCP1|REPLYACK|", 14) == 0) {
             const bool acknowledgement = std::strncmp(payload, "CCP1|REPLYACK|", 14) == 0;
@@ -5128,6 +5263,10 @@ void processCommand()
         wipe(s_link_snapshot.peer_ip_address, sizeof(s_link_snapshot.peer_ip_address));
         s_link_snapshot.ready_at_us = 0;
         s_link_snapshot.activity = {};
+        const auto inbox_error = invalidateInboxLocked(true);
+        if (inbox_error != ESP_OK) {
+            ESP_LOGE(kTag, "CCP Forget notification invalidation failed (%s)", esp_err_to_name(inbox_error));
+        }
         if (s_event_snapshot.state != LUNASHELL::CodexEventState::None) {
             s_event_snapshot.state = LUNASHELL::CodexEventState::Cancelled;
             s_event_snapshot.last_error = ESP_ERR_INVALID_STATE;
@@ -5166,6 +5305,35 @@ void checkpointDomainState()
     }
 }
 
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+// No parameters: retry the current signed optional capability at bounded intervals.
+// Exception: Logs the real transport failure; another READY may retry later.
+void maintainPcAlertCapability()
+{
+    std::lock_guard<std::mutex> guard(s_mutex);
+    if (!s_pc_alert_retry_pending && !s_pc_alert_inbox_deferred) return;
+    const int64_t now = esp_timer_get_time();
+    if (s_pending != Command::None || !s_link_present || s_candidate_present ||
+        s_link_snapshot.state != State::Connected || std::strcmp(s_ready_nonce, s_pc_alert_retry_ready.nonce) != 0) {
+        s_pc_alert_retry_pending = false;
+        s_pc_alert_inbox_deferred = false;
+        return;
+    }
+    if (s_pc_alert_retry_pending && now >= s_pc_alert_retry_due_us) {
+        const auto error = sendPcAlertCapabilityLocked(s_pc_alert_retry_ready, s_pc_alert_retry_source);
+        if (error != ESP_OK) ESP_LOGW(kTag, "CCP PC alert capability retry failed (%s)", esp_err_to_name(error));
+        ++s_pc_alert_retries;
+        if (s_pc_alert_retries >= 3) s_pc_alert_retry_pending = false;
+        else s_pc_alert_retry_due_us = now + 500000;
+    }
+    if (s_pc_alert_inbox_deferred && now >= s_pc_alert_inbox_due_us) {
+        s_pc_alert_inbox_deferred = false;
+        const auto error = sendInboxCapabilityLocked(s_pc_alert_retry_ready, s_pc_alert_retry_source);
+        if (error != ESP_OK) ESP_LOGW(kTag, "CCP inbox fallback failed (%s)", esp_err_to_name(error));
+    }
+}
+#endif
+
 // context: Unused singleton-task context; static state is protected by s_mutex.
 void codexLinkWorker(void *context)
 {
@@ -5194,6 +5362,7 @@ void codexLinkWorker(void *context)
         }
 #endif
 #if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+        maintainPcAlertCapability();
         maintainDebugScreen();
         maintainAnimation();
 #endif
@@ -5727,17 +5896,19 @@ extern "C" esp_err_t LUNASHELL_codex_event_reply(const char *expected_request_id
 }
 
 // request_id: Exact displayed row identity.
-// kind: Expected event kind, checked under the network owner mutex.
+// kind: Expected event kind, or None for any authenticated notification row.
 bool inboxRowCurrentLocked(const char *request_id, LUNASHELL::CodexEventKind kind)
 {
     const auto now = esp_timer_get_time();
-    if (request_id == nullptr || !s_inbox_observation.data_valid ||
+    if (request_id == nullptr || !s_inbox_observation.data_valid || s_inbox_observation.data_stale ||
+        s_inbox_observation.last_error != ESP_OK ||
         !LUNASHELL::codex_presence::ready_current(s_link_snapshot, now) ||
         now < s_inbox_observation.last_success_at_us ||
         now - s_inbox_observation.last_success_at_us >= kReadyExpiryUs) return false;
     for (uint8_t index = 0; index < s_inbox_observation.count; ++index) {
         const auto &row = s_inbox_observation.rows[index];
-        if (row.kind == kind && std::strcmp(row.request_id, request_id) == 0) return true;
+        if ((kind == LUNASHELL::CodexEventKind::None || row.kind == kind) &&
+            std::strcmp(row.request_id, request_id) == 0) return true;
     }
     return false;
 }
@@ -5758,13 +5929,14 @@ extern "C" esp_err_t LUNASHELL_codex_inbox_page(uint8_t offset)
     return ESP_OK;
 }
 
-// request_id: Exact authenticated ready reply currently listed in Events.
+// request_id: Exact authenticated informational notification currently listed.
 // Exception: Returns stale/identity/operation errors, preserving existing admission.
 extern "C" esp_err_t LUNASHELL_codex_inbox_dismiss(const char *request_id)
 {
     std::lock_guard<std::mutex> guard(s_mutex);
     if (s_worker == nullptr || s_pending != Command::None ||
-        !inboxRowCurrentLocked(request_id, LUNASHELL::CodexEventKind::ReplyReady) ||
+        !inboxRowCurrentLocked(request_id, LUNASHELL::CodexEventKind::None) ||
+        inboxRowCurrentLocked(request_id, LUNASHELL::CodexEventKind::Question) ||
         std::strcmp(s_inbox_dismiss, "00000000000000000000000000000000") != 0) {
         return ESP_ERR_INVALID_STATE;
     }
@@ -5774,8 +5946,8 @@ extern "C" esp_err_t LUNASHELL_codex_inbox_dismiss(const char *request_id)
     return ESP_OK;
 }
 
-// request_id: Canonical advertised question selected without submitting an answer.
-// Exception: Returns admission/publication failure and retains the prior question on rejection.
+// request_id: Canonical advertised notification selected without answering or dismissing it.
+// Exception: Returns admission/publication failure and retains an in-flight reply on rejection.
 extern "C" esp_err_t LUNASHELL_codex_event_select(const char *request_id)
 {
     std::lock_guard<std::mutex> guard(s_mutex);
@@ -5786,15 +5958,17 @@ extern "C" esp_err_t LUNASHELL_codex_event_select(const char *request_id)
     using EventState = LUNASHELL::CodexEventState;
     const bool waiting = s_event_snapshot.state == EventState::Sending ||
         s_event_snapshot.state == EventState::Received;
-    if (admission != ESP_OK && !waiting && s_pending == Command::None &&
-        inboxRowCurrentLocked(request_id, LUNASHELL::CodexEventKind::Question)) {
+    const bool closing_question = s_event_snapshot.kind == LUNASHELL::CodexEventKind::Question &&
+        s_event_snapshot.state != EventState::None && s_event_snapshot.state != EventState::Pending;
+    if (admission != ESP_OK && !waiting && !closing_question && s_pending == Command::None &&
+        inboxRowCurrentLocked(request_id, LUNASHELL::CodexEventKind::None)) {
         if (std::strcmp(s_event_snapshot.request_id, request_id) != 0) {
             std::memcpy(s_event_snapshot.selection_request_id, request_id, sizeof(s_event_snapshot.selection_request_id));
         }
         admission = ESP_OK;
     }
     if (admission != ESP_OK) {
-        ESP_LOGE(kTag, "CCP pending-question selection rejected (%s)", esp_err_to_name(admission));
+        ESP_LOGE(kTag, "CCP notification selection rejected (%s)", esp_err_to_name(admission));
         return admission;
     }
     ++s_event_snapshot.revision;

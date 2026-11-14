@@ -173,6 +173,7 @@ typedef struct {
     size_t render_slot;
     size_t pending_slot;
     bool transfer_pending;
+    bool deadline_expired;
     uint16_t buffer_count;
     uint16_t transfer_rows;
     esp_err_t completion_error;
@@ -3943,6 +3944,7 @@ esp_err_t bsp_display_frame_begin(uint32_t budget_ms)
     display_frame.transfer_rows = (uint16_t)display_frame.lease.transfer_rows;
     display_frame.completion_error = ESP_OK;
     display_frame.error = ESP_OK;
+    display_frame.deadline_expired = false;
     __atomic_store_n(&display_frame.owner, xTaskGetCurrentTaskHandle(), __ATOMIC_RELEASE);
     // Keep this lock level until end: panel and touch stay in the same orientation.
     return ESP_OK;
@@ -3963,6 +3965,7 @@ esp_err_t bsp_display_frame_check_deadline(void)
         return ESP_ERR_INVALID_STATE;
     }
     if (display_frame.error == ESP_OK && esp_timer_get_time() >= display_frame.deadline_us) {
+        display_frame.deadline_expired = true;
         display_frame.error = ESP_ERR_TIMEOUT;
         ESP_LOGE(TAG, "Complete frame exceeded its deadline after %lu rectangles (%s)",
                  (unsigned long)display_frame.rectangles, esp_err_to_name(display_frame.error));
@@ -3999,7 +4002,7 @@ static void bsp_display_frame_quarantine(esp_err_t error, const char *operation)
 }
 
 // No parameters: retire the one queued transfer before reusing its slot or ending the frame.
-// Exception: Returns the real timeout/completion error and quarantines ambiguous ownership.
+// Exception: Preserves an expired frame while draining its pending transfer; uncertain DMA is quarantined.
 static esp_err_t bsp_display_frame_retire_transfer(void)
 {
     if (!display_frame.transfer_pending) {
@@ -4007,9 +4010,18 @@ static esp_err_t bsp_display_frame_retire_transfer(void)
     }
     const int64_t completion_started_us = esp_timer_get_time();
     const int64_t remaining_us = display_frame.deadline_us - completion_started_us;
+    // An expired rendering budget must not turn a still-pending final transfer
+    // into an immediate ownership fault. Stop the frame, but allow only this
+    // already submitted DMA a bounded drain before deciding on quarantine.
+    // A transfer wait that starts inside the frame budget keeps its old limit.
+    const uint32_t final_drain_timeout_ms = 100U;
+    if (remaining_us <= 0) {
+        (void)bsp_display_frame_check_deadline();
+    }
     TickType_t wait_ticks = remaining_us > 0
-        ? pdMS_TO_TICKS((uint32_t)((remaining_us + 999) / 1000)) : 0;
-    if (remaining_us > 0 && wait_ticks == 0) {
+        ? pdMS_TO_TICKS((uint32_t)((remaining_us + 999) / 1000))
+        : pdMS_TO_TICKS(final_drain_timeout_ms);
+    if (wait_ticks == 0) {
         wait_ticks = 1;
     }
     esp_err_t error = ESP_OK;
@@ -4154,6 +4166,7 @@ esp_err_t bsp_display_frame_end(esp_err_t frame_error, bsp_display_frame_result_
         .retained_dma_bytes = __atomic_load_n(&display_dma_retained_bytes, __ATOMIC_ACQUIRE),
         .buffer_count = display_frame.buffer_count,
         .transfer_rows = display_frame.transfer_rows,
+        .deadline_expired = display_frame.deadline_expired,
         .completion_error = display_frame.completion_error,
         .error = error,
     };
@@ -4311,7 +4324,7 @@ static esp_err_t bsp_display_write_rgb565_internal(
             display_frame.conversion_us += (uint32_t)(esp_timer_get_time() - conversion_started_us);
         }
         if (esp_timer_get_time() >= deadline_us) {
-            error = ESP_ERR_TIMEOUT;
+            error = in_frame ? bsp_display_frame_check_deadline() : ESP_ERR_TIMEOUT;
             ESP_LOGE(TAG, "RGB565 deadline exhausted before row %d (%s)",
                      strip_y, esp_err_to_name(error));
             break;

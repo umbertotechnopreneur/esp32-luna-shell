@@ -11,7 +11,7 @@ namespace CODY {
 enum class BootIcon : uint8_t { Settings, Events, Counters, About };
 
 // icon: Explicit menu action artwork, never inferred from a label.
-// bounds: Square logical icon area; the radial menu displays the artwork at 36x36.
+// bounds: Square logical icon area; the radial menu displays 16x16 artwork at 4x.
 // enabled: Disabled artwork is dimmed while its existing hit target remains inactive.
 // strip: Borrowed RGB565 tile with its original stride and byte order.
 // first_row: Logical tile y origin.
@@ -42,9 +42,9 @@ inline esp_err_t draw_boot_icon_rows(BootIcon icon, CODY2D::Rect bounds, bool en
     const uint32_t bottom = std::min<uint32_t>(bounds.y + bounds.height, first_row + strip.height);
     for (uint32_t y = top; y < bottom; ++y) {
         auto *destination = strip.pixels + (y - first_row) * strip.stride;
-        const uint32_t source_y = (y - bounds.y) * 32U / bounds.height;
+        const uint32_t source_y = ((y - bounds.y) * 16U / bounds.height) * 2U + 1U;
         for (uint32_t x = left; x < right; ++x) {
-            const uint32_t source_x = (x - bounds.x) * 32U / bounds.width;
+            const uint32_t source_x = ((x - bounds.x) * 16U / bounds.width) * 2U + 1U;
             const uint32_t cell = source_y * 32U + source_x;
             const uint8_t packed = cells[cell / 2U];
             const uint8_t index = cell % 2U == 0 ? packed >> 4U : packed & 0x0fU;

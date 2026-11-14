@@ -1,7 +1,7 @@
 #include "CODY_codex_panels.hpp"
 #include "CODY_screen_content.hpp"
 #include "CODY_title_style.hpp"
-#include "CODY_ui_components.hpp"
+#include "CODY_flat_menu_row.hpp"
 #include "CODY_typography.hpp"
 #include "CODY_theme_generated.hpp"
 
@@ -12,7 +12,6 @@
 
 #include "CODY2D_controls.hpp"
 #include "CODY2D_paths.hpp"
-#include "CODY_codex_event_presentation.hpp"
 #include "CODY_home_dashboard.hpp"
 #include "home_dashboard_fonts.hpp"
 #include "scene_data.hpp"
@@ -28,8 +27,7 @@ constexpr uint16_t kCyan = Theme::firmware_codex_panels_cyan;
 constexpr uint16_t kRule = Theme::firmware_codex_panels_rule;
 constexpr CODY2D::Rect kList{73, 155, 320, 234};
 constexpr uint16_t kRowHeight = 78;
-constexpr CODY2D::Rect kPreview{94, 204, 282, 25};
-constexpr DamageRect kBounds{73, 73, 393, 391};
+constexpr DamageRect kBounds{73, 73, 393, 415};
 
 // source: Original canonical validity and owner error, already aged at acquisition.
 bool current(const LUNASHELL::ComponentSnapshot &source)
@@ -78,6 +76,56 @@ esp_err_t add_line(CodexPanelView &view, const char *text, const CODY2D::MonoFon
         ++view.line_count;
     }
     return error;
+}
+
+// view: Display-owned line slots retained through frame retirement.
+// text: Complete source caption; only its display projection is shortened.
+// font: Immutable shared label face.
+// box: Exact single-line viewport, separate from the full-row touch bounds.
+// color: Semantic RGB565 ink.
+// storage: Persistent display buffer receiving a measured ASCII ellipsis.
+// capacity: Storage size including the terminator.
+// Exception: Returns the original font/layout error or invalid size for exhausted slots.
+esp_err_t add_short_line(CodexPanelView &view, const char *text, const CODY2D::MonoFont &font,
+    CODY2D::Rect box, uint16_t color, char *storage, size_t capacity)
+{
+    if (view.line_count == 0 || view.line_count >= view.lines.size()) return ESP_ERR_INVALID_SIZE;
+    const auto error = FlatMenuRow::prepare_label(font, text, box, color, storage, capacity,
+        view.lines[view.line_count]);
+    if (error == ESP_OK) {
+        view.line_boxes[view.line_count] = box;
+        ++view.line_count;
+    }
+    return error;
+}
+
+// type: Declared semantic category, independent of origin and caption text.
+CODY2D::ActionIcon notification_icon(NotificationType type)
+{
+    using Icon = CODY2D::ActionIcon;
+    switch (type) {
+    case NotificationType::Message:
+    case NotificationType::Information: return Icon::PlanAccount;
+    case NotificationType::Question:
+    case NotificationType::Warning: return Icon::Clock;
+    case NotificationType::Error: return Icon::Close;
+    case NotificationType::Success: return Icon::Check;
+    }
+    return Icon::PlanAccount;
+}
+
+// type: Declared semantic category with its attention or result color.
+uint16_t notification_color(NotificationType type)
+{
+    switch (type) {
+    case NotificationType::Question:
+    case NotificationType::Warning: return kAmber;
+    case NotificationType::Error: return Theme::status_error;
+    case NotificationType::Success:
+    case NotificationType::Message: return kMint;
+    case NotificationType::Information: return kCyan;
+    }
+    return kCyan;
 }
 
 // strip: Borrowed native tile.
@@ -162,16 +210,18 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
 {
     const auto &view = *static_cast<const CodexPanelView *>(state);
     auto error = fill(strip, row, column, {80, 153, 303, 1}, kRule);
-    if (error == ESP_OK && view.kind == CodexPanelKind::Events && view.inbox_current) {
+    if (error == ESP_OK && view.kind == CodexPanelKind::Events) {
         for (uint8_t index = 0; error == ESP_OK && index < view.page.count; ++index) {
             const auto y = static_cast<uint16_t>(kList.y + index * kRowHeight);
-            const bool question = view.page.rows[index].kind == LUNASHELL::CodexEventKind::Question;
-            if (index == 0) error = fill(strip, row, column, {78, y, 302, 72}, Theme::codex_panels_selected_row);
-            if (error == ESP_OK) error = fill(strip, row, column, {83, static_cast<uint16_t>(y + 9), 3, 55},
-                question ? kAmber : kMint);
+            const auto &entry = view.page.rows[index];
+            const auto color = entry.current && !entry.read ? notification_color(entry.type) : kMuted;
+            if (!entry.read) error = fill(strip, row, column, {78, static_cast<uint16_t>(y + 31), 4, 4}, color);
+            if (error == ESP_OK) error = CODY2D::draw_action_icon_rows(notification_icon(entry.type),
+                {86, static_cast<uint16_t>(y + 20), 26, 26},
+                color, strip, row, column);
             if (error == ESP_OK) error = fill(strip, row, column, {80, static_cast<uint16_t>(y + 74), 303, 1}, kRule);
         }
-        if (error == ESP_OK && view.page.total > LUNASHELL::kCodexInboxRows) {
+        if (error == ESP_OK && view.page.count > 0 && view.page.total > view.page.count) {
             constexpr uint16_t track_height = 192;
             const auto thumb = static_cast<uint16_t>(std::max<unsigned>(8, track_height * view.page.count / view.page.total));
             const auto top = static_cast<uint16_t>(169 + (track_height - thumb) * view.page.offset /
@@ -181,9 +231,7 @@ esp_err_t draw_rows(const void *state, CODY2D::Surface strip, uint16_t row, uint
         }
     } else if (error == ESP_OK) {
         error = draw_glyph(view.glyph, strip, row, column);
-        if (error == ESP_OK && view.kind == CodexPanelKind::Reply) {
-            error = UI::draw_text_action(view.reply_action, strip, row, column);
-        } else if (error == ESP_OK && view.kind == CodexPanelKind::CurrentTurn) {
+        if (error == ESP_OK && view.kind == CodexPanelKind::CurrentTurn) {
             error = draw_chat_title(view.chat_title, strip, row, column);
         }
     }
@@ -228,16 +276,21 @@ esp_err_t finish(CodexPanelView &view, SceneContent &content, esp_err_t error)
     return attach(view, content);
 }
 
-// left: Previous bounded authenticated page, excluding the heartbeat.
-// right: New bounded page; order and exact identities are significant.
-bool same_page(const LUNASHELL::CodexInboxPage &left, const LUNASHELL::CodexInboxPage &right)
+// left: Previous coherent local/remote display projection.
+// right: New bounded page; origin, identity, state and source metadata matter.
+// Exception: None; callers validate the bounded row count before comparison.
+bool same_page(const NotificationListPage &left, const NotificationListPage &right)
 {
-    if (left.total != right.total || left.offset != right.offset || left.count != right.count) return false;
+    if (left.total != right.total || left.unread != right.unread || left.offset != right.offset ||
+        left.count != right.count || left.revision != right.revision || left.dropped != right.dropped ||
+        left.remote_current != right.remote_current || left.remote_retained != right.remote_retained ||
+        left.remote_error != right.remote_error || left.remote_pending != right.remote_pending ||
+        left.action_error != right.action_error) return false;
     for (uint8_t index = 0; index < left.count; ++index) {
         const auto &a = left.rows[index];
         const auto &b = right.rows[index];
-        if (a.kind != b.kind || std::strcmp(a.request_id, b.request_id) != 0 ||
-            std::strcmp(a.title, b.title) != 0 || std::strcmp(a.preview, b.preview) != 0) return false;
+        if (!(a.key == b.key) || a.type != b.type || a.read != b.read || a.current != b.current ||
+            std::strcmp(a.source, b.source) != 0 || std::strcmp(a.title, b.title) != 0) return false;
     }
     return true;
 }
@@ -245,64 +298,63 @@ bool same_page(const LUNASHELL::CodexInboxPage &left, const LUNASHELL::CodexInbo
 } // namespace
 
 // view: Persistent panel and glyph owner.
-// inbox: Canonical current Events page.
-// now_us: Monotonic time used to scroll only the lead question preview.
-// content: Receives the bounded Events render.
-// Exception: Returns the original font or geometry error.
-esp_err_t prepare_codex_events(CodexPanelView &view, const LUNASHELL::CodexInboxSnapshot &inbox,
+// inbox: Coherent merged Notifications page with per-row origin and availability.
+// now_us: Display clock; compact notification rows do not animate their captions.
+// content: Receives the bounded Notifications render.
+// Exception: Returns invalid bounds or the original font or geometry error.
+esp_err_t prepare_codex_events(CodexPanelView &view, const NotificationListPage &inbox,
     int64_t now_us, SceneContent &content)
 {
-    const bool available = current(inbox);
+    (void)now_us;
+    if (inbox.count > kNotificationPageSize || inbox.unread > inbox.total) return ESP_ERR_INVALID_SIZE;
+    if (inbox.count > 0 && (inbox.offset >= inbox.total || inbox.count > inbox.total - inbox.offset))
+        return ESP_ERR_INVALID_ARG;
+    bool available = inbox.remote_current;
+    for (uint8_t index = 0; index < inbox.count; ++index) available = available || inbox.rows[index].current;
+    const bool retained = inbox.count > 0 || inbox.remote_retained;
+    char subtitle[sizeof(view.subtitle)]{};
+    if (inbox.dropped > 0) std::snprintf(subtitle, sizeof(subtitle), "%u/%u unread; %lu dropped",
+        unsigned(inbox.unread), unsigned(inbox.total), static_cast<unsigned long>(inbox.dropped));
+    else if (inbox.total == 0) std::strcpy(subtitle, "No notifications");
+    else std::snprintf(subtitle, sizeof(subtitle), "%u unread / %u saved", unsigned(inbox.unread), unsigned(inbox.total));
+    char remote_status[sizeof(view.notification_status)]{};
+    if (inbox.action_error != ESP_OK) std::snprintf(remote_status, sizeof(remote_status), "Action failed 0x%08lX",
+        static_cast<unsigned long>(inbox.action_error));
+    else if (inbox.remote_error != ESP_OK) std::snprintf(remote_status, sizeof(remote_status), "PC error 0x%08lX",
+        static_cast<unsigned long>(inbox.remote_error));
+    else if (inbox.remote_pending) std::strcpy(remote_status, "Updating PC notices");
+    else if (!inbox.remote_current) std::snprintf(remote_status, sizeof(remote_status), "%s",
+        inbox.remote_retained ? "Saved PC notices - reconnect" : "PC notices unavailable");
     const bool unchanged = view.valid && view.kind == CodexPanelKind::Events &&
-        view.inbox_current == available && (!available || same_page(view.page, inbox));
-    if (!unchanged) view.marquee_started_us = now_us;
-    uint16_t offset = 0;
-    if (available && inbox.count > 0 && inbox.rows[0].preview[0] != '\0') {
-        const auto &font = HomeFonts::small_font;
-        const auto &preview = inbox.rows[0].preview;
-        uint32_t width = 0;
-        const auto error = CODY2D::measure_text_width(font, {preview, static_cast<uint16_t>(std::strlen(preview))}, width);
-        if (error != ESP_OK) return error;
-        if (width > kPreview.width) {
-            constexpr int64_t step_us = 50000;
-            const int64_t travel = width - kPreview.width;
-            const auto cycle = 2800000 + travel * step_us;
-            const auto elapsed = std::max<int64_t>(0, now_us - view.marquee_started_us) % cycle;
-            offset = static_cast<uint16_t>(std::clamp<int64_t>((elapsed - 1200000) / step_us, 0, travel));
-        }
-    }
-    if (unchanged && offset == view.marquee_offset) {
-        return attach(view, content);
-    }
+        view.inbox_current == available && view.inbox_retained == retained &&
+        std::strcmp(view.subtitle, subtitle) == 0 &&
+        std::strcmp(view.notification_status, remote_status) == 0 && same_page(view.page, inbox);
+    if (unchanged) return attach(view, content);
     view.valid = false;
     view.kind = CodexPanelKind::Events;
     view.glyph = TurnGlyph::None;
     view.inbox_current = available;
-    view.marquee_offset = offset;
+    view.inbox_retained = retained;
     view.line_count = 0;
-    if (available) view.page = inbox;
-    else view.page = {};
-    if (available) std::snprintf(view.subtitle, sizeof(view.subtitle), "%u %s", unsigned(inbox.total),
-        inbox.total == 1 ? "event" : "events");
-    else std::snprintf(view.subtitle, sizeof(view.subtitle), "%s",
-        inbox.data_stale ? "Events unavailable" : "Waiting for PC events");
-    auto error = add_line(view, "Events", SceneData::title_font, {73, 75, 320, 50}, kWhite);
-    if (error == ESP_OK) error = add_line(view, view.subtitle, SceneData::body_font, {73, 125, 320, 25}, kMuted);
+    view.page = inbox;
+    std::snprintf(view.subtitle, sizeof(view.subtitle), "%s", subtitle);
+    std::snprintf(view.notification_status, sizeof(view.notification_status), "%s", remote_status);
+    auto error = add_line(view, "Notifications", SceneData::title_font, {73, 75, 320, 50}, kWhite);
+    if (error == ESP_OK) error = add_line(view, view.subtitle, HomeFonts::small_font, {73, 125, 320, 25}, kMuted);
     for (uint8_t index = 0; error == ESP_OK && index < view.page.count; ++index) {
         const auto &entry = view.page.rows[index];
-        const bool question = entry.kind == LUNASHELL::CodexEventKind::Question;
         const auto y = static_cast<uint16_t>(kList.y + index * kRowHeight);
-        error = add_line(view, question ? "QUESTION" : "REPLY READY", HomeFonts::small_font,
-            {94, static_cast<uint16_t>(y + 3), 282, 21}, question ? kAmber : kMint, false);
-        const CODY2D::Rect title_bounds{94, static_cast<uint16_t>(y + 23), 282, 25};
-        const CODY2D::MonoFont *title_face = &Typography::monospace();
-        if (error == ESP_OK && entry.title[0] != '\0')
-            error = Typography::label_font(entry.title, title_bounds, *title_face, title_face);
-        if (error == ESP_OK) error = add_line(view, entry.title, *title_face, title_bounds, kWhite, false);
-        if (error == ESP_OK && index == 0 && question) {
-            error = add_line(view, entry.preview, HomeFonts::small_font, kPreview, kMuted, false, offset);
-        }
+        error = add_short_line(view, entry.title, HomeFonts::small_font,
+            {121, static_cast<uint16_t>(y + 8), 255, 25}, entry.current && !entry.read ? notification_color(entry.type) : kMuted,
+            view.notification_labels[index], sizeof(view.notification_labels[index]));
+        if (error == ESP_OK) error = add_short_line(view, entry.source, Typography::system(),
+            {121, static_cast<uint16_t>(y + 35), 255, 25}, entry.current && !entry.read ? kWhite : kMuted,
+            view.notification_titles[index], sizeof(view.notification_titles[index]));
     }
+    // The footer stays below the third row's separator and inside the circle's
+    // narrower lower chord; it has no action or touch target.
+    if (error == ESP_OK) error = add_line(view, view.notification_status, HomeFonts::small_font,
+        {99, 389, 268, 25}, kMuted);
     return finish(view, content, error);
 }
 
@@ -374,38 +426,24 @@ esp_err_t prepare_current_turn(CodexPanelView &view, const LUNASHELL::CodexTechn
     auto error = prepare_chat_title(view.chat_title, title, live ? activity.chat_id : "", SceneData::body_font,
         now_us, !same_view, title_changed);
     if (error != ESP_OK) return error;
-    if (!same_view || std::strcmp(view.detail, detail) != 0) view.marquee_started_us = now_us;
-    uint16_t detail_offset = 0;
-    if (detail[0] != '\0') {
-        uint32_t width = 0;
-        const CODY2D::TextSpan span{detail, static_cast<uint16_t>(std::strlen(detail))};
-        error = CODY2D::measure_text_width(SceneData::body_font, span, width);
-        if (error != ESP_OK) return error;
-        if (width > 320) {
-            constexpr int64_t step_us = 50000;
-            const int64_t travel = width - 320;
-            const auto cycle = 2800000 + travel * step_us;
-            const auto elapsed_time = std::max<int64_t>(0, now_us - view.marquee_started_us) % cycle;
-            detail_offset = static_cast<uint16_t>(std::clamp<int64_t>((elapsed_time - 1200000) / step_us, 0, travel));
-        }
-    }
     if (same_view && !title_changed && view.glyph == glyph && std::strcmp(view.detail, detail) == 0 &&
-        view.marquee_offset == detail_offset && std::strcmp(view.elapsed, elapsed) == 0 && view.line_count >= 2 &&
-        std::strcmp(view.lines[1].text.characters, status) == 0) {
+        std::strcmp(view.elapsed, elapsed) == 0 && std::strcmp(view.status, status) == 0) {
         return attach(view, content);
     }
     view.valid = false;
     view.kind = CodexPanelKind::CurrentTurn;
     view.glyph = glyph;
-    view.marquee_offset = detail_offset;
     view.line_count = 0;
     std::snprintf(view.detail, sizeof(view.detail), "%s", detail);
+    std::snprintf(view.status, sizeof(view.status), "%s", status);
     std::snprintf(view.elapsed, sizeof(view.elapsed), "%s", elapsed);
-    error = add_line(view, "Current turn", SceneData::title_font, {73, 83, 320, 46}, kWhite);
-    if (error == ESP_OK) error = add_line(view, status, SceneData::body_font,
+    const char *label = view.detail[0] != '\0' ? view.detail : view.status;
+    if (std::strncmp(label, "Tool: ", 6) == 0 && label[6] != '\0') label += 6;
+    error = add_line(view, "Activity", SceneData::title_font, {73, 83, 320, 46}, kWhite);
+    if (error == ESP_OK) error = add_short_line(view, label, Typography::system(),
         glyph == TurnGlyph::None ? CODY2D::Rect{73, 191, 320, 44}
             : CODY2D::Rect{185, 185, 195, static_cast<uint16_t>(compacting ? 25 : 50)},
-        compacting ? kAmber : kCyan);
+        compacting ? kAmber : kCyan, view.activity_label, sizeof(view.activity_label));
     if (error == ESP_OK && compacting) {
         error = add_line(view, "context", Typography::system(), {185, 210, 195, 25}, kAmber);
         if (error == ESP_OK) error = add_line(view, view.elapsed, SceneData::title_font,
@@ -413,39 +451,7 @@ esp_err_t prepare_current_turn(CodexPanelView &view, const LUNASHELL::CodexTechn
         if (error == ESP_OK && view.elapsed[0] != '\0') {
             error = add_line(view, "Elapsed", Typography::system(), {73, 306, 320, 27}, kMuted);
         }
-    } else if (error == ESP_OK) {
-        error = add_line(view, view.detail, SceneData::body_font, {73, 264, 320, 28}, kWhite, true, detail_offset);
     }
-    return finish(view, content, error);
-}
-
-// view: Persistent reply panel and text owner.
-// title: Authenticated reply row title.
-// pending: True until the exact dismissal receives confirmation.
-// content: Receives the bounded reply render.
-// Exception: Returns the original font or geometry error.
-esp_err_t prepare_codex_reply(CodexPanelView &view, const char *title, bool pending, SceneContent &content)
-{
-    if (view.valid && view.kind == CodexPanelKind::Reply && std::strcmp(view.subtitle, title) == 0 &&
-        view.reply_action.enabled == !pending) {
-        return attach(view, content);
-    }
-    view.valid = false;
-    view.kind = CodexPanelKind::Reply;
-    view.glyph = TurnGlyph::None;
-    view.line_count = 0;
-    std::snprintf(view.subtitle, sizeof(view.subtitle), "%s", title);
-    auto &action = view.reply_action;
-    action = {};
-    action.bounds = {113, 330, 240, 56};
-    action.top_color = Theme::codex_panels_action_top;
-    action.bottom_color = Theme::codex_panels_action_bottom;
-    action.border_color = kRule;
-    action.icon_color = kMint;
-    action.enabled = !pending;
-    auto error = add_line(view, "Chat waiting", SceneData::title_font, {73, 83, 320, 48}, kMint);
-    if (error == ESP_OK) error = add_line(view, view.subtitle, SceneData::body_font, {73, 190, 320, 32}, kWhite);
-    if (error == ESP_OK) error = event_presentation::prepare_read_confirmation(SceneData::body_font, action);
     return finish(view, content, error);
 }
 

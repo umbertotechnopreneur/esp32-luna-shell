@@ -50,9 +50,10 @@ bool decodeCodexEventState(const char *token, CodexEventState &state);
 // now_us: Explicit monotonic time from the acquisition/transport owner.
 // effect: Small publication/transport decisions; owner performs their side effects.
 // Exception: Returns precise schema/state/identity errors without partially applying a frame.
+// observed_selection: Selection carried by the exact authenticated FIND, or nullptr when none was observed.
 esp_err_t applyCodexEvent(CodexTransactionView current, const char *request_id,
     CodexEventState state, uint16_t ttl, const CodexEventPayload *candidate,
-    int64_t now_us, CodexTransactionEffect &effect);
+    int64_t now_us, CodexTransactionEffect &effect, const char *observed_selection = nullptr);
 
 // current: Exclusive owner-held transaction.
 // request_id: Identity bound to the authenticated acknowledgement.

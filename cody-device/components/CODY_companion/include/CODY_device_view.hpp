@@ -9,6 +9,8 @@
 #include "CODY_widget_state.hpp"
 #include "CODY_device_model.hpp"
 #include "CODY_status_overlay.hpp"
+#include "CODY_screensaver.hpp"
+#include "CODY_system_info.hpp"
 #include "CODY_title_style.hpp"
 
 namespace CODY {
@@ -76,8 +78,9 @@ struct DeviceFrameContent {
 // Model values are projected to stable glyph buffers; chrome has no interaction state.
 esp_err_t prepare_device_chrome(DeviceChrome &chrome, const DeviceDashboardData &data,
     bool show_connection, const BatteryAlertNotice &battery, int64_t saved_epoch = 0);
+// status_override: Optional higher-priority storage failure in the shared status-caption slot.
 esp_err_t draw_device_chrome(const DeviceChrome &chrome, CODY2D::Surface strip,
-    uint16_t first_row, uint16_t first_column);
+    uint16_t first_row, uint16_t first_column, const StatusCaption *status_override = nullptr);
 
 // All text is bounded and copied. Empty optional strings omit their line or action.
 esp_err_t prepare_device_message(DeviceView &view, DeviceFrameContent &frame,
@@ -101,9 +104,10 @@ esp_err_t prepare_device_dashboard(DeviceView &view, DeviceFrameContent &frame,
 
 // view: Persistent glyph and geometry owner for System, Memory and Firmware.
 // frame: Receives the native central content without controls or the shared perimeter.
-// model: Read-only selected Info page, canonical diagnostics and immutable build identity.
+// model: Read-only canonical diagnostics and immutable build identity.
+// page: Selected information page owned by navigation, independent of device data.
 // Exception: Preserves original bounded-caption or native preparation errors.
-esp_err_t prepare_device_info(DeviceView &view, DeviceFrameContent &frame, const DeviceModel &model);
+esp_err_t prepare_device_info(DeviceView &view, DeviceFrameContent &frame, const DeviceModel &model, InfoPage page);
 
 // Presents the owner-published voice phase. Session admission remains with the runtime.
 esp_err_t prepare_device_voice(DeviceView &view, DeviceFrameContent &frame,

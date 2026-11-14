@@ -170,6 +170,7 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
         view.reaction_active = reaction_ms < kPixelAvatarReactionMs;
     }
     auto style = view.visual_style;
+    if (view.suppress_particles) style.particles.count = 0;
     style.symbol.symbol = pose.symbol;
     apply_pixel_demo_motion(style, view.motion);
     view.prepared_surprise = view.motion.surprised && !view.reaction_active && !view.manual &&
@@ -210,6 +211,10 @@ esp_err_t prepare_pixel_demo(PixelDemoView &view, int64_t active_us, SceneConten
             reaction_ms, 0.0f, pose.working, style);
     }
 
+    if (view.override_background) {
+        view.frames[view.write_buffer].palette[0] = view.background_color;
+        view.frames[view.write_buffer].dim_palette[0] = view.background_color;
+    }
     const auto viewport = avatar_bounds(view.visual_viewport);
     const DamageRect mascot_bounds{viewport.x, viewport.y,
         static_cast<uint16_t>(viewport.x + viewport.width),

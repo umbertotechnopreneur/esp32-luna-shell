@@ -92,6 +92,7 @@ typedef struct {
     uint32_t retained_dma_bytes;
     uint16_t buffer_count;
     uint16_t transfer_rows;
+    bool deadline_expired; // Set only by the frame-budget check, never inferred from a driver timeout.
     esp_err_t completion_error;
     esp_err_t error;
 } bsp_display_frame_result_t;
