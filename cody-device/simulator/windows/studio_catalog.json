@@ -434,7 +434,8 @@
           "evidence": "source-analysis",
           "component": "CODY::Onboarding",
           "function": "activate_options_action",
-          "replay": false,
+          "replay": true,
+          "route_id": "settings-menu-to-display",
           "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
         },
         {
@@ -444,8 +445,9 @@
           "condition": "Display page is active",
           "evidence": "source-analysis",
           "component": "CODY::Onboarding",
-          "function": "options_back_available",
-          "replay": false,
+          "function": "activate_onboarding_navigation",
+          "replay": true,
+          "route_id": "display-to-settings-menu",
           "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
         }
       ],

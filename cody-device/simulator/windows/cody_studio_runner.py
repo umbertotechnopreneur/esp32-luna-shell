@@ -11,8 +11,8 @@ from uuid import uuid4
 from PIL import Image
 
 from cody_native_runtime import ROOT
-from cody_studio_catalog import RENDERING_MODES, entry_for
-from cody_studio_scenario import scenario_revision, validate_scenario
+from cody_studio_catalog import RENDERING_MODES, entry_for, routes_for
+from cody_studio_scenario import default_scenario, scenario_revision, validate_scenario
 from runtime_paths import simulator_library_path
 
 ARTIFACT_ROOT = (ROOT / "artifacts/simulator").resolve()
@@ -36,6 +36,7 @@ def verify_current_build():
     raw = path.read_bytes()
     manifest = json.loads(raw)
     required = {"cody-device/simulator/native/CODY_host_display.cpp",
+                "cody-device/simulator/native/CODY_host_input.cpp",
                 "cody-device/simulator/native/CODY_host_studio_domain.cpp",
                 "cody-device/simulator/native/platform/cody_host_studio.h",
                 "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp",
@@ -69,6 +70,9 @@ def validate_receipt(receipt, scenario, entry, rendering_mode=None):
             receipt.get("rendering_mode") != expected_mode or
             type(receipt.get("revision")) is not int or not 1 <= receipt["revision"] <= 0xffffffff):
         raise ValueError("Studio capture lacks a matching completed-frame receipt")
+    if "frame_revision" in receipt and (type(receipt["frame_revision"]) is not int or
+                                        receipt["frame_revision"] != receipt["revision"]):
+        raise ValueError("Studio completed-frame receipt has inconsistent frame revision aliases")
     if "sample_at_ms" in scenario["page"]:
         observed = receipt.get("source_animation_sample_ms")
         if type(observed) is not int or observed != scenario["page"]["sample_at_ms"]:
@@ -105,6 +109,55 @@ def fixed_dependencies(entry, scenario):
     return policy
 
 
+# base: Complete scenario selected for this source-animation sequence.
+# sample: Completed scenario with the source-animation instant actually rendered.
+# Raises ValueError when anything except the source sample changed between them.
+def timeline_metadata(base, sample):
+    original = validate_scenario(base)
+    actual = validate_scenario(sample)
+    if "sample_at_ms" not in original["page"] or "sample_at_ms" not in actual["page"]:
+        raise ValueError("This Studio scenario has no native source-animation sample")
+    expected = deepcopy(original)
+    expected["page"]["sample_at_ms"] = actual["page"]["sample_at_ms"]
+    if expected != actual:
+        raise ValueError("Timeline frame differs from its base scenario beyond its source sample")
+    return {"schema": "cody.studio.timeline.v1", "base_scenario": original,
+            "base_revision": scenario_revision(original), "sample_ms": actual["page"]["sample_at_ms"],
+            "clock": "source-animation", "worker_replay": False}
+
+
+# origin: Validated scenario whose completed frame preceded the native gesture.
+# destination: Scenario corresponding to the frame retired by that gesture.
+# receipt: Native same-frame route evidence, not inferred from a catalog edge.
+# identity: Completed native destination frame identity from the same snapshot.
+# Raises ValueError if scenario, route or frame identities do not agree.
+def route_metadata(origin, destination, receipt, identity):
+    origin = validate_scenario(origin)
+    destination = validate_scenario(destination)
+    if (origin["context"]["target"] == destination["context"]["target"] or
+            origin["common"] != destination["common"]):
+        raise ValueError("Route replay requires different destinations and unchanged common inputs")
+    if (not isinstance(receipt, dict) or set(receipt) != {"abi", "route_id", "origin_scenario_revision",
+            "origin_frame_revision", "destination_frame_revision"} or type(receipt["abi"]) is not int or
+            receipt["abi"] != 1 or not isinstance(receipt["route_id"], str) or
+            not re.fullmatch(r"[a-z0-9][a-z0-9-]{0,30}", receipt["route_id"]) or
+            receipt["origin_scenario_revision"] != scenario_revision(origin) or
+            type(receipt["origin_frame_revision"]) is not int or receipt["origin_frame_revision"] <= 0 or
+            type(receipt["destination_frame_revision"]) is not int or
+            receipt["destination_frame_revision"] <= receipt["origin_frame_revision"] or
+            not isinstance(identity, dict) or identity.get("revision") != receipt["destination_frame_revision"] or
+            identity.get("scenario_revision") != scenario_revision(destination)):
+        raise ValueError("Native route receipt does not identify the source and completed destination frame")
+    declared = [route for route in routes_for(origin["context"]["target"])
+                if route.get("origin") == origin["context"]["target"] and
+                route.get("destination") == destination["context"]["target"] and
+                route.get("route_id") == receipt["route_id"] and route.get("replay") is True]
+    if len(declared) != 1:
+        raise ValueError("Native route receipt does not match a supported catalog transition")
+    return {"schema": "cody.studio.route.v1", "origin_scenario": origin,
+            "destination_revision": scenario_revision(destination), "receipt": deepcopy(receipt)}
+
+
 # metadata_path: Immutable capture JSON beneath artifacts/simulator, including baselines.
 # Raises I/O, image or ValueError for an invalid identity, path, pixel or file hash.
 def load_capture(metadata_path):
@@ -127,6 +180,19 @@ def load_capture(metadata_path):
         raise ValueError("Studio capture scenario and comparison identity disagree")
     receipt = metadata.get("frame_identity")
     validate_receipt(receipt, scenario, entry, rendering_mode=metadata["rendering_mode"])
+    if "timeline" in metadata:
+        timeline = metadata["timeline"]
+        if (not isinstance(timeline, dict) or "base_scenario" not in timeline or
+                type(timeline.get("sample_ms")) is not int or
+                type(timeline.get("base_revision")) is not str or
+                timeline.get("worker_replay") is not False or
+                timeline != timeline_metadata(timeline["base_scenario"], scenario)):
+            raise ValueError("Studio timeline does not match its base scenario and completed sample")
+    if "route" in metadata:
+        route = metadata["route"]
+        if (not isinstance(route, dict) or "origin_scenario" not in route or "receipt" not in route or
+                route != route_metadata(route["origin_scenario"], scenario, route["receipt"], receipt)):
+            raise ValueError("Studio route evidence does not match the completed frame")
     build = metadata.get("build")
     hashes = [metadata.get("source_sha256")]
     if not isinstance(build, dict) or not isinstance(build.get("inputs"), dict) or not build["inputs"]:
@@ -174,6 +240,7 @@ class StudioRunner:
         self.image = None
         self.identity = None
         self.build = None
+        self.route = None
 
     # scenario: Strict synthetic contract for one catalog case, copied before mutation.
     # Raises original validation, stale-build or owner-preparation errors.
@@ -181,7 +248,7 @@ class StudioRunner:
         value = validate_scenario(scenario)
         entry = entry_for(value["context"]["target"])
         revision = scenario_revision(value)
-        self.scenario = self.image = self.identity = self.build = None
+        self.scenario = self.image = self.identity = self.build = self.route = None
         build = verify_current_build()
         if getattr(self.device.api, "_cody_library_sha256", None) != build["library_sha256"]:
             raise ValueError("A different native build is loaded in Studio; restart this session")
@@ -200,11 +267,49 @@ class StudioRunner:
         self.scenario, self.image, self.identity, self.build = value, image.copy(), deepcopy(identity), build
         return revision
 
-    # No parameters: persist the exact prepared frame and receipt as new artifacts.
+    # route_id: Catalog route whose source has already been prepared on this owner.
+    # Returns its captured observed destination, never a direct destination prepare.
+    # Raises validation, native route, provenance or capture errors without fallback.
+    def replay_route(self, route_id):
+        if self.scenario is None or self.identity is None or self.build is None:
+            raise RuntimeError("Prepare the route origin before replaying it")
+        origin = deepcopy(self.scenario)
+        candidates = [route for route in routes_for(origin["context"]["target"])
+                      if route.get("origin") == origin["context"]["target"] and
+                      route.get("route_id") == route_id and route.get("replay") is True]
+        if len(candidates) != 1:
+            raise ValueError("Route is unsupported or does not originate at the prepared scenario")
+        destination = default_scenario(candidates[0]["destination"])
+        destination["common"] = deepcopy(origin["common"])
+        destination = validate_scenario(destination)
+        destination_entry = entry_for(destination["context"]["target"])
+        origin_revision, destination_revision = scenario_revision(origin), scenario_revision(destination)
+        old_identity, build = deepcopy(self.identity), self.build
+        if verify_current_build() != build or getattr(self.device.api, "_cody_library_sha256", None) != build["library_sha256"]:
+            raise ValueError("Native build changed since preparing the route origin")
+        # A failed owner command can leave the native scene changed; never allow
+        # the previously prepared Python frame to masquerade as its new state.
+        self.scenario = self.image = self.identity = self.build = self.route = None
+        image, identity, observed = self.device.replay_studio_route(route_id, origin_revision, destination_revision)
+        validate_receipt(identity, destination, destination_entry)
+        evidence = route_metadata(origin, destination, observed, identity)
+        if (observed["route_id"] != route_id or
+                observed["origin_frame_revision"] != old_identity["revision"]):
+            raise ValueError("Native route replay did not start at the selected completed origin frame")
+        if image.mode != "RGB" or image.size != (466, 466):
+            raise ValueError("Native route did not return a complete 466 x 466 RGB frame")
+        if verify_current_build() != build:
+            raise ValueError("Native build changed during route replay")
+        self.scenario, self.image, self.identity, self.build, self.route = (
+            destination, image.copy(), deepcopy(identity), build, evidence)
+        return self.capture()
+
+    # timeline_base: Optional base scenario identifying a native source-animation sequence.
     # Raises RuntimeError before preparation or the original provenance/filesystem error.
-    def capture(self):
+    def capture(self, timeline_base=None):
         if self.image is None or self.identity is None or self.scenario is None:
             raise RuntimeError("Prepare a native Studio scenario before capturing")
+        timeline = None if timeline_base is None else timeline_metadata(timeline_base, self.scenario)
         if verify_current_build() != self.build:
             raise ValueError("Native build changed since this frame was prepared; prepare it again")
         entry = entry_for(self.scenario["context"]["target"])
@@ -234,6 +339,10 @@ class StudioRunner:
                     "hard_to_reach": entry.get("hard_to_reach", False),
                     "transient_error": entry.get("transient_error", False),
                     "evidence": "Native owner receipt; acquisition alone does not establish repeatability or physical acceptance"}
+        if timeline is not None:
+            metadata["timeline"] = timeline
+        if self.route is not None:
+            metadata["route"] = deepcopy(self.route)
         metadata_path = directory / "capture.json"
         if verify_current_build() != self.build:
             raise ValueError("Native build changed while saving this frame; prepare it again")

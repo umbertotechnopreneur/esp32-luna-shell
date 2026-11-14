@@ -24,6 +24,25 @@ struct CodyHostStudioFrameIdentity {
 };
 static_assert(sizeof(CodyHostStudioFrameIdentity) == 240, "Studio frame identity ABI must remain fixed");
 
+// Route evidence accompanies the destination pixels under the display lock.
+// Origin identity was read from the last completed frame before the real input.
+struct CodyHostStudioRouteReceipt {
+    uint32_t abi = 1;
+    uint32_t origin_frame_revision = 0;
+    uint32_t destination_frame_revision = 0;
+    char origin_scenario_revision[65]{};
+    char route_id[32]{};
+};
+
+// Explicit bounded request, copied before the display owner processes a gesture.
+struct CodyHostStudioRouteRequest {
+    uint32_t abi = 1;
+    uint32_t size = 0;
+    char route_id[32]{};
+    char origin_scenario_revision[65]{};
+    char destination_scenario_revision[65]{};
+};
+
 // Explicit synthetic source records. Enum spellings are decoded and checked in
 // C++; Python never passes firmware enum ordinals or a pointer to owner memory.
 struct CodyHostStudioCall {
@@ -77,10 +96,29 @@ struct CodyHostStudioCase {
 // Exception: No exceptions; called only by the serialized rendering owner.
 void cody_host_display_stage_studio_identity(const CodyHostStudioFrameIdentity *identity);
 
+// receipt: Prepared route evidence, or null to clear the next frame's route.
+// Exception: No exceptions; staging is completed by frame_end with the pixels.
+void cody_host_display_stage_studio_route(const CodyHostStudioRouteReceipt *receipt);
+
+// identity: Receives the last committed Studio identity before an owner gesture.
+// Exception: Returns invalid argument or unavailable without modifying the output.
+esp_err_t cody_host_display_read_studio_identity(CodyHostStudioFrameIdentity *identity);
+
 // request: Bounded ABI/version/size-checked synthetic case, copied before enqueue.
 // Exception: Returns validation before settings mutation, owner/frame errors or a real wait timeout.
 #if defined(CODY_HOST_REAL_AUDIO)
 CODY_HOST_STUDIO_API esp_err_t cody_host_studio_prepare_case(const CodyHostStudioCase *request);
+
+// request: Explicit route and scenario revisions, copied to the display owner.
+// Exception: Returns validation, observed-origin, gesture or destination errors.
+CODY_HOST_STUDIO_API esp_err_t cody_host_studio_replay_route(const CodyHostStudioRouteRequest *request);
+
+// target: Native source animation identity.
+// index: Authored frame index; index zero also obtains count and cycle duration.
+// count, start_ms, duration_ms, cycle_ms: Receives compiled animation metadata.
+// Exception: Rejects unknown animations and out-of-range indices without writing outputs.
+CODY_HOST_STUDIO_API esp_err_t cody_host_studio_animation_frame(const char *target, uint32_t index,
+    uint32_t *count, uint32_t *start_ms, uint32_t *duration_ms, uint32_t *cycle_ms);
 #endif
 
 // pixels: Receives the complete latest native RGB565 frame.
@@ -94,6 +132,16 @@ CODY_HOST_STUDIO_API esp_err_t cody_host_display_studio_snapshot(uint16_t *pixel
 // No parameters: reports the current native output capacity before a ctypes allocation is passed.
 // Exception: No exceptions; the caller must reject a different output ABI size.
 CODY_HOST_STUDIO_API size_t cody_host_studio_frame_identity_size();
+
+// pixels, count: Exact native logical framebuffer destination and capacity.
+// identity, identity_bytes: Same completed-frame identity and exact capacity.
+// route, route_bytes: Route evidence retired with those pixels and exact capacity.
+// Exception: Rejects invalid capacities and frames without observed route evidence.
+CODY_HOST_STUDIO_API esp_err_t cody_host_display_studio_route_snapshot(uint16_t *pixels, size_t count,
+    CodyHostStudioFrameIdentity *identity, size_t identity_bytes, CodyHostStudioRouteReceipt *route, size_t route_bytes);
+
+// No parameters: returns the exact output capacity of the route receipt.
+CODY_HOST_STUDIO_API size_t cody_host_studio_route_receipt_size();
 
 namespace CODY::Domain { struct StateQuery; struct StateQueryResult; }
 namespace CODY::host_studio_domain {

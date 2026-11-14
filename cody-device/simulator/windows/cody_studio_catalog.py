@@ -92,6 +92,24 @@ def entry_for(identity):
     return matches[0]
 
 
+# identity: A qualified source identity or its mapped inventory ID.
+# Returns the declared incoming and outgoing routes, without duplicate records.
+# Raises the original catalog or identity error; this is not a navigation extraction.
+def routes_for(identity):
+    target = entry_for(identity)["id"]
+    routes, seen = [], set()
+    for entry in load_catalog():
+        for route in entry.get("routes", []):
+            if target not in (route.get("origin"), route.get("destination")):
+                continue
+            key = (route.get("origin"), route.get("destination"), route.get("event"),
+                   route.get("source"), route.get("function"))
+            if key not in seen:
+                seen.add(key)
+                routes.append(deepcopy(route))
+    return routes
+
+
 # entry: Validated catalog entry with a repository-relative source file.
 # symbol: Optional current symbol; defaults to the entry's presenter symbol.
 # Raises OSError or ValueError when source/symbol cannot be resolved in this checkout.
