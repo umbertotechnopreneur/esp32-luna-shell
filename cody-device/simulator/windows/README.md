@@ -15,8 +15,8 @@ Buttons, P01 Settings, P04 Display, P12 Quiet hours editor, W02 Reset countdown,
 W04 Codex limits, S15 Provisioning error and C04 Tool calls. Nine cases use the
 full native runtime; C04 uses the production C++ browser presenter with a typed,
 synthetic query owner. It does not establish domain transport/reducer acceptance.
-The Linux native build and the pilot suite pass (18/18); the real Tk/native
-suite passes (17/17). Every pilot case has exact repeated pixels in fresh
+The Linux native build and the pilot suite pass (20/20); the real Tk/native
+suite passes (19/19). Every pilot case has exact repeated pixels in fresh
 processes and after out-of-order preparation in a shared session. Host captures
 and window screenshots were visually inspected. Windows and physical-device
 acceptance remain separate.
@@ -46,7 +46,9 @@ This suite checks direct preparation of all ten cases, editing at input bounds
 and replay back to the same pixels, scenario save/load, baseline preservation,
 capture history synchronization, notes, keyboard focus, expander
 restoration, visible status/Atlas controls and proportional layout at 1440x960
-and 720x540. Collapsed lower sections share a compact row on small windows.
+and 720x540. It checks evidence filters, saved baseline restoration and missing
+baseline recovery, plus explicit compatibility and per-capture reviews.
+Collapsed lower sections share a compact row on small windows.
 Screenshots are host UI evidence and never substitute for device photographs.
 
 `-StudioCase`, `-StudioScenario` and `-StudioCapture` explicitly select the
@@ -60,9 +62,14 @@ The window provides catalog search/availability filters, synthetic battery,
 network, civil clock, settings and case-specific page/service inputs, scenario
 load/save, a proportional
 native frame, explicit baseline preservation, side-by-side/overlay/pixel
-difference and capture-specific human reviews. Expanders persist independently
-of native state; Catalog and Inspector can collapse on smaller windows. Source
-actions resolve symbol lines in the current checkout. Declared IN/OUT routes
+difference and capture-specific human reviews. Changed and Needs review filters
+cover captures loaded in the current session; availability filters include the
+declared profile-conditional and not-applicable states. The chosen preserved
+baseline is restored on reopening; if it is unavailable, its reference is kept
+until an explicit replacement or clearing and the error remains visible.
+Expanders persist independently of native state; Catalog and Inspector can
+collapse on smaller windows. Source actions resolve the current definition in
+the checkout and report missing or ambiguous matches. Declared IN/OUT routes
 are source analysis and have not been replayed. Animation is explicitly
 unavailable for this contract. All device pixels come from native C/C++.
 
@@ -72,7 +79,9 @@ directories and never overwrite existing evidence. A comparison requires the
 same target, canonical scenario revision, variant, geometry, rendering mode,
 fixed native dependencies and capture instant. Acquisition, pixel difference and human review are independent;
 changed pixels do not declare an error. Previously saved baselines are accepted
-with their historical build hashes rather than compared against today's source.
+with their historical build hashes and source identity, including after a source
+file is moved. Their scenario must still satisfy the current catalog schema;
+historical schema versioning remains open.
 
 Replay a saved scenario or capture without a window using the same runner:
 

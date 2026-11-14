@@ -138,7 +138,7 @@ their exact filenames in 01 while retaining the ownership boundaries below.
 | CODY-NEXT-03 | Codex adapter and complete broker registry | 02, 14 | 🟡 Multi-turn sync and exact question correlation wired · live hook acceptance pending |
 | CODY-NEXT-04 | Durable question and answer lifecycle | 02, 03 | 🟡 Durable question association and answer projection wired · live acceptance pending |
 | CODY-NEXT-05 | Device domain store, synchronization and recovery | 02, 03, 04, 14 | 🟡 Canonical pending-question query and pairing-bound recovery wired · acceptance pending |
-| CODY-NEXT-06 | Deterministic scenario driver and inspection tools | 01, 02; integrate after 05 | 🟡 Studio ten-case pilot has Linux host acceptance · timeline/automation pending |
+| CODY-NEXT-06 | Deterministic scenario driver and inspection tools | 01, 02; integrate after 05 | 🟡 Studio A-D has Linux host acceptance · timeline/automation pending |
 | CODY-NEXT-07 | Domain-to-Muse direction and pose transitions | 05, 06 | 🟡 Native pose showcase wired · domain direction pending |
 | CODY-NEXT-08 | Muse acting, particles and audio policy | 07 | 🟡 320-pixel Muse smooth on the device · measured cadence pending |
 | CODY-NEXT-09 | Separate mascot/UI routes and reusable screens | 00, 05, 07 | 🟡 Native Codex browser and Questions wired · Home gestures and physical acceptance pending |
@@ -493,7 +493,7 @@ estimates exist, while actual stack/heap measurements remain pending phase 11.
 
 **Outcome:** repeatable domain and animation inputs without depending on live work.
 
-**Implemented Studio slices (A-C):** the source integrates a catalog projection from
+**Implemented Studio slices (A-D):** the source integrates a catalog projection from
 `docs/cody/screen-catalog.md` plus the executable `studio_catalog.json` overlay,
 a strict scenario contract, shared native runner and immutable capture/review
 artifacts. P04 maps explicitly to `ui-v1:display` and `cody.settings.display`.
@@ -501,10 +501,10 @@ The original inventory is now identified: **Cody screen map and static
 inventory**, 14 November 2026, baseline `e971b313` plus local changes, with
 document SHA-256 in the machine catalog. Its 100 IDs and 214 declared links
 are distinct from acquired native coverage and the source catalog denominator.
-The Python contract suite passes 16/16 without loading a native library. The
+The Python contract suite passes 18/18 without loading a native library. The
 Linux native host build passes with compiler warnings retained. The ten-case
-pilot suite passes 18/18, including fresh-process exact pixels and out-of-order
-shared-session replay. The Tk/native UI suite passes 17/17 with screenshots
+pilot suite passes 20/20, including fresh-process exact pixels and out-of-order
+shared-session replay. The Tk/native UI suite passes 19/19 with screenshots
 inspected. Nine cases use the full runtime; C04 uses the production browser
 presenter with a typed synthetic query owner. This does not accept domain
 transport/reducer or general pagination. Physical acceptance remains separate.
@@ -566,12 +566,17 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   Tk exposes all ten, editable C04 records, synchronized history, visible Tab
   focus with inspector/Atlas scrolling and a separate automatic worker that
   leaves interactive frame, receipt, sensors, NVS and scenario intact.
-- [ ] 🟡 **CODY-NEXT-06.09** Studio D: apply the approved flat host composition,
+- [x] 🟢 **CODY-NEXT-06.09** Studio D: apply the approved flat host composition,
   hierarchical catalog/search/filter, side-column collapse, persisted expanders,
   editable scenarios, comparison, review and capture thumbnails. The pilot
-  workflows have Linux Tk focus, resize, persistent expanders, capture history
-  and visual screenshot acceptance. Broader Studio requirements and inventory
-  extension remain open; the pilot does not complete the product.
+  workflows have Linux Tk focus, resize, persistent expanders, capture history,
+  catalog scrollbar and visual screenshot acceptance. Availability and loaded
+  capture review filters are explicit; selected baselines survive reopening,
+  preserve unavailable references, and retain historical source hashes across
+  file moves. Acquisition, pixel difference and human review remain separate.
+  The contrast of the opacity control is checked in normal and active states.
+  Historical scenarios still require the current catalog schema; versioned
+  schema support and inventory extension remain open.
 - [ ] ⚪ **CODY-NEXT-06.10** Studio E: controlled animation clock, reset/replay
   timeline, keyframes and separate direct-entry/IN-OUT replay actions. Qualify
   documented, source-supported and observed routes independently.
