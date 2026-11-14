@@ -176,7 +176,7 @@ class StudioRunner:
                     "source": entry["source"], "symbol": entry["symbol"],
                     "source_sha256": self.build["inputs"][entry["source"]],
                     "build": deepcopy(self.build), "time_control": entry["time_control"],
-                    "evidence": "Native owner receipt; host repeatability and device acceptance pending"}
+                    "evidence": "Native owner receipt; acquisition alone does not establish repeatability or physical acceptance"}
         metadata_path = directory / "capture.json"
         if verify_current_build() != self.build:
             raise ValueError("Native build changed while saving this frame; prepare it again")
