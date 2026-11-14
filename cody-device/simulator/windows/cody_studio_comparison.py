@@ -8,7 +8,7 @@ from uuid import uuid4
 
 from PIL import Image, ImageChops
 
-from cody_studio_runner import ARTIFACT_ROOT, CaptureRecord, load_capture
+from cody_studio_runner import ARTIFACT_ROOT, CaptureRecord, load_capture, validate_navigation_provenance
 
 COMPATIBILITY_FIELDS = ("id", "scenario_revision", "variant", "geometry", "at_ms", "rendering_mode")
 
@@ -43,22 +43,48 @@ def fixed_input_values(metadata):
 
 # baseline: Explicitly selected saved native capture.
 # current: Current saved native capture; no baseline is selected or replaced here.
-# Raises original file/image errors or ValueError for corrupted captures.
-def compare_captures(baseline, current):
+# Returns both reloaded records and their comparison so every view uses the
+# same validated image paths. Raises original file or evidence errors.
+def _validated_comparison(baseline, current):
     baseline = load_capture(baseline.metadata_path)
     current = load_capture(current.metadata_path)
     reasons = tuple(f"Incompatible {field.replace('_', ' ')}"
                     for field in COMPATIBILITY_FIELDS
                     if baseline.metadata.get(field) is None or baseline.metadata.get(field) != current.metadata.get(field))
-    if fixed_input_values(baseline.metadata) != fixed_input_values(current.metadata):
+    baseline_inputs = fixed_input_values(baseline.metadata)
+    current_inputs = fixed_input_values(current.metadata)
+    if baseline_inputs is None or current_inputs is None or baseline_inputs != current_inputs:
         reasons += ("Incompatible fixed native inputs",)
+    if (baseline.metadata.get("worker") is not None or current.metadata.get("worker") is not None) and (
+            baseline.metadata.get("requested_at_ms") != current.metadata.get("requested_at_ms")):
+        reasons += ("Incompatible requested worker instant",)
+    paths = []
+    for metadata in (baseline.metadata, current.metadata):
+        provenance = metadata.get("navigation_provenance")
+        if provenance is None:
+            # Historical direct captures have no route history to reconstruct.
+            paths.append(None if "route" in metadata else (("prepare", metadata["scenario_revision"]),))
+        else:
+            paths.append(validate_navigation_provenance(provenance, metadata["scenario"],
+                                                        metadata["frame_identity"], metadata.get("route")))
+    if any(path is None for path in paths):
+        reasons += ("Unverified historical navigation provenance",)
+    elif paths[0] != paths[1]:
+        reasons += ("Incompatible navigation provenance",)
     if reasons:
-        return ComparisonResult(False, reasons, None)
+        return baseline, current, ComparisonResult(False, reasons, None)
     with Image.open(baseline.image_path) as before, Image.open(current.image_path) as after:
         difference = ImageChops.difference(before, after)
         # Count pixels whose RGB tuple has any changed channel, not channel totals.
         changed = sum(pixel != (0, 0, 0) for pixel in difference.getdata())
-    return ComparisonResult(True, (), changed)
+    return baseline, current, ComparisonResult(True, (), changed)
+
+
+# baseline: Explicitly selected saved native capture.
+# current: Current saved native capture; no baseline is selected or replaced here.
+# Raises original file/image errors or ValueError for corrupted captures.
+def compare_captures(baseline, current):
+    return _validated_comparison(baseline, current)[2]
 
 
 # baseline: Explicit saved capture supplying the left/bottom frame.
@@ -67,7 +93,7 @@ def compare_captures(baseline, current):
 # opacity: Current-frame blend fraction from 0 to 1, used only for overlay.
 # Raises ValueError for incompatible captures, modes or opacity and preserves I/O errors.
 def comparison_image(baseline, current, mode="side-by-side", opacity=0.5):
-    result = compare_captures(baseline, current)
+    baseline, current, result = _validated_comparison(baseline, current)
     if not result.compatible:
         raise ValueError("; ".join(result.reasons))
     if mode not in ("side-by-side", "overlay", "difference"):

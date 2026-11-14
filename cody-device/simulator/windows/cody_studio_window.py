@@ -20,7 +20,8 @@ from cody_studio_catalog import entry_for, load_catalog, resolve_source, routes_
 from cody_studio_runner import StudioRunner, load_capture
 from cody_studio_comparison import compare_captures, comparison_image, load_review, preserve_baseline, save_review
 from cody_studio_scenario import default_scenario, load_scenario, save_scenario, validate_scenario
-from cody_studio_timeline import timeline_capture, timeline_plan
+from cody_studio_timeline import (source_timeline_scenario, timeline_capture, timeline_plan,
+                                  worker_timeline_scenario)
 from runtime_paths import resolve_runtime_output
 
 BG, FG, MUTED = (studio_hex('host_ui', key) for key in ('background', 'text', 'muted'))
@@ -74,6 +75,10 @@ class StudioWindow:
         self.timeline_contract = None
         self.timeline_target = None
         self.timeline_deadline = None
+        self.timeline_position = 0
+        self.live_process = self.live_directory = self.live_timer = self.live_image = None
+        self.live_started = None
+        self.live_caption_backup = self.live_title = None
         self.route_records = {}
         self.declared_routes = []
         self.results = queue.Queue()
@@ -362,17 +367,32 @@ class StudioWindow:
         animation = self.section(bottom, 'Animation', False)
         self.animation_status = tk.StringVar(value='No native source animation selected.')
         caption(animation, textvariable=self.animation_status, wraplength=580).pack(anchor='w')
+        clock_row = tk.Frame(animation, bg=BG)
+        clock_row.pack(fill='x')
+        caption(clock_row, 'Clock', 10).pack(side='left')
+        self.animation_clock = tk.StringVar(value='Source frames')
+        self.clock_control = ttk.Combobox(clock_row, textvariable=self.animation_clock,
+                                          values=('Source frames',), state='readonly', width=18,
+                                          style='Studio.TCombobox')
+        self.clock_control.pack(side='left', padx=6)
+        self.clock_control.bind('<<ComboboxSelected>>', self.change_timeline_clock)
         animation_actions = tk.Frame(animation, bg=BG)
         animation_actions.pack(fill='x')
         self.play_button = action(animation_actions, 'Play', self.play_timeline, True)
         self.play_button.pack(side='left', padx=(0, 12))
-        self.pause_button = action(animation_actions, 'Pause', self.pause_timeline)
+        self.live_button = action(animation_actions, 'Boot replay', self.play_live)
+        self.live_button.pack(side='left', padx=(0, 12))
+        animation_steps = tk.Frame(animation, bg=BG)
+        animation_steps.pack(fill='x')
+        self.pause_button = action(animation_steps, 'Pause', self.pause_timeline)
         self.pause_button.pack(side='left', padx=(0, 12))
-        self.step_button = action(animation_actions, 'Step', self.step_timeline)
+        self.step_button = action(animation_steps, 'Step', self.step_timeline)
         self.step_button.pack(side='left', padx=(0, 12))
-        caption(animation_actions, 'Speed', 10).pack(side='left')
+        speed_row = tk.Frame(animation, bg=BG)
+        speed_row.pack(fill='x')
+        caption(speed_row, 'Speed', 10).pack(side='left')
         self.animation_speed = tk.StringVar(value='1x')
-        self.speed_control = ttk.Combobox(animation_actions, textvariable=self.animation_speed,
+        self.speed_control = ttk.Combobox(speed_row, textvariable=self.animation_speed,
                                           values=('0.5x', '1x', '2x'), state='readonly', width=5,
                                           style='Studio.TCombobox')
         self.speed_control.pack(side='left', padx=6)
@@ -445,6 +465,18 @@ class StudioWindow:
         tk.Checkbutton(scenario, text='Auto rotate (simulated)', variable=self.auto_rotate,
                        bg=BG, fg=FG, selectcolor=FIELD, activebackground=BG,
                        activeforeground=ORANGE, highlightcolor=ORANGE).pack(anchor='w', pady=4)
+        self.sounds_enabled = tk.BooleanVar()
+        tk.Checkbutton(scenario, text='Sounds enabled', variable=self.sounds_enabled,
+                       bg=BG, fg=FG, selectcolor=FIELD, activebackground=BG,
+                       activeforeground=ORANGE, highlightcolor=ORANGE).pack(anchor='w', pady=4)
+        caption(scenario, 'Playback volume (0–100%)', 10).pack(anchor='w')
+        self.playback_volume = tk.StringVar()
+        self.field(scenario, self.playback_volume).pack(fill='x')
+        self.audio_status = tk.StringVar(value='Audio backend status pending')
+        caption(scenario, textvariable=self.audio_status, size=10, wraplength=275).pack(anchor='w', pady=4)
+        caption(scenario, 'Boot replay uses these sound settings. Turn Sounds off before Apply and capture or timeline capture.',
+                10, wraplength=275).pack(anchor='w')
+        self.refresh_audio_status()
         caption(scenario, 'Logical raster before panel rotation.\nAuto rotation has no simulated gravity input.',
                 10, wraplength=275).pack(anchor='w')
         self.case_fields_host = tk.Frame(scenario, bg=BG)
@@ -480,6 +512,22 @@ class StudioWindow:
         return tk.Entry(parent, textvariable=variable, bg=FIELD, fg=FG, insertbackground=FG,
                         relief='flat', highlightbackground=FIELD, highlightcolor=ORANGE, highlightthickness=1)
 
+    # No parameters: report backend initialization without claiming a cue was heard.
+    def refresh_audio_status(self):
+        try:
+            status = self.runner.device.audio_status()
+            if status['mode'] == 'silent':
+                description = 'Capture session: silent · live backend checked on playback'
+            elif not status['attempted']:
+                description = 'Audio output: backend not initialized'
+            elif status['backend_result'] == 0:
+                description = 'Audio output: host backend initialized'
+            else:
+                description = f"Audio output: backend unavailable (error {status['backend_result']})"
+        except (AttributeError, KeyError, OSError, ValueError, RuntimeError) as error:
+            description = f'Audio output: status unavailable ({error})'
+        self.audio_status.set(description)
+
     # No parameters: allow explicit side-column collapse on small windows.
     def columns(self):
         for widget, variable in ((self.left, self.left_visible), (self.right_host, self.right_visible)):
@@ -500,7 +548,11 @@ class StudioWindow:
                               'Not applicable': 'not-applicable'}
         failures = []
         for item in load_catalog():
-            supported = item['availability'] in ('runtime-full', 'presenter-isolated')
+            try:
+                supported, reason = self.runner.availability(item)
+            except (OSError, ValueError, RuntimeError) as error:
+                supported, reason = False, str(error)
+                failures.append(f"{item.get('inventory_id') or item['id']}: {reason}")
             mode = self.filter.get()
             text = f"{item.get('inventory_id') or item['id']} {item['title']}"
             if self.search.get().casefold() not in text.casefold():
@@ -551,6 +603,7 @@ class StudioWindow:
     # No parameters: the requested comparison mode makes its controls visible.
     # Exceptions: Persistence failures are reported by persist().
     def mode_changed(self):
+        self.stop_live()
         if self.mode.get() != 'current' and not self.sections['Comparison'][2]:
             self.sections['Comparison'][2] = True
             self.refresh_section('Comparison')
@@ -568,7 +621,12 @@ class StudioWindow:
     # item: Source-qualified catalog entry whose declared routes are inspected.
     # Exceptions: Tk errors propagate without changing the selected native frame.
     def describe_entry(self, item):
-        self.detail.set(f"{item['id']}\n{item['availability']}\n{item.get('verification', item.get('reason', ''))}")
+        try:
+            available, reason = self.runner.availability(item)
+            capability = reason if item['availability'] == 'profile-conditional' else ''
+        except (OSError, ValueError, RuntimeError) as error:
+            available, capability = False, f'Native capability unavailable: {error}'
+        self.detail.set(f"{item['id']}\n{item['availability']}\n{capability}\n{item.get('verification', item.get('reason', ''))}")
         routes = routes_for(item['id'])
         incoming = sum(route['destination'] == item['id'] for route in routes)
         outgoing = sum(route['origin'] == item['id'] for route in routes)
@@ -604,6 +662,17 @@ class StudioWindow:
             self.route_source_button.configure(state='disabled')
             return
         supported = route.get('replay') is True and bool(route.get('route_id'))
+        capability_error = ''
+        if supported:
+            try:
+                for capability in route.get('required_capabilities', []):
+                    if not self.runner.device.studio_has_capability(capability):
+                        supported = False
+                        capability_error = f'Native profile does not provide {capability}'
+                        break
+            except (OSError, ValueError, RuntimeError) as error:
+                supported = False
+                capability_error = f'Native capability unavailable: {error}'
         observed = self.route_records.get(route.get('route_id'))
         result = ('Observed in this session: capture ' + observed['capture_id'] +
                   ' · scenario ' + observed['scenario_revision'][:12]) if observed else 'Not yet replayed in this session'
@@ -611,7 +680,8 @@ class StudioWindow:
                                f"{route['event']} · {route['condition']}\n"
                                f"{route['component']}::{route['function']}\n"
                                f"Declared evidence: {route['evidence']} · "
-                               f"Replay: {'available' if supported else 'unavailable'}\n{result}")
+                               f"Replay: {'available' if supported else 'unavailable'}"
+                               f"{(' · ' + capability_error) if capability_error else ''}\n{result}")
         self.replay_button.configure(state='normal' if supported else 'disabled')
         self.route_source_button.configure(state='normal' if route.get('source') and route.get('function') else 'disabled')
 
@@ -647,6 +717,8 @@ class StudioWindow:
         for key, value in values.items():
             self.inputs[key].set('' if value is None else str(value))
         self.auto_rotate.set(settings['auto_rotate'])
+        self.sounds_enabled.set(settings.get('sounds_enabled', False))
+        self.playback_volume.set(str(settings.get('playback_volume', 90)))
         self.show_case_fields(entry)
         self.pause_timeline()
         self.timeline_scenario = None
@@ -667,9 +739,15 @@ class StudioWindow:
         else:
             self.animation_status.set('Open a destination with a supported native source animation.')
         self.timeline_contract = plan
+        clock_modes = ('Source frames', 'Display worker') if isinstance(item.get('worker_replay'), dict) else ('Source frames',)
+        self.clock_control.configure(values=clock_modes, state='readonly' if plan else 'disabled')
+        worker_mode = self.scenario['time']['mode'] == 'controlled-worker'
+        self.animation_clock.set('Display worker' if worker_mode else 'Source frames')
         if plan:
             self.keyframe_control.configure(values=tuple(str(value) for value in plan.keyframes_ms), state='readonly')
-            self.animation_keyframe.set(str(self.scenario['page']['sample_at_ms']))
+            self.timeline_position = (self.scenario['time']['capture_at_ms'][0] if worker_mode
+                                      else self.scenario['page']['sample_at_ms'])
+            self.animation_keyframe.set(str(self.timeline_position))
             self.animation_status.set(f'{plan.rendering_mode} · scenario {plan.scenario_revision[:12]} · '
                                       f'{plan.limitation} · playback speed depends on capture throughput')
             self.refresh_section('Animation', f'Animation · {plan.duration_ms} ms · {len(plan.keyframes_ms)} keyframes')
@@ -679,12 +757,40 @@ class StudioWindow:
             self.refresh_section('Animation', 'Animation · unavailable')
         for control in (self.play_button, self.step_button, self.seek_button):
             control.configure(state='normal' if plan else 'disabled')
+        self.live_button.configure(state='normal' if plan and isinstance(item.get('worker_replay'), dict) else 'disabled')
         self.pause_button.configure(state='disabled')
+
+    # event: Optional user selection of source frames or controlled display worker.
+    # Exceptions: Invalid inputs or unavailable native capability leave the scenario unchanged.
+    def change_timeline_clock(self, event=None):
+        if self.busy:
+            self.animation_clock.set('Display worker' if self.scenario['time']['mode'] == 'controlled-worker'
+                                     else 'Source frames')
+            self.status.set('Wait for the active frame before changing the clock.')
+            return
+        self.pause_timeline()
+        try:
+            current = self.form()
+            if self.animation_clock.get() == 'Display worker':
+                value = worker_timeline_scenario(self.runner, current)
+            elif self.animation_clock.get() == 'Source frames':
+                value = source_timeline_scenario(current)
+            else:
+                raise ValueError('Unknown timeline clock selection')
+            self.scenario = value
+            self.show_scenario()
+            self.status.set('Timeline clock selected; Apply or a keyframe prepares the native frame.')
+        except (OSError, ValueError, TypeError, RuntimeError) as error:
+            self.animation_clock.set('Display worker' if self.scenario['time']['mode'] == 'controlled-worker'
+                                     else 'Source frames')
+            self.error(error)
 
     # No parameters: retain a detached validated input revision for animation sampling.
     # Exceptions: Contract, input and native source errors propagate to the caller.
     def prepare_timeline(self):
         scenario = self.form()
+        if scenario['common']['settings'].get('sounds_enabled', False):
+            raise ValueError('Sounds is available for Boot replay. Turn Sounds off before a timeline capture.')
         # A changed sample remains in the same sequence. Any other edited input
         # starts a new base revision instead of mixing unrelated evidence.
         comparable = deepcopy(scenario)
@@ -707,8 +813,10 @@ class StudioWindow:
         if self.busy or self.timeline_playing:
             return
         try:
+            self.pause_timeline()
             scenario, plan = self.prepare_timeline()
-            index = bisect_right(plan.keyframes_ms, scenario['page']['sample_at_ms'])
+            position = self.timeline_position if plan.clock_mode == 'display-worker' else scenario['page']['sample_at_ms']
+            index = bisect_right(plan.keyframes_ms, position)
             if index == len(plan.keyframes_ms):
                 index = 0
             self.timeline_playing = True
@@ -724,6 +832,7 @@ class StudioWindow:
         was_playing = self.timeline_playing
         self.timeline_playing = False
         self.timeline_deadline = None
+        self.stop_live()
         if self.timeline_timer is not None:
             self.root.after_cancel(self.timeline_timer)
             self.timeline_timer = None
@@ -733,6 +842,110 @@ class StudioWindow:
             self.animation_status.set('Pausing · waiting for the admitted frame' if self.busy else
                                       'Paused · current completed frame retained')
 
+    # No parameters: preview the real live native worker and its actual sound cues.
+    # Live frames never become capture, baseline or review evidence.
+    def play_live(self):
+        if self.busy or self.live_process is not None:
+            return
+        try:
+            self.pause_timeline()
+            scenario = self.form()
+            from cody_studio_live import start_live
+            from cody_studio_runner import verify_current_build
+            build = verify_current_build()
+            if getattr(self.runner.device.api, '_cody_library_sha256', None) != build['library_sha256']:
+                raise ValueError('A different native build is loaded in Studio; restart this session')
+            entry = entry_for(scenario['context']['target'])
+            self.live_title = f"{entry.get('inventory_id') or entry['id']} — {entry['title']}"
+            self.live_caption_backup = (self.frame_title.get(), self.frame_subtitle.get())
+            self.live_process, self.live_directory = start_live(scenario)
+            self.live_build_sha256 = build['library_sha256']
+            self.live_started = time.monotonic()
+            self.pause_button.configure(state='normal')
+            self.animation_status.set('Starting isolated native boot replay…')
+            self.poll_live()
+        except (OSError, ValueError, RuntimeError) as error:
+            self.stop_live()
+            self.error(error)
+
+    # No parameters: refresh an atomic preview frame and report process errors.
+    def poll_live(self):
+        self.live_timer = None
+        process = self.live_process
+        if self.closed or process is None:
+            return
+        try:
+            status_path, frame_path = self.live_directory / 'status.json', self.live_directory / 'frame.png'
+            playback = None
+            if status_path.exists():
+                status = json.loads(status_path.read_text(encoding='utf-8'))
+                if status['library_sha256'] != self.live_build_sha256:
+                    raise ValueError('Live process loaded a different native build')
+                audio = status['audio']
+                state = 'Sounds on' if status['sounds_enabled'] else 'Sounds off'
+                playback = status['playback']
+                cues = ', '.join(f"#{cue['id']} / {cue['sequence']}: {cue['state']} (error {cue['error']})"
+                                 for cue in playback['cues']) or 'no cue observed'
+                self.animation_status.set(f"Native boot replay · {state} · volume {status['playback_volume']}% · "
+                                          f"backend result {audio['backend_result']} · cue outcomes: {cues} · preview only")
+            if frame_path.exists():
+                with Image.open(frame_path) as frame:
+                    self.live_image = frame.copy()
+                self.frame_title.set(self.live_title)
+                self.frame_subtitle.set('Native C/C++ · live boot replay · not a capture')
+                self.draw()
+            result = process.poll()
+            if result is not None:
+                if result:
+                    if result == 124:
+                        raise TimeoutError('Live playback exceeded its 30-second owner completion deadline')
+                    if result == 125:
+                        raise RuntimeError('Live playback stopped because its parent connection closed')
+                    detail = (self.live_directory / 'stderr.log').read_text(encoding='utf-8')[-3000:]
+                    raise RuntimeError(f'Live native playback failed ({result}): {detail}')
+                if not playback or not playback['animation_complete'] or not playback['audio_complete']:
+                    raise RuntimeError('Live playback exited without owner completion evidence')
+                if process.stdin is not None:
+                    process.stdin.close()
+                self.live_process = None
+                self.pause_button.configure(state='normal' if self.live_image is not None else 'disabled')
+                self.animation_status.set(f'Boot replay ended · cue outcomes: {cues} · preview only')
+                return
+            if time.monotonic() - self.live_started > 30:
+                raise TimeoutError('Live native playback exceeded its 30-second deadline')
+            self.live_timer = self.root.after(60, self.poll_live)
+        except (OSError, ValueError, KeyError, RuntimeError) as error:
+            self.stop_live()
+            self.error(error)
+
+    # No parameters: end the isolated live owner; pausing does not freeze audio clocks.
+    def stop_live(self):
+        if self.live_timer is not None:
+            self.root.after_cancel(self.live_timer)
+            self.live_timer = None
+        process, self.live_process = self.live_process, None
+        if process is not None and process.poll() is None:
+            try:
+                process.terminate()
+                try:
+                    process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait()
+            except ProcessLookupError:
+                process.wait()
+        if process is not None and process.stdin is not None:
+            process.stdin.close()
+        if self.live_caption_backup is not None:
+            title, subtitle = self.live_caption_backup
+            self.frame_title.set(title)
+            self.frame_subtitle.set(subtitle)
+            self.live_caption_backup = self.live_title = None
+        if self.live_image is not None:
+            self.live_image = None
+            if hasattr(self, 'canvas'):
+                self.draw()
+
     # No parameters: acquire the next native keyframe from a fresh preparation.
     # Exceptions: Input/contract errors leave the current capture intact.
     def step_timeline(self):
@@ -741,7 +954,8 @@ class StudioWindow:
         self.pause_timeline()
         try:
             scenario, plan = self.prepare_timeline()
-            index = bisect_right(plan.keyframes_ms, scenario['page']['sample_at_ms'])
+            position = self.timeline_position if plan.clock_mode == 'display-worker' else scenario['page']['sample_at_ms']
+            index = bisect_right(plan.keyframes_ms, position)
             if index >= len(plan.keyframes_ms):
                 self.animation_status.set('Last keyframe reached. Select an earlier keyframe to replay.')
                 return
@@ -772,7 +986,7 @@ class StudioWindow:
         scenario = deepcopy(self.timeline_scenario)
         self.busy = True
         self.apply_button.configure(state='disabled')
-        self.status.set(f'Preparing native source-animation frame {at_ms} ms…')
+        self.status.set(f'Preparing native {self.timeline_contract.clock_mode} frame at {at_ms} ms…')
 
         # No parameters: owner-backed capture happens outside the Tk thread.
         def work():
@@ -852,7 +1066,7 @@ class StudioWindow:
         add_fields(('page',), self.scenario['page'])
         add_fields(('services',), self.scenario['services'])
         for key, value in self.scenario['common']['settings'].items():
-            if key not in ('brightness_percent', 'auto_rotate', 'orientation_degrees'):
+            if key not in ('brightness_percent', 'auto_rotate', 'orientation_degrees', 'sounds_enabled', 'playback_volume'):
                 add_fields(('common', 'settings', key), value)
 
     # No parameters: construct and validate a detached complete scenario.
@@ -870,6 +1084,10 @@ class StudioWindow:
         value['common']['settings'].update({'brightness_percent': int(self.inputs['brightness'].get()),
                          'auto_rotate': self.auto_rotate.get(),
                          'orientation_degrees': int(self.inputs['orientation'].get())})
+        volume = int(self.playback_volume.get())
+        if ('sounds_enabled' in value['common']['settings'] or self.sounds_enabled.get() or volume != 90):
+            value['common']['settings'].update({'sounds_enabled': self.sounds_enabled.get(),
+                                                'playback_volume': volume})
         for path, (variable, field_type) in self.case_fields.items():
             target = value
             for key in path[:-1]:
@@ -889,6 +1107,13 @@ class StudioWindow:
         self.pause_timeline()
         try:
             scenario = self.form()
+            if scenario['common']['settings'].get('sounds_enabled', False):
+                raise ValueError('Sounds is available for Boot replay. Turn Sounds off before Apply and capture.')
+            requested_at_ms = None
+            if scenario['time']['mode'] == 'controlled-worker':
+                requested_at_ms = int(self.animation_keyframe.get())
+                if requested_at_ms not in scenario['time']['capture_at_ms']:
+                    raise ValueError('Select a declared worker capture boundary')
         except (ValueError, TypeError) as error:
             self.error(error)
             return
@@ -900,7 +1125,7 @@ class StudioWindow:
         # No parameters: return results through a queue; this worker never calls Tk.
         def work():
             try:
-                self.runner.prepare(scenario)
+                self.runner.prepare(scenario, requested_at_ms=requested_at_ms)
                 self.results.put((scenario, self.runner.capture(), None, {'kind': 'capture'}))
             except Exception as error:
                 self.results.put((None, None, error, {'kind': 'capture'}))
@@ -932,10 +1157,17 @@ class StudioWindow:
                 elif operation['kind'] == 'timeline':
                     sample = operation['sample']
                     field = self.case_fields.get(('page', 'sample_at_ms'))
-                    if field:
+                    worker = record.metadata.get('worker')
+                    if field and worker is None:
                         field[0].set(str(sample))
+                    self.timeline_position = sample
                     self.animation_keyframe.set(str(sample))
-                    self.status.set(f'Acquired source-animation keyframe {sample} ms · native completed frame')
+                    if worker:
+                        actual = worker['receipt']['frame_at_ms']
+                        source = record.metadata['frame_identity']['source_animation_sample_ms']
+                        self.status.set(f'Worker requested {sample} ms · completed frame {actual} ms · source {source} ms')
+                    else:
+                        self.status.set(f'Acquired source-animation keyframe {sample} ms · native completed frame')
                     next_index = operation['index'] + 1
                     if self.timeline_playing and next_index < len(self.timeline_contract.keyframes_ms):
                         delay = self.timeline_contract.keyframes_ms[next_index] - sample
@@ -951,15 +1183,20 @@ class StudioWindow:
                     elif self.timeline_playing:
                         self.pause_timeline()
                     playback = 'Playing' if self.timeline_playing else 'Paused'
+                    timing = (f"display worker requested {sample} ms · frame {actual} ms · source {source} ms"
+                              if worker else f"source animation {sample} ms · worker replay unavailable")
                     self.animation_status.set(f"{playback} · {record.metadata['rendering_mode']} · scenario "
-                                              f"{record.metadata['timeline']['base_revision'][:12]} · "
-                                              f"source animation {sample} ms · worker replay unavailable")
+                                              f"{record.metadata['timeline']['base_revision'][:12]} · {timing}")
                 else:
+                    if record.metadata.get('worker'):
+                        self.timeline_position = record.metadata['requested_at_ms']
+                        self.animation_keyframe.set(str(self.timeline_position))
                     self.status.set(f'Acquired · native completed frame · {record.metadata_path.name} · physical acceptance pending')
         self.poll_id = self.root.after(40, self.poll)
 
     # record: A verified immutable capture record; never automatically becomes baseline.
     def set_current(self, record):
+        self.live_image = None
         review = load_review(record)
         self.current = record
         route_evidence = record.metadata.get('route')
@@ -971,6 +1208,8 @@ class StudioWindow:
         self.frame_title.set(f"{entry.get('inventory_id') or entry['id']} — {entry['title']}")
         sample = record.metadata['frame_identity'].get('source_animation_sample_ms', 0)
         timing = f" · source animation {sample} ms" if sample else ''
+        if record.metadata.get('worker'):
+            timing += f" · requested {record.metadata['requested_at_ms']} ms · display worker"
         self.frame_subtitle.set(f"Native C/C++ · {record.metadata['rendering_mode']} · t={record.metadata['at_ms']}{timing} · 466 × 466")
         if self.tree.exists(record.metadata['id']):
             self.tree.selection_set(record.metadata['id'])
@@ -1005,6 +1244,16 @@ class StudioWindow:
     def draw(self):
         for mode, control in self.mode_controls:
             control.configure(fg=ORANGE if self.mode.get() == mode else FG)
+        if self.live_image is not None:
+            frame = self.live_image
+            width, height = max(1, self.canvas.winfo_width()), max(1, self.canvas.winfo_height())
+            factor = min(width / frame.width, max(1, height - 30) / frame.height)
+            size = max(1, round(frame.width * factor)), max(1, round(frame.height * factor))
+            self.frame_photo = ImageTk.PhotoImage(frame.resize(size, Image.Resampling.NEAREST))
+            self.canvas.delete('all')
+            self.canvas.create_text(width // 2, 4, text='BOOT REPLAY · NOT A CAPTURE', fill=ORANGE, anchor='n')
+            self.canvas.create_image(width // 2, 30 + max(1, height - 30) // 2, image=self.frame_photo)
+            return
         if self.current is None:
             return
         try:
@@ -1047,6 +1296,10 @@ class StudioWindow:
 
     # No parameters: explicit preservation never overwrites a previously saved baseline.
     def keep_baseline(self):
+        if self.live_process is not None or self.live_image is not None:
+            self.status.set('Live preview is not a capture. Stop it and select a capture before setting a baseline.')
+            messagebox.showinfo('Cody Studio — SIMULATED', self.status.get(), parent=self.root)
+            return
         if self.current:
             try:
                 self.baseline = preserve_baseline(self.current)
@@ -1111,6 +1364,9 @@ class StudioWindow:
         if isinstance(timeline, dict):
             self.timeline_scenario = deepcopy(timeline['base_scenario'])
             self.configure_timeline(entry_for(record.metadata['id']))
+        if record.metadata.get('worker'):
+            self.timeline_position = record.metadata['requested_at_ms']
+            self.animation_keyframe.set(str(self.timeline_position))
         self.set_current(record)
         if self.tree.exists(record.metadata['id']):
             self.tree.selection_set(record.metadata['id'])
@@ -1146,6 +1402,10 @@ class StudioWindow:
 
     # No parameters: write human review for the selected capture identity only.
     def save_note(self):
+        if self.live_process is not None or self.live_image is not None:
+            self.status.set('Live preview is not a capture. Stop it and select a capture before saving a review.')
+            messagebox.showinfo('Cody Studio — SIMULATED', self.status.get(), parent=self.root)
+            return
         if self.current:
             try:
                 note = self.note.get('1.0', 'end').strip()
@@ -1167,10 +1427,11 @@ class StudioWindow:
         if not selected or ':' not in selected[0]:
             return
         entry = entry_for(selected[0])
-        if entry['availability'] not in ('runtime-full', 'presenter-isolated'):
-            self.status.set('The selected catalog entry has no supported direct preparation contract yet.')
-            return
         try:
+            available, reason = self.runner.availability(entry)
+            if not available:
+                self.status.set('The selected catalog entry has no supported direct preparation contract: ' + reason)
+                return
             self.scenario = default_scenario(entry['id'])
             self.show_scenario()
             self.apply()
@@ -1185,6 +1446,13 @@ class StudioWindow:
         route = self.selected_route()
         if not route or route.get('replay') is not True or not route.get('route_id'):
             self.status.set('The selected route has no supported native replay contract.')
+            return
+        try:
+            for capability in route.get('required_capabilities', []):
+                if not self.runner.device.studio_has_capability(capability):
+                    raise ValueError(f'Native profile does not provide {capability}')
+        except (OSError, ValueError, RuntimeError) as error:
+            self.error(error)
             return
         self.pause_timeline()
         try:
@@ -1244,5 +1512,6 @@ class StudioWindow:
             self.root.after_cancel(self.focus_reveal_id)
             self.focus_reveal_id = None
         self.root.unbind('<FocusIn>', self.focus_binding)
+        self.runner.cancel_worker()
         self.executor.shutdown(wait=False, cancel_futures=True)
         self.root.destroy()

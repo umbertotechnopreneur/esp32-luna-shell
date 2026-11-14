@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 from copy import deepcopy
+import ctypes
 import hashlib
 import json
 import os
@@ -306,6 +307,67 @@ class CatalogContractTests(unittest.TestCase):
             self.assertTrue(all(route["evidence"] == "source-analysis" for route in replayable))
             self.assertEqual(len(replayable), len(expected))
 
+    # self: Guide transitions must preserve the declared origin and native target.
+    # Raises AssertionError for fabricated route direction, identity or evidence.
+    def test_extended_guide_routes_have_explicit_context_and_targets(self):
+        expected = {"guide-buttons-to-touch", "guide-touch-to-buttons"}
+        for identity, target in (("S17", "cody.guide.buttons"), ("S18", "cody.guide.touch")):
+            entry = entry_for(identity)
+            self.assertEqual(entry["native_target"], target)
+            scenario = default_scenario(identity)
+            self.assertEqual(scenario["context"]["caller"], "ui-v1:options-preferences")
+            self.assertEqual(scenario["context"]["return_to"], "ui-v1:options-preferences")
+            routes = routes_for(identity)
+            supported = [route for route in routes if route.get("route_id") in expected]
+            self.assertEqual({route["route_id"] for route in supported}, expected)
+            self.assertTrue(all(route.get("replay") is True and route.get("evidence") == "source-analysis"
+                                for route in supported))
+
+    # self: The manual guide is a declared model, not a claim of observed replay.
+    # Raises AssertionError for absent targets, missing reverse paths or profile guards.
+    def test_manual_guide_catalog_covers_adjacent_routes_and_profile(self):
+        names = (("S17", "buttons"), ("S18", "touch"), ("S19", "sofia"),
+                 ("S20", "offline"), ("S21", "project"), ("S22", "thanks"))
+        for identity, name in names:
+            entry, scenario = entry_for(identity), default_scenario(identity)
+            self.assertEqual(entry["id"], f"ui-v1:guide-{name}")
+            self.assertEqual(entry["native_target"], f"cody.guide.{name}")
+            self.assertEqual(scenario["page"], {})
+            self.assertEqual(scenario["services"], {})
+            self.assertEqual(scenario["context"]["return_to"], "ui-v1:options-preferences")
+        sofia = entry_for("S19")
+        self.assertEqual(sofia["availability"], "profile-conditional")
+        self.assertEqual(sofia["required_capabilities"], ["wake-word"])
+        for (_, left), (_, right) in zip(names, names[1:]):
+            for start, end in ((left, right), (right, left)):
+                route_id = f"guide-{start}-to-{end}"
+                matching = [route for route in routes_for(f"ui-v1:guide-{start}")
+                            if route.get("route_id") == route_id]
+                self.assertEqual(len(matching), 1, route_id)
+                route = matching[0]
+                self.assertEqual(route["origin"], f"ui-v1:guide-{start}")
+                self.assertEqual(route["destination"], f"ui-v1:guide-{end}")
+                self.assertIs(route["replay"], True)
+                self.assertEqual(route["evidence"], "source-analysis")
+                if "sofia" in (start, end):
+                    self.assertEqual(route["required_capabilities"], ["wake-word"])
+
+    # self: Profile capability admission uses the native profile, not catalog optimism.
+    # Raises AssertionError if an unavailable guide page reaches native preparation.
+    def test_guide_profile_rejects_absent_wake_word_before_preparation(self):
+        class DeviceWithoutWakeWord:
+            def studio_has_capability(self, name):
+                if name != "wake-word":
+                    raise AssertionError(f"Unexpected capability query: {name}")
+                return False
+
+        runner = studio_runner.StudioRunner(DeviceWithoutWakeWord())
+        available, reason = runner.availability(entry_for("S19"))
+        self.assertFalse(available)
+        self.assertIn("wake-word", reason)
+        with self.assertRaisesRegex(ValueError, "wake-word"):
+            runner.prepare(default_scenario("S19"))
+
     # self: Source-only inventory mapping; availability does not imply acquired frames.
     # Raises AssertionError for an invented ID meaning, missing owner or implicit mode.
     def test_pilot_mappings_match_the_identified_inventory(self):
@@ -363,6 +425,27 @@ class CatalogContractTests(unittest.TestCase):
 
 class ScenarioContractTests(unittest.TestCase):
     """Reject ambiguous inputs and preserve portable scenario identity."""
+
+    # self: Legacy scenarios stay unchanged; explicit sound settings are validated.
+    # Raises AssertionError if a partial or malformed audio policy is admitted.
+    def test_audio_settings_are_explicit_and_revisioned(self):
+        original = default_scenario("S02")
+        value = deepcopy(original)
+        value["common"]["settings"].update(sounds_enabled=True, playback_volume=67)
+        self.assertEqual(validate_scenario(value), value)
+        self.assertNotEqual(scenario_revision(original), scenario_revision(value))
+        policy = studio_runner.fixed_dependencies(entry_for("S02"), value)
+        self.assertIs(policy["sounds_enabled"], True)
+        for field, invalid in (("sounds_enabled", 1), ("playback_volume", True),
+                               ("playback_volume", -1), ("playback_volume", 101)):
+            modified = deepcopy(value)
+            modified["common"]["settings"][field] = invalid
+            with self.subTest(field=field, value=invalid), self.assertRaises(ValueError):
+                validate_scenario(modified)
+        missing = deepcopy(value)
+        del missing["common"]["settings"]["playback_volume"]
+        with self.assertRaisesRegex(ValueError, "both"):
+            validate_scenario(missing)
 
     # self: Pure JSON fixture; no native library is loaded.
     # Raises AssertionError if schema boundaries silently admit unknown content.
@@ -439,6 +522,31 @@ class ScenarioContractTests(unittest.TestCase):
             studio_runner.timeline_metadata(base, sample)
         with self.assertRaisesRegex(ValueError, "source-animation"):
             studio_runner.timeline_metadata(default_scenario("P04"), default_scenario("P04"))
+
+    # self: Worker scenarios describe forward-only clock boundaries explicitly.
+    # Raises AssertionError for reverse time, implicit captures or unsupported owners.
+    def test_worker_scenario_requires_bounded_forward_capture_boundaries(self):
+        scenario = default_scenario("S01")
+        scenario["page"]["sample_at_ms"] = 0
+        scenario["time"] = {"mode": "controlled-worker", "initial_ms": 0,
+                            "advances_ms": [79, 1, 90], "capture_at_ms": [0, 79, 80, 170]}
+        self.assertEqual(validate_scenario(scenario), scenario)
+        self.assertEqual(scenario_revision(scenario), scenario_revision(deepcopy(scenario)))
+        variants = [
+            ("initial_ms", 1), ("advances_ms", [79, -1, 92]),
+            ("advances_ms", [79, True, 90]), ("capture_at_ms", [0, 80, 79, 170]),
+            ("capture_at_ms", [0, 81, 170]), ("capture_at_ms", [0, 79]),
+            ("capture_at_ms", [0, False, 170]), ("advances_ms", [3500]),
+        ]
+        for field, value in variants:
+            changed = deepcopy(scenario)
+            changed["time"][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                validate_scenario(changed)
+        unsupported = default_scenario("P04")
+        unsupported["time"] = deepcopy(scenario["time"])
+        with self.assertRaisesRegex(ValueError, "unavailable"):
+            validate_scenario(unsupported)
 
     # self: Route evidence must describe the catalog edge and actual frame revision.
     # Raises AssertionError if a different route or unrelated frame is accepted.
@@ -564,6 +672,51 @@ class ScenarioContractTests(unittest.TestCase):
 class ComparisonContractTests(unittest.TestCase):
     """Use synthetic pixels only to exercise evidence and baseline semantics."""
 
+    # self: Independent captures model the same route in different native processes.
+    # Raises AssertionError if local revisions or unverified history are mistaken for input identity.
+    def test_navigation_history_is_validated_and_compared_semantically(self):
+        origin, destination = default_scenario("P01"), default_scenario("P04")
+
+        def make_route_capture(root_revision, include_history=True):
+            def identity(scenario, revision):
+                entry = entry_for(scenario["context"]["target"])
+                return {"target": entry["native_target"], "scenario_revision": scenario_revision(scenario),
+                        "at_ms": 0, "rendering_mode": entry["rendering_mode"], "revision": revision}
+
+            first = identity(origin, root_revision)
+            last = identity(destination, root_revision + 1)
+            receipt = {"abi": 1, "route_id": "settings-menu-to-display",
+                       "origin_scenario_revision": scenario_revision(origin),
+                       "origin_frame_revision": root_revision, "destination_frame_revision": root_revision + 1}
+            route = studio_runner.route_metadata(origin, destination, receipt, last)
+            changes = {"frame_identity": last, "route": route}
+            if include_history:
+                changes["navigation_provenance"] = {
+                    "schema": "cody.studio.navigation.v1", "root_scenario": deepcopy(origin),
+                    "root_identity": first, "steps": [{"destination_scenario": deepcopy(destination),
+                                                        "identity": last, "receipt": receipt}]}
+            return capture_fixture(overrides=changes, scenario=destination)
+
+        first, repeated = make_route_capture(1), make_route_capture(21)
+        self.assertEqual(compare_captures(first, repeated).status, "unchanged")
+        direct = capture_fixture(scenario=destination)
+        self.assertIn("Incompatible navigation provenance", compare_captures(first, direct).reasons)
+        old = make_route_capture(1, include_history=False)
+        self.assertIn("Unverified historical navigation provenance", compare_captures(old, first).reasons)
+        tampered = deepcopy(first.metadata)
+        tampered["navigation_provenance"]["steps"][0]["receipt"]["route_id"] = "display-to-settings-menu"
+        directory = fixture_directory()
+        (directory / first.image_path.name).write_bytes(first.image_path.read_bytes())
+        path = directory / "capture.json"
+        path.write_text(json.dumps(tampered), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            load_capture(path)
+        runner = studio_runner.StudioRunner(object())
+        runner.scenario, runner.identity, runner.build = origin, {"revision": 1}, {}
+        runner.navigation_provenance = {"steps": [{}] * studio_runner.MAX_ROUTE_STEPS}
+        with self.assertRaisesRegex(ValueError, "128-step limit"):
+            runner.replay_route("settings-menu-to-display")
+
     # self: Fixture without native libraries, live endpoints or firmware page drawing.
     # Raises AssertionError when pixel changes imply approval or compare incorrectly.
     def test_exact_pixel_change_and_three_comparison_views(self):
@@ -622,6 +775,51 @@ class ComparisonContractTests(unittest.TestCase):
         input_result = compare_captures(baseline, older)
         self.assertEqual(input_result.status, "not-comparable")
         self.assertIn("Incompatible fixed native inputs", input_result.reasons)
+
+    # self: Two valid worker requests may retire the same frame at different requested instants.
+    # Raises AssertionError if those requests are presented as the same timeline input.
+    def test_worker_requested_instant_participates_in_comparison(self):
+        scenario = default_scenario("S01")
+        scenario["page"]["sample_at_ms"] = 0
+        scenario["time"] = {"mode": "controlled-worker", "initial_ms": 0,
+                            "advances_ms": [79], "capture_at_ms": [0, 79]}
+        revision = scenario_revision(scenario)
+        identity = {"target": entry_for("S01")["native_target"], "scenario_revision": revision,
+                    "at_ms": 0, "rendering_mode": "runtime-full", "revision": 1,
+                    "source_animation_sample_ms": 0}
+        records = []
+        for requested in (0, 79):
+            receipt = {"abi": 1, "target": identity["target"], "scenario_revision": revision,
+                       "requested_ms": requested, "frame_at_ms": 0, "tick_count": 1, "frame_revision": 1}
+            worker = studio_runner.worker_metadata(scenario, identity, receipt)
+            records.append(capture_fixture(scenario=scenario, overrides={"frame_identity": identity,
+                                                                         "worker": worker,
+                                                                         "requested_at_ms": requested}))
+        result = compare_captures(*records)
+        self.assertFalse(result.compatible)
+        self.assertTrue(any("requested" in reason.lower() for reason in result.reasons))
+
+    # self: Forged in-memory paths cannot replace the PNG validated from capture metadata.
+    # Raises AssertionError if the comparison view shows unvalidated pixels.
+    def test_comparison_image_uses_metadata_validated_paths(self):
+        original = capture_fixture()
+        impostor = capture_fixture(Image.new("RGB", (466, 466), (222, 44, 66)))
+        forged = studio_runner.CaptureRecord(impostor.image_path, original.metadata_path, original.metadata)
+        actual = comparison_image(forged, original, "side-by-side")
+        with Image.open(original.image_path) as expected:
+            self.assertEqual(actual.crop((0, 0, 466, 466)).tobytes(), expected.tobytes())
+
+    # self: Neither legacy capture establishes missing fixed native inputs.
+    # Raises AssertionError if two equally unknown policies are treated as equal evidence.
+    def test_two_missing_fixed_input_policies_are_not_comparable(self):
+        old = []
+        for _ in range(2):
+            record = capture_fixture()
+            metadata = deepcopy(record.metadata)
+            del metadata["fixed_dependencies"]
+            record.metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+            old.append(load_capture(record.metadata_path))
+        self.assertFalse(compare_captures(*old).compatible)
 
     # self: Explicitly chosen fixture; comparisons and reviews must preserve it.
     # Raises AssertionError if baseline bytes change or notes escape their capture.
@@ -896,11 +1094,93 @@ class PhaseEWorkerTests(unittest.TestCase):
                          "Native source-animation pixels or keyframes changed across fresh processes")
         self.assertEqual(results[0]["routes"], results[1]["routes"],
                          "Observed native route destinations changed across fresh processes")
+        self.assertEqual(results[0]["guide_routes"], results[1]["guide_routes"],
+                         "Observed guide destinations changed across fresh processes")
+        self.assertEqual(results[0]["display_workers"], results[1]["display_workers"],
+                         "Display-worker captures changed across fresh processes")
         self.assertEqual(set(results[0]["animations"]), {"S01", "S02"})
         self.assertEqual(set(results[0]["routes"]), {"settings-menu-to-display", "display-to-settings-menu"})
+        guide_routes = results[0]["guide_routes"]
+        self.assertTrue({"guide-buttons-to-touch", "guide-touch-to-buttons",
+                         "guide-offline-to-project", "guide-project-to-offline",
+                         "guide-project-to-thanks", "guide-thanks-to-project"}.issubset(guide_routes))
+        if results[0]["wake_word"]:
+            self.assertEqual(len(guide_routes), 10)
         process = run_host_worker([sys.executable, "-B", __file__, "--phase-e-contended-worker"],
                                   directory, "phase-e-contended", timeout=120)
         self.assertEqual(json.loads(process.stdout.splitlines()[-1])["pending_contact_rejected"], True)
+
+
+class GuideRouteTests(unittest.TestCase):
+    """Exercise the real touch reveal and native guide QR transitions."""
+
+    # self: One isolated native guide owner, with no attached physical Cody.
+    # Raises errors if the QR page or its observed adjacent destinations disagree.
+    def test_guide_qr_reveal_and_both_exits(self):
+        directory = fixture_directory()
+        process = run_host_worker([sys.executable, "-B", __file__, "--guide-worker"],
+                                  directory, "guide-worker", timeout=120)
+        self.assertEqual(json.loads(process.stdout.splitlines()[-1])["destinations"],
+                         ["S21", "S22", "S21", "S20"])
+
+
+class LiveAudioTests(unittest.TestCase):
+    """Exercise actual firmware cues through an isolated host PCM test sink."""
+
+    # self: Isolated real mixer with an in-memory PCM sink; no speakers are needed.
+    # Raises AssertionError if the actual two startup cues or sound policy regress.
+    def test_live_audio_uses_native_cues_and_sound_policy(self):
+        directory = fixture_directory()
+        results = {}
+        for setting in ("on", "off"):
+            process = run_host_worker([sys.executable, "-B", __file__, "--live-audio-worker", setting],
+                                      directory, f"live-audio-{setting}", timeout=90)
+            lines = [line for line in process.stdout.splitlines() if line.strip()]
+            self.assertTrue(lines, "Live audio worker did not return evidence")
+            results[setting] = json.loads(lines[-1])
+        self.assertGreater(results["on"]["nonzero_frames"], 0)
+        self.assertGreater(results["on"]["blocks"], 0)
+        self.assertEqual(results["on"]["cues"], [0x50450002, 0x50450003])
+        self.assertEqual(results["off"]["nonzero_frames"], 0)
+        self.assertEqual(results["off"]["blocks"], 0)
+        self.assertGreater(results["on"]["frame_changes"], 2)
+        self.assertGreater(results["off"]["frame_changes"], 2)
+
+
+class HostAudioOutputTests(unittest.TestCase):
+    """Exercise the real host playback backend; it may make audible sound."""
+
+    # self: A dedicated native live process with the machine's selected output.
+    # Raises the host backend/cue failure; completion is not a human hearing report.
+    def test_live_replay_reaches_host_audio_backend(self):
+        from cody_studio_live import start_live
+
+        scenario = default_scenario("S02")
+        scenario["common"]["settings"].update(sounds_enabled=True, playback_volume=50)
+        process, directory = start_live(scenario)
+        try:
+            try:
+                result = process.wait(timeout=40)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                self.fail("Host audio replay exceeded its owner deadline")
+            if result:
+                detail = (directory / "stderr.log").read_text(encoding="utf-8")[-4000:]
+                self.fail(f"Host audio replay failed ({result}): {detail}")
+            status = json.loads((directory / "status.json").read_text(encoding="utf-8"))
+            self.assertEqual(status["audio"]["mode"], "host-output")
+            self.assertEqual(status["audio"]["backend_result"], 0)
+            self.assertTrue(status["playback"]["animation_complete"])
+            self.assertTrue(status["playback"]["audio_complete"])
+            self.assertEqual([(cue["id"], cue["state"], cue["error"]) for cue in status["playback"]["cues"]],
+                             [(0x50450002, "completed", 0), (0x50450003, "completed", 0)])
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
+            if process.stdin is not None:
+                process.stdin.close()
 
 
 class NativeUiTests(unittest.TestCase):
@@ -929,7 +1209,7 @@ class NativeUiTests(unittest.TestCase):
         self.message_patch.start()
         self.addCleanup(self.message_patch.stop)
         self.device = NativeDevice({"reason": "SIMULATED-STUDIO-UI-CHECK"}, self.directory / "session.nvs",
-                                   80, True, 1, deterministic_clock=True)
+                                   80, True, 1, deterministic_clock=True, audio_mode="silent")
         self.device.start()
         self.window = None
         self.addCleanup(self.close_window)
@@ -1385,6 +1665,40 @@ class NativeUiTests(unittest.TestCase):
         self.reveal_widget(window.step_button, window.bottom_canvas)
         self.screenshot("studio-animation.png")
 
+        before_errors, before_capture = len(self.errors), window.current
+        window.sounds_enabled.set(True)
+        window.apply_button.invoke()
+        self.assertEqual(len(self.errors), before_errors + 1)
+        self.assertIn("Turn Sounds off", self.errors[-1])
+        self.assertIs(window.current, before_capture)
+        window.sounds_enabled.set(False)
+
+        # Live frames are native previews and cannot silently replace a capture.
+        capture, baseline, failures = window.current, window.baseline, len(self.errors)
+        labels_before = (window.frame_title.get(), window.frame_subtitle.get())
+        window.live_button.invoke()
+        self.wait_for(lambda: len(self.errors) > failures or window.live_image is not None,
+                      "live native preview", timeout=30)
+        self.assertEqual(len(self.errors), failures)
+        self.assertIs(window.current, capture)
+        self.assertIs(window.baseline, baseline)
+        self.assertIn("S01", window.frame_title.get())
+        self.assertIn("live boot replay", window.frame_subtitle.get())
+        self.assertIn("not a capture", window.frame_subtitle.get())
+        with patch.object(self.ui_module.messagebox, "showinfo") as notice:
+            window.keep_baseline()
+            window.save_note()
+            self.assertEqual(notice.call_count, 2)
+        self.assertIs(window.current, capture)
+        self.assertIs(window.baseline, baseline)
+        self.screenshot("studio-live-preview.png")
+        process = window.live_process
+        window.pause_button.invoke()
+        self.assertIsNone(window.live_process)
+        self.assertIsNone(window.live_image)
+        self.assertIsNotNone(process.poll())
+        self.assertEqual((window.frame_title.get(), window.frame_subtitle.get()), labels_before)
+
         self.open_case("P01")
         for route_id, expected in (("settings-menu-to-display", "P04"),
                                    ("display-to-settings-menu", "P01")):
@@ -1611,6 +1925,37 @@ class NativeUiTests(unittest.TestCase):
         self.show_atlas()
         self.assert_status_visible()
         self.screenshot("studio-pilot.png")
+
+        # The extended guide uses the same Studio catalog and replay control.
+        self.open_case("S17")
+        for route_id, expected in (("guide-buttons-to-touch", "S18"),
+                                   ("guide-touch-to-buttons", "S17")):
+            index = next(index for index, route in enumerate(window.declared_routes)
+                         if route.get("route_id") == route_id)
+            window.route_control.current(index)
+            window.route_selected()
+            self.assertEqual(window.replay_button.cget("state"), "normal")
+            previous, failures = window.current, len(self.errors)
+            window.replay_button.invoke()
+            self.wait_for(lambda: len(self.errors) > failures or
+                          (not window.busy and window.current is not previous),
+                          f"extended guide UI route {route_id}", timeout=45)
+            self.assertEqual(len(self.errors), failures)
+            self.assertEqual(window.current.metadata["inventory_id"], expected)
+            self.assertEqual(window.current.metadata["route"]["receipt"]["route_id"], route_id)
+        self.screenshot("studio-guide-route.png")
+        previous, failures = window.current, len(self.errors)
+        thanks_id = entry_for("S22")["id"]
+        window.tree.selection_set(thanks_id)
+        window.tree.see(thanks_id)
+        self.root.update()
+        self.button("Open destination").invoke()
+        self.wait_for(lambda: len(self.errors) > failures or
+                      (not window.busy and window.current is not previous),
+                      "direct native S22 guide entry", timeout=45)
+        self.assertEqual(len(self.errors), failures)
+        self.assertEqual(window.current.metadata["inventory_id"], "S22")
+        self.screenshot("studio-guide-thanks.png")
         p04_again = self.open_case("P04")
         self.assertEqual(p04_again.metadata["pixel_sha256"], first.metadata["pixel_sha256"],
                          "Changing pilot destinations contaminated the original P04 frame")
@@ -1695,7 +2040,7 @@ def run_phase_e_contended_worker():
 
     directory = fixture_directory()
     device = NativeDevice({"reason": "SIMULATED-STUDIO-CONTENDED"}, directory / "session.nvs",
-                          80, True, 1, deterministic_clock=True)
+                          80, True, 1, deterministic_clock=True, audio_mode="silent")
     device.start()
     runner = studio_runner.StudioRunner(device)
     origin, destination = default_scenario("P01"), default_scenario("P04")
@@ -1767,6 +2112,122 @@ def assert_route_output_capacity_rejection(device):
         raise AssertionError("Rejected route snapshot changed the completed frame or receipt")
 
 
+# No parameters: exercise an uninterrupted native route through the QR guide page.
+# Raises if gestures, completed destinations, or direct/native pixels disagree.
+def run_guide_worker():
+    from cody_native_device import NativeDevice
+
+    directory = fixture_directory()
+    device = NativeDevice({"reason": "SIMULATED-GUIDE-TEST"}, directory / "session.nvs",
+                          80, True, 1, deterministic_clock=True, audio_mode="silent")
+    device.start()
+    runner = studio_runner.StudioRunner(device)
+    runner.prepare(default_scenario("S20"))
+    destinations, thanks = [], None
+    for route_id, expected in (("guide-offline-to-project", "S21"),
+                               ("guide-project-to-thanks", "S22"),
+                               ("guide-thanks-to-project", "S21"),
+                               ("guide-project-to-offline", "S20")):
+        previous = deepcopy(runner.identity)
+        record = load_capture(runner.replay_route(route_id).metadata_path)
+        if (record.metadata["inventory_id"] != expected or
+                record.metadata["frame_identity"]["target"] != entry_for(expected)["native_target"] or
+                record.metadata["route"]["receipt"]["origin_frame_revision"] != previous["revision"]):
+            raise AssertionError(f"{route_id} did not retire its observed guide destination")
+        destinations.append(expected)
+        if expected == "S22":
+            thanks = record
+    runner.prepare(default_scenario("S22"))
+    direct = runner.capture()
+    if direct.metadata["inventory_id"] != "S22" or compare_captures(thanks, direct).compatible:
+        raise AssertionError("A direct guide frame was confused with its navigated provenance")
+    print(json.dumps({"destinations": destinations}), flush=True)
+    return 0
+
+
+# setting: Explicit on/off policy in a fresh host runtime and real PCM test sink.
+# Raises native or assertion failures; PCM evidence is not an audible-output claim.
+def run_live_audio_worker(setting):
+    from cody_native_device import NativeDevice
+    from cody_native_display import completed_frame
+    from cody_native_snapshot import checked
+
+    class AudioProbe(ctypes.Structure):
+        _fields_ = [("abi", ctypes.c_uint32), ("size", ctypes.c_uint32),
+                    ("blocks", ctypes.c_uint64), ("frames", ctypes.c_uint64),
+                    ("nonzero_frames", ctypes.c_uint64), ("effective_hash", ctypes.c_uint64),
+                    ("last_rate", ctypes.c_uint32), ("peak", ctypes.c_uint32),
+                    ("stored_frames", ctypes.c_uint32), ("truncated", ctypes.c_uint32)]
+
+    class PlaybackProbe(ctypes.Structure):
+        _fields_ = [("abi", ctypes.c_uint32), ("size", ctypes.c_uint32),
+                    ("state", ctypes.c_uint32), ("cue_id", ctypes.c_uint32),
+                    ("last_error", ctypes.c_int32), ("data_valid", ctypes.c_uint32),
+                    ("data_stale", ctypes.c_uint32), ("sample_rate", ctypes.c_uint32),
+                    ("volume", ctypes.c_uint32), ("observed_at_us", ctypes.c_int64)]
+
+    directory = fixture_directory()
+    device = NativeDevice({"reason": "SIMULATED-LIVE-AUDIO"}, directory / "session.nvs",
+                          80, True, 1, deterministic_clock=True, audio_mode="test-probe")
+    device.seed_studio_boot_replay()
+    device.seed_studio_voice_stopped()
+    device.start()
+    device.verify_studio_boot_replay()
+    if device.audio_status() != {"mode": "test-probe", "attempted": True, "backend_result": 0}:
+        raise AssertionError("Native test sink did not start")
+    runner = studio_runner.StudioRunner(device)
+    initial = default_scenario("S02")
+    initial["page"]["sample_at_ms"] = 0
+    runner.prepare(initial)
+    audio_snapshot = device.api.cody_host_audio_test_snapshot
+    audio_snapshot.argtypes, audio_snapshot.restype = [ctypes.POINTER(AudioProbe), ctypes.c_size_t], ctypes.c_int
+    playback_snapshot = device.api.cody_host_audio_test_playback
+    playback_snapshot.argtypes, playback_snapshot.restype = [ctypes.POINTER(PlaybackProbe), ctypes.c_size_t], ctypes.c_int
+    read_pcm = device.api.cody_host_audio_test_read
+    read_pcm.argtypes = [ctypes.POINTER(ctypes.c_int16), ctypes.c_size_t, ctypes.POINTER(ctypes.c_size_t)]
+    read_pcm.restype = ctypes.c_int
+    device.start_studio_live(setting == "on", 90)
+    observed = []
+    revisions = set()
+    deadline = time.monotonic() + 25
+    while time.monotonic() < deadline:
+        _, revision = completed_frame(device.api)
+        revisions.add(revision)
+        playback = PlaybackProbe()
+        checked("live playback observation", playback_snapshot(ctypes.byref(playback), ctypes.sizeof(playback)))
+        if playback.state == 3:
+            raise AssertionError(f"Firmware playback failed: {playback.last_error}")
+        if playback.data_valid and not playback.data_stale and playback.observed_at_us > 0:
+            observed.append(playback.observed_at_us)
+        status = device.studio_live_status()
+        if status["worker_error"]:
+            raise AssertionError(f"Live display worker failed: {status['worker_error']}")
+        if status["animation_complete"] and status["audio_complete"]:
+            break
+        time.sleep(0.01)
+    else:
+        raise AssertionError(f"Live animation/audio did not complete: status={status}, frames={len(revisions)}")
+    if any(later < earlier for earlier, later in zip(observed, observed[1:])):
+        raise AssertionError("Playback owner timestamps moved backwards")
+    audio = AudioProbe()
+    checked("live PCM observation", audio_snapshot(ctypes.byref(audio), ctypes.sizeof(audio)))
+    if audio.abi != 1 or audio.size != ctypes.sizeof(audio):
+        raise AssertionError("Native PCM probe ABI disagrees with the test")
+    samples = (ctypes.c_int16 * max(1, audio.stored_frames))()
+    written = ctypes.c_size_t()
+    checked("live PCM samples", read_pcm(samples, len(samples), ctypes.byref(written)))
+    if written.value != audio.stored_frames or (audio.nonzero_frames and not any(samples)):
+        raise AssertionError("Native PCM receipt and retained samples disagree")
+    cues = status["cues"]
+    if setting == "on" and [(cue["id"], cue["state"], cue["error"]) for cue in cues] != [
+            (0x50450002, "completed", 0), (0x50450003, "completed", 0)]:
+        raise AssertionError(f"Native startup cues did not both complete: {cues}")
+    print(json.dumps({"cues": [cue["id"] for cue in cues if cue["state"] == "completed"], "blocks": audio.blocks,
+                      "nonzero_frames": audio.nonzero_frames, "rate": audio.last_rate,
+                      "frame_changes": len(revisions)}), flush=True)
+    return 0
+
+
 # No parameters: run independent owner-backed animation and route checks.
 # Raises original native/validation errors or AssertionError for inconsistent evidence.
 def run_phase_e_worker():
@@ -1775,10 +2236,10 @@ def run_phase_e_worker():
 
     directory = fixture_directory()
     device = NativeDevice({"reason": "SIMULATED-STUDIO-PHASE-E"}, directory / "session.nvs",
-                          80, True, 1, deterministic_clock=True)
+                          80, True, 1, deterministic_clock=True, audio_mode="silent")
     device.start()
     runner = studio_runner.StudioRunner(device)
-    animations, routes = {}, {}
+    animations, routes, guide_routes, display_workers = {}, {}, {}, {}
     with patch.object(studio_runner, "CAPTURE_ROOT", directory / "captures"):
         for inventory_id in ("S01", "S02"):
             base = default_scenario(inventory_id)
@@ -1906,7 +2367,81 @@ def run_phase_e_worker():
             if (record.metadata["scenario"]["common"]["settings"]["orientation_degrees"] != 180 or
                     record.metadata["route"]["receipt"]["route_id"] != route_id):
                 raise AssertionError("Native route did not retain the logical 180-degree scenario")
-    print(json.dumps({"animations": animations, "routes": routes}), flush=True)
+        for inventory_id in ("S01", "S02"):
+            scenario = default_scenario(inventory_id)
+            scenario["page"]["sample_at_ms"] = 0
+            scenario["time"] = {"mode": "controlled-worker", "initial_ms": 0,
+                                "advances_ms": [79, 1, 90], "capture_at_ms": [0, 79, 80, 170]}
+            scenario = validate_scenario(scenario)
+            try:
+                runner.prepare(scenario)
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("Ambiguous worker timeline was accepted without selecting an instant")
+            captured = []
+            for sample in (0, 79, 80, 170, 0):
+                record = load_capture(timeline_capture(runner, scenario, sample).metadata_path)
+                worker = record.metadata["worker"]["receipt"]
+                identity = record.metadata["frame_identity"]
+                if (worker["requested_ms"] != sample or worker["frame_at_ms"] != identity["at_ms"] or
+                        worker["frame_revision"] != identity["revision"] or
+                        worker["scenario_revision"] != scenario_revision(scenario) or
+                        record.metadata["timeline"]["requested_ms"] != sample):
+                    raise AssertionError(f"{inventory_id} worker frame and receipt disagree")
+                captured.append(record)
+            if captured[0].metadata["pixel_sha256"] != captured[-1].metadata["pixel_sha256"]:
+                raise AssertionError(f"{inventory_id} worker backward seek did not restart the scenario")
+            display_workers[inventory_id] = [
+                {"requested_ms": record.metadata["worker"]["receipt"]["requested_ms"],
+                 "frame_at_ms": record.metadata["frame_identity"]["at_ms"],
+                 "pixel_sha256": record.metadata["pixel_sha256"]} for record in captured]
+
+        wake_word = device.studio_has_capability("wake-word")
+        guide_cases = (
+            ("S17", "guide-buttons-to-touch", "S18"),
+            ("S18", "guide-touch-to-buttons", "S17"),
+            ("S18", "guide-touch-to-sofia", "S19"),
+            ("S19", "guide-sofia-to-touch", "S18"),
+            ("S19", "guide-sofia-to-offline", "S20"),
+            ("S20", "guide-offline-to-sofia", "S19"),
+            ("S20", "guide-offline-to-project", "S21"),
+            ("S21", "guide-project-to-offline", "S20"),
+            ("S21", "guide-project-to-thanks", "S22"),
+            ("S22", "guide-thanks-to-project", "S21"),
+        )
+        for origin_id, route_id, destination_id in guide_cases:
+            if not wake_word and "S19" in (origin_id, destination_id):
+                continue
+            runner.prepare(default_scenario(origin_id))
+            origin_identity = deepcopy(runner.identity)
+            record = load_capture(runner.replay_route(route_id).metadata_path)
+            metadata, receipt = record.metadata, record.metadata["route"]["receipt"]
+            destination = entry_for(destination_id)
+            if (metadata["inventory_id"] != destination_id or
+                    metadata["frame_identity"]["target"] != destination["native_target"] or
+                    receipt["route_id"] != route_id or
+                    receipt["origin_frame_revision"] != origin_identity["revision"] or
+                    receipt["origin_scenario_revision"] != origin_identity["scenario_revision"] or
+                    receipt["destination_frame_revision"] != metadata["frame_identity"]["revision"]):
+                raise AssertionError(f"{route_id} did not retire the observed destination with its pixels")
+            guide_routes[route_id] = {"destination": destination_id,
+                                      "scenario_revision": metadata["scenario_revision"],
+                                      "pixel_sha256": metadata["pixel_sha256"]}
+        # Keep the same owner while entering the QR page and leaving it again.
+        runner.prepare(default_scenario("S20"))
+        project = load_capture(runner.replay_route("guide-offline-to-project").metadata_path)
+        final = load_capture(runner.replay_route("guide-project-to-thanks").metadata_path)
+        if (project.metadata["inventory_id"] != "S21" or final.metadata["inventory_id"] != "S22" or
+                final.metadata["route"]["receipt"]["origin_frame_revision"] !=
+                project.metadata["frame_identity"]["revision"]):
+            raise AssertionError("Consecutive guide routes lost the retired QR origin")
+        runner.prepare(default_scenario("S22"))
+        direct_thanks = runner.capture()
+        if direct_thanks.metadata["inventory_id"] != "S22" or compare_captures(final, direct_thanks).compatible:
+            raise AssertionError("Direct and navigated S22 did not retain distinct provenance")
+    print(json.dumps({"animations": animations, "routes": routes, "guide_routes": guide_routes,
+                      "display_workers": display_workers, "wake_word": wake_word}), flush=True)
     return 0
 
 
@@ -1917,7 +2452,7 @@ def run_pilot_worker():
 
     directory = fixture_directory()
     device = NativeDevice({"reason": "SIMULATED-STUDIO-PILOT-CHECK"}, directory / "session.nvs",
-                          80, True, 1, deterministic_clock=True)
+                          80, True, 1, deterministic_clock=True, audio_mode="silent")
     device.start()
     runner = studio_runner.StudioRunner(device)
     original_pixels, captures = {}, []
@@ -2048,17 +2583,30 @@ def main(argv=None):
                         help="Capture and repeat all ten pilot cases, including native cross-case replay")
     parser.add_argument("--phase-e", action="store_true",
                         help="Repeat native animation samples and observed route gestures in fresh processes")
+    parser.add_argument("--live-audio", action="store_true",
+                        help="Verify live startup cues and sound policy with an isolated PCM sink")
+    parser.add_argument("--guide", action="store_true",
+                        help="Verify the native guide QR reveal and both exits")
+    parser.add_argument("--host-audio", action="store_true",
+                        help="Play the native startup cues through the selected host audio output")
     parser.add_argument("--pilot-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--phase-e-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--phase-e-contended-worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--live-audio-worker", choices=("on", "off"), help=argparse.SUPPRESS)
+    parser.add_argument("--guide-worker", action="store_true", help=argparse.SUPPRESS)
     arguments = parser.parse_args(argv)
-    workers = (arguments.pilot_worker, arguments.phase_e_worker, arguments.phase_e_contended_worker)
+    workers = (arguments.pilot_worker, arguments.phase_e_worker, arguments.phase_e_contended_worker,
+               bool(arguments.live_audio_worker), arguments.guide_worker)
     if any(workers):
-        if (arguments.native or arguments.ui or arguments.pilot or arguments.phase_e or
+        if (arguments.native or arguments.ui or arguments.pilot or arguments.phase_e or arguments.live_audio or arguments.guide or arguments.host_audio or
                 sum(workers) != 1):
             parser.error("Internal workers cannot be combined with suite flags")
         if arguments.pilot_worker:
             return run_pilot_worker()
+        if arguments.live_audio_worker:
+            return run_live_audio_worker(arguments.live_audio_worker)
+        if arguments.guide_worker:
+            return run_guide_worker()
         return run_phase_e_worker() if arguments.phase_e_worker else run_phase_e_contended_worker()
     loader = unittest.TestLoader()
     suite = unittest.TestSuite([loader.loadTestsFromTestCase(CatalogContractTests),
@@ -2073,6 +2621,12 @@ def main(argv=None):
         suite.addTests(loader.loadTestsFromTestCase(PilotWorkerTests))
     if arguments.phase_e:
         suite.addTests(loader.loadTestsFromTestCase(PhaseEWorkerTests))
+    if arguments.phase_e or arguments.live_audio:
+        suite.addTests(loader.loadTestsFromTestCase(LiveAudioTests))
+    if arguments.guide:
+        suite.addTests(loader.loadTestsFromTestCase(GuideRouteTests))
+    if arguments.host_audio:
+        suite.addTests(loader.loadTestsFromTestCase(HostAudioOutputTests))
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     print("Generated artifacts are retained; cleanup is manual.")
     return 0 if result.wasSuccessful() else 1

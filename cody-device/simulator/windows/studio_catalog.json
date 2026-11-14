@@ -14,6 +14,11 @@
       "inventory_id": "S01",
       "title": "VibeWare branding",
       "native_target": "cody.boot.branding",
+      "worker_replay": {
+        "clock": "display-worker",
+        "max_ms": 3499,
+        "step_ms": 1
+      },
       "controller": "advance_branding / native display owner",
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
@@ -106,6 +111,11 @@
       "inventory_id": "S02",
       "title": "Muse birth",
       "native_target": "cody.boot.birth",
+      "worker_replay": {
+        "clock": "display-worker",
+        "max_ms": 6999,
+        "step_ms": 1
+      },
       "controller": "advance_birth_intro / native display owner",
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
@@ -268,9 +278,10 @@
           "condition": "Buttons guide is visible and the next guide page is admitted",
           "evidence": "source-analysis",
           "component": "CODY::Onboarding",
-          "function": "navigate_guide_page",
-          "replay": false,
-          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+          "function": "activate_onboarding_navigation",
+          "replay": true,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+          "route_id": "guide-buttons-to-touch"
         }
       ],
       "hard_to_reach": false,
@@ -280,6 +291,462 @@
       ],
       "controls": [],
       "suite": "pilot",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:guide-touch",
+      "inventory_id": "S18",
+      "title": "Touch guide",
+      "native_target": "cody.guide.touch",
+      "controller": "prepare_guide_presentation / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Setup and guidance",
+      "verification": "Linux host native capture and route replay verified; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-s18.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:options-preferences",
+          "return_to": "ui-v1:options-preferences"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_guide_presenter.cpp",
+      "symbol": "prepare_guide_presentation",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "GuidePresenter",
+        "OptionsPage::GuideTouch"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:guide-touch",
+          "destination": "ui-v1:guide-buttons",
+          "event": "Previous page",
+          "condition": "Touch guide is visible and the previous guide page is admitted",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "activate_onboarding_navigation",
+          "replay": true,
+          "route_id": "guide-touch-to-buttons",
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+        },
+        {
+          "origin": "ui-v1:guide-touch",
+          "destination": "ui-v1:guide-sofia",
+          "event": "Next page",
+          "condition": "Manual guide page is visible and the adjacent page is admitted with wake-word enabled",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "activate_onboarding_navigation",
+          "replay": true,
+          "route_id": "guide-touch-to-sofia",
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+          "required_capabilities": [
+            "wake-word"
+          ]
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values"
+      ],
+      "controls": [],
+      "suite": "extended",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:guide-sofia",
+      "inventory_id": "S19",
+      "title": "Meet Sofia guide",
+      "native_target": "cody.guide.sofia",
+      "controller": "prepare_guide_presentation / native display owner",
+      "availability": "profile-conditional",
+      "rendering_mode": "runtime-full",
+      "group": "Setup and guidance",
+      "verification": "Linux host native capture and route replay verified; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input",
+        "wake-word"
+      ],
+      "scenario": "cody-studio-s19.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:options-preferences",
+          "return_to": "ui-v1:options-preferences"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_guide_presenter.cpp",
+      "symbol": "prepare_guide_presentation",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "GuidePresenter",
+        "OptionsPage::GuideSofia"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:guide-sofia",
+          "destination": "ui-v1:guide-touch",
+          "event": "Previous page",
+          "condition": "Manual guide page is visible and the adjacent page is admitted with wake-word enabled",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "activate_onboarding_navigation",
+          "replay": true,
+          "route_id": "guide-sofia-to-touch",
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+          "required_capabilities": [
+            "wake-word"
+          ]
+        },
+        {
+          "origin": "ui-v1:guide-sofia",
+          "destination": "ui-v1:guide-offline",
+          "event": "Next page",
+          "condition": "Manual guide page is visible and the adjacent page is admitted with wake-word enabled",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "activate_onboarding_navigation",
+          "replay": true,
+          "route_id": "guide-sofia-to-offline",
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+          "required_capabilities": [
+            "wake-word"
+          ]
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values",
+        "Requires a native profile with wake-word enabled"
+      ],
+      "controls": [],
+      "suite": "extended",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      },
+      "required_capabilities": [
+        "wake-word"
+      ]
+    },
+    {
+      "id": "ui-v1:guide-offline",
+      "inventory_id": "S20",
+      "title": "Offline guide",
+      "native_target": "cody.guide.offline",
+      "controller": "prepare_guide_presentation / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Setup and guidance",
+      "verification": "Linux host native capture and route replay verified; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-s20.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:options-preferences",
+          "return_to": "ui-v1:options-preferences"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_guide_presenter.cpp",
+      "symbol": "prepare_guide_presentation",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "GuidePresenter",
+        "OptionsPage::GuideOffline"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:guide-offline",
+          "destination": "ui-v1:guide-sofia",
+          "event": "Previous page",
+          "condition": "Manual guide page is visible and the adjacent page is admitted with wake-word enabled",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "activate_onboarding_navigation",
+          "replay": true,
+          "route_id": "guide-offline-to-sofia",
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+          "required_capabilities": [
+            "wake-word"
+          ]
+        },
+        {
+          "origin": "ui-v1:guide-offline",
+          "destination": "ui-v1:guide-project",
+          "event": "Next page",
+          "condition": "Manual guide page is visible and the adjacent page is admitted",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "activate_onboarding_navigation",
+          "replay": true,
+          "route_id": "guide-offline-to-project",
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values"
+      ],
+      "controls": [],
+      "suite": "extended",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:guide-project",
+      "inventory_id": "S21",
+      "title": "Project guide",
+      "native_target": "cody.guide.project",
+      "controller": "prepare_guide_presentation / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Setup and guidance",
+      "verification": "Linux host native capture and route replay verified; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-s21.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:options-preferences",
+          "return_to": "ui-v1:options-preferences"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_guide_presenter.cpp",
+      "symbol": "prepare_guide_presentation",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "GuidePresenter",
+        "OptionsPage::GuideProject"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:guide-project",
+          "destination": "ui-v1:guide-offline",
+          "event": "Tap QR to reveal controls, then Previous",
+          "condition": "QR page is visible; the revealed navigation frame must retire before the arrow tap",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "activate_onboarding_navigation",
+          "replay": true,
+          "route_id": "guide-project-to-offline",
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+        },
+        {
+          "origin": "ui-v1:guide-project",
+          "destination": "ui-v1:guide-thanks",
+          "event": "Tap QR to reveal controls, then Next",
+          "condition": "QR page is visible; the revealed navigation frame must retire before the arrow tap",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "activate_onboarding_navigation",
+          "replay": true,
+          "route_id": "guide-project-to-thanks",
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values",
+        "The project QR is generated by the host QR service and may be unavailable"
+      ],
+      "controls": [],
+      "suite": "extended",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:guide-thanks",
+      "inventory_id": "S22",
+      "title": "All set guide",
+      "native_target": "cody.guide.thanks",
+      "controller": "prepare_guide_presentation / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Setup and guidance",
+      "verification": "Linux host native capture and route replay verified; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-s22.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:options-preferences",
+          "return_to": "ui-v1:options-preferences"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_guide_presenter.cpp",
+      "symbol": "prepare_guide_presentation",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "GuidePresenter",
+        "OptionsPage::GuideThanks"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:guide-thanks",
+          "destination": "ui-v1:guide-project",
+          "event": "Previous page",
+          "condition": "Manual guide page is visible and the adjacent page is admitted",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "activate_onboarding_navigation",
+          "replay": true,
+          "route_id": "guide-thanks-to-project",
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values"
+      ],
+      "controls": [],
+      "suite": "extended",
       "fixed_dependencies": {
         "counter_mode": false,
         "sounds_enabled": false,

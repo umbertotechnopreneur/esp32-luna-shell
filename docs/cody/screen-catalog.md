@@ -107,7 +107,7 @@ identify the owning journey; exact current controls remain in navigation.md.
 | ui-v1:options-preferences, options-device | ON `MenuMore`, `MenuMaintenance` | Options pages -> child setting or Home | Active source |
 | ui-v1:display, behavior, behavior-more, synth-voice | ON corresponding `OptionsPage` | Settings owner readback -> caller | Active source; synth rows report unsupported where excluded |
 | ui-v1:quiet-hours, quiet-hours-edit | ON `QuietHours`, `QuietEdit`; clock/settings owner | Behavior -> quiet-hours summary -> selected start/end editor; Back retains caller and draft context | Active source; summary and editor are distinct identities |
-| ui-v1:guide-buttons, guide-touch, guide-offline | ON `GuideButtons/Touch/Offline` | Device help -> previous/help page | Active source |
+| ui-v1:guide-buttons, guide-touch, guide-sofia, guide-offline, guide-project, guide-thanks | ON `GuideButtons/Touch/Sofia/Offline/Project/Thanks` and `CODY_guide_presenter.cpp` | First-run tour or Device help -> adjacent guide page | Active source; Sofia requires the wake-word profile and first-run progress is independent of Wi-Fi first-boot completion |
 | ui-v1:restart-confirm, restart-pending | ON restart pages | Explicit confirmation -> power owner, no reset of saved settings | Active source |
 | ui-v1:reset-confirm, reset-pending, reset-failed | ON reset pages | Explicit confirmation -> reset owner or visible error | Active source |
 | ui-v1:retained-pc, forget-pc, pairing-cleanup, pairing-forgotten | ON `CodexReplace/Forget/Cleanup/Forgotten` | Connections -> Keep/replace/forget; Back retains caller | Active source |

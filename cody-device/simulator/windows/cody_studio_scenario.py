@@ -96,8 +96,12 @@ def validate_scenario(scenario):
     if context["target"] != entry["id"]:
         raise ValueError("Scenario context.target requires a qualified stable source identity")
     contract = entry.get("scenario_contract")
-    if entry["availability"] not in ("runtime-full", "presenter-isolated") or not isinstance(contract, dict):
+    if entry["availability"] not in ("runtime-full", "presenter-isolated", "profile-conditional") or not isinstance(contract, dict):
         raise ValueError(f"Native Studio preparation is unsupported: {context['target']!r}")
+    if entry["availability"] == "profile-conditional":
+        required = entry.get("required_capabilities")
+        if not isinstance(required, list) or not required or any(not isinstance(name, str) or not name for name in required):
+            raise ValueError("A profile-conditional scenario requires explicit native capability names")
     if scenario["variant"] not in entry["variants"]:
         raise ValueError(f"Unsupported variant for {entry['id']}: {scenario['variant']!r}")
     if any(context[key] != contract["context"][key] for key in ("selection", "caller", "return_to")):
@@ -129,14 +133,48 @@ def validate_scenario(scenario):
     timing = scenario["time"]
     if (type(timing["initial_ms"]) is not int or not isinstance(timing["advances_ms"], list) or
             not isinstance(timing["capture_at_ms"], list) or
-            any(type(value) is not int for value in timing["advances_ms"] + timing["capture_at_ms"]) or
-            timing != {"mode": "controlled-static", "initial_ms": 0, "advances_ms": [], "capture_at_ms": [0]}):
-        raise ValueError("Pilot cases support only a controlled static sample at t=0; timeline replay is unavailable")
+            any(type(value) is not int for value in timing["advances_ms"] + timing["capture_at_ms"])):
+        raise ValueError("Scenario time requires explicit integer advances and capture instants")
+    if timing["mode"] == "controlled-static":
+        if timing != {"mode": "controlled-static", "initial_ms": 0, "advances_ms": [], "capture_at_ms": [0]}:
+            raise ValueError("A controlled static sample requires t=0 without advances")
+    elif timing["mode"] == "controlled-worker":
+        capability = entry.get("worker_replay")
+        if (not isinstance(capability, dict) or capability.get("clock") != "display-worker" or
+                type(capability.get("max_ms")) is not int or type(capability.get("step_ms")) is not int or
+                capability["max_ms"] < 0 or capability["step_ms"] <= 0):
+            raise ValueError("Controlled worker replay is unavailable for this Studio destination")
+        maximum, step = capability["max_ms"], capability["step_ms"]
+        advances, captures = timing["advances_ms"], timing["capture_at_ms"]
+        if (timing["initial_ms"] != 0 or len(advances) > 256 or not 1 <= len(captures) <= 257 or
+                any(value <= 0 or value % step for value in advances) or
+                any(value < 0 or value > maximum or value % step for value in captures) or
+                any(left >= right for left, right in zip(captures, captures[1:])) or
+                scenario["page"].get("sample_at_ms") != 0):
+            raise ValueError("Invalid controlled-worker timeline or initial native source frame")
+        boundaries, elapsed = {0}, 0
+        for advance in advances:
+            elapsed += advance
+            if elapsed > maximum:
+                raise ValueError("Controlled-worker advances exceed the supported duration")
+            boundaries.add(elapsed)
+        if captures[-1] != elapsed or any(value not in boundaries for value in captures):
+            raise ValueError("Worker captures must be declared forward-advance boundaries through the final instant")
+    else:
+        raise ValueError("Unsupported Studio clock mode")
     common = scenario["common"]
     exact_fields(common, {"settings", "observations"}, "common")
     settings = common["settings"]
     standard = {"brightness_percent", "auto_rotate", "orientation_degrees"}
-    exact_fields(settings, standard | set(contract["settings"]), "common.settings")
+    audio_fields = {"sounds_enabled", "playback_volume"}
+    present_audio = audio_fields.intersection(settings) if isinstance(settings, dict) else set()
+    if present_audio and present_audio != audio_fields:
+        raise ValueError("common.settings requires both sounds_enabled and playback_volume")
+    exact_fields(settings, standard | set(contract["settings"]) | present_audio, "common.settings")
+    if present_audio:
+        if type(settings["sounds_enabled"]) is not bool:
+            raise ValueError("sounds_enabled must be boolean")
+        bounded_int(settings["playback_volume"], 0, 100, "playback_volume")
     validate_fields({key: settings[key] for key in contract["settings"]}, contract["settings"], "common.settings")
     bounded_int(settings["brightness_percent"], 10, 100, "brightness_percent")
     if type(settings["auto_rotate"]) is not bool:

@@ -43,6 +43,25 @@ struct CodyHostStudioRouteRequest {
     char destination_scenario_revision[65]{};
 };
 
+// A worker acknowledgement describes a real completed frame, not an assumed
+// frame at the requested time. Snapshot copies this and pixels under one lock.
+struct CodyHostStudioWorkerReceipt {
+    uint32_t abi = 1;
+    uint32_t frame_revision = 0;
+    uint32_t requested_ms = 0;
+    uint32_t frame_at_ms = 0;
+    uint32_t tick_count = 0;
+    char target[48]{};
+    char scenario_revision[65]{};
+};
+
+struct CodyHostStudioWorkerRequest {
+    uint32_t abi = 1;
+    uint32_t size = 0;
+    uint32_t requested_ms = 0;
+    char scenario_revision[65]{};
+};
+
 // Explicit synthetic source records. Enum spellings are decoded and checked in
 // C++; Python never passes firmware enum ordinals or a pointer to owner memory.
 struct CodyHostStudioCall {
@@ -55,6 +74,22 @@ struct CodyHostStudioCall {
     char outcome[16]{};
 };
 
+// Live playback observation uses stable textual cue states, not firmware enum ordinals.
+struct CodyHostStudioLiveCue {
+    uint32_t id = 0;
+    uint32_t sequence = 0;
+    int32_t error = 0;
+    char state[24]{};
+};
+struct CodyHostStudioLiveStatus {
+    uint32_t abi = 1;
+    uint32_t animation_complete = 0;
+    uint32_t audio_complete = 0;
+    uint32_t cue_count = 0;
+    int32_t worker_error = 0;
+    CodyHostStudioLiveCue cues[8]{};
+};
+
 struct CodyHostStudioCase {
     uint32_t abi = 1;
     uint32_t size = 0;
@@ -62,6 +97,8 @@ struct CodyHostStudioCase {
     uint32_t brightness_percent = 80;
     uint32_t auto_rotate = 0;
     uint32_t orientation_degrees = 0;
+    uint32_t sounds_enabled = 0;
+    uint32_t playback_volume = 90;
     uint32_t quiet_enabled = 0;
     uint32_t quiet_start_minute = 1320;
     uint32_t quiet_end_minute = 420;
@@ -104,10 +141,17 @@ void cody_host_display_stage_studio_route(const CodyHostStudioRouteReceipt *rece
 // Exception: Returns invalid argument or unavailable without modifying the output.
 esp_err_t cody_host_display_read_studio_identity(CodyHostStudioFrameIdentity *identity);
 
+// receipt: Acknowledgement for the frame already completed by the worker.
+// Exception: Rejects mismatched current frame identity before publishing metadata.
+esp_err_t cody_host_display_ack_studio_worker(const CodyHostStudioWorkerReceipt *receipt);
+
 // request: Bounded ABI/version/size-checked synthetic case, copied before enqueue.
 // Exception: Returns validation before settings mutation, owner/frame errors or a real wait timeout.
 #if defined(CODY_HOST_REAL_AUDIO)
 CODY_HOST_STUDIO_API esp_err_t cody_host_studio_prepare_case(const CodyHostStudioCase *request);
+// Start an isolated live-clock boot animation from a prepared source frame.
+CODY_HOST_STUDIO_API esp_err_t cody_host_studio_start_live(uint32_t sounds_enabled, uint32_t playback_volume);
+CODY_HOST_STUDIO_API esp_err_t cody_host_studio_live_status(CodyHostStudioLiveStatus *status, size_t capacity);
 
 // request: Explicit route and scenario revisions, copied to the display owner.
 // Exception: Returns validation, observed-origin, gesture or destination errors.
@@ -119,6 +163,15 @@ CODY_HOST_STUDIO_API esp_err_t cody_host_studio_replay_route(const CodyHostStudi
 // Exception: Rejects unknown animations and out-of-range indices without writing outputs.
 CODY_HOST_STUDIO_API esp_err_t cody_host_studio_animation_frame(const char *target, uint32_t index,
     uint32_t *count, uint32_t *start_ms, uint32_t *duration_ms, uint32_t *cycle_ms);
+
+// name: Stable host capability name such as "wake-word".
+// available: Receives the boolean feature selected in the compiled native profile.
+// Exception: Rejects invalid or unknown names without modifying the output.
+CODY_HOST_STUDIO_API esp_err_t cody_host_studio_has_capability(const char *name, uint8_t *available);
+
+// request: Isolated controlled-worker advance, copied to the display owner.
+// Exception: Rejects backward/unsupported times and preserves owner failures.
+CODY_HOST_STUDIO_API esp_err_t cody_host_studio_replay_worker(const CodyHostStudioWorkerRequest *request);
 #endif
 
 // pixels: Receives the complete latest native RGB565 frame.
@@ -132,6 +185,18 @@ CODY_HOST_STUDIO_API esp_err_t cody_host_display_studio_snapshot(uint16_t *pixel
 // No parameters: reports the current native output capacity before a ctypes allocation is passed.
 // Exception: No exceptions; the caller must reject a different output ABI size.
 CODY_HOST_STUDIO_API size_t cody_host_studio_frame_identity_size();
+
+// pixels, count: Complete logical RGB565 output and exact capacity.
+// identity, identity_bytes: Same-frame identity output and exact capacity.
+// receipt, receipt_bytes: Worker acknowledgement output and exact capacity.
+// Exception: Validates all capacities before any writes and rejects stale evidence.
+CODY_HOST_STUDIO_API esp_err_t cody_host_display_studio_worker_snapshot(uint16_t *pixels, size_t count,
+    CodyHostStudioFrameIdentity *identity, size_t identity_bytes,
+    CodyHostStudioWorkerReceipt *receipt, size_t receipt_bytes);
+
+// No parameters: provides the compiled worker receipt capacity before allocation.
+// Exception: No exceptions.
+CODY_HOST_STUDIO_API size_t cody_host_studio_worker_receipt_size();
 
 // pixels, count: Exact native logical framebuffer destination and capacity.
 // identity, identity_bytes: Same completed-frame identity and exact capacity.

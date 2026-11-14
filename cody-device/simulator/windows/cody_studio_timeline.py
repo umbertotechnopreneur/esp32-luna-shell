@@ -21,6 +21,7 @@ class TimelinePlan:
     scenario_revision: str
     rendering_mode: str
     limitation: str
+    clock_mode: str = "source-animation"
 
 
 # runner: Existing serialized Studio runner whose native build owns the frames.
@@ -43,8 +44,47 @@ def timeline_plan(runner, scenario):
             any(type(sample) is not int or not 0 <= sample < duration for sample in frames) or
             any(left >= right for left, right in zip(frames, frames[1:]))):
         raise ValueError("Native animation frame boundaries disagree with the Studio contract")
+    if value["time"]["mode"] == "controlled-worker":
+        requested = tuple(value["time"]["capture_at_ms"])
+        return TimelinePlan(entry["id"], duration, requested, scenario_revision(value), entry["rendering_mode"],
+                            "Fresh-process native display-worker replay; other workers and audio remain uncontrolled",
+                            "display-worker")
     return TimelinePlan(entry["id"], duration, frames, scenario_revision(value), entry["rendering_mode"],
                         "Native source-frame samples; monotonic worker replay and audio are unavailable")
+
+
+# runner: Native Studio runner used to query compiled source-frame boundaries.
+# scenario: Validated source-frame or existing worker scenario.
+# Returns a complete immutable worker sequence from the compiled frame boundaries.
+# Raises validation, unsupported profile, provenance or native metadata errors.
+def worker_timeline_scenario(runner, scenario):
+    value = validate_scenario(scenario)
+    entry = entry_for(value["context"]["target"])
+    if not isinstance(entry.get("worker_replay"), dict):
+        raise ValueError("Native display-worker replay is unavailable for this destination")
+    if value["time"]["mode"] == "controlled-worker":
+        return value
+    plan = timeline_plan(runner, value)
+    frames = list(plan.keyframes_ms)
+    if not frames or frames[0] != 0:
+        raise ValueError("Native animation has no initial keyframe")
+    value["page"]["sample_at_ms"] = 0
+    value["time"] = {"mode": "controlled-worker", "initial_ms": 0,
+                     "advances_ms": [right - left for left, right in zip(frames, frames[1:])],
+                     "capture_at_ms": frames}
+    return validate_scenario(value)
+
+
+# scenario: Validated worker or source-frame scenario.
+# Returns a controlled static scenario at source sample zero for the same destination.
+# Raises scenario errors without changing the input object.
+def source_timeline_scenario(scenario):
+    value = validate_scenario(scenario)
+    if "sample_at_ms" not in value["page"]:
+        raise ValueError("Native source animation is unavailable for this Studio destination")
+    value["page"]["sample_at_ms"] = 0
+    value["time"] = {"mode": "controlled-static", "initial_ms": 0, "advances_ms": [], "capture_at_ms": [0]}
+    return validate_scenario(value)
 
 
 # runner: Existing serialized Studio runner; owns all native preparation and capture.
@@ -56,6 +96,11 @@ def timeline_capture(runner, scenario, at_ms):
     plan = timeline_plan(runner, value)
     if type(at_ms) is not int or not 0 <= at_ms < plan.duration_ms:
         raise ValueError("Source-animation sample lies outside the native animation duration")
+    if value["time"]["mode"] == "controlled-worker":
+        if at_ms not in value["time"]["capture_at_ms"]:
+            raise ValueError("Worker sample is not a declared capture boundary")
+        runner.prepare(value, requested_at_ms=at_ms)
+        return runner.capture(timeline_base=value)
     sample = deepcopy(value)
     sample["page"]["sample_at_ms"] = at_ms
     # Native prepare resets its owner state for every static source sample. It
