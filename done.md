@@ -1,37 +1,32 @@
 # Latest validation round
 
-## 2026-11-15 · Cody Studio boot replay, audio and guide routes on Linux
+## 2026-11-15 · Cody Studio committed-source validation on Linux
 
-The host device-runtime build succeeds with the production C/C++ rendering and
-audio owners: `pwsh -NoProfile -File ./scripts/device.ps1 generate -Generator cody-simulator-graphics -ToolArguments '--device-runtime'`.
+All 364 ordinary inputs of the validated native build are now versioned and
+match the committed source content. The three managed QR inputs remain the
+official Espressif dependency `0.1.0~2`, with its component hash pinned in the
+versioned lock. Unrelated desktop, experiment and physical-device work remains
+outside these Studio commits.
 
-`check -Check cody-studio -ToolArguments '--phase-e'` passes **29/29**. Two
-independent processes repeat S01/S02 source and display-worker captures and
-the observed P01 ↔ P04 plus ten adjacent S17–S22 guide gestures. S19 is
-conditional on the compiled wake-word feature. The S21 QR page reveals its
-controls before each observed exit. Same-frame route receipts, route history,
-backwards replay, invalid inputs, pending touch and orientation are checked.
-A later Tk run covers the additional comparison regressions.
+A source-only `git archive` of `9bb250df` was extracted beneath
+`artifacts/studio-commit-verification/9bb250df/`. Its only supplied source
+prerequisite was the installed QR component matching that lock. No local
+untracked Studio sources or prebuilt native library were copied into it.
 
-`check -Check cody-studio -ToolArguments '--host-audio'` passes **27/27** on
-this host: the native owner and selected ALSA backend reported both S02 replay
-cues completed. The isolated PCM probe also verified nonzero mixer output with
-Sounds on and no output with Sounds off. These observations do not establish
-that a person heard the speakers or prove physical Cody sound quality.
+The exported tree successfully built through
+`pwsh -NoProfile -File ./scripts/device.ps1 generate -Generator cody-simulator-graphics -ToolArguments '--device-runtime'`.
+It then passed **33/33** Studio checks through
+`pwsh -NoProfile -Command "& ./scripts/device.ps1 check -Check cody-studio -ToolArguments @('--native','--live-audio','--guide')"`.
+These cover repeated native P04 captures, scenario/receipt integrity,
+comparison and navigation provenance, real firmware PCM with Sounds on/off,
+and both exits from the guide QR page. The exported tree also passed
+`pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-runtime`.
+The staged changes pass `git diff --check`.
 
-`check -Check cody-studio -ToolArguments '--pilot'` passes **32/32** and the
-real Tk/native window suite passes **31/31** using
-`xvfb-run -a -s '-screen 0 1920x1200x24' pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--ui'`.
-Screenshots of the live preview, guide and small window were visually inspected.
-The final focused `--guide` check passes **31/31** after the comparison fixes.
-The `snapshot-integrity` and `cody-runtime` public checks pass.
-
-Live boot replay is a returning-device scenario with a real-time host clock;
-its preview is not capture evidence. Static and controlled-worker captures are
-silent, and display-worker replay does not control every service or timer.
-Comparison preserves complete navigation provenance and rejects incompatible
-or unknown inputs. Historical route evidence still depends on the current
-catalog. Other routes, remaining inventory, atlas automation/PDF, Windows and
-physical acceptance remain open under `CODY-NEXT-06`. No device was contacted
-or firmware flashed. Generated artifacts remain under `artifacts/` for manual
-cleanup.
+This verifies that the committed Studio sources rebuild and execute on Linux
+with the documented external prerequisite. Windows, human speaker listening,
+physical Cody acceptance and complete inventory coverage remain open. The next
+implementation slices are phase F (isolated atlas generation and inventory-linked
+PDF) and phase G (remaining families and measured coverage). Exact scheduling
+of unrelated workers remains deferred in favor of graphics and audio fidelity.
+No device was contacted or flashed. Artifacts are retained for manual cleanup.

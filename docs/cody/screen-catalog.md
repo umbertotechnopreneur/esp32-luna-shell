@@ -4,7 +4,7 @@
 
 **VibeWare · Cody Companion**
 
-**Author:** Umberto Giacobbi · **Created:** 2026-11-10 · **Updated:** 2026-11-12 · **Revision:** 1.0
+**Author:** Umberto Giacobbi · **Created:** 2026-11-10 · **Updated:** 2026-11-15 · **Revision:** 1.2
 
 This is the `CODY-NEXT-00` source inventory. Retain implementations in place,
 including inactive presenters and versioned assets. This catalog is their reuse
@@ -54,13 +54,13 @@ identify the owning journey; exact current controls remain in navigation.md.
 | --- | --- | --- | --- | --- |
 | atlas-v1:01-03 / character-boot | Original character introduction | AT; retained character/rig sources | Boot concept -> Home | Retained, replaced by VibeWare/Muse; E |
 | atlas-v1:04 / welcome | Welcome / Not connected | ON + SC; Wi-Fi/pairing | Setup state -> network setup | Active; S |
-| atlas-v1:05 / wifi-guide | Wi-Fi setup | ON + SC; provisioning | Not connected/Connections -> app QR or provisioning; Back to caller | Active; S |
+| atlas-v1:05 / wifi-guide | Wi-Fi setup | ON + SC; provisioning | Not connected/Connections -> character-led choice of Bluetooth guide or local network list; Back to caller | Active; S |
 | atlas-v1:06 / install-app | App download QR | ON + SC; installation QR | Guide -> app QR; tap returns to guide | Active; S |
 | atlas-v1:06-bis / provisioning-preparation | Provisioning preparation | ON; current state of 07 | Start -> ready QR or error | Retained alias, not another route; S |
 | atlas-v1:07 / provision | Scan to pair / Connecting | ON + SC; BLE session | Start provisioning -> result; Cancel waits for cleanup | Active; S |
 | atlas-v1:08 / provisioning-error | Pairing failed | ON + SC; provisioning error | Failed stage -> Retry/cancel through owner | Active; S |
 | atlas-v1:09 / wifi-result | You're online / Wi-Fi result | ON + SC; valid network/IP | Provisioning -> continue setup | Active; S |
-| atlas-v1:10 / options | Make it yours / Options | ON + SC; settings | Hold BOOT 2 s -> Tools/Preferences/Device pages; short BOOT returns to Muse | Active; S; distinct from next-v1:10 |
+| atlas-v1:10 / options | Make it yours / Options | ON + SC; settings | BOOT tap opens the menu -> Settings; hold BOOT 2 s opens Options without voice input or requests voice input when included | Active; S; distinct from next-v1:10 |
 | atlas-v1:11 / skin | Cody's look | ON + SC; legacy character settings | Legacy personalization -> caller | Retained; S; not a Muse skin picker |
 | atlas-v1:12 / pair-pc | Pair Codex | ON + SC; CCP pairing transaction | Explicit connect/replace -> confirmed 13; Cancel retains old association | Active; S |
 | atlas-v1:13 / pairing-complete | You're all set | ON + SC; committed pairing | Two-sided confirmation -> saved-PC discovery | Active; S |
@@ -100,10 +100,11 @@ identify the owning journey; exact current controls remain in navigation.md.
 
 | Stable key | Source/identity | Entry and return / data | Availability |
 | --- | --- | --- | --- |
-| next-v1:16 / muse-home | MU; UI `Layer::Mascot` | VibeWare or Home -> BOOT hold for Options; touch reaction | Active source; two-page swipe navigation remains phase 09 |
+| next-v1:16 / muse-home | MU; UI `Layer::Mascot` | VibeWare or Home -> BOOT tap for menu; BOOT hold follows the voice-input build profile; touch reaction | Active source; two-page swipe navigation remains phase 09 |
 | next-v1:10 / tools | ON `OptionsPage::Menu` is reusable source | Proposed top-level peer of Muse Home | Planned exposure; current Tools is inside Options |
 | ui-v1:branding | `VIBEWARE_boot_animation.c`, `assets/branding/VibeWare` | Cold boot/software restart -> Muse | Active source |
 | ui-v1:birth | UI `advance_birth_intro`, original Muse renderer and settings owner | First-boot birth introduction -> mascot/setup; host direct sample preserves the original renderer | Active source; boot-only entry requires explicit preparation |
+| ui-v1:wifi-networks, wifi-scan-unavailable | ON `LocalWifiPage::Networks`, scan result | Wi-Fi setup -> network list or unavailable scan; Back returns to setup | Active source; synthetic host network observations are labelled in the simulator |
 | ui-v1:options-preferences, options-device | ON `MenuMore`, `MenuMaintenance` | Options pages -> child setting or Home | Active source |
 | ui-v1:display, behavior, behavior-more, synth-voice | ON corresponding `OptionsPage` | Settings owner readback -> caller | Active source; synth rows report unsupported where excluded |
 | ui-v1:quiet-hours, quiet-hours-edit | ON `QuietHours`, `QuietEdit`; clock/settings owner | Behavior -> quiet-hours summary -> selected start/end editor; Back retains caller and draft context | Active source; summary and editor are distinct identities |
@@ -131,7 +132,7 @@ identify the owning journey; exact current controls remain in navigation.md.
 | next-v1:105 / active-calls | Source active-call page | Codex -> Active calls; Back -> Codex | Source |
 | next-v1:106 / pending-questions | Read-only canonical pending-question previews | Codex -> Questions -> Open events for signed question replies; Back returns to the originating page. | Source |
 | legacy-v1:technical-panels, home-identity, character-direction | `CODY_technical_panels.cpp`, `CODY_home_identity.cpp`, `CODY_character_direction.cpp` | Retained behavior/presenters for selective reuse | S; not an instruction to restore the vector face |
-| reference-v1:muse-wifi-keypad | External Muse settings/keypad sources below | Network SSID/password editor -> Wi-Fi owner | Reference only; no Cody native port yet |
+| reference-v1:muse-wifi-keypad | External Muse settings/keypad sources below | Design reference for network entry | Reference only; current Cody local Wi-Fi pages use a separate native presenter |
 
 `SceneId` is a third, independent namespace. The full `scene-v1` source map is
 the retained enum plus `scenes/scenes.json`: 0 AnimationDemo; 1 Greeting;
@@ -183,6 +184,82 @@ out-of-order preparation, error recovery and isolation from an interactive
 session. Source presence alone does not extend that evidence to new cases or
 physical devices. Clock and worker limits remain attached to each capture.
 
+## Current conditional screens and source-only states
+
+The rows below use existing source symbols and descriptive names, not new screen
+IDs. They inventory the working tree; source presence is not a build, flash,
+visual review, or physical-device acceptance. Existing atlas IDs above continue
+to identify their original designs even when current entry or presentation has
+changed. See [navigation.md](navigation.md) for the user journey and
+[notifications.md](notifications.md) for the notification contract.
+
+| Source owner / state | Current source presentation and condition | Evidence and limitations |
+| --- | --- | --- |
+| ON `start_device_setup`, `OptionsPage::GuideButtons/GuideTouch/GuideSofia/GuideOffline/GuideProject/GuideThanks` | Six catalogued guide pages cover buttons, touch, Sofia, offline, project QR and thanks. Initial setup can enter the character-led Wi-Fi choice first; the saved tour step is a separate setting. | S; on first run Project hands off to the optional Codex choice instead of always displaying the project QR; Sofia is skipped in both first-run and manual guide replay in builds without wake word. Layout and resume behavior need physical verification. |
+| ON `Route::Invitation05`, `draw_wifi_menu` | Character-led Wi-Fi choice offers Bluetooth provisioning and on-device Wi-Fi. Connection recovery and setup return through their owning routes. | S; BLE is also an explicit direct Home action and has its own route. QR instructions are child pages, not a replacement for the choice. |
+| ON `LocalWifiPage::Networks/Password/ConfirmOpen/Connecting` | Network scan/list, native credential entry, open-network confirmation and connecting states. | S; input validation can show `Invalid WPA password`; connection result may be `Connection not confirmed`, which is not proof of an incorrect password. |
+| ON provisioning result and `Route::Failed08` | Bluetooth pairing can show `Pairing timed out`, `Network not found` or `Wi-Fi login failed` when the corresponding observation is available; cleanup failures retain their own error. | S; do not infer an authentication failure from a generic timeout or advertise an action absent from the current page. |
+| ON `OptionsPage::Time` | `Sync time` and observed states include `Connect Wi-Fi`, `Syncing...`, `Synchronized`, `Timed out`, `Sync failed`, `Auto time failed` and unavailable/unsupported cases. | S; enabled only with the required current network observation and no pending command. Manual and automatic outcomes remain distinct; no NTP success is implied by a network connection. |
+| ON settings and `CODY_guide_presenter.cpp` | Settings-write errors show `Save failed`; tour progress can show `Save failed. Try again` or `Save failed. Swipe again`. `RestartConfirm/RestartPending` and `ResetConfirm/ResetPending/ResetFailed` represent explicit maintenance. | S; do not represent save, restart, or reset as successful when the owner reports failure. Recovery cannot assume an intact or erased settings store. |
+| `CODY_status_overlay.hpp` | Transient status includes `Settings not saved: retrying` and a separate boot-sound settings failure. | S; these are overlays, not full-screen startup failure recovery. A failed display or mandatory startup owner can prevent any recovery screen from rendering. |
+| UI `Layer::Voice`, DV voice presentation | Preparing, listening, sending and delivery/failure states; `Voice unavailable` and transport-specific `Audio link failed` are separate conditions. | S; build profile and supported PC connection constrain availability. Unavailable voice does not identify a failed microphone or prove delivery. |
+| UI `Layer::Events`, ON local/remote notification detail, `CODY_notifications` | Merged notification list and detail, exact-source read actions, and unavailable/removed detail states. | S; local history is RAM-only and bounded to 32. Provider content is limited to what the source actually publishes. |
+| UI `Layer::EventCody` and `CODY_device_effects` | Eligible remote event presentation retains animated Cody behind the notice; information, warning and critical severity select different reactions. | S; display priority, admission and actual event type constrain when it appears. Animation, text and cue timing need physical verification. |
+| UI `Layer::Diagnostics`, `CODY_debug_views.cpp` | Shared diagnostics overview and memory detail use observed runtime data; authenticated Normal restores the retained route. | S; available values depend on acquisition support and freshness; source existence is not a measurement on the current device. |
+| `CODY_codex_browser.cpp` `Route::Hub/Chats/Turns/Calls/ActiveCalls/PendingQuestions` | Codex hub, chat/turn/tool call navigation and read-only pending-question previews. | S; observations can be unknown, stale, unsupported or failed. Signed question replies use the separate event flow. |
+
+In builds without wake word, first-run navigation and manual guide replay skip
+the Sofia page in both directions. The presenter also supplies neutral fallback
+text if that page is prepared. This is source evidence, not physical validation.
+
+## Shared dark failure presentation
+
+The native source now applies the live Muse error pose beyond first-run setup:
+
+| State | Character and recovery |
+| --- | --- |
+| Provisioning and Codex retry | Animated error pose on first run and later recovery; existing cleanup and retry admission retained. |
+| Local Wi-Fi scan/connection failure | Dedicated failure view, including when retained results exist; Show networks and a fresh scan remain distinct actions. |
+| Settings save failure | Could not save, original error, existing Retry and parent navigation. |
+| Restart/reset failure | Animated error with existing explicit confirmation/retry semantics; settings are never silently reset. |
+| NTP/manual or automatic time failure | Time sync failed, observed status and error; Sync time is available only with current connectivity. |
+| Synthesis failure/unavailable | Voice unavailable with owner error and admitted voice test retry. |
+| Voice capture/delivery failure | Animated error replacing the static microphone; original cause and automatic return timing preserved. |
+| Voice entry unavailable | Animated character with settings/connection guidance; no invented microphone diagnosis. |
+| QR/statistics unavailable | Shared dark message, animated error character, existing navigation. |
+| Power-off failure | Cody needs help with the actual power-off failure; existing device menu remains the recovery route. |
+| Generic local operation failure | Something went wrong retains the original error and owner-gated recovery action. |
+
+Particles remain limited to actual waiting states and startup. Error entry requests
+one existing sound cue, respecting sound and quiet-hour settings. These are source
+changes, not device acceptance. Fatal display/startup failures still propagate to
+the runtime owner; they cannot guarantee a drawable recovery page. Code mismatch
+is shown only when the receiving owner actually exposes that cause. Dense input,
+QR and diagnostic views keep their functional geometry rather than placing a
+character over controls or measured data.
+
+## Priorities for visual and interaction consistency
+
+1. **First-run and Wi-Fi:** unify title, mascot, Back and action placement across
+   the character-led choice, both connection paths, their errors and the saved
+   tour; retain QR readability and each route's real cleanup and return behavior.
+2. **Errors and recovery:** share clear severity, factual cause and available
+   action patterns across provisioning, local network, save, time, voice and
+   maintenance states; do not invent a universal recovery screen or reset action.
+3. **Notifications and Cody:** align semantic colors and notice/detail hierarchy
+   while preserving event identity, severity, animated character and independent
+   audio/read policies. Validate contrast and visibility on the round device.
+4. **Settings and diagnostics:** use consistent rows, status wording and Back;
+   distinguish pending, unavailable, stale and failed observations, including
+   manual versus automatic time synchronization.
+5. **Codex and retained artwork:** align navigation and text density with current
+   patterns without treating atlas illustrations, planned routes or old Home
+   compositions as proof of a reachable current screen.
+
+These are proposed priorities, not claims of completed design work or device
+acceptance. A physical pass must separately verify layout, touch, animation and
+legibility in each supported profile.
+
 ## Voice preservation
 
 `CODY_device_ui.cpp::activate` maps Record voice to
@@ -213,8 +290,9 @@ They use LVGL. Below 2 inches or on a narrow panel, large grouped keys replace
 the full keyboard. Round layouts inset the bottom row and adjust title, field
 and Back placement. The keypad uses 1,000 ms multi-tap, 600 ms hold-for-digit,
 letter/digit/symbol modes, shift, space, backspace, password Show/Hide and Done.
-This reference stays external to Cody's CODY2D build; phase 13 owns its native
-adaptation, credential lifetime and route assignment.
+This reference stays external to Cody's CODY2D build. The current Cody source
+implements its own native local Wi-Fi presenter and text entry; do not assume it
+is an LVGL port or that it has every behavior described by this reference.
 
 ## Ownership, lifetimes and portability inputs
 

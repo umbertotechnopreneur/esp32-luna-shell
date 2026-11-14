@@ -493,7 +493,7 @@ estimates exist, while actual stack/heap measurements remain pending phase 11.
 
 **Outcome:** repeatable domain and animation inputs without depending on live work.
 
-**Implemented Studio slices (A-D and partial E):** the source integrates a catalog projection from
+**Implemented Studio slices (A-D and extended E):** the source integrates a catalog projection from
 `docs/cody/screen-catalog.md` plus the executable `studio_catalog.json` overlay,
 a strict scenario contract, shared native runner and immutable capture/review
 artifacts. P04 maps explicitly to `ui-v1:display` and `cody.settings.display`.
@@ -501,22 +501,22 @@ The original inventory is now identified: **Cody screen map and static
 inventory**, 14 November 2026, baseline `e971b313` plus local changes, with
 document SHA-256 in the machine catalog. Its 100 IDs and 214 declared links
 are distinct from acquired native coverage and the source catalog denominator.
-The Python contract suite passes 21/21 without loading a native library. The
-Linux native host build passes with compiler warnings retained. The ten-case
-pilot suite passes 23/23, including fresh-process exact pixels and out-of-order
-shared-session replay. The Tk/native UI suite passes 22/22 with screenshots
-inspected. Nine cases use the full runtime; C04 uses the production browser
+The Linux native host build and the contract, ten-case pilot and Tk/native
+suites pass; current counts and commands are recorded in `done.md`. The pilot
+includes fresh-process exact pixels and out-of-order shared-session replay.
+Screenshots have been inspected. Nine pilot cases use the full runtime; C04 uses the production browser
 presenter with a typed synthetic query owner. This does not accept domain
 transport/reducer or general pagination. Physical acceptance remains separate.
 The wider snapshot-integrity, build-profiles, script-contracts and cody-runtime
 host checks pass. Their source-layout/platform and event-fixture corrections
 preserve the current production contracts rather than relaxing the assertions.
 
-The first implemented time contract is a **settled static sample at t=0**,
-with manual monotonic time selected before workers start and no automatic PC
-clock refresh. S01/S02 also declare a separate source-animation sample. This
-does not implement an animation timeline, reverse seek or general asynchronous
-worker replay. Display preparation executes on the display owner;
+The default time contract is a **settled static sample at t=0**, with manual
+monotonic time selected before workers start and no automatic PC clock refresh.
+S01/S02 also support source-frame inspection, isolated display-worker replay
+and backward seek by restarting the scenario. Live boot replay uses a separate
+process with a progressing clock and the firmware audio owner. General
+asynchronous scheduling remains deferred. Display preparation executes on the display owner;
 the native frame receipt retires with its pixels. Manual orientation is 0/180
 in this host profile, and captures contain the logical raster before panel
 rotation. Auto rotation can be edited with gravity explicitly unavailable.
@@ -592,6 +592,8 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   also completed both cues. Human listening and physical Cody remain separate.
   Linux Tk validation passes 31/31. General scheduling of unrelated workers,
   further gestures, Windows validation and full startup lifecycle remain open.
+  The owner's current priority is faithful graphics and audible firmware cues;
+  exact scheduling of unrelated workers is not a prerequisite for phase F.
 - [ ] ⚪ **CODY-NEXT-06.11** Studio F: detect validated native builds, regenerate
   selected suites in isolated processes with progress/cancellation/per-case
   errors, retain the last valid result and extend the existing atlas PDF with

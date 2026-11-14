@@ -2,6 +2,46 @@
 
 This file tracks open implementation and acceptance. See [planned-todo.md](planned-todo.md) for deferred work and development history. Apply [AGENTS.md](AGENTS.md) to each operation. Activating work does not authorize builds, tests, simulator runs, asset generation or device operations.
 
+## Current owner queue
+
+0. Complete the device-code simulator and native screen atlas: link the
+   unchanged display/onboarding owners and their host service adapters, then
+   integrate the unchanged audio owner with platform PCM output and settings
+   policy. Replace Python-drawn device pages only after their native routes and
+   touch behavior work. Capture all active screens from the native runtime and
+   generate the complete PDF. The native Linux host library builds successfully;
+   remaining routes, full audio coverage and physical-device acceptance are outstanding.
+   Continue this same work under `CODY-NEXT-06`: Studio A-D integrates strict
+   catalog/scenario contracts, direct native preparation, completed-frame
+   identity, saved scenarios, comparison and ten pilot cases. The Linux native
+   build, 32-test pilot suite and 31-test real Tk/native UI suite pass. All ten
+   have identical pixels across fresh processes and out-of-order shared-session
+   preparation. Baseline/review/scenario persistence, capture history, visible
+   keyboard focus/scrolling, expander restoration and wide/small window geometry
+   have host evidence. Availability and loaded-capture review filters, baseline
+   restoration and unavailable baseline retention have host evidence. A separate
+   automatic capture preserves interactive pixels, receipt, sensors, NVS and
+   scenario. Physical acceptance remains pending.
+   Snapshot integrity, build-profile closure, maintenance-script contracts and
+   portable Cody runtime checks pass after validator/fixture alignment.
+   Phase C has Linux host acceptance: S01, S02, S17, P01, P04,
+   P12 (quiet-hours editor), W02, W04, S15 (provisioning error) and C04 (tool
+   calls). The original inventory is now identified by date/baseline/hash in
+   the machine catalog. Nine cases use the full runtime; C04 uses the production
+   C++ browser presenter and typed synthetic queries, without domain transport/
+   reducer acceptance. S15 preserves its transient timeout cause. Phase E now
+   also has Linux host evidence for isolated S01/S02 display-worker replay,
+   live boot replay with firmware PCM, P01 ↔ P04 and ten adjacent guide gestures
+   S17–S22 (29/29 phase-E checks). S19 is conditional on wake-word support.
+   Captures retain navigation history, and direct/route frames are not assumed
+   to have the same animated state. Remaining routes, general worker scheduling,
+   Windows and physical acceptance remain open. Isolated atlas regeneration and
+   PDF export remain later slices of this activity.
+   Next, complete phase F with isolated suite generation, progress/cancellation,
+   preserved valid results and inventory-linked PDF export; then extend actual
+   coverage in phase G. Prioritize audio playback and visual fidelity. General
+   worker/timer precision can remain deferred.
+
 ## First-run tour
 
 - With separate authorization, build and verify the first-boot melody, normal

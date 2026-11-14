@@ -4,8 +4,9 @@
 
 I use these previews to explore the 466 × 466 circular UI and the behavior described
 by the assets. **SYNTHETIC** and **SIMULATED** remain clearly visible: values
-generated on the PC never enter firmware snapshots. Host FPS, Pillow images and
-PC audio remain host observations; electrical behavior requires device evidence.
+generated on the PC are simulator inputs, not physical device observations. Host
+FPS, Pillow images and PC audio remain host observations; electrical behavior
+requires device evidence.
 
 ## Open Cody Studio
 
@@ -32,8 +33,8 @@ pwsh -NoProfile -File ./scripts/device.ps1 generate -Generator cody-simulator-gr
 pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--native'
 pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--pilot'
 pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--phase-e'
-pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioCase P04
 pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--host-audio'
+pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioCase P04
 pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioCase S15
 ```
 
@@ -158,6 +159,50 @@ the two intro cues to the selected PC output and may make audible sound.
 Generated artifacts are retained. Cleanup remains manual and requires an
 explicit request.
 
+The default native-device window transports completed firmware-owner
+frames instead of reconstructing pages. In that window, **F12** saves the
+current unscaled 466 x 466 frame to `artifacts/simulator/captures/` with a
+unique name. The capture is SIMULATED and records a frame revision only; it
+does not claim a screen identity or physical-device acceptance. The native
+runtime and complete-screen atlas are still under integration. The Simulator
+menu opens the battery, network and clock input editor: Read retrieves the
+current projection, Apply publishes it, and Open/Save use JSON files. All
+these fields are explicitly simulated; they are not measurements from a device.
+The Display menu offers proportional fit or stretching to the available window.
+Both use nearest-neighbour sampling of the native frame, without smoothing;
+touch follows the displayed frame independently on each axis.
+
+For a fresh, explicitly SIMULATED first boot, use the default native scenario:
+
+```powershell
+.\scripts\device.ps1 simulator
+```
+
+This scenario provides no physical hardware measurements. `settings_path: null`
+selects a new uniquely named host-only NVS file under `artifacts/simulator/`
+for each invocation; previous settings and the physical device are not erased.
+With `use_pc_lan: true`, the PC's configured IPv4 LAN is read once at startup
+without sending packets or reading credentials, and projected as a simulated Cody
+connection labelled `SIMULATED-PC-LAN`. This does not establish Internet access
+or the physical device's connection state. If the host configuration cannot be
+read, the initial PC-sourced connection observation remains unavailable.
+The same scenario explicitly enables one fictional open network, `SIM-CODY`,
+for the onboarding scan and sets the simulated battery to 80 percent. Its
+access-point identity, signal and connection are synthetic; no network scan
+or connection is performed on the PC. Selecting it updates only the simulator.
+`use_pc_clock: true` supplies the PC time and UTC offset to the simulated clock,
+independently of the simulated battery configuration.
+Additional first-boot scenarios are `cody-native-wifi-secured.json`,
+`cody-native-wifi-empty.json`, and `cody-native-wifi-timeout.json` in
+`scenarios/`. The protected synthetic network accepts the demo password
+`CodyDemo42`; any other password produces a connection failure. The timeout
+scenario returns a simulated timeout. BLE and Codex pairing scenarios are
+also synthetic: no real radio operation or network connection is performed.
+An unavailable native service remains unavailable, and bootstrap failures are
+reported rather than bypassed. `-DeviceScenario` selects a different explicit
+scenario. Preview-specific options below select separate legacy previews, not
+the native device simulator.
+
 I always use the public console from the repository root:
 
 ```powershell
@@ -170,16 +215,42 @@ I always use the public console from the repository root:
 ```
 
 Cody Studio runs from source on Windows and Linux with PowerShell 7, a native C++20
-compiler, Python with Tk and Pillow ImageTk, and PyYAML. The Apple store QR,
-illustrative pairing QR and GitHub project QR also use the existing optional
-ReportLab tooling; when it is absent the preview shows QR unavailable. Android
-retains its authored QR.
+compiler, Python with Tk and Pillow ImageTk, and PyYAML. The native runtime also
+requires the official `espressif/qrcode` source dependency, version `0.1.0~2`,
+restored under `cody-device/managed_components/espressif__qrcode` by the project's
+ESP-IDF dependency setup. Its manifest and component hash are already pinned in
+the companion's versioned dependency files; managed sources and built libraries
+are not committed. A source-only export needs this prerequisite before running
+the graphics generator. The legacy illustrated QR previews use optional
+ReportLab tooling; when it is absent those previews show QR unavailable.
 On Ubuntu, the host packages include `g++`, `python3-tk`, `python3-pil.imagetk`
 and `python3-yaml`. Use a graphical
 session for the interactive window. The native Boot replay uses ALSA `libasound`
 on Linux or WinMM on Windows; the legacy preview uses `aplay` from `alsa-utils`
 on Linux. The console builds the host audio driver before interactive launch. Static captures
 use the graphics driver and do not start audio.
+
+An optional host bridge can link the unchanged firmware pet-audio selector and
+the exact source PCM assets through generated linker symbols:
+
+```powershell
+pwsh -NoProfile -File ./scripts/device.ps1 generate -Generator cody-simulator-audio -ToolArguments @('--native-pet')
+```
+
+This opt-in requires native host `clang++` or `g++` with GNU-compatible
+assembler labels and `.incbin`; MSVC `cl` alone is rejected with an explicit
+error. The normal simulator audio build remains available with MSVC and does
+not enable or depend on this bridge. The opt-in bridge exposes validated pet
+clip metadata and a read-only policy evaluation using the unchanged firmware
+clock policy. This evaluation accepts an already-aged simulated clock snapshot
+and an explicitly known Sounds value; unknown Sounds and invalid inputs deny
+permission. The host snapshot owner can project and age these synthetic inputs
+through the original firmware aging policy and pass them to the audio bridge.
+The legacy preview does not connect these inputs automatically. Studio's
+separate Boot replay uses the native admission and dispatch owner as described
+above. Existing personality and touch output are unchanged. Host
+playback is not evidence of the device speaker, codec, timing or acoustics. The
+opt-in bridge still requires a host build and target-platform validation.
 
 ```bash
 pwsh -NoProfile -File ./scripts/device.ps1 simulator
