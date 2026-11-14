@@ -1,41 +1,41 @@
 # Latest validation round
 
-## 2026-11-15 · Cody Studio P04 host acceptance
+## 2026-11-15 · Cody Studio ten-case Linux host acceptance
 
-The explicitly authorized command
-`pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio`
-completed successfully: all 13 tests passed. The suite covers catalog identity,
-strict scenarios, coherent synthetic observations, capture receipts and file
-integrity, comparison compatibility and pixel differences, baseline preservation,
-review persistence and stale source/library rejection using isolated fixtures.
+The authorized native build passes:
+`pwsh -NoProfile -File ./scripts/device.ps1 generate -Generator cody-simulator-graphics -ToolArguments '--device-runtime'`.
+It compiles production C/C++ renderers and host adapters; compiler warnings
+remain visible and none were globally suppressed.
 
-The separately authorized command
-`pwsh -NoProfile -File ./scripts/device.ps1 generate -Generator cody-simulator-graphics -ToolArguments '--device-runtime'`
-successfully compiled the Linux native device library from production C/C++
-and host adapters. Compiler warnings remain visible; none were globally suppressed.
+The pilot suite passes **18/18**:
+`pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--pilot'`.
+It includes 16 strict catalog/scenario/capture/comparison/provenance contracts,
+two fresh-process captures of each of the ten inventory cases, and an isolated
+shared-session sequence with forward/reverse preparation and error/recovery.
+Every repeated case has identical RGB pixels and matching same-frame target,
+scenario revision, mode and sample time. The shared sequence also covers C04
+scope replacement, repeated battery 80/20 edits, rejected inputs/build changes,
+unchanged baseline bytes and ABI-capacity sentinels around both output buffers.
 
-The native Studio suite passes 14/14:
-`pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--native'`.
-Two fresh processes produced identical P04 RGB pixels with matching effective
-destination, scenario revision, capture time and native completed-frame identity.
-
-The real Tk/native suite passes 14/14 under Xvfb:
+The real Tk/native suite passes **17/17**:
 `xvfb-run -a -s '-screen 0 1920x1200x24' pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--ui'`.
-It covers bounded input edits and A->B->C->A->B replay, scenario save/load,
-unchanged baseline bytes, persistent capture reviews, invalid input retention,
-keyboard focus, expander/column restoration and visible controls/proportional
-frames at 1440x960 and 720x540. Wide, comparison and small screenshots were
-visually inspected. Closing/reopening leaves no pending poll callback.
+It opens all ten destinations directly, edits/restores C04 call records,
+synchronizes saved-capture history, and checks scenario/review persistence,
+baseline preservation, comparison, focus/Tab scrolling, expander restoration
+and proportional geometry at 1440x960 and 720x540. A separate automatic CLI
+worker leaves the interactive frame, receipt, sensor snapshot, NVS, scenario
+and saved artifacts intact. Window screenshots and all ten native captures
+were visually inspected; the suite retains a labelled contact sheet.
 
 The public `snapshot-integrity`, `build-profiles`, `script-contracts` and
 `cody-runtime` checks pass. Script contracts cover six scripts and 34 actions.
-Four negative Studio CLI cases reject legacy flag mixing, missing scenarios
-and unknown identities before rendering. `git diff --check` passes.
+`git diff --check` passes. Generated artifacts are retained; cleanup is manual.
 
-These checks include repaired portable validator paths and fixture setup that
-matches the current owners; production permission/lifecycle behavior was not
-changed to satisfy a test. Acquired coverage is one static P04 family only.
-The ten-case pilot, remaining inventory mappings, animation/routes, automatic
-atlas/PDF work, Windows acceptance and physical-device acceptance remain open
+Acquired host coverage is **ten static cases**: S01, S02, S17, P01, P04, P12,
+W02, W04 and S15 use the full native runtime; C04 uses the production browser
+presenter with a typed synthetic query owner. This does not establish domain
+transport/reducer or general pagination acceptance. S01/S02 inspect explicit
+source-animation samples; S15 retains the scripted transient timeout cause.
+General timeline/worker replay, observed IN/OUT routes, automatic atlas/PDF,
+remaining inventory mappings, Windows and physical acceptance remain open
 under `CODY-NEXT-06`. No physical device was contacted or firmware flashed.
-Generated artifacts are retained; cleanup remains manual.

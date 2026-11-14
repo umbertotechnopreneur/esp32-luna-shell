@@ -138,7 +138,7 @@ their exact filenames in 01 while retaining the ownership boundaries below.
 | CODY-NEXT-03 | Codex adapter and complete broker registry | 02, 14 | 🟡 Multi-turn sync and exact question correlation wired · live hook acceptance pending |
 | CODY-NEXT-04 | Durable question and answer lifecycle | 02, 03 | 🟡 Durable question association and answer projection wired · live acceptance pending |
 | CODY-NEXT-05 | Device domain store, synchronization and recovery | 02, 03, 04, 14 | 🟡 Canonical pending-question query and pairing-bound recovery wired · acceptance pending |
-| CODY-NEXT-06 | Deterministic scenario driver and inspection tools | 01, 02; integrate after 05 | ⚪ Planned |
+| CODY-NEXT-06 | Deterministic scenario driver and inspection tools | 01, 02; integrate after 05 | 🟡 Studio ten-case pilot has Linux host acceptance · timeline/automation pending |
 | CODY-NEXT-07 | Domain-to-Muse direction and pose transitions | 05, 06 | 🟡 Native pose showcase wired · domain direction pending |
 | CODY-NEXT-08 | Muse acting, particles and audio policy | 07 | 🟡 320-pixel Muse smooth on the device · measured cadence pending |
 | CODY-NEXT-09 | Separate mascot/UI routes and reusable screens | 00, 05, 07 | 🟡 Native Codex browser and Questions wired · Home gestures and physical acceptance pending |
@@ -493,6 +493,34 @@ estimates exist, while actual stack/heap measurements remain pending phase 11.
 
 **Outcome:** repeatable domain and animation inputs without depending on live work.
 
+**Implemented Studio slices (A-C):** the source integrates a catalog projection from
+`docs/cody/screen-catalog.md` plus the executable `studio_catalog.json` overlay,
+a strict scenario contract, shared native runner and immutable capture/review
+artifacts. P04 maps explicitly to `ui-v1:display` and `cody.settings.display`.
+The original inventory is now identified: **Cody screen map and static
+inventory**, 14 November 2026, baseline `e971b313` plus local changes, with
+document SHA-256 in the machine catalog. Its 100 IDs and 214 declared links
+are distinct from acquired native coverage and the source catalog denominator.
+The Python contract suite passes 16/16 without loading a native library. The
+Linux native host build passes with compiler warnings retained. The ten-case
+pilot suite passes 18/18, including fresh-process exact pixels and out-of-order
+shared-session replay. The Tk/native UI suite passes 17/17 with screenshots
+inspected. Nine cases use the full runtime; C04 uses the production browser
+presenter with a typed synthetic query owner. This does not accept domain
+transport/reducer or general pagination. Physical acceptance remains separate.
+The wider snapshot-integrity, build-profiles, script-contracts and cody-runtime
+host checks pass. Their source-layout/platform and event-fixture corrections
+preserve the current production contracts rather than relaxing the assertions.
+
+The first implemented time contract is a **settled static sample at t=0**,
+with manual monotonic time selected before workers start and no automatic PC
+clock refresh. S01/S02 also declare a separate source-animation sample. This
+does not implement an animation timeline, reverse seek or general asynchronous
+worker replay. Display preparation executes on the display owner;
+the native frame receipt retires with its pixels. Manual orientation is 0/180
+in this host profile, and captures contain the logical raster before panel
+rotation. Auto rotation can be edited with gravity explicitly unavailable.
+
 - [ ] ⚪ **CODY-NEXT-06.01** Build an explicitly synthetic host scenario driver with
   injectable source/animation clocks and deterministic randomness. Feed the same
   domain reducer and Muse integration used by firmware; do not duplicate behavior
@@ -509,6 +537,52 @@ estimates exist, while actual stack/heap measurements remain pending phase 11.
 - [ ] ⚪ **CODY-NEXT-06.05** Integrate scenario entry points under the public
   `scripts/device.ps1` workflow. Document exact runnable commands when implemented.
   Do not invent flags in advance or execute a suite without its required authorization.
+- [ ] 🟡 **CODY-NEXT-06.06** Studio A: consolidate executable catalog contracts,
+  inventory-to-source mappings, availability and strict portable scenarios.
+  The original inventory is identified by date, baseline and SHA-256. Ten pilot
+  identities have explicit mappings; audit the remaining families before
+  claiming inventory-wide coverage.
+- [x] 🟢 **CODY-NEXT-06.07** Studio B: direct native P04, owner-applied inputs,
+  atomic completed-frame identity, shared runner, preserved baselines,
+  compatible before/after/overlay/pixel difference and per-capture reviews.
+  Linux native build and focused suites pass: identical pixels/receipts across
+  two fresh processes, A->B->C->A->B editing/replay in one runtime, immutable
+  baselines, strict rejections, reviews and real Tk focus/resize/persistence.
+  Screenshots inspected at 1440x960 and 720x540. This completes the static P04
+  host slice only; Windows and physical acceptance are not inferred.
+- [x] 🟢 **CODY-NEXT-06.08** Studio C: add S01, S02, S17, P01, P12, W02, W04,
+  S15 and C04 beside P04, with declared runtime/presenter/profile modes,
+  including a difficult direct destination and a transient error. Manually
+  navigating to ten pictures does not pass this gate.
+  Accepted Linux host implementation uses the located inventory: P12 is QuietEdit (P11 is
+  its summary), S15 is Provisioning error and C04 is Tool calls. The latter
+  requires a selected chat/turn and coherent domain observations; its ordinary
+  browser entry is unconfirmed. Preserve this distinction in native receipts,
+  scenarios and acceptance. Snapshot receipts distinguish the explicit source
+  animation sample from monotonic worker replay. All ten have automatic direct
+  acquisition, exact two-process repeatability and forward/reverse shared-session
+  evidence. Battery 80/20 replay, transient error/recovery, changed C04 scopes,
+  ABI output sentinels, immutable baselines and incompatible comparisons pass.
+  Tk exposes all ten, editable C04 records, synchronized history, visible Tab
+  focus with inspector/Atlas scrolling and a separate automatic worker that
+  leaves interactive frame, receipt, sensors, NVS and scenario intact.
+- [ ] 🟡 **CODY-NEXT-06.09** Studio D: apply the approved flat host composition,
+  hierarchical catalog/search/filter, side-column collapse, persisted expanders,
+  editable scenarios, comparison, review and capture thumbnails. The pilot
+  workflows have Linux Tk focus, resize, persistent expanders, capture history
+  and visual screenshot acceptance. Broader Studio requirements and inventory
+  extension remain open; the pilot does not complete the product.
+- [ ] ⚪ **CODY-NEXT-06.10** Studio E: controlled animation clock, reset/replay
+  timeline, keyframes and separate direct-entry/IN-OUT replay actions. Qualify
+  documented, source-supported and observed routes independently.
+- [ ] ⚪ **CODY-NEXT-06.11** Studio F: detect validated native builds, regenerate
+  selected suites in isolated processes with progress/cancellation/per-case
+  errors, retain the last valid result and extend the existing atlas PDF with
+  inventory revision/ID, variant, rendering mode, source and missing reasons.
+  Exclude generated outputs from watching. Visually inspect the PDF; do not
+  generate annotation films automatically.
+- [ ] ⚪ **CODY-NEXT-06.12** Studio G: extend remaining families and report actual
+  coverage by declared availability. The 80–90 target is not an acquired count.
 
 | Scenario ID | Sequence | Required result |
 | --- | --- | --- |

@@ -103,8 +103,10 @@ identify the owning journey; exact current controls remain in navigation.md.
 | next-v1:16 / muse-home | MU; UI `Layer::Mascot` | VibeWare or Home -> BOOT hold for Options; touch reaction | Active source; two-page swipe navigation remains phase 09 |
 | next-v1:10 / tools | ON `OptionsPage::Menu` is reusable source | Proposed top-level peer of Muse Home | Planned exposure; current Tools is inside Options |
 | ui-v1:branding | `VIBEWARE_boot_animation.c`, `assets/branding/VibeWare` | Cold boot/software restart -> Muse | Active source |
+| ui-v1:birth | UI `advance_birth_intro`, original Muse renderer and settings owner | First-boot birth introduction -> mascot/setup; host direct sample preserves the original renderer | Active source; boot-only entry requires explicit preparation |
 | ui-v1:options-preferences, options-device | ON `MenuMore`, `MenuMaintenance` | Options pages -> child setting or Home | Active source |
 | ui-v1:display, behavior, behavior-more, synth-voice | ON corresponding `OptionsPage` | Settings owner readback -> caller | Active source; synth rows report unsupported where excluded |
+| ui-v1:quiet-hours, quiet-hours-edit | ON `QuietHours`, `QuietEdit`; clock/settings owner | Behavior -> quiet-hours summary -> selected start/end editor; Back retains caller and draft context | Active source; summary and editor are distinct identities |
 | ui-v1:guide-buttons, guide-touch, guide-offline | ON `GuideButtons/Touch/Offline` | Device help -> previous/help page | Active source |
 | ui-v1:restart-confirm, restart-pending | ON restart pages | Explicit confirmation -> power owner, no reset of saved settings | Active source |
 | ui-v1:reset-confirm, reset-pending, reset-failed | ON reset pages | Explicit confirmation -> reset owner or visible error | Active source |
@@ -142,6 +144,44 @@ the retained enum plus `scenes/scenes.json`: 0 AnimationDemo; 1 Greeting;
 31 DecisionNotice; 32 DecisionChoices; 33 DecisionConfirm; 34 DecisionWaiting;
 35 ReplySent; 36 CodexNotice; 37 ApprovalOnPc; 38 EventUnavailable.
 Those numbers are not atlas codes and must not be converted by array position.
+
+## Studio catalog and inventory mapping
+
+The [machine-readable Studio catalog](../../cody-device/simulator/windows/studio_catalog.json)
+extends this source inventory with scenario, capture, dependency and transition
+contracts. Studio and automated capture consume that same file. The existing
+source tables remain the reuse index; do not maintain a second hand-written list
+of Studio cases or infer inventory IDs from their row positions.
+
+The reference **Cody screen map and static inventory**, dated 14 November 2026,
+was located and copied without modification to
+`artifacts/docs/studio/Cody-screen-inventory.pdf`. Its revision identity is the
+stated working-tree baseline `e971b313` plus local changes, the document date
+and SHA-256 `4db789f7facf03efa79f6f0efb97ab7e57412b0b73435e50a6c24e8a803b9c77`;
+the document assigns no numeric revision. It enumerates 100 inventory IDs and
+214 declared links, including state families and conditional entries. These
+counts are a declared model, not acquired coverage or complete reachability.
+The separate older native atlas indexes source identities rather than these
+local inventory IDs.
+
+The machine catalog owns the explicit pilot mappings. In particular P04 maps
+to `ui-v1:display`, P12 denotes the **quiet-hours editor**, whereas P11 denotes
+its summary. S15 denotes **Provisioning error**, and C04 denotes the
+turn-scoped **Tool calls** browser. The latter's ordinary user-facing entry is
+unconfirmed in the inventory and requires explicit host context. Do not infer
+these IDs from enum numbers, screen names or table positions.
+
+Catalog availability describes the declared rendering path: full runtime,
+isolated presenter, profile conditional, unsupported or not applicable. It is
+separate from acquisition, pixel comparison and human review status. All ten
+pilot cases have executed Linux exact-pixel repeatability and Tk acceptance:
+nine full-runtime cases and C04 through the production C++ presenter with typed
+synthetic queries. C04 does not establish transport/reducer or general
+pagination acceptance. S01/S02 inspect explicit source-animation samples;
+they do not replay asynchronous startup workers. The suite also checks
+out-of-order preparation, error recovery and isolation from an interactive
+session. Source presence alone does not extend that evidence to new cases or
+physical devices. Clock and worker limits remain attached to each capture.
 
 ## Voice preservation
 

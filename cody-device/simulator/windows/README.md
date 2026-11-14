@@ -9,6 +9,107 @@ PC audio remain host observations; electrical behavior requires device evidence.
 
 ## Open Cody Studio
 
+The controlled Studio runner opens catalog destinations directly with isolated
+synthetic inputs. The phase C pilot contains S01 Branding, S02 Birth, S17 Guide:
+Buttons, P01 Settings, P04 Display, P12 Quiet hours editor, W02 Reset countdown,
+W04 Codex limits, S15 Provisioning error and C04 Tool calls. Nine cases use the
+full native runtime; C04 uses the production C++ browser presenter with a typed,
+synthetic query owner. It does not establish domain transport/reducer acceptance.
+The Linux native build and the pilot suite pass (18/18); the real Tk/native
+suite passes (17/17). Every pilot case has exact repeated pixels in fresh
+processes and after out-of-order preparation in a shared session. Host captures
+and window screenshots were visually inspected. Windows and physical-device
+acceptance remain separate.
+The approved Studio mockup defines
+the host hierarchy and expanders; it does not replace device captions, icons,
+settings or renderer geometry.
+
+Public commands (run each only with the approval required by `AGENTS.md`):
+
+```powershell
+pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio
+pwsh -NoProfile -File ./scripts/device.ps1 generate -Generator cody-simulator-graphics -ToolArguments '--device-runtime'
+pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--native'
+pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--pilot'
+pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioCase P04
+pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioCase S15
+```
+
+On a headless Linux host, exercise the real Tk/native window with retained
+screenshots and isolated settings/preferences:
+
+```bash
+xvfb-run -a -s '-screen 0 1920x1200x24' pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--ui'
+```
+
+This suite checks direct preparation of all ten cases, editing at input bounds
+and replay back to the same pixels, scenario save/load, baseline preservation,
+capture history synchronization, notes, keyboard focus, expander
+restoration, visible status/Atlas controls and proportional layout at 1440x960
+and 720x540. Collapsed lower sections share a compact row on small windows.
+Screenshots are host UI evidence and never substitute for device photographs.
+
+`-StudioCase`, `-StudioScenario` and `-StudioCapture` explicitly select the
+native controlled runner and reject legacy preview flags, including `-Screen`,
+`-AtMs` and `-OutputPath`. This route does not implicitly rebuild a stale
+runtime. Rebuilt libraries require a new process; provenance is checked again
+before preparation and capture. The ordinary live window's Simulator menu also
+opens a separate controlled Studio session using the same internal entry point.
+
+The window provides catalog search/availability filters, synthetic battery,
+network, civil clock, settings and case-specific page/service inputs, scenario
+load/save, a proportional
+native frame, explicit baseline preservation, side-by-side/overlay/pixel
+difference and capture-specific human reviews. Expanders persist independently
+of native state; Catalog and Inspector can collapse on smaller windows. Source
+actions resolve symbol lines in the current checkout. Declared IN/OUT routes
+are source analysis and have not been replayed. Animation is explicitly
+unavailable for this contract. All device pixels come from native C/C++.
+
+Saving scenarios and reviews writes under `artifacts/simulator/studio/`.
+Scenario saves refuse replacement; captures and baseline copies use unique
+directories and never overwrite existing evidence. A comparison requires the
+same target, canonical scenario revision, variant, geometry, rendering mode,
+fixed native dependencies and capture instant. Acquisition, pixel difference and human review are independent;
+changed pixels do not declare an error. Previously saved baselines are accepted
+with their historical build hashes rather than compared against today's source.
+
+Replay a saved scenario or capture without a window using the same runner:
+
+```powershell
+pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioScenario artifacts/simulator/studio/my-case.json
+pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioCase P04 -StudioCapture
+```
+
+The time contract is a **settled static sample at t=0**: monotonic time freezes
+before bootstrap and civil time comes from the scenario. S01 and S02 select a
+separate source-animation sample, recorded with the completed frame. This is
+source-frame inspection, not execution of a worker timeline. The display owner
+prepares each destination and its caller/return context before rendering.
+Only orientation 0/180 is supported by this host profile. The capture is the
+logical raster before hardware panel rotation; auto rotation has no simulated
+gravity observation. No arbitrary delay or post-capture route query assigns
+identity. Timeline seeking, general worker replay, automatic atlas updates and
+PDF integration remain pending under `CODY-NEXT-06`. The inventory is **Cody
+screen map and static inventory**, 14 November 2026, baseline `e971b313` plus
+local changes; its SHA-256 and repository-relative artifact location are in
+`studio_catalog.json`. Its 100 entries and 214 declared links describe that
+document, independently of native acquisition coverage. No physical acceptance
+is claimed.
+
+The default suite checks contracts without loading the native library. Its
+`--native` extension runs two fresh processes/settings stores and compares
+exact RGB pixels plus same-frame identity; it does not establish device parity.
+The `--pilot` extension captures every pilot case twice in fresh processes,
+compares exact pixels/receipts, and exercises forward/reverse case order plus
+error/recovery and changed C04 scopes in a shared native session. It rejects
+invalid inputs and stale build provenance, preserves baseline bytes and writes
+a labelled contact sheet only when every case succeeds. Declared routes are
+not thereby reproduced. C04's ordinary user-facing entry remains unconfirmed;
+S15 scripts a transient provisioning failure without sending a real request.
+Generated artifacts are retained. Cleanup remains manual and requires an
+explicit request.
+
 I always use the public console from the repository root:
 
 ```powershell
