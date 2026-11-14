@@ -100,8 +100,13 @@ def resolve_source(entry, symbol=None):
     if not source.is_relative_to(ROOT):
         raise ValueError("Studio source escaped the repository")
     name = symbol or entry["symbol"]
-    pattern = re.compile(r"\b" + re.escape(name) + r"\s*\(")
-    for number, line in enumerate(source.read_text(encoding="utf-8").splitlines(), 1):
-        if pattern.search(line):
-            return source, number
-    raise ValueError(f"Source symbol is absent in current checkout: {name}")
+    # Require a return type on the declaration line and a body after its
+    # parameter list. Calls and forward declarations do not identify an owner.
+    pattern = re.compile(r"^[ \t]*(?:(?:[\w:<>*&]+)[ \t]+)+" + re.escape(name) +
+                         r"[ \t]*\([^;{}]*\)[ \t\r\n]*(?:const[ \t\r\n]*)?"
+                         r"(?:noexcept[ \t\r\n]*)?\{", re.MULTILINE)
+    content = source.read_text(encoding="utf-8")
+    matches = list(pattern.finditer(content))
+    if len(matches) != 1:
+        raise ValueError(f"Source definition is missing or ambiguous in current checkout: {name}")
+    return source, content.count("\n", 0, matches[0].start()) + 1

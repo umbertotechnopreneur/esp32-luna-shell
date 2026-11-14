@@ -330,6 +330,23 @@ class CatalogContractTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "identity"):
                     entry_for(identity)
 
+    # self: Current sources and temporary repository-relative C++ definitions.
+    # Raises AssertionError if a call, absent symbol or overload is treated as a definition.
+    def test_open_source_resolves_definition_and_rejects_ambiguity(self):
+        source, line = resolve_source(entry_for("S15"))
+        self.assertRegex(source.read_text(encoding="utf-8").splitlines()[line - 1],
+                         r"\besp_err_t\s+update_onboarding\s*\(")
+        fixture = fixture_directory() / "definitions.cpp"
+        fixture.write_text("void caller() { target(); }\nvoid target()\n{\n}\n", encoding="utf-8")
+        item = {"source": fixture.relative_to(ROOT).as_posix(), "symbol": "target"}
+        resolved, number = resolve_source(item)
+        self.assertEqual((resolved, number), (fixture, 2))
+        with self.assertRaises(ValueError):
+            resolve_source(item, "missing_symbol")
+        fixture.write_text("void target() {}\nvoid target(int value) {}\n", encoding="utf-8")
+        with self.assertRaises(ValueError):
+            resolve_source(item)
+
 
 class ScenarioContractTests(unittest.TestCase):
     """Reject ambiguous inputs and preserve portable scenario identity."""
@@ -586,6 +603,41 @@ class ComparisonContractTests(unittest.TestCase):
         self.assertEqual((current.image_path.read_bytes(), current.metadata_path.read_bytes()), original)
         self.assertEqual((baseline.image_path.read_bytes(), baseline.metadata_path.read_bytes()), retained)
         self.assertFalse(any(baseline.metadata_path.parent.glob("review-*.json")))
+
+    # self: Historical source identity is retained across a catalog source move.
+    # Raises AssertionError for a false comparison rejection or an unsafe source path.
+    def test_historical_baseline_source_is_portable_after_catalog_move(self):
+        original = capture_fixture()
+        baseline = preserve_baseline(original)
+        retained = (baseline.image_path.read_bytes(), baseline.metadata_path.read_bytes())
+        moved = deepcopy(entry_for("P04"))
+        moved["source"] = "cody-device/relocated/display.cpp"
+        with patch.object(studio_runner, "entry_for", return_value=moved):
+            self.assertEqual(load_capture(baseline.metadata_path).metadata["source"], original.metadata["source"])
+            self.assertEqual(compare_captures(baseline, original).status, "unchanged")
+        self.assertEqual((baseline.image_path.read_bytes(), baseline.metadata_path.read_bytes()), retained)
+        historical = capture_fixture()
+        metadata = deepcopy(historical.metadata)
+        old_source = "cody-device/retired/location.cpp"
+        metadata["source"] = old_source
+        metadata["build"]["inputs"] = {old_source: metadata["source_sha256"]}
+        historical.metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        self.assertEqual(compare_captures(baseline, load_capture(historical.metadata_path)).status, "unchanged")
+        metadata["build"]["inputs"][old_source] = "1" * 64
+        historical.metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            load_capture(historical.metadata_path)
+        for invalid in ("/tmp/source.cpp", "../outside.cpp", "cody-device/../outside.cpp",
+                        "C:\\Users\\example\\source.cpp", "C:/Users/example/source.cpp",
+                        "\\\\server\\share\\source.cpp"):
+            with self.subTest(source=invalid):
+                candidate = capture_fixture()
+                metadata = deepcopy(candidate.metadata)
+                metadata["source"] = invalid
+                metadata["build"]["inputs"] = {invalid: metadata["source_sha256"]}
+                candidate.metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    load_capture(candidate.metadata_path)
 
     # self: Retained fixture with deliberately corrupted metadata or PNG bytes.
     # Raises AssertionError if wrong geometry or altered pixels retain capture validity.
@@ -1057,12 +1109,105 @@ class NativeUiTests(unittest.TestCase):
         self.assertLessEqual(bottom, height)
         self.assertLessEqual(abs((right - left) - expected_ratio * (bottom - top)), 2)
 
+    # No parameters: inspect actual catalog groups and their visible child identities.
+    # Returns all current leaf IDs; errors from the Tk tree propagate.
+    def catalog_leaves(self):
+        return {item for group in self.window.tree.get_children()
+                for item in self.window.tree.get_children(group)}
+
+    # No parameters: exercise search, availability and selected-source resolution.
+    # Raises AssertionError if filtering changes the capture or invents support.
+    def assert_catalog_controls(self):
+        window = self.window
+        before = window.current.metadata_path
+        window.search.set("p04")
+        self.root.update()
+        self.assertEqual(self.catalog_leaves(), {PILOT_CASES["P04"]})
+        window.filter.set("Unsupported")
+        self.root.update()
+        self.assertEqual(self.catalog_leaves(), set())
+        window.search.set("")
+        self.root.update()
+        unsupported = self.catalog_leaves()
+        self.assertTrue(unsupported)
+        self.assertTrue(all(entry_for(item)["availability"] not in ("runtime-full", "presenter-isolated")
+                            for item in unsupported))
+        selected = sorted(unsupported)[0]
+        window.tree.selection_set(selected)
+        self.root.update()
+        self.button("Open destination").invoke()
+        self.assertEqual(window.current.metadata_path, before)
+        self.assertFalse(window.busy)
+        self.assertIn("no supported", window.status.get().lower())
+        window.filter.set("Supported")
+        self.root.update()
+        self.assertTrue(set(PILOT_CASES.values()).issubset(self.catalog_leaves()))
+        window.search.set("p04")
+        self.root.update()
+        window.tree.selection_set(PILOT_CASES["P04"])
+        with patch.object(self.ui_module.shutil, "which", return_value=None):
+            self.button("Open source").invoke()
+        source, line = resolve_source(entry_for("P04"))
+        self.assertIn(f"{source.relative_to(ROOT)}:{line}", window.status.get())
+        self.assertEqual(window.current.metadata_path, before)
+        window.filter.set("All")
+        window.search.set("")
+        self.root.update()
+
+    # No parameters: exercise changed/review filters using explicitly synthetic test pixels.
+    # Raises AssertionError if a mismatch becomes a change or approval follows pixels.
+    def assert_review_and_difference_filters(self):
+        window = self.window
+        first, baseline = window.current, window.baseline
+        baseline_bytes = (baseline.image_path.read_bytes(), baseline.metadata_path.read_bytes())
+        with Image.open(first.image_path) as original:
+            pixels = original.copy()
+        old = pixels.getpixel((233, 233))
+        pixels.putpixel((233, 233), ((old[0] + 1) % 256, old[1], old[2]))
+        changed = capture_fixture(pixels)
+        window.set_current(changed)
+        self.assertIn("1 changed pixels", window.compare_status.get())
+        self.assertEqual(window.review.get(), "unreviewed")
+        window.filter.set("Changed")
+        self.root.update()
+        self.assertIn(PILOT_CASES["P04"], self.catalog_leaves())
+        window.filter.set("Needs review")
+        self.root.update()
+        self.assertIn(PILOT_CASES["P04"], self.catalog_leaves())
+        window.note.delete("1.0", "end")
+        window.note.insert("1.0", "Visual change reviewed for this capture.")
+        window.review.set("approved")
+        self.button("Save capture review").invoke()
+        self.root.update()
+        self.assertNotIn(PILOT_CASES["P04"], self.catalog_leaves())
+        window.filter.set("Changed")
+        self.root.update()
+        self.assertIn(PILOT_CASES["P04"], self.catalog_leaves(),
+                      "Human approval must not erase a visual difference")
+        incompatible = default_scenario()
+        incompatible["common"]["settings"]["brightness_percent"] = 37
+        window.filter.set("All")
+        window.set_current(capture_fixture(scenario=incompatible))
+        window.filter.set("Changed")
+        self.root.update()
+        self.assertNotIn(PILOT_CASES["P04"], self.catalog_leaves(),
+                         "An incompatible latest capture must not be classified as changed")
+        self.assertIn("Not comparable", window.compare_status.get())
+        self.assertEqual((baseline.image_path.read_bytes(), baseline.metadata_path.read_bytes()), baseline_bytes)
+        window.filter.set("All")
+        window.set_current(first)
+        self.root.update()
+
     # self: One real native owner reused through edits and a reopened Tk window.
     # Raises AssertionError for frame contamination, broken controls or lost review state.
     def test_native_ui_edit_compare_resize_focus_and_persistence(self):
         window = self.window
         original = default_scenario()
         first = window.current
+        self.assertEqual({name: data[2] for name, data in window.sections.items()},
+                         {"Comparison": False, "Scenario": True, "Changes": False,
+                          "Review notes": False, "Animation": False, "Routes": True, "Atlas": True})
+        self.assert_catalog_controls()
         self.assert_headless_worker_isolated()
         self.root.geometry("1440x960+0+0")
         self.wait_for(lambda: window.canvas.winfo_width() > 100, "wide canvas geometry")
@@ -1074,12 +1219,20 @@ class NativeUiTests(unittest.TestCase):
         self.button("Preserve current as baseline").invoke()
         baseline = window.baseline
         retained = (baseline.image_path.read_bytes(), baseline.metadata_path.read_bytes())
-        window.mode.set("side-by-side")
-        window.draw()
+        dict(window.mode_controls)["side-by-side"].invoke()
+        self.assertTrue(window.sections["Comparison"][2], "Comparison mode must expose its inspector")
         self.assert_frame_geometry(2)
         self.show_atlas()
         self.assert_status_visible()
         self.screenshot("studio-compare.png")
+        self.assert_review_and_difference_filters()
+        for mode in ("overlay", "difference"):
+            dict(window.mode_controls)[mode].invoke()
+            self.assert_frame_geometry(1)
+            self.assertIn("Unchanged", window.compare_status.get())
+        window.opacity.set(0.25)
+        window.draw()
+        self.assertAlmostEqual(window.opacity.get(), 0.25)
 
         window.left_visible.set(False)
         window.right_visible.set(False)
@@ -1165,6 +1318,8 @@ class NativeUiTests(unittest.TestCase):
         window.review.set("approved")
         self.button("Save capture review").invoke()
         window.set_current(first)
+        self.assertEqual(window.review.get(), "unreviewed")
+        self.assertEqual(window.note.get("1.0", "end").strip(), "")
         with patch.object(self.ui_module.filedialog, "askopenfilename", return_value=str(replayed.metadata_path)):
             self.button("Open saved capture…").invoke()
         self.assertEqual(window.review.get(), "approved")
@@ -1267,7 +1422,40 @@ class NativeUiTests(unittest.TestCase):
         self.open_window(original)
         self.assertEqual({name: values[2] for name, values in self.window.sections.items()}, expected)
         self.assertFalse(self.window.left_visible.get())
+        self.assertIsNotNone(self.window.baseline, "The explicit baseline was lost after reopening")
+        self.assertEqual(self.window.baseline.metadata_path, baseline.metadata_path)
         self.assertEqual((baseline.image_path.read_bytes(), baseline.metadata_path.read_bytes()), retained)
+
+        # Missing or corrupted saved baselines remain visible and keep their path
+        # until a person deliberately chooses a replacement.
+        missing = self.directory / "missing-baseline.json"
+        corrupt = self.directory / "corrupt-baseline.json"
+        corrupt.write_text("{not valid JSON", encoding="utf-8")
+        for unavailable in (missing, corrupt):
+            self.close_window()
+            preferences = json.loads(self.state_path.read_text(encoding="utf-8"))
+            expected_path = unavailable.relative_to(ROOT).as_posix()
+            preferences["baseline"] = expected_path
+            self.state_path.write_text(json.dumps(preferences), encoding="utf-8")
+            self.open_window(original)
+            self.root.update()
+            self.assertIsNone(self.window.baseline)
+            self.assertTrue(self.window.baseline_warning_label.winfo_ismapped())
+            self.assertIn("Baseline unavailable", self.window.baseline_warning_label.cget("text"))
+            self.window.left_visible.set(not self.window.left_visible.get())
+            self.window.columns()
+            self.assertEqual(json.loads(self.state_path.read_text(encoding="utf-8"))["baseline"], expected_path)
+        if not self.window.sections["Comparison"][2]:
+            self.window.sections["Comparison"][0].invoke()
+        with patch.object(self.ui_module.filedialog, "askopenfilename", return_value=str(baseline.metadata_path)):
+            self.button("Choose baseline…").invoke()
+        self.root.update()
+        self.assertIsNotNone(self.window.baseline)
+        self.assertFalse(self.window.baseline_warning_label.winfo_ismapped())
+        self.assertNotEqual(self.window.baseline.metadata_path, baseline.metadata_path)
+        self.assertEqual((baseline.image_path.read_bytes(), baseline.metadata_path.read_bytes()), retained)
+        self.assertEqual(json.loads(self.state_path.read_text(encoding="utf-8"))["baseline"],
+                         self.window.baseline.metadata_path.relative_to(ROOT).as_posix())
 
 
 # No parameters: exercise one process-owned native session and retained artifacts.

@@ -132,8 +132,13 @@ def load_capture(metadata_path):
     if not isinstance(build, dict) or not isinstance(build.get("inputs"), dict) or not build["inputs"]:
         raise ValueError("Studio capture is missing its native build provenance")
     hashes += [build.get("manifest_sha256"), build.get("library_sha256"), *build["inputs"].values()]
-    if (metadata.get("source") != entry["source"] or
-            build["inputs"].get(entry["source"]) != metadata.get("source_sha256") or
+    # Historical receipts retain the source path from their own build. A later
+    # catalog move must not invalidate an otherwise comparable saved capture.
+    # This path is an identity key only; it is never opened from the receipt.
+    source = metadata.get("source")
+    if (not isinstance(source, str) or not source or "\\" in source or ":" in source or
+            any(part in ("", ".", "..") for part in source.split("/")) or
+            build["inputs"].get(source) != metadata.get("source_sha256") or
             any(not isinstance(value, str) or not re.fullmatch(r"[0-9a-f]{64}", value) for value in hashes)):
         raise ValueError("Studio capture source or historical build hashes are invalid")
     if not isinstance(metadata.get("png"), str) or not metadata["png"]:

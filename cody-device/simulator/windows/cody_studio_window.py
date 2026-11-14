@@ -3,6 +3,7 @@
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 import json
+from pathlib import Path
 import queue
 import shutil
 import subprocess
@@ -58,6 +59,8 @@ class StudioWindow:
         self.root, self.scenario = root, deepcopy(scenario)
         self.runner = StudioRunner(device)
         self.current = self.baseline = None
+        self.baseline_error = None
+        self.unavailable_baseline = None
         self.records, self.sections, self.photos = [], {}, []
         self.busy = self.closed = False
         self.focus_reveal_id = None
@@ -65,6 +68,7 @@ class StudioWindow:
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='cody-studio')
         self.status = tk.StringVar(value='Preparing native Studio case…')
         self.preferences = self.read_preferences()
+        self.restore_baseline()
         root.title('Cody Studio — SIMULATED')
         root.configure(bg=BG)
         root.geometry('1440x960')
@@ -146,12 +150,32 @@ class StudioWindow:
             path.parent.mkdir(parents=True, exist_ok=True)
             value = {'schema': 'cody.studio.ui.v1',
                      'expanders': {key: data[2] for key, data in self.sections.items()},
-                     'left': self.left_visible.get(), 'right': self.right_visible.get()}
+                     'left': self.left_visible.get(), 'right': self.right_visible.get(),
+                     'baseline': (str(self.baseline.metadata_path.relative_to(ROOT)) if self.baseline
+                                  else self.unavailable_baseline)}
             temporary = path.with_suffix('.json.tmp')
             temporary.write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
             temporary.replace(path)
         except (OSError, ValueError) as error:
             self.status.set(f'UI preferences not saved: {error}')
+
+    # No parameters: restore only an explicitly preserved baseline from artifacts.
+    # Exceptions: Corrupt or missing evidence is reported and never substituted.
+    def restore_baseline(self):
+        stored = self.preferences.get('baseline')
+        if stored is None:
+            return
+        try:
+            if not isinstance(stored, str) or Path(stored).is_absolute():
+                raise ValueError('Baseline preference requires a repository-relative path')
+            record = load_capture(ROOT / stored)
+            if record.metadata.get('baseline') is not True:
+                raise ValueError('Baseline preference does not identify a preserved baseline')
+            self.baseline = record
+        except (OSError, ValueError) as error:
+            self.baseline_error = str(error)
+            self.unavailable_baseline = stored
+            self.status.set(f'Baseline unavailable: {error}')
 
     # parent: Flat section owner.
     # name: Stable preference key and heading.
@@ -261,8 +285,12 @@ class StudioWindow:
         self.search = tk.StringVar()
         self.field(self.left, self.search).pack(fill='x', pady=(4, 8))
         self.filter = tk.StringVar(value='All')
-        ttk.Combobox(self.left, textvariable=self.filter, values=('All', 'Supported', 'Unsupported'),
+        ttk.Combobox(self.left, textvariable=self.filter,
+                     values=('All', 'Supported', 'Runtime full', 'Presenter isolated', 'Profile conditional',
+                             'Unsupported', 'Not applicable', 'Changed', 'Needs review'),
                      state='readonly', width=25, style='Studio.TCombobox').pack(fill='x')
+        self.catalog_message = tk.StringVar(value='Changed and Needs review use captures loaded in this session.')
+        caption(self.left, textvariable=self.catalog_message, size=9, wraplength=240).pack(fill='x', pady=(4, 0))
         self.tree = ttk.Treeview(self.left, show='tree', style='Studio.Treeview', height=15)
         self.tree.pack(fill='both', expand=True, pady=10)
         self.tree.bind('<<TreeviewSelect>>', self.selection)
@@ -277,13 +305,15 @@ class StudioWindow:
         self.frame_subtitle = tk.StringVar(value='Native C/C++ · synthetic scenario inputs')
         caption(self.center, textvariable=self.frame_title, size=28, bold=True).pack(anchor='w')
         caption(self.center, textvariable=self.frame_subtitle, size=11).pack(anchor='w', pady=(4, 10))
+        self.baseline_warning_label = caption(self.center, size=10, wraplength=480)
+        self.update_baseline_warning()
         modes = tk.Frame(self.center, bg=BG)
         modes.pack(fill='x')
         self.mode = tk.StringVar(value='current')
         self.mode_controls = []
         for text, mode in (('Current', 'current'), ('Before / After', 'side-by-side'),
                            ('Overlay', 'overlay'), ('Difference', 'difference')):
-            control = tk.Radiobutton(modes, text=text, value=mode, variable=self.mode, command=self.draw,
+            control = tk.Radiobutton(modes, text=text, value=mode, variable=self.mode, command=self.mode_changed,
                            bg=BG, fg=FG, selectcolor=FIELD, indicatoron=False, relief='flat', bd=0,
                            activeforeground=ORANGE, activebackground=FIELD, highlightcolor=ORANGE,
                            highlightbackground=BG, highlightthickness=2, padx=7, pady=4)
@@ -323,9 +353,12 @@ class StudioWindow:
         self.thumbnails = tk.Frame(atlas, bg=BG)
         self.thumbnails.pack(fill='x')
         action(atlas, 'Open saved capture…', self.open_capture).pack(anchor='w')
-        comparison = self.section(right, 'Comparison', True)
+        comparison = self.section(right, 'Comparison', False)
         action(comparison, 'Choose baseline…', self.choose_baseline).pack(fill='x')
         action(comparison, 'Preserve current as baseline', self.keep_baseline).pack(fill='x')
+        action(comparison, 'Clear baseline selection', self.clear_baseline).pack(fill='x')
+        self.evidence_status = tk.StringVar(value='Acquisition: awaiting capture\nDifference: not comparable\nReview: unreviewed')
+        caption(comparison, textvariable=self.evidence_status, wraplength=275).pack(fill='x', pady=5)
         self.compare_status = tk.StringVar(value='Not comparable · choose a baseline')
         caption(comparison, textvariable=self.compare_status, wraplength=275).pack(fill='x', pady=5)
         caption(comparison, 'Overlay opacity', 10).pack(anchor='w')
@@ -402,20 +435,73 @@ class StudioWindow:
     # args: Ignored Tk trace metadata.
     # Maintained source identities remain visible when their contracts are unsupported.
     def catalog(self, *args):
+        selected = self.tree.selection()
         self.tree.delete(*self.tree.get_children())
         groups = {}
+        latest = {}
+        for record in reversed(self.records):
+            latest.setdefault(record.metadata['id'], record)
+        availability_modes = {'Runtime full': 'runtime-full', 'Presenter isolated': 'presenter-isolated',
+                              'Profile conditional': 'profile-conditional', 'Unsupported': 'unsupported',
+                              'Not applicable': 'not-applicable'}
+        failures = []
         for item in load_catalog():
             supported = item['availability'] in ('runtime-full', 'presenter-isolated')
             mode = self.filter.get()
             text = f"{item.get('inventory_id') or item['id']} {item['title']}"
             if self.search.get().casefold() not in text.casefold():
                 continue
-            if (mode == 'Supported' and not supported) or (mode == 'Unsupported' and supported):
+            if mode == 'Supported' and not supported:
                 continue
-            group = item.get('group', 'Supported native') if supported else 'Source catalog · unsupported'
+            if mode in availability_modes and item['availability'] != availability_modes[mode]:
+                continue
+            if mode in ('Changed', 'Needs review'):
+                record = latest.get(item['id'])
+                if record is None:
+                    continue
+                try:
+                    if mode == 'Changed':
+                        if not self.baseline or compare_captures(self.baseline, record).status != 'changed':
+                            continue
+                    elif load_review(record)['status'] == 'approved':
+                        continue
+                except (OSError, ValueError) as error:
+                    failures.append(f"{item.get('inventory_id') or item['id']}: {error}")
+                    continue
+            group = item.get('group', 'Supported native') if supported else 'Source catalog · ' + item['availability']
             if group not in groups:
                 groups[group] = self.tree.insert('', 'end', text=group, open=supported)
             self.tree.insert(groups[group], 'end', iid=item['id'], text=text)
+        if selected and self.tree.exists(selected[0]):
+            self.tree.selection_set(selected[0])
+        message = 'Changed and Needs review use captures loaded in this session.'
+        if failures:
+            message += '\nEvidence unavailable: ' + '; '.join(failures)
+        self.catalog_message.set(message)
+
+    # No parameters: keep an unavailable saved baseline visible until explicitly replaced or cleared.
+    # Exceptions: Tk errors propagate; the saved preference is not modified here.
+    def update_baseline_warning(self):
+        if self.baseline_error:
+            self.baseline_warning_label.configure(text=f'Baseline unavailable: {self.baseline_error}', fg=ORANGE)
+            self.baseline_warning_label.pack(anchor='w', before=self.canvas if hasattr(self, 'canvas') else None)
+        else:
+            self.baseline_warning_label.pack_forget()
+
+    # No parameters: refresh evidence filters after a capture, baseline or review changes.
+    # Exceptions: Catalog validation errors propagate instead of inventing evidence.
+    def refresh_evidence_filter(self):
+        if self.filter.get() in ('Changed', 'Needs review'):
+            self.catalog()
+
+    # No parameters: the requested comparison mode makes its controls visible.
+    # Exceptions: Persistence failures are reported by persist().
+    def mode_changed(self):
+        if self.mode.get() != 'current' and not self.sections['Comparison'][2]:
+            self.sections['Comparison'][2] = True
+            self.refresh_section('Comparison')
+            self.persist()
+        self.draw()
 
     # event: Optional native Tk selection event.
     def selection(self, event=None):
@@ -609,6 +695,7 @@ class StudioWindow:
         self.describe_entry(entry)
         if all(item.metadata_path != record.metadata_path for item in self.records):
             self.records.append(record)
+        self.refresh_evidence_filter()
         self.note.delete('1.0', 'end')
         self.note.insert('1.0', review['note'])
         self.review.set(review['status'])
@@ -648,9 +735,14 @@ class StudioWindow:
             else:
                 summary = ('Unchanged' if result.changed_pixels == 0 else 'Modified') + f' · {result.changed_pixels} changed pixels'
             self.compare_status.set(summary + '\nAcquisition and human review are separate states.')
+            review = load_review(self.current)
+            difference = result.status if result else 'not-comparable'
+            self.evidence_status.set(f"Acquisition: captured\nDifference: {difference}\nReview: {review['status']}")
             self.refresh_section('Changes', 'Changes · ' + (str(result.changed_pixels) + ' pixels' if result and result.compatible else 'not compared'))
             width, height = max(1, self.canvas.winfo_width()), max(1, self.canvas.winfo_height())
-            usable_height = max(1, height - 30)
+            unavailable = self.mode.get() != 'current' and (result is None or not result.compatible)
+            header_height = 60 if unavailable else 30
+            usable_height = max(1, height - header_height)
             factor = min(width / frame.width, usable_height / frame.height)
             size = max(1, round(frame.width * factor)), max(1, round(frame.height * factor))
             self.frame_photo = ImageTk.PhotoImage(frame.resize(size, Image.Resampling.NEAREST))
@@ -658,7 +750,12 @@ class StudioWindow:
             if self.mode.get() == 'side-by-side' and result and result.compatible:
                 self.canvas.create_text(width * .25, 10, text='BEFORE · saved baseline', fill=ORANGE, anchor='n')
                 self.canvas.create_text(width * .75, 10, text='AFTER · selected capture', fill=FG, anchor='n')
-            self.canvas.create_image(width // 2, 30 + usable_height // 2, image=self.frame_photo)
+            elif unavailable:
+                reason = ('; '.join(result.reasons) if result else
+                          ('Saved baseline unavailable: ' + self.baseline_error if self.baseline_error else 'Choose a baseline'))
+                self.canvas.create_text(width // 2, 4, text='Not comparable · ' + reason,
+                                        fill=ORANGE, anchor='n', width=max(1, width - 16))
+            self.canvas.create_image(width // 2, header_height + usable_height // 2, image=self.frame_photo)
         except (OSError, ValueError, RuntimeError) as error:
             self.error(error)
 
@@ -667,6 +764,11 @@ class StudioWindow:
         if self.current:
             try:
                 self.baseline = preserve_baseline(self.current)
+                self.baseline_error = None
+                self.unavailable_baseline = None
+                self.update_baseline_warning()
+                self.persist()
+                self.refresh_evidence_filter()
                 self.draw()
             except (OSError, ValueError) as error:
                 self.error(error)
@@ -678,9 +780,25 @@ class StudioWindow:
         if path:
             try:
                 self.baseline = preserve_baseline(load_capture(path))
+                self.baseline_error = None
+                self.unavailable_baseline = None
+                self.update_baseline_warning()
+                self.persist()
+                self.refresh_evidence_filter()
                 self.draw()
             except (OSError, ValueError) as error:
                 self.error(error)
+
+    # No parameters: deselect the baseline while retaining its immutable artifacts.
+    # Exceptions: Persistence errors are reported by persist().
+    def clear_baseline(self):
+        self.baseline = None
+        self.baseline_error = None
+        self.unavailable_baseline = None
+        self.update_baseline_warning()
+        self.persist()
+        self.refresh_evidence_filter()
+        self.draw()
 
     # No parameters: inspect an existing capture without preparing native state.
     def open_capture(self):
@@ -742,6 +860,8 @@ class StudioWindow:
                 save_review(self.current, note, self.review.get())
                 review = load_review(self.current)
                 self.refresh_section('Review notes', f"Review notes · {review['count']} · {review['status']}")
+                self.refresh_evidence_filter()
+                self.draw()
                 self.status.set('Review saved for the selected capture.')
             except (OSError, ValueError) as error:
                 self.error(error)
