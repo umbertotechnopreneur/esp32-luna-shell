@@ -1,0 +1,33 @@
+{
+  "schema": "cody.studio.scenario.v1",
+  "id": "p04-display-default",
+  "title": "P04 Display - synthetic controlled sample",
+  "variant": "default",
+  "seed": 0,
+  "common": {
+    "settings": {
+      "brightness_percent": 80,
+      "auto_rotate": false,
+      "orientation_degrees": 0
+    },
+    "observations": {
+      "battery": {"level_percent": 80},
+      "network": {"connected": false, "ssid": "", "rssi": null},
+      "clock": {"epoch_seconds": 1794704400, "utc_offset_minutes": 420}
+    }
+  },
+  "page": {},
+  "context": {
+    "target": "ui-v1:display",
+    "selection": null,
+    "caller": "atlas-v1:10",
+    "return_to": "atlas-v1:10"
+  },
+  "time": {
+    "mode": "controlled-static",
+    "initial_ms": 0,
+    "advances_ms": [],
+    "capture_at_ms": [0]
+  },
+  "services": {}
+}

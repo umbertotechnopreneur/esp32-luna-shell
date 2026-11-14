@@ -1,0 +1,53 @@
+{
+  "schema": "cody.studio.catalog.v1",
+  "source_catalog": "docs/cody/screen-catalog.md",
+  "inventory": {
+    "document": null,
+    "revision": null,
+    "reported_entry_count": 100,
+    "mapping_evidence": "Owner specification dated 2026-11-15; original inventory document and revision pending"
+  },
+  "entries": [
+    {
+      "id": "ui-v1:display",
+      "inventory_id": "P04",
+      "title": "Display",
+      "native_target": "cody.settings.display",
+      "controller": "CODY::Onboarding / display worker",
+      "availability": "runtime-full",
+      "verification": "source-only; native build and host acceptance pending",
+      "variants": ["default"],
+      "profiles": ["cody-companion"],
+      "features": ["native-display", "settings"],
+      "scenario": "cody-studio-p04.json",
+      "capture_at_ms": [0],
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_options_content",
+      "dependencies": ["UserSettingsService", "DeviceSnapshotService", "display-owner"],
+      "time_control": "Controlled static P04 sample at t=0; animation and asynchronous worker replay are not supported",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "atlas-v1:10",
+          "destination": "ui-v1:display",
+          "event": "Display action",
+          "condition": "Options is open and the Display action is admitted",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "activate_options_action",
+          "replay": false
+        },
+        {
+          "origin": "ui-v1:display",
+          "destination": "atlas-v1:10",
+          "event": "Back",
+          "condition": "Display page is active",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "options_back_available",
+          "replay": false
+        }
+      ]
+    }
+  ]
+}
