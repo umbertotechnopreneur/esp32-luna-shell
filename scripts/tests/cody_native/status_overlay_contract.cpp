@@ -128,7 +128,7 @@ std::vector<uint16_t> render(const CODY::StatusOverlay &overlay, uint16_t backgr
 void compact_tile_parity(const CODY::StatusOverlay &overlay, const std::vector<uint16_t> &reference)
 {
     constexpr uint16_t guard = 0x1357;
-    for (uint16_t top = 0; top < 72; top += 9) {
+    for (uint16_t top = 0; top < CODY::kStatusOverlayBounds.bottom; top += 9) {
         for (uint16_t left = 0; left < kCanvas; left += 43) {
             const uint16_t width = std::min<uint16_t>(43, kCanvas - left);
             const uint16_t stride = width + 2;
@@ -161,6 +161,11 @@ void compact_tile_parity(const CODY::StatusOverlay &overlay, const std::vector<u
 int check_status_overlay_contract()
 {
     failures = 0;
+    CODY::StatusCaption startup_caption{};
+    require(CODY::prepare_status_caption(CODY::kSettingsRetryCaption, 0, startup_caption) == ESP_OK,
+        "settings retry caption uses supported glyphs and fits");
+    require(CODY::prepare_status_caption(CODY::kBootSoundSettingsCaption, 0, startup_caption) == ESP_OK,
+        "boot sound settings caption uses supported glyphs and fits");
     auto observation = measured_observation();
     CODY::StatusOverlay overlay;
     require(CODY::prepare_status_overlay(observation, overlay) == ESP_OK,

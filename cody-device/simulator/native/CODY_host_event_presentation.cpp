@@ -34,10 +34,13 @@ namespace {
 namespace Presentation = CODY::event_presentation;
 struct Input {
     uint8_t kind;
+    uint8_t severity;
     char state[12];
     char context[25];
     char title[25];
     char body[256];
+    char origin_title[256];
+    char status[64];
     uint8_t choice_count;
     LUNASHELL::CodexEventChoice choices[3];
     char selected_id[13];
@@ -78,9 +81,12 @@ template<size_t Size> bool valid_text(const char (&text)[Size])
 esp_err_t project(const Input &input, LUNASHELL::CodexEventSnapshot &event)
 {
     if (input.kind < 1 || input.kind > static_cast<uint8_t>(LUNASHELL::CodexEventKind::ReplyReady) ||
+        input.severity > static_cast<uint8_t>(LUNASHELL::CodexEventSeverity::Critical) ||
+        (input.severity != 0 && input.kind != static_cast<uint8_t>(LUNASHELL::CodexEventKind::Notice)) ||
         input.choice_count > 3 || input.failure_count > 6 ||
         !valid_text(input.state) || !valid_text(input.context) || !valid_text(input.title) ||
-        !valid_text(input.body) || !valid_text(input.selected_id) || !valid_text(input.request_id) ||
+        !valid_text(input.body) || !valid_text(input.origin_title) || !valid_text(input.status) ||
+        !valid_text(input.selected_id) || !valid_text(input.request_id) ||
         input.pending_question_count > 128 || input.pending_entry_count > 2 ||
         input.pending_entry_count > input.pending_question_count) {
         return ESP_ERR_INVALID_ARG;
@@ -117,9 +123,12 @@ esp_err_t project(const Input &input, LUNASHELL::CodexEventSnapshot &event)
         }
     }
     event.kind = static_cast<LUNASHELL::CodexEventKind>(input.kind);
+    event.severity = static_cast<LUNASHELL::CodexEventSeverity>(input.severity);
     std::memcpy(event.context, input.context, sizeof(event.context));
     std::memcpy(event.title, input.title, sizeof(event.title));
     std::memcpy(event.body, input.body, sizeof(event.body));
+    std::memcpy(event.origin_title, input.origin_title, sizeof(event.origin_title));
+    std::memcpy(event.status, input.status, sizeof(event.status));
     event.choice_count = input.choice_count;
     std::memcpy(event.choices, input.choices, sizeof(event.choices));
     std::memcpy(event.selected_id, input.selected_id, sizeof(event.selected_id));
@@ -295,15 +304,17 @@ CODY_HOST_EXPORT int cody_host_event_wrap(const char *text, uint32_t length, Pre
 // controls_visible: Complete native narrative reveal gate.
 // now_us: Pausable host presentation time.
 // readable_at_us: UI-owned first readable timestamp, initially negative.
-// due: Receives the same three-second dismissal decision used by firmware.
+// due: Always false because unread notices require explicit dismissal.
 // Exception: Returns actual projection failure.
 CODY_HOST_EXPORT int cody_host_event_dwell(const Input *input, const Presentation::Context *context,
     bool controls_visible, int64_t now_us, int64_t *readable_at_us, bool *due)
 {
-    if (!input || !context || !readable_at_us || !due) { return result("dwell", ESP_ERR_INVALID_ARG); }
+    if (!input || !context || !readable_at_us || !due || now_us < 0) { return result("dwell", ESP_ERR_INVALID_ARG); }
+    (void)controls_visible;
     const esp_err_t error = project(*input, s_owner.event);
     if (error == ESP_OK) {
-        *due = Presentation::checks_passed_dismiss_due(s_owner.event, *context, controls_visible, now_us, *readable_at_us);
+        *due = false;
+        *readable_at_us = -1;
     }
     return result("dwell", error);
 }

@@ -34,8 +34,9 @@ class NativePendingQuestion(C.Structure):
 
 
 class NativePayload(C.Structure):
-    _fields_ = [("kind", C.c_uint8), ("context", C.c_char * 25), ("title", C.c_char * 25),
-        ("body", C.c_char * 256),
+    _fields_ = [("kind", C.c_uint8), ("severity", C.c_uint8),
+        ("context", C.c_char * 25), ("title", C.c_char * 25),
+        ("body", C.c_char * 256), ("origin_title", C.c_char * 256), ("status", C.c_char * 64),
         # Preserve the native ABI without exposing confidential speech in the UI projection.
         ("reply_speech", C.c_char * 401), ("reply_segment_index", C.c_uint16),
         ("reply_segment_count", C.c_uint16), ("choice_count", C.c_uint8), ("choices", NativeChoice * 3),
@@ -174,13 +175,17 @@ class NativeTransaction:
         checked("read", self.api.cody_host_ccp_read(self.handle, C.byref(payload), C.sizeof(payload),
             identity, C.byref(state), C.byref(deadline), C.byref(error), selection))
         states = ("none", "pending", "sending", "received", "delivered", "cancelled", "expired", "rejected")
-        if (state.value >= len(states) or payload.choice_count > 3 or payload.failure_count > 6 or
+        if (state.value >= len(states) or payload.severity > 3 or
+                (payload.severity and payload.kind != int(interactions.EventKind.NOTICE)) or
+                payload.choice_count > 3 or payload.failure_count > 6 or
                 payload.pending_entry_count > 2 or payload.pending_question_count > 128):
             raise ValueError("Cody C++ CCP output violates its transport bounds")
         decoded = None
         if payload.kind:
             decoded = interactions.EventPayload(kind=interactions.EventKind(payload.kind),
                 context=payload.context.decode("ascii"), title=payload.title.decode("ascii"), body=payload.body.decode("ascii"),
+                origin_title=payload.origin_title.decode("ascii"), status=payload.status.decode("ascii"),
+                pc_severity=interactions.PcAlertSeverity(payload.severity) if payload.severity else None,
                 choices=tuple(interactions.Choice(choice.id.decode("ascii"), choice.label.decode("ascii"),
                     choice.detail.decode("ascii"), interactions.Tone(choice.tone)) for choice in payload.choices[:payload.choice_count]),
                 selected_id=payload.selected_id.decode("ascii"),

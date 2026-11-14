@@ -51,8 +51,12 @@ def native_rgb565_to_image(pixels):
     rgb = bytearray(LOGICAL_PIXEL_COUNT * 3)
     for index, color in enumerate(pixels):
         destination = index * 3
-        rgb[destination] = ((color >> 11) & 31) * 255 // 31
-        rgb[destination + 1] = ((color >> 5) & 63) * 255 // 63
-        rgb[destination + 2] = (color & 31) * 255 // 31
+        red = (color >> 11) & 31
+        green = (color >> 5) & 63
+        blue = color & 31
+        # Match the device theme's documented RGB565 bit-replication mapping.
+        rgb[destination] = (red << 3) | (red >> 2)
+        rgb[destination + 1] = (green << 2) | (green >> 4)
+        rgb[destination + 2] = (blue << 3) | (blue >> 2)
 
     return Image.frombytes("RGB", LOGICAL_FRAME_SIZE, bytes(rgb))

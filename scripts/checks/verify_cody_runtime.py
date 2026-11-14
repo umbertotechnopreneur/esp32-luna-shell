@@ -240,7 +240,9 @@ def main(argv=None):
         run_stage([str(status_models)], output, "status-models")
         preferences = output / "preferences-contract.exe"
         preferences_sources = ("scripts/tests/cody_native/preferences_contract.cpp",
-                               "cody-device/components/CODY_companion/src/runtime/CODY_settings.cpp")
+                               "cody-device/components/CODY_companion/src/runtime/CODY_settings.cpp",
+                               "cody-device/components/CODY_companion/src/runtime/CODY_settings_service.cpp",
+                               "cody-device/components/CODY_companion/src/model/CODY_settings_view.cpp")
         preferences_definitions = ("CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS=1",
                                   "CONFIG_LUNASHELL_BUILD_ENABLE_AUDIO=1",
                                   "CONFIG_LUNASHELL_BUILD_AUDIO_OUTPUT_DRIVER_ES8311=1",

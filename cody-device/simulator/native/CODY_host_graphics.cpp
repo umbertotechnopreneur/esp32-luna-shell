@@ -19,6 +19,7 @@
 #include "CODY_connection_personality.hpp"
 #include "CODY_jelly.hpp"
 #include "CODY_scene.hpp"
+#include "CODY_guide_presenter.hpp"
 #include "CODY_activity_description.hpp"
 #include "CODY_activity_identity.hpp"
 #include "CODY_command_hints.hpp"
@@ -1403,6 +1404,29 @@ CODY_HOST_EXPORT int cody_host_hit(void *handle, float x, float y, float radius,
     return host_result("hit_test", error);
 }
 
+// page: Stable OptionsPage identity from the production onboarding catalog.
+// first_run: Whether the production presenter enables its first-run footer.
+// save_error: Original simulated settings error; zero means a successful save.
+// pixels: Existing 466 by 466 RGB565 framebuffer supplied by the display driver.
+// capacity: Exact number of writable pixels.
+// Exception: Returns the native presenter's validation or glyph drawing failure.
+CODY_HOST_EXPORT int cody_host_guide_lines(uint32_t page, bool first_run, int32_t save_error,
+    uint16_t *pixels, uint32_t capacity)
+{
+    if (page > UINT8_MAX || pixels == nullptr || capacity != 466U * 466U)
+        return host_result("guide_lines", ESP_ERR_INVALID_ARG);
+    CODY::GuidePresentation guide{};
+    auto error = CODY::prepare_guide_presentation(static_cast<CODY::OptionsPage>(page),
+        first_run, false, static_cast<esp_err_t>(save_error), guide);
+    if (error != ESP_OK) return host_result("guide_prepare", error);
+    CODY2D::Surface canvas{pixels, 466, 466, 466, capacity};
+    for (uint8_t index = 0; index < guide.line_count; ++index) {
+        error = CODY2D::draw_text_rows(guide.lines[index], guide.lines[index].text.length, canvas, 0, 0);
+        if (error != ESP_OK) return host_result("guide_lines", error);
+    }
+    return ESP_OK;
+}
+
 // pixels: Existing logical RGB565 framebuffer owned by the PC driver.
 // capacity: Exact logical pixel count.
 // text: Borrowed bounded printable ASCII, retained until all rows finish.
@@ -1451,6 +1475,11 @@ CODY_HOST_EXPORT int cody_host_text(uint16_t *pixels, uint32_t capacity, const c
 CODY_HOST_EXPORT int cody_host_scene_timing(uint16_t identity, int64_t elapsed_us,
     uint16_t length, uint16_t preceding, float *output)
 {
+#if defined(CODY_DEVICE_UI_ONLY)
+    // Device UI has no legacy cloud transform; its own renderer remains available.
+    (void)identity; (void)elapsed_us; (void)length; (void)preceding; (void)output;
+    return host_result("scene_timing", ESP_ERR_NOT_SUPPORTED);
+#else
     if (!output || elapsed_us < 0) { return host_result("scene_timing", ESP_ERR_INVALID_ARG); }
     const CODY::SceneDefinition *definition = nullptr;
     esp_err_t error = CODY::find_scene(static_cast<CODY::SceneId>(identity), definition);
@@ -1467,6 +1496,7 @@ CODY_HOST_EXPORT int cody_host_scene_timing(uint16_t identity, int64_t elapsed_u
         float(CODY::scene_content_characters(frame, length, preceding))};
     std::copy(std::begin(values), std::end(values), output);
     return ESP_OK;
+#endif
 }
 
 // pixels: Existing logical PC RGB565 framebuffer.

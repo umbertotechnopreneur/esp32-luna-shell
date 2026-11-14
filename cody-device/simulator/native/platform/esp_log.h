@@ -17,12 +17,19 @@
 #pragma once
 #include <cstdarg>
 #include <cstdio>
+#include <cstring>
 
 // tag: Original firmware component name.
 // format: Original firmware message format.
 // ...: Original arguments, including real operation failure causes.
 inline void cody_host_log(const char *tag, const char *format, ...)
 {
+    // Device FreeRTOS stack high-water marks have no host equivalent. Do not
+    // publish the host shim's sentinel as if it were a measured byte count.
+    if (std::strstr(format, "minimum free stack") != nullptr) {
+        std::fprintf(stderr, "%s: stack headroom unavailable (SIMULATED)\n", tag);
+        return;
+    }
     std::fprintf(stderr, "%s: ", tag);
     va_list arguments;
     va_start(arguments, format);

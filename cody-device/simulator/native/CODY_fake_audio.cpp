@@ -17,6 +17,10 @@
 // Host audio output owner. The real Cody cue modules are linked unchanged.
 #include "CODY_personality_audio.hpp"
 #include "CODY_typewriter_audio.hpp"
+#if defined(CODY_HOST_NATIVE_PET)
+#include "CODY_pet_audio.hpp"
+#include "LUNASHELL_device_snapshot.hpp"
+#endif
 #include "LUNASHELL_platform.h"
 #include "esp_log.h"
 
@@ -209,3 +213,58 @@ CODY_AUDIO_EXPORT esp_err_t CodySimAudio_typewriter(uint32_t count)
 {
     return CODY::notify_typewriter_audio(count);
 }
+
+#if defined(CODY_HOST_NATIVE_PET)
+// cue: Exact firmware PetCue identity, not a host-created sound mapping.
+// sample_count: Receives the number of samples validated by the production selector.
+// sample_rate: Receives the firmware's 16 kHz sample rate.
+// Exception: Preserves selector errors; no samples or playback authority are exposed.
+CODY_AUDIO_EXPORT esp_err_t CodySimAudio_pet_info(uint32_t cue, size_t *sample_count, uint32_t *sample_rate)
+{
+    if (!sample_count || !sample_rate) return ESP_ERR_INVALID_ARG;
+    CODY::PetAudioClip clip{};
+    const auto error = CODY::pet_audio_clip(static_cast<CODY::PetCue>(cue), clip);
+    if (error != ESP_OK) return error;
+    *sample_count = clip.sample_count;
+    *sample_rate = 16000;
+    return ESP_OK;
+}
+
+// clock: Borrowed canonical, already-aged simulated ClockSnapshot; never read from the PC clock here.
+// sounds_known: One only when the simulated Sounds observation is available and current.
+// sounds_enabled: Exact value of the simulated Sounds observation; no default is inferred.
+// clock_policy: Receives the original firmware ClockCuePolicy identity.
+// allowed: Receives one only when both Sounds and the firmware clock policy permit cues.
+// Exception: Invalid input is rejected with allowed set to zero; this API never plays audio.
+CODY_AUDIO_EXPORT esp_err_t CodySimAudio_evaluate_policy(const LUNASHELL::ClockSnapshot *clock,
+    uint8_t sounds_known, uint8_t sounds_enabled, uint8_t *clock_policy, uint8_t *allowed)
+{
+    if (allowed != nullptr) *allowed = 0;
+    if (!clock || !clock_policy || !allowed || sounds_known > 1 || sounds_enabled > 1)
+        return ESP_ERR_INVALID_ARG;
+    const auto observed = LUNASHELL::clock_cue_policy(*clock);
+    *clock_policy = static_cast<uint8_t>(observed);
+    *allowed = sounds_known == 1 && sounds_enabled == 1 && observed == LUNASHELL::ClockCuePolicy::Allowed;
+    return ESP_OK;
+}
+
+// read_observation: Borrowed callback to the exclusive host snapshot owner.
+// owner: Borrowed snapshot handle that must remain alive until this call returns.
+// now_us: Host monotonic time in the observation's original clock domain.
+// clock_policy: Receives the original firmware ClockCuePolicy identity.
+// allowed: Receives one only when current Sounds and clock observations permit cues.
+// Exception: Invalid or failed observations leave allowed at zero and preserve the source error.
+CODY_AUDIO_EXPORT esp_err_t CodySimAudio_evaluate_snapshot(
+    esp_err_t (*read_observation)(void *, int64_t, LUNASHELL::ClockSnapshot *, uint8_t *, uint8_t *),
+    void *owner, int64_t now_us, uint8_t *clock_policy, uint8_t *allowed)
+{
+    if (allowed != nullptr) *allowed = 0;
+    if (!read_observation || !owner || now_us <= 0 || !clock_policy || !allowed) return ESP_ERR_INVALID_ARG;
+    LUNASHELL::ClockSnapshot clock{};
+    uint8_t sounds_known = 0;
+    uint8_t sounds_enabled = 0;
+    const auto error = read_observation(owner, now_us, &clock, &sounds_known, &sounds_enabled);
+    if (error != ESP_OK) return error;
+    return CodySimAudio_evaluate_policy(&clock, sounds_known, sounds_enabled, clock_policy, allowed);
+}
+#endif

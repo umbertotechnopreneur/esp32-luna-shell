@@ -17,10 +17,13 @@
 #include <cstdio>
 #include <cstdlib>
 
-#include "CODY_look_screen.hpp"
 #include "CODY_settings.hpp"
+#include "CODY_settings_service.hpp"
 #include "CODY_codex_audio.hpp"
+#include "CODY_dirty_plan.hpp"
 #include "CODY_muse_frame.hpp"
+#include "CODY_notifications.hpp"
+#include "CODY_personality.hpp"
 #include "CODY_pixel_avatar.hpp"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_platform.h"
@@ -45,6 +48,21 @@ namespace {
 }
 
 namespace CODY {
+// Unnamed id: The layout fixture never looks up a live local notification.
+// Unnamed result: No source record is fabricated by a presentation scenario.
+// Exception: Aborts if the real local notification owner is reached.
+esp_err_t read_notification(uint32_t, Notification &)
+{
+    unexpected_owner(__func__);
+}
+
+// Unnamed id: No local record may be marked read by this layout fixture.
+// Exception: Aborts instead of changing or inventing owner read state.
+esp_err_t mark_notification_read(uint32_t)
+{
+    unexpected_owner(__func__);
+}
+
 // Unnamed frame: No mascot frame is composed for event layout.
 // Unnamed input: No mascot pose is synthesized.
 // Exception: Aborts if the setup mascot route is reached.
@@ -68,75 +86,6 @@ void reset_muse_animation(uint32_t)
 // Exception: Aborts if the setup mascot route is reached.
 esp_err_t draw_pixel_avatar_rows(const PixelAvatarFrame &, CODY2D::Rect,
     CODY2D::Surface, uint16_t, uint16_t)
-{
-    unexpected_owner(__func__);
-}
-
-// Unnamed scene: Look selection is outside event presentation.
-// Unnamed navigation: No look navigation is admitted by this fixture.
-// Exception: Aborts on a cross-feature route.
-esp_err_t open_look_screen(SceneFrame &, const LookNavigationContext &)
-{
-    unexpected_owner(__func__);
-}
-
-// No parameters: Look ownership is outside event and Home presentation coverage.
-// Exception: Aborts if a presentation unexpectedly reaches the Look owner.
-void reset_look_screen()
-{
-    unexpected_owner(__func__);
-}
-
-// No parameters: event-only tests do not emulate look gestures.
-// Exception: Aborts on a cross-feature route.
-void cancel_look_touch()
-{
-    unexpected_owner(__func__);
-}
-
-// Unnamed scene: No look frame is created by the fixture.
-// Unnamed control_revision: No look navigation revision is manufactured.
-// Unnamed changed: No successful presentation update is synthesized.
-// Exception: Aborts on a cross-feature route.
-esp_err_t update_look_text(SceneFrame &, uint32_t, bool &)
-{
-    unexpected_owner(__func__);
-}
-
-// Unnamed exit: No look exit action is admitted.
-// Unnamed destination: No synthetic destination is returned.
-// Exception: Aborts on a cross-feature route.
-esp_err_t look_exit_destination(LookExit, SceneId &)
-{
-    unexpected_owner(__func__);
-}
-
-// Unnamed scene: No look frame is admitted.
-// Unnamed point: No hardware contact is fabricated.
-// Unnamed pressed: No hardware contact state is fabricated.
-// Unnamed pressed_edge: No contact transition is fabricated.
-// Unnamed horizontal_gesture: No look navigation gesture is admitted.
-// Unnamed result: No synthetic result is published.
-// Exception: Aborts on a cross-feature route.
-esp_err_t handle_look_touch(SceneFrame &, CODY2D::Point, bool, bool, bool, LookTouchResult &)
-{
-    unexpected_owner(__func__);
-}
-
-// Unnamed scene: Persistence is outside event layout coverage.
-// Unnamed id: No look identity is saved.
-// Unnamed request_id: No operation is admitted.
-// Exception: Aborts instead of claiming a settings write.
-esp_err_t begin_look_save(SceneFrame &, const char *, uint32_t)
-{
-    unexpected_owner(__func__);
-}
-
-// Unnamed scene: No persisted look completion is synthesized.
-// Unnamed request_id: No operation completion is admitted.
-// Unnamed save_error: No hardware or storage outcome is substituted.
-// Exception: Aborts instead of claiming a settings write.
-LookSaveCompletion complete_look_save(SceneFrame &, uint32_t, esp_err_t)
 {
     unexpected_owner(__func__);
 }
@@ -170,6 +119,20 @@ esp_err_t reconcile_audio_preferences()
 // Unnamed step: Tour persistence is outside event presentation coverage.
 // Exception: Aborts instead of fabricating a successful settings write.
 esp_err_t persist_onboarding_tour_step(uint32_t)
+{
+    unexpected_owner(__func__);
+}
+
+// Unnamed wake: The layout fixture must not register or notify a settings worker.
+// Exception: Aborts instead of claiming ownership of asynchronous persistence.
+esp_err_t register_settings_lifecycle_worker(void (*)())
+{
+    unexpected_owner(__func__);
+}
+
+// No parameters: Lifecycle persistence belongs to its separate settings contract.
+// Exception: Aborts instead of draining or fabricating a settings command result.
+bool process_settings_lifecycle_command()
 {
     unexpected_owner(__func__);
 }
@@ -323,16 +286,17 @@ esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObs
     unexpected_owner(__func__);
 }
 
-// Unnamed operation: No look persistence observation is published.
-// Exception: Aborts instead of changing the canonical snapshot.
-esp_err_t DeviceSnapshotService::reportCharacterLookSave(const CharacterLookSaveSnapshot &)
-{
-    unexpected_owner(__func__);
-}
 } // namespace LUNASHELL
 
 // No parameters: the fixture cannot request clock synchronization from a PC.
 extern "C" esp_err_t LUNASHELL_codex_request_pc_time(void)
+{
+    unexpected_owner(__func__);
+}
+
+// No parameters: the event fixture cannot request network synchronization.
+// Exception: Aborts instead of starting the physical time owner.
+extern "C" esp_err_t LUNASHELL_time_request_network_sync(void)
 {
     unexpected_owner(__func__);
 }

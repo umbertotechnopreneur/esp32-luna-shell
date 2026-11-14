@@ -66,11 +66,12 @@ class NativeSnapshot:
     # self: Exclusive host owner, separate from the firmware's canonical service.
     # snapshot: Complete validated synthetic input mapping, including original timestamps.
     # now_us: Actual virtual observation clock, not a measurement replacement.
+    # driver: Native library owning both this snapshot and its consumers.
     # Raises the original native/schema/allocation error; invalid fields are never dropped.
-    def __init__(self, snapshot, now_us):
+    def __init__(self, snapshot, now_us, driver="graphics"):
         if type(now_us) is not int or not 1 <= now_us <= (1 << 63) - 1:
             raise ValueError("SIMULATED observation time must fit a positive native int64")
-        self.api = load_runtime_library()
+        self.api = load_runtime_library(driver)
         signatures = {
             "create": (C.c_void_p, ()), "destroy": (None, (C.c_void_p,)),
             "import": (C.c_int, (C.c_void_p, C.POINTER(FieldInput), C.c_size_t,

@@ -20,18 +20,19 @@ from __future__ import annotations
 import ctypes
 import hashlib
 import json
-from functools import lru_cache
 from pathlib import Path
 from runtime_paths import simulator_library_path
 
 ROOT = Path(__file__).resolve().parents[3]
+_RUNTIME_LIBRARIES = {}
 
 
-# No parameters: opens the current source-proven native graphics/runtime library.
+# driver: Selects the existing graphics bridge or the separate full-device runtime.
 # Raises OSError, ValueError or AttributeError for missing, stale or incompatible output.
-@lru_cache(maxsize=1)
-def load_runtime_library():
-    library = simulator_library_path(ROOT, "graphics")
+def load_runtime_library(driver="graphics"):
+    if driver not in ("graphics", "graphics-device"):
+        raise ValueError(f"Unknown graphics runtime: {driver}")
+    library = simulator_library_path(ROOT, driver)
     directory = library.parent
     manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
     if manifest.get("schema") != "cody.host-graphics.v1":
@@ -40,6 +41,13 @@ def load_runtime_library():
     required = {"scripts/generators/generate_cody_simulator_graphics.py",
                 "cody-device/simulator/native/CODY_host_snapshot.cpp",
                 "cody-device/simulator/native/CODY_host_snapshot.hpp"}
+    if driver == "graphics-device":
+        required |= {"cody-device/simulator/native/CODY_host_display.cpp",
+                     "cody-device/simulator/native/CODY_host_input.cpp",
+                     "cody-device/simulator/native/CODY_host_studio_domain.cpp",
+                     "cody-device/simulator/native/platform/cody_host_studio.h",
+                     "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp",
+                     "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"}
     if not isinstance(inputs, dict) or not required.issubset(inputs):
         raise ValueError("Native runtime provenance is incomplete; regenerate cody-simulator-graphics")
     for source, expected in inputs.items():
@@ -48,9 +56,16 @@ def load_runtime_library():
             raise ValueError(f"Stale native runtime input {source}; regenerate cody-simulator-graphics")
     if hashlib.sha256(library.read_bytes()).hexdigest() != manifest.get("library_sha256"):
         raise ValueError("Native runtime library hash mismatch")
+    loaded = _RUNTIME_LIBRARIES.get(driver)
+    if loaded is not None:
+        if loaded._cody_library_sha256 != manifest["library_sha256"]:
+            raise ValueError("Native runtime was rebuilt while loaded; restart this simulator process")
+        return loaded
     api = ctypes.CDLL(str(library))
     api.cody_host_runtime_abi.argtypes = ()
     api.cody_host_runtime_abi.restype = ctypes.c_uint32
     if api.cody_host_runtime_abi() != 2:
         raise ValueError("Unsupported native runtime ABI")
+    api._cody_library_sha256 = manifest["library_sha256"]
+    _RUNTIME_LIBRARIES[driver] = api
     return api

@@ -1,0 +1,14 @@
+{
+  "snapshot": {"reason": "SIMULATED-WIFI-SECURED", "radios": {"ble": {"device_name": "AiGadget-000001"}}},
+  "settings_path": null,
+  "initial_brightness": 80,
+  "panel_enabled": true,
+  "reset_reason": 1,
+  "use_pc_lan": false,
+  "simulated_open_wifi": false,
+  "simulated_battery_percent": 80,
+  "use_pc_clock": true,
+  "simulated_wifi_scenario": "secured",
+  "simulated_pairing": "ready",
+  "simulated_codex": "pairing"
+}

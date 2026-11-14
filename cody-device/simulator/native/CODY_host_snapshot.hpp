@@ -4,6 +4,8 @@
 #include <cstdint>
 #include "esp_err.h"
 
+namespace LUNASHELL { struct ClockSnapshot; }
+
 namespace CODY::host_snapshot {
 // Borrowed strings remain alive for the complete synchronous import call.
 // Names are schema identities; array order has no domain meaning.
@@ -59,3 +61,17 @@ CODY_HOST_SNAPSHOT_API int cody_host_snapshot_components(void *handle,
 // Exception: Returns original route/serialization errors without exposing partial output.
 CODY_HOST_SNAPSHOT_API int cody_host_snapshot_json(void *handle, const char *path,
     int64_t now_us, const char **data, std::size_t *size);
+
+// handle: Exclusive synthetic observation owner, never a device snapshot service.
+// now_us: Host monotonic time in the original sample clock domain.
+// clock: Receives a copy aged by the unchanged firmware measurement-aging policy.
+// sounds_known: Receives one only for a healthy, valid, non-stale settings observation.
+// sounds_enabled: Receives the observed Sounds value, never a guessed default.
+// Exception: Returns INVALID_ARG on invalid pointers or time; outputs remain unchanged.
+CODY_HOST_SNAPSHOT_API int cody_host_snapshot_audio_observation(void *handle, int64_t now_us,
+    LUNASHELL::ClockSnapshot *clock, uint8_t *sounds_known, uint8_t *sounds_enabled);
+
+// handle: Synthetic scenario owner, never a physical-device observation.
+// now_us: Monotonic scenario time in the original sample clock domain.
+// Exception: Returns an invalid time/handle error without publishing partial state.
+CODY_HOST_SNAPSHOT_API int cody_host_snapshot_publish_onboarding(void *handle, int64_t now_us);

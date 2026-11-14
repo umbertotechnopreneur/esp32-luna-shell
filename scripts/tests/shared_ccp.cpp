@@ -175,7 +175,7 @@ int main()
     pending.pending_question_count = 1;
     pending.pending_entry_count = 1;
     pending.pending_questions[0] = pending.pending_questions[1];
-    assert(applyCodexEvent(queued.view(), second, CodexEventState::Pending, 10, &pending, 5000000, effect) == ESP_OK);
+    assert(applyCodexEvent(queued.view(), second, CodexEventState::Pending, 10, &pending, 5000000, effect, first) == ESP_OK);
     assert(effect.changed && queued.selection_request_id[0] == '\0' && queued.error == ESP_ERR_NOT_FOUND);
     assert(selectCodexQuestion(queued.view(), first, true, 5000000) == ESP_ERR_NOT_FOUND);
     pending.pending_entry_count = 2;
@@ -185,5 +185,32 @@ int main()
     assert(selectCodexQuestion(queued.view(), first, true, 6000000) == ESP_OK);
     assert(applyCodexEvent(queued.view(), second, CodexEventState::Rejected, 0, nullptr, 7000000, effect) == ESP_OK);
     assert(queued.state == CodexEventState::Rejected && queued.selection_request_id[0] == '\0');
+
+    // An earlier FIND cannot fail a later inbox selection. An explicitly opened
+    // notice can replace an unanswered question without creating a choice.
+    Transaction notification;
+    pending = question();
+    assert(applyCodexEvent(notification.view(), first, CodexEventState::Pending, 15, &pending, 0, effect) == ESP_OK);
+    std::strcpy(notification.selection_request_id, second);
+    assert(applyCodexEvent(notification.view(), first, CodexEventState::Pending, 14, &pending,
+        1000000, effect, empty) == ESP_OK);
+    assert(std::strcmp(notification.selection_request_id, second) == 0 && notification.error == ESP_OK);
+    CodexEventPayload notice{};
+    notice.kind = CodexEventKind::Notice;
+    std::strcpy(notice.title, "Files updated");
+    std::strcpy(notice.body, "Review changes in Codex");
+    std::strcpy(notice.origin_title, "Original chat");
+    assert(applyCodexEvent(notification.view(), second, CodexEventState::Pending, 15, &notice,
+        2000000, effect, second) == ESP_OK);
+    assert(notification.payload.kind == CodexEventKind::Notice && notification.payload.selected_id[0] == '\0');
+    expireCodexTransaction(notification.view(), 18000000, effect);
+    assert(!effect.changed && notification.state == CodexEventState::Pending);
+    std::strcpy(notice.status, "Voice unavailable");
+    assert(applyCodexEvent(notification.view(), second, CodexEventState::Pending, 180, &notice,
+        19000000, effect) == ESP_OK);
+    assert(effect.changed && std::strcmp(notification.payload.origin_title, "Original chat") == 0 &&
+        std::strcmp(notification.payload.status, "Voice unavailable") == 0);
+    assert(dismissCodexTransaction(notification.view(), second) == ESP_OK);
+    assert(notification.state == CodexEventState::None);
     return 0;
 }

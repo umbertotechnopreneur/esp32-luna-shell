@@ -35,8 +35,10 @@ class PendingQuestion(C.Structure):
 
 
 class Input(C.Structure):
-    _fields_ = [("kind", C.c_uint8), ("state", C.c_char * 12), ("context", C.c_char * 25),
-                ("title", C.c_char * 25), ("body", C.c_char * 256), ("choice_count", C.c_uint8),
+    _fields_ = [("kind", C.c_uint8), ("severity", C.c_uint8),
+                ("state", C.c_char * 12), ("context", C.c_char * 25),
+                ("title", C.c_char * 25), ("body", C.c_char * 256),
+                ("origin_title", C.c_char * 256), ("status", C.c_char * 64), ("choice_count", C.c_uint8),
                 ("choices", Choice * 3), ("selected_id", C.c_char * 13),
                 ("failure_count", C.c_uint8), ("failures", (C.c_char * 49) * 6),
                 ("progress_valid", C.c_bool), ("passed", C.c_uint16), ("total", C.c_uint16),
@@ -172,12 +174,15 @@ class NativeEventPresentation:
         self.context.selection_pending = bool(snapshot.selection_request_id)
         value = Input()
         value.kind = int(event.kind)
+        value.severity = int(event.pc_severity) if event.pc_severity is not None else 0
         value.state = ascii_field(snapshot.event_state, 12)
         value.context = ascii_field(event.context, 25)
         value.title = ascii_field(event.title, 25)
         # The wider approval ABI buffer does not enlarge other event kinds' text contract.
         body_capacity = 256 if event.kind == EventKind.APPROVAL_ON_PC else 64
         value.body = ascii_field(event.body, body_capacity)
+        value.origin_title = ascii_field(event.origin_title, 256)
+        value.status = ascii_field(event.status, 64)
         value.choice_count = len(event.choices)
         for index, choice in enumerate(event.choices):
             value.choices[index] = Choice(ascii_field(choice.choice_id, 13), ascii_field(choice.label, 64),

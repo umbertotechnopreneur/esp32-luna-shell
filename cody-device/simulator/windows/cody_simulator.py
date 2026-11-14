@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from copy import deepcopy
 from dataclasses import replace
 from enum import Enum
@@ -29,6 +30,7 @@ import time
 import webbrowser
 import tkinter as tk
 from pathlib import Path
+from uuid import uuid4
 from tkinter import font as tkfont, ttk
 
 from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageTk
@@ -2285,6 +2287,13 @@ class CodyWindow:
 # Raises AttributeError or RuntimeError if required Windows DPI setup cannot be established.
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--studio-case', help='Open a pilot inventory or qualified source ID in controlled native Studio (for example P04)')
+    parser.add_argument('--studio-scenario', type=Path, help='Load a versioned controlled Studio scenario')
+    parser.add_argument('--studio-capture', action='store_true', help='Capture the controlled case without opening a window')
+    parser.add_argument('--device-runtime', action='store_true',
+                        help='Run the experimental native device owner with an explicit simulated scenario')
+    parser.add_argument('--device-scenario', type=Path,
+                        help='JSON scenario specifying snapshot, settings, panel, reset, PC LAN and simulated Wi-Fi/battery')
     parser.add_argument("--skin", default="assets/cody/cody.yaml")
     parser.add_argument('--screen', choices=(*SCREEN_NAMES, 'question-flow'), default='rig')
     parser.add_argument('--rotation',type=int,choices=(0,90,180,270),default=0)
@@ -2305,6 +2314,83 @@ def main(argv=None):
                         help='Overlay the actual triangle mesh in a PNG mesh study capture')
     parser.add_argument('--at-ms',type=int,default=1000)
     args = parser.parse_args(argv)
+    if args.studio_case is not None or args.studio_scenario is not None or args.studio_capture:
+        tokens = sys.argv[1:] if argv is None else argv
+        permitted = ('--studio-case', '--studio-scenario', '--studio-capture')
+        if any(token.startswith('--') and token.split('=', 1)[0] not in permitted for token in tokens):
+            parser.error('Controlled Studio accepts only --studio-case, --studio-scenario and --studio-capture')
+        if args.studio_case is None and args.studio_scenario is None:
+            parser.error('--studio-capture requires --studio-case or --studio-scenario')
+        from cody_studio_catalog import entry_for
+        from cody_studio_scenario import default_scenario, load_scenario
+        from cody_studio_runner import StudioRunner
+        from cody_native_device import NativeDevice
+        from cody_native_window import run_native_window
+
+        try:
+            scenario = load_scenario(args.studio_scenario) if args.studio_scenario else default_scenario(args.studio_case or 'P04')
+            if args.studio_case is not None:
+                selected = entry_for(args.studio_case)
+                if selected['id'] != scenario['context']['target']:
+                    raise ValueError('Studio case and scenario destination differ')
+        except (OSError, ValueError, TypeError) as error:
+            parser.error(f'Invalid Studio input: {error}')
+        settings_path = resolve_runtime_output(Path(f'studio/session-{uuid4().hex}.nvs'))
+        settings_path.parent.mkdir(parents=True, exist_ok=True)
+        device = NativeDevice({'reason': 'SIMULATED-STUDIO'}, settings_path, 80, True, 1,
+                              deterministic_clock=True, audio_mode='silent')
+        device.start()
+        if args.studio_capture:
+            runner = StudioRunner(device)
+            runner.prepare(scenario)
+            record = runner.capture()
+            print(record.metadata_path, flush=True)
+        else:
+            run_native_window(device, studio_scenario=scenario)
+        return
+    if args.device_runtime:
+        tokens = sys.argv[1:] if argv is None else argv
+        permitted = ('--device-runtime', '--device-scenario')
+        if any(token.startswith('--') and token.split('=', 1)[0] not in permitted for token in tokens):
+            parser.error('--device-runtime accepts only --device-scenario; legacy preview options are unavailable')
+        if args.device_scenario is None:
+            parser.error('--device-runtime requires --device-scenario')
+        with args.device_scenario.open(encoding='utf-8') as scenario_file:
+            scenario = json.load(scenario_file)
+        required = {'snapshot', 'settings_path', 'initial_brightness', 'panel_enabled', 'reset_reason', 'use_pc_lan',
+                    'simulated_open_wifi', 'simulated_battery_percent', 'use_pc_clock'}
+        optional = {'simulated_wifi_scenario', 'simulated_pairing', 'simulated_codex'}
+        if not isinstance(scenario, dict) or not required.issubset(scenario) or set(scenario) - required - optional:
+            parser.error('device scenario must contain the required fields and recognized simulation options')
+        from cody_native_device import NativeDevice
+        from cody_native_window import run_native_window
+
+        settings_path = scenario['settings_path']
+        if settings_path is None:
+            # An explicit null requests a fresh simulated first boot, not an
+            # erase of a prior run or the physical device's settings.
+            directory = (ROOT / 'artifacts' / 'simulator').resolve()
+            if not directory.is_relative_to((ROOT / 'artifacts').resolve()):
+                raise ValueError('Simulator settings directory escaped artifacts')
+            directory.mkdir(parents=True, exist_ok=True)
+            settings_path = directory / f'cody-first-boot-{uuid4().hex}.nvs'
+            if settings_path.exists():
+                raise FileExistsError(f'Simulator settings path already exists: {settings_path}')
+        elif not isinstance(settings_path, str) or not settings_path:
+            parser.error('settings_path must be a nonempty path or null for a fresh first boot')
+
+        device = NativeDevice(scenario['snapshot'], settings_path,
+                              scenario['initial_brightness'], scenario['panel_enabled'], scenario['reset_reason'],
+                              scenario['use_pc_lan'], scenario['simulated_open_wifi'],
+                              scenario['simulated_battery_percent'], scenario['use_pc_clock'],
+                              scenario.get('simulated_wifi_scenario'), scenario.get('simulated_pairing'),
+                              scenario.get('simulated_codex'))
+        device.start()
+        device.boot_completed()
+        run_native_window(device)
+        return
+    if args.device_scenario is not None:
+        parser.error('--device-scenario requires --device-runtime')
     if args.activity_preview and not args.ccp:
         parser.error('--activity-preview requires interactive --ccp')
     if args.ccp and (args.capture is not None or args.screen != Screen.RIG or

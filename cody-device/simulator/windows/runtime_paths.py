@@ -35,10 +35,10 @@ def simulator_artifacts_root() -> Path:
 
 
 # root: Checkout that owns the simulator's artifacts.
-# driver: Host library identity, either graphics or audio.
+# driver: Host library identity: graphics, graphics-device or audio.
 # Raises RuntimeError for an unsupported host and ValueError for an unknown driver.
 def simulator_library_path(root, driver):
-    if driver not in ("graphics", "audio"):
+    if driver not in ("graphics", "graphics-device", "audio"):
         raise ValueError(f"Unknown Cody Studio driver: {driver}")
     if sys.platform == "win32":
         build_suffix, extension = "", ".dll"
@@ -46,7 +46,7 @@ def simulator_library_path(root, driver):
         build_suffix, extension = "-linux", ".so"
     else:
         raise RuntimeError(f"Cody Studio native drivers support Windows and Linux, found {sys.platform}.")
-    stem = "cody_host_graphics" if driver == "graphics" else "cody_fake_audio"
+    stem = "cody_host_graphics" if driver in ("graphics", "graphics-device") else "cody_fake_audio"
     return Path(root) / "artifacts" / f"build-cody-simulator-{driver}{build_suffix}" / (stem + extension)
 
 

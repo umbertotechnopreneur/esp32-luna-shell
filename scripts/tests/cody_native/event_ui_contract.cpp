@@ -40,17 +40,6 @@ extern int64_t now_us;
 extern esp_err_t read_error;
 }
 
-namespace CODY {
-// scene: Not used; entering the look selector is outside this event-only fixture.
-// control_revision: Not used; the test must stay inside event routes.
-// Exception: Aborts on accidental cross-feature execution.
-esp_err_t attach_look_content(SceneFrame &, uint32_t)
-{
-    std::fputs("Unexpected look route in event layout fixture\n", stderr);
-    std::abort();
-}
-} // namespace CODY
-
 namespace {
 using namespace CODY;
 using Kind = LUNASHELL::CodexEventKind;
@@ -148,6 +137,7 @@ SceneFrame prepare(Route route, SceneId identity)
     s_event_stage = route == Route::DecisionQueue ? EventStage::Questions :
         route == Route::DecisionChoices27 ? EventStage::Choices :
         route == Route::DecisionConfirm27 ? EventStage::Confirm :
+        route == Route::DecisionWaiting ? EventStage::Waiting :
         route == Route::CheckFailures24 ? EventStage::Failures : EventStage::Notice;
     const SceneDefinition *definition = nullptr;
     require(find_scene(identity, definition) == ESP_OK, "event scene is generated and registered");
@@ -365,48 +355,59 @@ void check_pending_question_rows()
         "offline queue entries cannot request a source handoff");
 }
 
-// No parameters: readonly PR details use every authenticated check name without an action per row.
+// No parameters: informational check details retain all source text until explicit read.
+// Exception: Stops on an implicit read, lost failure detail or invalid circular bounds.
 void check_pr_views()
 {
     start_question();
     s_presented_event.kind = Kind::PrPending;
     prepare(Route::PrPending21, SceneId::PrPending);
-    require(!s_view.action_visible && s_view.event_choice_count == 0, "PR pending is informational");
+    require(s_view.action_id == OnboardingAction::DismissEvent && s_view.event_choice_count == 0 &&
+        std::strcmp(s_event_plan.actions[0].label, "Mark as read") == 0,
+        "PR pending remains informational with an explicit read action");
     s_presented_event.kind = Kind::ChecksRunning;
     s_presented_event.progress_valid = false;
     s_presented_event.passed = s_presented_event.total = UINT16_MAX;
     prepare(Route::ChecksRunning22, SceneId::ChecksRunning);
-    require(!s_view.action_visible, "running checks expose no rerun or merge action");
-    require(std::strcmp(s_view.lines[s_view.line_count - 1U].text.characters, "Progress unavailable") == 0,
-        "invalid numeric check progress remains unavailable");
+    require(s_view.action_id == OnboardingAction::DismissEvent,
+        "running checks expose only the explicit read action");
+    for (uint8_t index = 0; index < s_event_plan.line_count; ++index) {
+        require(std::strstr(s_event_plan.lines[index].text, "65535") == nullptr,
+            "invalid numeric check progress is never presented as a measured value");
+    }
     s_presented_event.kind = Kind::ChecksPassed;
     s_presented_event.progress_valid = true;
     require(codex_event_destination() == Route::ChecksRunning22, "passed checks use screen22 without an action screen25");
     prepare(Route::ChecksRunning22, SceneId::ChecksRunning);
-    require(!s_view.action_visible, "passed checks remain informational during their readable dwell");
+    require(s_view.action_id == OnboardingAction::DismissEvent && s_presented_event.state == State::Pending,
+        "passed checks remain unread with an explicit read action");
     require_text_layout();
     s_presented_event.kind = Kind::ChecksFailed;
     prepare(Route::ChecksFailed23, SceneId::ChecksFailed);
-    require(s_view.action_id == OnboardingAction::ViewFailures, "failed checks expose only View failures");
+    require(s_view.action_id == OnboardingAction::DismissEvent,
+        "failed check names share the complete informational detail");
     s_presented_event.failure_count = 6;
     for (uint8_t index = 0; index < 6; ++index) {
         copy_field(s_presented_event.failed_checks[index],
             std::string(24, static_cast<char>('a' + index)) + " " + std::string(23, 'X'));
     }
-    for (uint8_t page : {uint8_t{0}, uint8_t{1}}) {
-        s_event_failure_page = page;
-        prepare(Route::CheckFailures24, SceneId::CheckFailures);
-        require(!s_view.action_visible && s_view.event_choice_count == 0, "failure names are readonly");
-        require(s_view.line_count == 7, "three exact two-line names plus one scroll hint fit each page");
+    copy_field(s_presented_event.origin_title, "SIMULATED check review");
+    std::string shown;
+    uint8_t pages = 1;
+    for (uint8_t page = 0; page < pages; ++page) {
+        s_event_detail_page = page;
+        prepare(Route::ChecksFailed23, SceneId::ChecksFailed);
+        pages = s_event_plan.page_count;
+        require(s_view.action_id == OnboardingAction::DismissEvent && s_view.event_choice_count == 0,
+            "failure names are readonly and never become execution actions");
         require_text_layout();
-        for (uint8_t index = 0; index < 3; ++index) {
-            const auto &first = s_view.lines[index * 2U].text;
-            const auto &second = s_view.lines[index * 2U + 1U].text;
-            const std::string name = std::string(first.characters, first.length) +
-                std::string(second.characters, second.length);
-            require(name == s_presented_event.failed_checks[page * 3U + index],
-                "48-character check names retain spaces, suffixes and complete identity");
+        for (uint8_t index = 0; index < s_event_plan.line_count; ++index) {
+            if (s_event_plan.lines[index].top < 326) { shown += s_event_plan.lines[index].text; }
         }
+    }
+    for (uint8_t index = 0; index < 6; ++index) {
+        require(nonspace(shown).find(nonspace(s_presented_event.failed_checks[index])) != std::string::npos,
+            "every canonical check name survives the shared detail pages");
     }
 }
 
@@ -424,6 +425,12 @@ void check_reply_semantics()
         "a new reply cannot be sent offline");
     complete_narrative(scene);
     require(!CODY2D::capsule_contains(s_view.action, {233, 388}), "disabled Send has no active touch target");
+    // Observe a previously admitted reply, without admitting the disabled offline
+    // Send above. The real owner reconciles Sending/Received into this selected
+    // identity and immutable Waiting state before preparing the presentation.
+    copy_field(s_presented_event.selected_id, "first");
+    s_event_reply_admitted = true;
+    s_event_stage = EventStage::Waiting;
     s_presented_event.state = State::Sending;
     require(codex_event_destination() == Route::DecisionWaiting, "admitted reply becomes immutable waiting");
     s_presented_event.state = State::Received;
@@ -447,33 +454,53 @@ void check_reply_semantics()
     require(std::strcmp(s_view.lines[1].text.characters, "Delivery unconfirmed") == 0 &&
         std::strcmp(s_view.lines[2].text.characters, "Check on your PC") == 0,
         "lost acknowledgement leaves an explicit unconfirmed outcome");
+    // This is a different informational request, not a kind change on the
+    // submitted question. The real owner resets the prior request's admission
+    // and selection before adopting the new request identity and payload.
+    reset_event_presentation();
     s_presented_event.kind = Kind::ApprovalOnPc;
     s_presented_event.state = State::Pending;
+    s_presented_event.last_error = ESP_OK;
+    s_presented_event.data_valid = true;
+    copy_field(s_presented_event.request_id, std::string(32, 'b'));
+    copy_field(s_presented_event.title, "Approval needed");
+    copy_field(s_presented_event.body, "Review the permission on your PC");
+    s_event_online = true;
     scene = prepare(Route::ApprovalOnPc, SceneId::ApprovalOnPc);
-    require(!s_view.action_visible && s_view.event_choice_count == 0, "native permissions stay on the PC");
-    const auto &caption = scene.content.leading_caption_bounds;
-    const uint16_t caption_bottom = caption.bottom;
-    require(caption.bottom <= scene.title.bounds.y && caption.right > caption.left,
-        "the leading PC heading fits entirely above the native title");
-    require(scene.content.bounds.top >= scene.title.bounds.y + scene.title.bounds.height,
-        "approval body and artwork remain below the native title");
-    SceneContent overlapping = scene.content;
-    overlapping.leading_caption_bounds.bottom = scene.title.bounds.y + 1U;
-    require(set_scene_content(scene, overlapping) == ESP_ERR_INVALID_SIZE,
-        "a leading caption cannot overlap the title");
-    require(scene.content.leading_caption_bounds.bottom == caption_bottom,
-        "rejected caption geometry cannot replace the admitted frame");
+    require(s_view.action_id == OnboardingAction::DismissEvent && s_view.event_choice_count == 0 &&
+        std::strcmp(s_event_plan.actions[0].label, "Mark as read") == 0,
+        "native permissions stay on the PC; Cody only offers to read their notice");
+    require_text_layout();
 }
 
-// No parameters: typed background replies use the real shared layout, native fonts and dismissal intent.
-// Exception: Stops on repeated copy, lost chat text, invalid circular bounds or an implied task outcome.
+// route: Retained event route whose complete source fields are inspected.
+// identity: Stable scene ID retained by the native presenter.
+// Exception: Stops on invalid native detail paging or lost canonical text.
+std::string read_notice_pages(Route route, SceneId identity)
+{
+    std::string shown;
+    uint8_t pages = 1;
+    for (uint8_t page = 0; page < pages; ++page) {
+        s_event_detail_page = page;
+        prepare(route, identity);
+        pages = s_event_plan.page_count;
+        require_text_layout();
+        for (uint8_t index = 0; index < s_event_plan.line_count; ++index) {
+            if (s_event_plan.lines[index].top < 326) { shown += s_event_plan.lines[index].text; }
+        }
+    }
+    return shown;
+}
+
+// No parameters: typed replies retain complete origins, distinct failures and explicit unread state.
+// Exception: Stops on lost source text, implicit read, invalid bounds or raster partition differences.
 void check_reply_ready_notice()
 {
     namespace P = event_presentation;
     const std::vector<std::string> titles{
         "A SIMULATED separate chat about the circular display",
-        std::string(63, 'W'),
-        "Open the other chat in Codex"
+        std::string(255, 'W'),
+        "Chat title unavailable"
     };
     for (const auto &chat_title : titles) {
         reset_event_presentation();
@@ -483,72 +510,49 @@ void check_reply_ready_notice()
         s_presented_event.data_valid = true;
         copy_field(s_presented_event.request_id, std::string(32, 'd'));
         copy_field(s_presented_event.title, "Chat waiting");
-        copy_field(s_presented_event.body, chat_title);
+        copy_field(s_presented_event.origin_title, chat_title);
+        copy_field(s_presented_event.body, "Reply available in Codex");
         copy_field(s_presented_event.context, "SIMULATED Cody project");
+        copy_field(s_presented_event.status, "Voice unavailable");
         s_event_online = true;
         require(codex_event_destination() == Route::CodexNotice,
-            "typed reply readiness uses a readonly notification route");
+            "typed reply readiness retains its registered notification route");
+        const auto shown = read_notice_pages(Route::CodexNotice, SceneId::CodexNotice);
+        require(nonspace(shown).find(nonspace(chat_title)) == 0 &&
+            nonspace(shown).find(nonspace("Voice unavailable")) != std::string::npos,
+            "all originating-title characters precede distinct speech error text across pages");
+        require(nonspace(shown).find(nonspace("SIMULATED Cody project")) != std::string::npos,
+            "project context survives the same shared detail projection");
+        s_event_detail_page = 0;
         auto scene = prepare(Route::CodexNotice, SceneId::CodexNotice);
-        require(std::string(scene.title.text.characters, scene.title.text.length) == "Chat waiting" &&
-            scene.title.origin.y == 150,
-            "one Chat waiting headline replaces From Codex");
-        require(s_view.line_count >= 2 && s_view.line_count <= 4,
-            "complete bounded chat title and one subordinate context line fit the notice");
-        std::string displayed_title;
-        for (uint8_t index = 0; index + 1U < s_view.line_count; ++index) {
-            const auto &line = s_view.lines[index];
-            require(line.origin.y == 214 + index * 28 && !s_view.instant_lines[index],
-                "chat text owns the separated primary rows below the single headline");
-            displayed_title.append(line.text.characters, line.text.length);
-        }
-        require(nonspace(displayed_title) == nonspace(chat_title),
-            "the originating chat title or honest fallback remains complete without a GUID");
-        const auto &context_line = s_view.lines[s_view.line_count - 1U];
-        require(context_line.origin.y == 312 && context_line.color == 0xBDF7 &&
-            std::strcmp(context_line.text.characters, "SIMULATED Cody project") == 0 &&
-            s_view.instant_lines[s_view.line_count - 1U],
-            "project context is visually subordinate and excluded from narration timing");
-        require_text_layout();
+        require(std::string(scene.title.text.characters, scene.title.text.length) == "Reply ready",
+            "the reply event heading never claims task success");
         require_circle(s_view.action.bounds);
         require(s_view.action_id == OnboardingAction::DismissEvent &&
-            std::strcmp(s_event_plan.actions[0].label, "OK") == 0 &&
-            s_event_plan.actions[0].tone == LUNASHELL::CodexChoiceTone::Info &&
-            s_view.action.icon == CODY2D::ActionIcon::Check &&
+            std::strcmp(s_event_plan.actions[0].label, "Mark as read") == 0 &&
             s_view.action.bounds.x == 113 && s_view.action.bounds.y == 352 &&
             s_view.action.bounds.width == 240 && s_view.action.bounds.height == 72,
-            "OK retains one informational capsule with a check mark");
+            "explicit read retains the complete separate action target");
         require(!P::hit_action(s_event_plan, s_view.actions_visible, 233, 388),
-            "the acknowledgement cannot be tapped before its complete narrative is visible");
+            "the read action cannot be tapped before its complete narrative is visible");
         complete_narrative(scene);
+        require(s_presented_event.state == State::Pending && !s_event_dismiss_admitted,
+            "finishing the displayed narrative never marks a reply as read");
         P::Navigation navigation{};
         P::Effect effect{};
+        P::Action back;
+        back.id = P::ActionId::Back;
+        back.enabled = true;
+        require(P::activate(s_presented_event, event_context(), back, navigation, effect) == ESP_OK &&
+            effect != P::Effect::Dismiss && effect != P::Effect::Reply,
+            "Back leaves the exact event unread without sending an answer");
         require(P::activate(s_presented_event, event_context(), s_event_plan.actions[0], navigation, effect) == ESP_OK &&
             effect == P::Effect::Dismiss && s_presented_event.state == State::Pending,
-            "OK requests the signed dismissal of the current LAN notice");
-        int64_t readable_at = -1;
-        require(!P::checks_passed_dismiss_due(s_presented_event, event_context(), true, 9000000, readable_at) &&
-            readable_at == -1, "reply readiness cannot trigger checks-passed auto-dismissal");
+            "only Mark as read requests the exact authenticated dismissal");
 
         std::vector<uint16_t> full(466U * 466U);
         require(draw_scene_rows(scene, {full.data(), 466, 466, 466, static_cast<uint32_t>(full.size())}, 0, 0) == ESP_OK,
-            "the complete reply-ready view draws through the native production compositor");
-        const uint16_t heading_colors[] = {Theme::text_heading_gradient_0, Theme::text_heading_gradient_1,
-            Theme::text_heading_gradient_2, Theme::text_heading_gradient_3, Theme::text_heading_gradient_4,
-            Theme::text_heading_gradient_5, Theme::text_heading_gradient_6};
-        bool heading_visible = false;
-        for (uint16_t y = scene.title.bounds.y; y < scene.title.bounds.y + scene.title.bounds.height; ++y) {
-            for (uint16_t x = scene.title.bounds.x; x < scene.title.bounds.x + scene.title.bounds.width; ++x) {
-                const uint16_t pixel = full[y * 466U + x];
-                heading_visible = heading_visible || std::find(std::begin(heading_colors),
-                    std::end(heading_colors), pixel) != std::end(heading_colors);
-            }
-        }
-        require(heading_visible, "the shared violet headline is present in actual native pixels");
-        const auto &first_title_line = s_view.lines[0];
-        const auto dot_center_x = first_title_line.origin.x - P::kChatWaitingDotGap - P::kChatWaitingDotSize / 2;
-        const auto dot_center_y = first_title_line.origin.y + first_title_line.font->height / 2;
-        require(s_view.chat_waiting && full[dot_center_y * 466U + dot_center_x] == P::kChatWaitingDotColor,
-            "the red dot is present beside the title in actual native pixels");
+            "the unified reply detail draws through the native production compositor");
         for (const auto order : {CODY2D::Rgb565ByteOrder::Native, CODY2D::Rgb565ByteOrder::ByteSwapped}) {
             for (const uint16_t rows : {2, 16}) {
                 std::vector<uint16_t> tiled(full.size());
@@ -557,48 +561,54 @@ void check_reply_ready_notice()
                         static_cast<uint16_t>(std::min<unsigned>(rows, 466 - first)), 466,
                         static_cast<uint32_t>(tiled.size() - first * 466U), order};
                     require(draw_scene_rows(scene, strip, first, 0) == ESP_OK,
-                        "reply-ready layout respects real DMA row partitions");
+                        "reply detail respects real DMA row partitions");
                 }
                 for (size_t pixel = 0; pixel < full.size(); ++pixel) {
                     const uint16_t expected = order == CODY2D::Rgb565ByteOrder::Native ? full[pixel] :
                         CODY2D::swap_rgb565_bytes(full[pixel]);
-                    require(tiled[pixel] == expected, "reply-ready native/swapped and full/tiled pixels match");
+                    require(tiled[pixel] == expected, "reply detail native/swapped and full/tiled pixels match");
                 }
             }
         }
     }
 
     s_event_online = false;
-    prepare(Route::CodexNotice, SceneId::CodexNotice);
-    require(std::strcmp(s_view.lines[s_view.line_count - 1U].text.characters, "Offline - saved notice") == 0,
-        "an offline reply notice retains its original content with explicit link state");
+    require(nonspace(read_notice_pages(Route::CodexNotice, SceneId::CodexNotice)).find(
+        nonspace("Offline - saved notification")) != std::string::npos && !s_view.action.enabled,
+        "offline detail preserves its source and disables remote read submission");
     s_event_online = true;
     s_event_ui_error = ESP_ERR_TIMEOUT;
     s_event_retry = EventRetry::Dismiss;
-    prepare(Route::CodexNotice, SceneId::CodexNotice);
-    require(s_view.action_id == OnboardingAction::RetryEvent &&
-        std::strcmp(s_view.lines[s_view.line_count - 1U].text.characters, "Error: 0x00000107") == 0,
-        "failed dismissal retains its real cause and explicit retry");
+    require(read_notice_pages(Route::CodexNotice, SceneId::CodexNotice).find("0x00000107") != std::string::npos &&
+        s_view.action_id == OnboardingAction::RetryEvent,
+        "failed dismissal retains its exact error and explicit retry");
     s_event_ui_error = ESP_OK;
     s_event_retry = EventRetry::None;
     s_event_dismiss_admitted = true;
+    s_event_detail_page = 0;
     prepare(Route::CodexNotice, SceneId::CodexNotice);
-    require(!s_view.action.enabled, "an admitted acknowledgement cannot be repeated");
+    require(!s_view.action.enabled, "an admitted read acknowledgement cannot be repeated");
     s_event_dismiss_admitted = false;
     s_presented_event.state = State::Expired;
     auto expired = prepare(Route::CodexNotice, SceneId::CodexNotice);
-    require(std::string(expired.title.text.characters, expired.title.text.length) == "Request expired" &&
-        expired.title.color == 0xFFFF, "expiration keeps its truthful terminal outcome instead of reply-ready emphasis");
+    require(std::string(expired.title.text.characters, expired.title.text.length) == "Request expired",
+        "a terminal owner outcome never becomes reply-ready emphasis");
 
+    // The generic notice is another request, so it must not inherit the expired
+    // reply's selected identity, paging, delivery or read-admission state.
+    reset_event_presentation();
     s_presented_event.kind = Kind::Notice;
     s_presented_event.state = State::Pending;
-    s_presented_event.context[0] = '\0';
-    copy_field(s_presented_event.title, "Chat waiting");
-    copy_field(s_presented_event.body, "Chat waiting");
+    s_presented_event.last_error = ESP_OK;
+    s_presented_event.data_valid = true;
+    copy_field(s_presented_event.request_id, std::string(32, 'e'));
+    s_event_online = true;
+    copy_field(s_presented_event.title, "Generic notice");
+    copy_field(s_presented_event.body, "Generic notice");
     auto generic = prepare(Route::CodexNotice, SceneId::CodexNotice);
-    require(s_view.line_count == 1 && std::strcmp(s_view.lines[0].text.characters, "Chat waiting") == 0 &&
-        std::string(generic.title.text.characters, generic.title.text.length) == "From Codex",
-        "generic notices suppress identical body copy without inferring the new typed readiness event");
+    require(std::string(generic.title.text.characters, generic.title.text.length) == "Generic notice" &&
+        std::strcmp(s_event_plan.lines[0].text, "Chat title unavailable") == 0,
+        "generic notices keep their own type and expose a missing source without borrowing a chat");
 }
 // No parameters: explicitly synthetic canonical observations exercise the real Home presenter.
 // Exception: Stops on incorrect routes, titles, freshness or original service-error propagation.

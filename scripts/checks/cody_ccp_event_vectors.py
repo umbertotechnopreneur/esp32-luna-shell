@@ -36,7 +36,8 @@ def event_vectors() -> list[tuple[str, str, bool]]:
         tuple(Choice(f"choice_{index}", str(index) + "L" * 62, "D" * 255, Tone(index)) for index in range(3)),
         pending_question_count=128,
         pending_questions=(PendingQuestion("1" * 32, "C" * 24, "T" * 24),
-                           PendingQuestion("2" * 32, "C" * 24, "T" * 24)))
+                           PendingQuestion("2" * 32, "C" * 24, "T" * 24)),
+        origin_title="O" * 255, status="S" * 63)
     failures = EventPayload(EventKind.CHECKS_FAILED, "SIMULATED fixture", "Checks failed", "Review the failed checks in Codex.",
                             failures=tuple(str(index) + "F" * 47 for index in range(6)),
                             progress_valid=True, passed=5, total=11)
@@ -66,6 +67,7 @@ def event_vectors() -> list[tuple[str, str, bool]]:
     detail_and_tone = bytes((len(detail),)) + detail + bytes((int(choices[0].tone),))
     selected = bytes.fromhex(encode_payload(replace(question, selected_id="redis")))
     progress = bytes.fromhex(encode_payload(replace(failures, progress_valid=True, passed=1, total=8)))
+    progress_core = progress[:-2]  # Empty origin/status metadata follow the queue fields.
     reply_progress = bytes.fromhex(encode_payload(EventPayload(EventKind.CHECKS_RUNNING,
         "", "Synthetic progress", "Decoder evidence.", progress_valid=True, passed=1, total=2)))
     # Each malformed vector changes the real encoded bytes, without asking the
@@ -73,6 +75,7 @@ def event_vectors() -> list[tuple[str, str, bool]]:
     invalid = [
         ("unknown_version", (bytes((3,)) + base[1:]).hex(), False),
         ("retired_version", (bytes((1,)) + base[1:]).hex(), False),
+        ("private_checkpoint_is_not_wire", (bytes((2,)) + base[1:]).hex(), False),
         ("unknown_kind", (base[:1] + bytes((9,)) + base[2:]).hex(), False),
         ("reply_ready_with_choices", (base[:1] + bytes((8,)) + base[2:]).hex(), False),
         ("reply_ready_with_check_progress", (reply_progress[:1] + bytes((8,)) + reply_progress[2:]).hex(), False),
@@ -87,10 +90,10 @@ def event_vectors() -> list[tuple[str, str, bool]]:
         ("invalid_tone", base.replace(detail_and_tone, detail_and_tone[:-1] + b"\x04", 1).hex(), False),
         ("too_many_choices", (base[:choice_offset] + b"\x04" + base[choice_offset + 1:]).hex(), False),
         ("too_many_failures", (failure_bytes[:failure_offset] + b"\x07" + failure_bytes[failure_offset + 1:]).hex(), False),
-        ("invalid_progress_flag", (progress[:-7] + b"\x02" + progress[-6:]).hex(), False),
-        ("invalid_progress_counts", (progress[:-6] + b"\x00\x03\x00\x02" + progress[-2:]).hex(), False),
-        ("failure_progress_count_mismatch", (progress[:-6] + b"\x00\x01\x00\x02" + progress[-2:]).hex(), False),
-        ("too_many_pending", (base[:-2] + b"\x81\x00").hex(), False),
-        ("too_many_pending_entries", (base[:-2] + b"\x03\x03").hex(), False),
+        ("invalid_progress_flag", (progress_core[:-7] + b"\x02" + progress_core[-6:] + progress[-2:]).hex(), False),
+        ("invalid_progress_counts", (progress_core[:-6] + b"\x00\x03\x00\x02" + progress_core[-2:] + progress[-2:]).hex(), False),
+        ("failure_progress_count_mismatch", (progress_core[:-6] + b"\x00\x01\x00\x02" + progress_core[-2:] + progress[-2:]).hex(), False),
+        ("too_many_pending", (base[:-4] + b"\x81\x00" + base[-2:]).hex(), False),
+        ("too_many_pending_entries", (base[:-4] + b"\x03\x03" + base[-2:]).hex(), False),
     ]
     return valid + invalid

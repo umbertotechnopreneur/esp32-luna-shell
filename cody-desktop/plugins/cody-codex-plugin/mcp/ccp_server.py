@@ -156,14 +156,14 @@ class EventPeer:
                    for value, observed in confirmed)
 
 
-# data: Validated version-2 reply event encoded in lowercase hexadecimal.
+# data: Validated version-4 reply event encoded in lowercase hexadecimal.
 # text: One complete bounded UTF-8 reply segment; never logged or persisted.
 # link_key: The confirmed active association credential.
 # device_id: Exact authenticated physical recipient.
 # request_id: Immutable EVENT ticket identity.
 # index: Zero-based segment identity.
 # total: Exact total number of segments.
-# Returns version-3 EVENT data with an authenticated encrypted reply trailer.
+# Returns version-5 EVENT data with an authenticated encrypted reply trailer.
 # Raises ImportError or ValueError if the cipher or bounded content is unavailable.
 def seal_reply_event(data: str, text: str, link_key: bytes, device_id: str, request_id: str,
                      index: int, total: int) -> str:
@@ -173,21 +173,21 @@ def seal_reply_event(data: str, text: str, link_key: bytes, device_id: str, requ
     if not 1 <= len(plaintext) <= 400 or not 1 <= total <= 64 or not 0 <= index < total:
         raise ValueError("Reply speech exceeds its bounded encrypted payload")
     raw = bytearray.fromhex(data)
-    if len(raw) < 2 or raw[0] != 2 or raw[1] != int(interactions.EventKind.REPLY_READY):
-        raise ValueError("Reply speech requires a version-2 ReplyReady payload")
+    if len(raw) < 2 or raw[0] != 4 or raw[1] != int(interactions.EventKind.REPLY_READY):
+        raise ValueError("Reply speech requires a version-4 ReplyReady payload")
     domain = b"cody-reply-speech-v1|" + device_id.encode("ascii")
     key = hmac.digest(link_key, domain, "sha256")
     aad = (domain + b"|" + request_id.encode("ascii") + b"|" + str(index).encode("ascii") +
            b"|" + str(total).encode("ascii"))
     iv = secrets.token_bytes(12)
     sealed = AESGCM(key).encrypt(iv, plaintext, aad)
-    raw[0] = 3
+    raw[0] = 5
     raw.extend(index.to_bytes(2, "big"))
     raw.extend(total.to_bytes(2, "big"))
     raw.extend(len(plaintext).to_bytes(2, "big"))
     raw.extend(iv)
     raw.extend(sealed)
-    if len(raw) > 1536:
+    if len(raw) > 1728:
         raise ValueError("Encrypted reply exceeds the EVENT payload envelope")
     return raw.hex()
 

@@ -75,6 +75,17 @@ class Tone(IntEnum):
     INFO = 3
 
 
+class PcAlertSeverity(IntEnum):
+    INFORMATION = 1
+    WARNING = 2
+    CRITICAL = 3
+
+
+PC_ALERT_SEVERITIES = {"information": PcAlertSeverity.INFORMATION,
+                       "warning": PcAlertSeverity.WARNING,
+                       "critical": PcAlertSeverity.CRITICAL}
+
+
 KIND_NAMES = {
     "notice": EventKind.NOTICE, "question": EventKind.QUESTION,
     "approval_on_pc": EventKind.APPROVAL_ON_PC, "pr_pending": EventKind.PR_PENDING,
@@ -114,6 +125,9 @@ class EventPayload:
     total: int = 0
     pending_question_count: int = 0
     pending_questions: tuple[PendingQuestion, ...] = ()
+    origin_title: str = ""
+    status: str = ""
+    pc_severity: PcAlertSeverity | None = None
 
 
 @dataclass
@@ -204,6 +218,11 @@ def validate_payload(payload: EventPayload) -> None:
     bounded_text(payload.context, "context", 24, True)
     bounded_text(payload.title, "title", 24)
     bounded_text(payload.body, "body", 255 if payload.kind == EventKind.APPROVAL_ON_PC else 63)
+    bounded_text(payload.origin_title, "origin title", 255, True)
+    bounded_text(payload.status, "event status", 63, True)
+    if payload.pc_severity is not None and (payload.kind != EventKind.NOTICE or
+                                            not isinstance(payload.pc_severity, PcAlertSeverity)):
+        raise ValueError("PC alert severity is only valid on a typed notice")
     if payload.kind == EventKind.QUESTION:
         if len(payload.choices) not in (2, 3):
             raise ValueError("A Cody question requires exactly two or three choices")
@@ -263,11 +282,14 @@ def validate_payload(payload: EventPayload) -> None:
 
 
 # payload: Validated immutable interaction data and optional recipient-confirmed choice.
+# checkpoint: Uses the existing private question ledger schema, never a wire fallback.
 # Returns lowercase hexadecimal bytes with length-prefixed bounded ASCII strings.
 # Raises ValueError for incoherent content or an oversized encoded payload.
-def encode_payload(payload: EventPayload) -> str:
+def encode_payload(payload: EventPayload, *, checkpoint: bool = False) -> str:
     validate_payload(payload)
-    result = bytearray((2, int(payload.kind)))
+    if checkpoint and payload.kind != EventKind.QUESTION:
+        raise ValueError("Private question encoding requires a semantic question")
+    result = bytearray((2 if checkpoint else 6 if payload.pc_severity is not None else 4, int(payload.kind)))
     for text in (payload.context, payload.title, payload.body):
         encoded = text.encode("ascii")
         result.append(len(encoded))
@@ -296,7 +318,14 @@ def encode_payload(payload: EventPayload) -> str:
             encoded = value.encode("ascii")
             result.append(len(encoded))
             result.extend(encoded)
-    if len(result) > 1536:
+    if not checkpoint:
+        for text in (payload.origin_title, payload.status):
+            encoded = text.encode("ascii")
+            result.append(len(encoded))
+            result.extend(encoded)
+        if payload.pc_severity is not None:
+            result.append(int(payload.pc_severity))
+    if len(result) > 1728:
         raise ValueError("EVENT content exceeds its bounded binary envelope; use Codex")
     return result.hex()
 
@@ -306,7 +335,7 @@ class PayloadReader:
     # value: Candidate lowercase hexadecimal EVENT data.
     # Raises ValueError for malformed encoding or an oversized binary envelope.
     def __init__(self, value: str) -> None:
-        if not isinstance(value, str) or not value or len(value) > 3072 or len(value) % 2:
+        if not isinstance(value, str) or not value or len(value) > 3456 or len(value) % 2:
             raise ValueError("EVENT payload length is invalid")
         if any(character not in "0123456789abcdef" for character in value):
             raise ValueError("EVENT payload encoding is invalid")
@@ -371,10 +400,12 @@ def split_reply_speech(text: str) -> tuple[str, ...]:
 
 
 # value: Complete hex data authenticated by the enclosing EVENT before decoding.
+# checkpoint: Reads only the existing private question ledger format, never an old wire offer.
 # Raises ValueError for unknown versions, kinds, tones, trailing bytes or semantic contradictions.
-def decode_payload(value: str) -> EventPayload:
+def decode_payload(value: str, *, checkpoint: bool = False) -> EventPayload:
     reader = PayloadReader(value)
-    if reader.byte() != 2:
+    version = reader.byte()
+    if version not in ((2,) if checkpoint else (4, 6)):
         raise ValueError("EVENT payload version is unsupported")
     kind = EventKind(reader.byte())
     context, title = reader.text(24, True), reader.text(24)
@@ -398,10 +429,14 @@ def decode_payload(value: str) -> EventPayload:
         raise ValueError("EVENT pending viewport contains more than two requests")
     pending = tuple(PendingQuestion(reader.text(32), reader.text(24, True), reader.text(24))
                     for _ in range(pending_entries))
+    origin_title, status = ("", "") if checkpoint else (reader.text(255, True), reader.text(63, True))
+    severity = PcAlertSeverity(reader.byte()) if version == 6 else None
     if reader.offset != len(reader.data):
         raise ValueError("EVENT payload contains trailing bytes")
     payload = EventPayload(kind, context, title, body, choices, selected, failures, bool(progress), passed, total,
-                           pending_count, pending)
+                           pending_count, pending, origin_title, status, severity)
+    if checkpoint and kind != EventKind.QUESTION:
+        raise ValueError("Private question checkpoint contains a notification")
     validate_payload(payload)
     return payload
 
@@ -484,11 +519,18 @@ def payload_from_arguments(arguments: dict[str, Any], question: bool) -> EventPa
         if kind == EventKind.NOTICE:
             if "pr" in arguments:
                 raise ValueError("A general notice does not accept PR metadata")
-            payload = EventPayload(kind, context, title, body)
+            severity = arguments.get("severity")
+            if severity is not None and (not isinstance(severity, str) or severity not in PC_ALERT_SEVERITIES):
+                raise ValueError("PC alert severity must be information, warning or critical")
+            payload = EventPayload(kind, context, title, body,
+                                   pc_severity=PC_ALERT_SEVERITIES[severity] if severity is not None else None)
         else:
+            if "severity" in arguments:
+                raise ValueError("PC alert severity is not valid on PR events")
             failures, valid, passed, total = check_metadata(kind, arguments.get("pr"))
             payload = EventPayload(kind, context, title, body, failures=failures,
                                    progress_valid=valid, passed=passed, total=total)
+    payload = replace(payload, origin_title=bounded_text(arguments.get("origin_title", ""), "origin title", 255, True))
     encode_payload(payload)
     return payload
 
@@ -530,7 +572,7 @@ class InteractionStore:
                 "request_id": ticket.request_id, "question_id": ticket.question_id,
                 "capability_digest": ticket.capability_digest,
                 "device_id": ticket.device_id, "association": ticket.association_id,
-                "payload": encode_payload(ticket.payload), "source": ticket.source,
+                "payload": encode_payload(ticket.payload, checkpoint=True), "source": ticket.source,
                 "state": ticket.state, "question_state": ticket.question_state,
                 "answer_id": ticket.answer_id, "selected_id": ticket.selected_id,
                 "published": ticket.published, "active": ticket.active_on_device,
@@ -582,10 +624,10 @@ class InteractionStore:
                 or CAPABILITY.fullmatch(row["association"]) is None
                 or row["source"] not in {"LAN", "SIMULATED"}):
             raise ValueError("Invalid question checkpoint identity")
-        payload = decode_payload(row["payload"])
+        payload = decode_payload(row["payload"], checkpoint=True)
         if (payload.kind != EventKind.QUESTION or payload.selected_id
                 or payload.pending_question_count or payload.pending_questions
-                or encode_payload(payload) != row["payload"]):
+                or encode_payload(payload, checkpoint=True) != row["payload"]):
             raise ValueError("Question checkpoint payload is not an immutable original question")
         selected = row["selected_id"]
         answer_id = row["answer_id"]

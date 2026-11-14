@@ -34,7 +34,7 @@ function Get-DeviceActionParameters {
         help = @(); list = @(); 'clean-artifacts' = @('BuildDir')
         preflight = @('IdfPath','ToolsPath','PythonExe')
         relay = @('RelayRoot','RelayOperation','RelayConfig','RelayRevision','BuildMode','Jobs','WaitSeconds')
-        simulator = $preview + @('OutputPath','Ccp')
+        simulator = $preview + @('OutputPath','Ccp','DeviceRuntime','DeviceScenario','StudioCase','StudioScenario','StudioCapture')
         'boot-screens' = @('Rotation','AtMs','SafeGuide','PythonExecutable')
         'simulator-luna' = @('PythonExecutable','ToolArguments')
         'package-simulator' = @()
@@ -85,6 +85,25 @@ function Assert-DeviceActionParameters($RequestedAction, $BoundParameters, $Cont
     if ($BoundParameters.Ccp -and ($BoundParameters.OutputPath -or
             ($BoundParameters.ContainsKey('Screen') -and $BoundParameters.Screen -ne 'rig'))) {
         throw '-Ccp requires the interactive Cody simulator without an output capture.'
+    }
+    $studioRequested = $BoundParameters.ContainsKey('StudioCase') -or
+        $BoundParameters.ContainsKey('StudioScenario') -or $BoundParameters.StudioCapture
+    if ($studioRequested) {
+        foreach ($legacyOption in @('Screen','Rotation','AtMs','SafeGuide','OutputPath','Ccp','DeviceRuntime','DeviceScenario')) {
+            if ($BoundParameters.ContainsKey($legacyOption)) {
+                throw "-$legacyOption cannot be combined with controlled Studio scenarios."
+            }
+        }
+        if (-not $BoundParameters.StudioCase -and -not $BoundParameters.StudioScenario) {
+            throw '-StudioCapture requires -StudioCase or -StudioScenario.'
+        }
+    }
+    if ($BoundParameters.DeviceRuntime -or $BoundParameters.ContainsKey('DeviceScenario')) {
+        foreach ($legacyOption in @('Screen','Rotation','AtMs','SafeGuide','OutputPath','Ccp')) {
+            if ($BoundParameters.ContainsKey($legacyOption)) {
+                throw "-$legacyOption cannot be combined with the native device runtime."
+            }
+        }
     }
     if ($BoundParameters.Screen -eq 'question-flow' -and
         (-not $BoundParameters.OutputPath -or [IO.Path]::GetExtension($BoundParameters.OutputPath) -ne '.png' -or
@@ -139,7 +158,8 @@ function Invoke-HostTool([string]$Path, [string[]]$Arguments, [string]$PythonExe
         $python = Resolve-HostPython $PythonExecutable
         & $python -B $Path @Arguments
     } else {
-        & (Join-Path $PSHOME 'pwsh.exe') -NoProfile -File $Path @Arguments
+        $powerShellName = if ($IsWindows) { 'pwsh.exe' } else { 'pwsh' }
+        & (Join-Path $PSHOME $powerShellName) -NoProfile -File $Path @Arguments
     }
     if ($LASTEXITCODE -ne 0) { throw "Tool '$Path' failed with exit code $LASTEXITCODE." }
 }
@@ -189,6 +209,33 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
                 -StoredLog $storedLog -Destination $Options.OutputPath -ResponseTimeoutSeconds $responseTimeout
         }
         { $_ -in @('simulator','boot-screens') } {
+            if ($RequestedAction -eq 'simulator' -and ($Options.ContainsKey('StudioCase') -or
+                    $Options.ContainsKey('StudioScenario') -or $Options.StudioCapture)) {
+                # Explicit native route: never infer a renderer from preview options.
+                # Build separately so a stale runtime cannot silently become current.
+                $arguments = @()
+                if ($Options.StudioCase) { $arguments += @('--studio-case',$Options.StudioCase) }
+                if ($Options.StudioScenario) { $arguments += @('--studio-scenario',$Options.StudioScenario) }
+                if ($Options.StudioCapture) { $arguments += '--studio-capture' }
+                Invoke-HostTool (Join-Path $ProjectRoot 'cody-device/simulator/windows/cody_simulator.py') `
+                    $arguments $Options.PythonExecutable
+                break
+            }
+            $legacyOptions = @('Screen','Rotation','AtMs','SafeGuide','OutputPath','Ccp')
+            $legacyRequested = @($legacyOptions | Where-Object { $Options.ContainsKey($_) }).Count -gt 0
+            if ($RequestedAction -eq 'simulator' -and -not $legacyRequested) {
+                $scenario = if ($Options.DeviceScenario) { $Options.DeviceScenario } else {
+                    Join-Path $ProjectRoot 'cody-device/simulator/windows/scenarios/cody-native-first-boot.json'
+                }
+                $graphicsTool = Find-DeviceTool 'generators' 'cody-simulator-graphics'
+                Invoke-HostTool $graphicsTool.Path @('--device-runtime') $Options.PythonExecutable
+                Invoke-HostTool (Join-Path $ProjectRoot 'cody-device/simulator/windows/cody_simulator.py') `
+                    @('--device-runtime','--device-scenario',$scenario) $Options.PythonExecutable
+                break
+            }
+            if ($RequestedAction -eq 'simulator') {
+                Write-Warning 'Legacy preview selected by preview-specific options; this is not the native device simulator.'
+            }
             # Both the Muse avatar and VibeWare use the current native graphics driver.
             $graphicsTool = Find-DeviceTool 'generators' 'cody-simulator-graphics'
             Invoke-HostTool $graphicsTool.Path @() $Options.PythonExecutable

@@ -15,11 +15,15 @@
  * VBWR E */
 
 // Host transport owns synthetic inputs only; production modules own decoding,
-// sample aging and JSON. No host observation enters DeviceSnapshotService.
+// sample aging and JSON. An explicit opt-in publishes copies only to the
+// simulator's separate DeviceSnapshotService adapter, never to a physical device.
 #include "LUNASHELL_snapshot_aging.hpp"
 #include "LUNASHELL_http_json.hpp"
 #include "LUNASHELL_rtc_calendar.hpp"
 #include "CODY_host_snapshot.hpp"
+#if defined(CODY_HOST_DEVICE_RUNTIME)
+#include "CODY_host_onboarding_snapshot.hpp"
+#endif
 #include "esp_log.h"
 #include <charconv>
 #include <cerrno>
@@ -162,7 +166,7 @@ ComponentSnapshot *componentAt(DeviceSnapshot &snapshot, const char *path)
 #define COMPONENT(member) if (std::strcmp(path, #member) == 0) { return &snapshot.member; }
     COMPONENT(battery) COMPONENT(imu) COMPONENT(imu.calibration)
     COMPONENT(sensor_fusion) COMPONENT(distance) COMPONENT(distance.settings)
-    COMPONENT(distance.calibration) COMPONENT(rtc) COMPONENT(rtc.system_time)
+    COMPONENT(distance.calibration) COMPONENT(rtc) COMPONENT(rtc.system_time) COMPONENT(clock) COMPONENT(cody_preferences)
     COMPONENT(gps) COMPONENT(audio.speaker) COMPONENT(audio.microphone) COMPONENT(audio.spectrum)
     COMPONENT(radios.wifi) COMPONENT(radios.ble) COMPONENT(storage) COMPONENT(storage.logger_mirror)
     COMPONENT(diagnostics.sample_period) COMPONENT(diagnostics.imu_smoothing) COMPONENT(diagnostics.monitor)
@@ -216,6 +220,9 @@ esp_err_t setField(DeviceSnapshot &snapshot, const char *path, const char *text)
     FIELD(rtc.clock_integrity) FIELD(rtc.system_time_valid) FIELD(rtc.synchronized)
     FIELD(rtc.year) FIELD(rtc.month) FIELD(rtc.day) FIELD(rtc.hour) FIELD(rtc.minute) FIELD(rtc.second)
     FIELD(rtc.source) FIELD(rtc.timezone)
+    FIELD(clock.preferences_valid) FIELD(clock.quiet_hours_enabled) FIELD(clock.quiet)
+    FIELD(clock.quiet_start_minute) FIELD(clock.quiet_end_minute) FIELD(clock.local_minute)
+    FIELD(cody_preferences.sounds_enabled)
     FIELD(gps.pending_nmea_bytes) FIELD(gps.has_fix) FIELD(gps.utc_valid) FIELD(gps.fix_quality) FIELD(gps.satellites)
     FIELD(gps.latitude_degrees) FIELD(gps.longitude_degrees) FIELD(gps.altitude_m) FIELD(gps.speed_mps)
     FIELD(gps.course_degrees) FIELD(gps.hdop) FIELD(gps.utc_time) FIELD(gps.utc_date) FIELD(gps.first_sentence)
@@ -329,6 +336,40 @@ HOST_EXPORT uint32_t cody_host_runtime_abi() { return 2; }
 HOST_EXPORT void *cody_host_snapshot_create() { return new (std::nothrow) HostSnapshot{}; }
 // handle: Exclusive host owner previously allocated by this transport.
 HOST_EXPORT void cody_host_snapshot_destroy(void *handle) { delete static_cast<HostSnapshot *>(handle); }
+
+// handle: Explicit synthetic scenario, never the device's canonical snapshot.
+// now_us: Scenario time used by the unmodified production aging functions.
+// Exception: Rejects invalid inputs before updating the host onboarding owner.
+#if defined(CODY_HOST_DEVICE_RUNTIME)
+HOST_EXPORT int cody_host_snapshot_publish_onboarding(void *handle, int64_t now_us)
+{
+    if (!handle || now_us <= 0) return ESP_ERR_INVALID_ARG;
+    return CODY::host_onboarding::publish_device_snapshot(static_cast<HostSnapshot *>(handle)->snapshot, now_us);
+}
+#endif
+
+// handle: Exclusive host snapshot owner, containing only synthetic inputs.
+// now_us: Host monotonic observation time in the submitted sample clock domain.
+// clock: Receives a copied clock aged by the production snapshot-aging owner.
+// sounds_known: Receives whether the settings observation is trustworthy.
+// sounds_enabled: Receives Sounds only when that observation is trustworthy.
+// Exception: Rejects invalid pointers or time before modifying any output.
+HOST_EXPORT int cody_host_snapshot_audio_observation(void *handle, int64_t now_us,
+    ClockSnapshot *clock, uint8_t *sounds_known, uint8_t *sounds_enabled)
+{
+    if (!handle || now_us <= 0 || !clock || !sounds_known || !sounds_enabled) return ESP_ERR_INVALID_ARG;
+    const auto &snapshot = static_cast<HostSnapshot *>(handle)->snapshot;
+    auto clock_copy = snapshot.clock;
+    age_measured_sample(clock_copy, now_us, measured_sample_ttl_us(snapshot));
+    const auto &preferences = snapshot.cody_preferences;
+    const bool known = preferences.health == DeviceHealth::Ready && preferences.last_error == ESP_OK &&
+        preferences.data_valid && !preferences.data_stale && preferences.last_success_at_us > 0 &&
+        now_us >= preferences.last_success_at_us;
+    *clock = clock_copy;
+    *sounds_known = known ? 1U : 0U;
+    *sounds_enabled = known && preferences.sounds_enabled ? 1U : 0U;
+    return ESP_OK;
+}
 // handle: Exclusive host destination, unchanged until every original field is admitted.
 // fields: Borrowed unique schema identities and their bounded literals.
 // count: Exact number of fields in this synchronous batch.

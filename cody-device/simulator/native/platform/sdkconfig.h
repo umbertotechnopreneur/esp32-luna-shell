@@ -17,3 +17,7 @@
 #pragma once
 // Host compilation selects Debug presentation without importing an IDF build tree.
 #define CONFIG_LUNASHELL_BUILD_MODE_DEBUG 1
+#ifndef CONFIG_ESP_TASK_WDT_TIMEOUT_S
+// Matches the current 1.75C wake-word firmware's settings timeout contract.
+#define CONFIG_ESP_TASK_WDT_TIMEOUT_S 12
+#endif
