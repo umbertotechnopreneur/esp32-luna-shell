@@ -16,7 +16,7 @@
 
 """Strict source selection and immutable authored Cody action cue loading."""
 
-from pathlib import Path, PurePosixPath
+from pathlib import Path, PurePosixPath, PureWindowsPath
 import hashlib
 import json
 import math
@@ -62,13 +62,17 @@ def fields(value, names, label):
 
 
 # No parameters: loads the read-only source selection without decoding any sound.
+# Archive provenance may name either host platform; loading generated PCM never
+# requires access to the original archive or rewrites its recorded location.
 # Raises ValueError or OSError for invalid/ambiguous authoring or a failed read.
 def load_selection():
     selection = json.loads(SELECTION.read_text(encoding="utf-8"), object_pairs_hook=unique_mapping)
     fields(selection, ("schema_version", "archive_root", "licensing", "sources", "cues"), "selection")
     if type(selection["schema_version"]) is not int or selection["schema_version"] != 1:
         raise ValueError("Cody action audio: unsupported schema")
-    if not isinstance(selection["archive_root"], str) or not Path(selection["archive_root"]).is_absolute():
+    archive = selection["archive_root"]
+    if (not isinstance(archive, str) or not archive or "\0" in archive or
+            not (PurePosixPath(archive).is_absolute() or PureWindowsPath(archive).is_absolute())):
         raise ValueError("Cody action audio: archive_root must be an absolute path")
     fields(selection["licensing"], ("status", "scope", "restriction"), "licensing")
     if any(not isinstance(value, str) or not value.strip() for value in selection["licensing"].values()):

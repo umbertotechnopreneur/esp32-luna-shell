@@ -167,6 +167,9 @@ Assert-Contains -Values $deviceActions -Expected 'capture' `
     -Message 'device.ps1 no longer exposes the capture action.'
 
 $deviceScriptText = $asts.Firmware.Extent.Text
+Assert-TextContains -Text $deviceScriptText `
+    -Expected '$NinjaCommand = Get-ToolCommand "ninja"' `
+    -Message 'firmware.ps1 must resolve the native Ninja executable before dispatch.'
 foreach ($requiredSizeFragment in @(
     '@("size", "--format", $SizeOutputFormat)',
     '@("--output-file", $resolvedSizeOutputFile)'
@@ -194,7 +197,7 @@ foreach ($requiredBuildFragment in @(
     '$reconfigure = -not (Test-Path $buildNinja)',
     '"-DSDKCONFIG=$ProfileSdkconfigPath"',
     '"-DLUNASHELL_DEPENDENCIES_LOCK=',
-    '& ninja -C $RequestedBuildDir -j $parallelJobs all'
+    '& $NinjaCommand.Source -C $RequestedBuildDir -j $parallelJobs all'
 )) {
     Assert-TextContains -Text $projectBuildText `
         -Expected $requiredBuildFragment `
@@ -202,7 +205,7 @@ foreach ($requiredBuildFragment in @(
 }
 Assert-TextOrder -Text $projectBuildText `
     -Earlier 'Write-FirmwareBuildMetadata -BuildDirectory $RequestedBuildDir -Metadata $buildMetadata' `
-    -Later '& ninja -C $RequestedBuildDir -j $parallelJobs all' `
+    -Later '& $NinjaCommand.Source -C $RequestedBuildDir -j $parallelJobs all' `
     -Message 'Firmware metadata must be captured before the actual Ninja compilation.'
 $metadataCaptureCalls = @($asts.Firmware.FindAll({
     param($node)
@@ -234,7 +237,7 @@ foreach ($requiredFlashFragment in @(
     'Invoke-ProjectBuild $RequestedBuildDir',
     'Stop-StaleMonitorProcesses $flashPort',
     'Wait-ForExclusiveSerialPort $flashPort $WaitSeconds',
-    '& ninja -C $RequestedBuildDir -j $parallelJobs flash',
+    '& $NinjaCommand.Source -C $RequestedBuildDir -j $parallelJobs flash',
     'Assert-WorkingDependencyLock $RequestedBuildDir',
     'Save-SdkconfigDefaultsState $RequestedBuildDir',
     '$environmentBeforeFlash[$name]'
@@ -248,10 +251,10 @@ Assert-TextOrder -Text $projectFlashText `
     -Message 'Flash must finish the guarded build before preparing the serial port.'
 Assert-TextOrder -Text $projectFlashText `
     -Earlier 'Wait-ForExclusiveSerialPort $flashPort $WaitSeconds' `
-    -Later '& ninja -C $RequestedBuildDir -j $parallelJobs flash' `
+    -Later '& $NinjaCommand.Source -C $RequestedBuildDir -j $parallelJobs flash' `
     -Message 'Flash must acquire the selected serial port before the bounded Ninja target.'
 Assert-TextOrder -Text $projectFlashText `
-    -Earlier '& ninja -C $RequestedBuildDir -j $parallelJobs flash' `
+    -Earlier '& $NinjaCommand.Source -C $RequestedBuildDir -j $parallelJobs flash' `
     -Later 'Assert-WorkingDependencyLock $RequestedBuildDir' `
     -Message 'Successful flash must verify the resulting dependency lock.'
 Assert-TextOrder -Text $projectFlashText `
@@ -316,7 +319,7 @@ Assert-TextOrder -Text $projectBuildText `
     -Later '$buildNinja = Join-Path $RequestedBuildDir "build.ninja"' `
     -Message 'Project builds must verify defaults before inspecting build state.'
 Assert-TextOrder -Text $projectBuildText `
-    -Earlier '& ninja -C $RequestedBuildDir -j $parallelJobs all' `
+    -Earlier '& $NinjaCommand.Source -C $RequestedBuildDir -j $parallelJobs all' `
     -Later 'Save-SdkconfigDefaultsState $RequestedBuildDir' `
     -Message 'Successful project builds must attest the resulting sdkconfig.'
 Assert-TextContains -Text $projectBuildText `
@@ -620,7 +623,7 @@ if ($null -eq $configBootSound -or
 $lowercaseReferencePaths = @(
     (Join-Path $scriptsRoot '..\cody-device\components\LUNASHELL_boot\CMakeLists.txt'),
     (Join-Path $scriptsRoot 'commands\package-simulator.ps1'),
-    (Join-Path $scriptsRoot '..\simulator\windows\lunashell_simulator.py'),
+    (Join-Path $scriptsRoot '..\cody-device\simulator\windows\lunashell_simulator.py'),
     (Join-Path $scriptsRoot '..\docs\luna-shell\ui-guidelines.md')
 )
 foreach ($referencePath in $lowercaseReferencePaths) {

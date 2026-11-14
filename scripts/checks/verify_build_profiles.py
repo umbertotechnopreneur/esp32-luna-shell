@@ -117,13 +117,38 @@ def main(argv=None) -> None:
         roots = variant.get("component_roots")
         if not isinstance(roots, list) or "main" not in roots or len(roots) != len(set(roots)):
             raise AssertionError(f"variant {variant_name} has invalid component roots")
-        tts_enabled = identity[1] in {"tts-sd", "tts-flash"}
+        # Cody's explicit wake-word product combines recognition, English flash
+        # speech and PC voice handoff. Full Luna wake-word stays recognition-only.
+        cody_wake_word = identity == ("cody-companion", "wake-word")
+        tts_backend = (identity[1] if identity[1] in {"tts-sd", "tts-flash"}
+                       else "tts-flash" if cody_wake_word else None)
+        tts_enabled = tts_backend is not None
         if ("LUNASHELL_tts" in roots) != tts_enabled:
             raise AssertionError(f"{variant_name} must admit TTS only through explicit opt-in")
         if tts_enabled and profile_name not in {"cody-companion", "full"}:
             raise AssertionError(f"{variant_name} has an unsupported TTS composition")
-        if tts_enabled and f"config/sdkconfig/v1/features/{identity[1]}.defaults" not in defaults:
-            raise AssertionError(f"{variant_name} is missing its explicit backend defaults")
+        backend_layers = {backend: f"config/sdkconfig/v1/features/{backend}.defaults"
+                          for backend in ("tts-sd", "tts-flash")}
+        selected_backends = [layer for layer in defaults if layer in backend_layers.values()]
+        expected_backends = [backend_layers[tts_backend]] if tts_enabled else []
+        if selected_backends != expected_backends:
+            raise AssertionError(f"{variant_name} must select exactly its declared TTS backend defaults")
+        voice_layer = "config/sdkconfig/v1/features/cody-voice-input.defaults"
+        if cody_wake_word:
+            ordered_layers = ("config/sdkconfig/v1/features/wake-word.defaults",
+                              backend_layers["tts-flash"], voice_layer)
+            if any(defaults.count(layer) != 1 for layer in ordered_layers):
+                raise AssertionError("Cody wake-word requires one recognition, flash TTS and voice-input layer")
+            positions = [defaults.index(layer) for layer in ordered_layers]
+            if positions != sorted(positions):
+                raise AssertionError("Cody wake-word must apply recognition, flash TTS and voice input in order")
+            flash_defaults = resolve_relative(backend_layers["tts-flash"], "Cody wake-word flash TTS").read_text(encoding="utf-8")
+            require(flash_defaults, "CONFIG_LUNASHELL_BUILD_ENABLE_TTS=y", "Cody wake-word speech opt-in")
+            require(flash_defaults, "CONFIG_LUNASHELL_TTS_DATA_FLASH=y", "Cody wake-word speech backend")
+            voice_defaults = resolve_relative(voice_layer, "Cody wake-word voice input").read_text(encoding="utf-8")
+            require(voice_defaults, "CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT=y", "Cody wake-word PC voice handoff")
+        elif voice_layer in defaults:
+            raise AssertionError(f"{variant_name} must exclude the Cody wake-word voice-input layer")
         if profile_name == "headless" and roots != ["main"]:
             raise AssertionError("headless must admit only the main transitive root")
         if profile_name in {"connected", "full"}:
@@ -135,7 +160,8 @@ def main(argv=None) -> None:
                 raise AssertionError("Cody requires the provisioning owner")
             http_enabled = False
             for default in defaults:
-                for line in read(default).splitlines():
+                default_path = resolve_relative(default, f"{variant_name}.defaults")
+                for line in default_path.read_text(encoding="utf-8").splitlines():
                     if line == "CONFIG_LUNASHELL_BUILD_ENABLE_HTTP_API=y":
                         http_enabled = True
                     elif line == "CONFIG_LUNASHELL_BUILD_ENABLE_HTTP_API=n":
@@ -253,8 +279,9 @@ def main(argv=None) -> None:
         build_dirs.add(build_dir)
 
     for removed in ("sdkconfig.defaults", "sdkconfig.distance.defaults"):
-        if (ROOT / removed).exists():
-            raise AssertionError(f"obsolete monolithic defaults remain: {removed}")
+        for candidate in (ROOT / removed, ROOT / "cody-device" / removed):
+            if candidate.exists():
+                raise AssertionError(f"obsolete monolithic defaults remain: {candidate.relative_to(ROOT)}")
 
     standalone_defaults = read("cody-device/config/sdkconfig/v1/profiles/display-touch.defaults")
     for flag in (
@@ -295,9 +322,16 @@ def main(argv=None) -> None:
         "shared settings allocation-error policy",
     )
 
-    device = read("scripts/commands/firmware.ps1")
+    entrypoint = read("scripts/device.ps1")
+    require(entrypoint, "Invoke-DeviceCommand -RequestedAction $Action -Options $dispatch",
+            "public device command delegation")
+    dispatcher = read("scripts/common/Commands.ps1")
+    require(dispatcher, "& (Join-Path $ProjectRoot 'scripts/commands/firmware.ps1') @firmwareOptions",
+            "private firmware command delegation")
+    firmware = read("scripts/commands/firmware.ps1")
     for fragment in (
-        "cody-device/config/sdkconfig/v1/catalog.json",
+        '$FirmwareRoot = Join-Path $ProjectRoot "cody-device"',
+        '$profileCatalogPath = Join-Path $FirmwareRoot "config/sdkconfig/v1/catalog.json"',
         "$SelectedProfileVariant.defaults",
         "$SelectedProfileVariant.component_roots",
         "$SelectedProfileVariant.component_dirs",
@@ -318,8 +352,8 @@ def main(argv=None) -> None:
         '"profile=$Profile"',
         '"feature=$Feature"',
     ):
-        require(device, fragment, "catalog-driven profile wrapper")
-    if "ExtraDefaults" in device:
+        require(firmware, fragment, "catalog-driven firmware profile owner")
+    if "ExtraDefaults" in firmware:
         raise AssertionError("free-form defaults can alias canonical profile state")
 
     kconfig = read("cody-device/main/Kconfig.projbuild")
