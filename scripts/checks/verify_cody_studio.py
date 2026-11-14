@@ -8,6 +8,8 @@ It needs a display, for example Xvfb on Linux. Generated
 fixtures and captures remain in artifacts/ for inspection and manual cleanup.
 ``--pilot`` checks all ten inventory cases in fresh processes and an isolated
 shared native session; it fails when a declared pilot case is unavailable.
+``--phase-e`` checks native animation sampling and observed route receipts in
+two fresh deterministic processes, including backward seeks and invalid inputs.
 """
 
 from __future__ import annotations
@@ -31,7 +33,7 @@ sys.path.insert(0, str(SIMULATOR))
 
 from PIL import Image, ImageDraw, ImageFont
 
-from cody_studio_catalog import entry_for, load_catalog, resolve_source
+from cody_studio_catalog import entry_for, load_catalog, resolve_source, routes_for
 from cody_studio_comparison import (compare_captures, comparison_image,
                                     load_review, preserve_baseline, save_review)
 from cody_studio_runner import load_capture
@@ -293,6 +295,17 @@ class CatalogContractTests(unittest.TestCase):
         self.assertTrue(source.is_relative_to(ROOT))
         self.assertGreater(line, 0)
 
+    # self: Both views must expose the same declared native transitions.
+    # Raises AssertionError if source analysis is confused with an observed run.
+    def test_declared_routes_are_visible_from_both_ends(self):
+        expected = {"settings-menu-to-display", "display-to-settings-menu"}
+        for identity in ("P01", "P04"):
+            routes = routes_for(identity)
+            replayable = [route for route in routes if route.get("replay")]
+            self.assertEqual({route["route_id"] for route in replayable}, expected)
+            self.assertTrue(all(route["evidence"] == "source-analysis" for route in replayable))
+            self.assertEqual(len(replayable), len(expected))
+
     # self: Source-only inventory mapping; availability does not imply acquired frames.
     # Raises AssertionError for an invented ID meaning, missing owner or implicit mode.
     def test_pilot_mappings_match_the_identified_inventory(self):
@@ -409,6 +422,41 @@ class ScenarioContractTests(unittest.TestCase):
                 scenario["time"][name] = value
                 with self.assertRaises(ValueError):
                     validate_scenario(scenario)
+
+    # self: Timeline evidence must bind a sample to its unmodified base scenario.
+    # Raises AssertionError if a changed observation or worker replay is attributed.
+    def test_timeline_metadata_binds_the_exact_base_and_sample(self):
+        base = default_scenario("S01")
+        sample = deepcopy(base)
+        sample["page"]["sample_at_ms"] = 0
+        metadata = studio_runner.timeline_metadata(base, sample)
+        self.assertEqual(metadata["base_revision"], scenario_revision(base))
+        self.assertEqual(metadata["sample_ms"], 0)
+        self.assertEqual(metadata["clock"], "source-animation")
+        self.assertIs(metadata["worker_replay"], False)
+        sample["common"]["observations"]["battery"]["level_percent"] = 20
+        with self.assertRaisesRegex(ValueError, "base scenario"):
+            studio_runner.timeline_metadata(base, sample)
+        with self.assertRaisesRegex(ValueError, "source-animation"):
+            studio_runner.timeline_metadata(default_scenario("P04"), default_scenario("P04"))
+
+    # self: Route evidence must describe the catalog edge and actual frame revision.
+    # Raises AssertionError if a different route or unrelated frame is accepted.
+    def test_route_metadata_rejects_unrelated_edges_and_frame_receipts(self):
+        origin, destination = default_scenario("P01"), default_scenario("P04")
+        receipt = {"abi": 1, "route_id": "settings-menu-to-display",
+                   "origin_scenario_revision": scenario_revision(origin),
+                   "origin_frame_revision": 10, "destination_frame_revision": 11}
+        identity = {"revision": 11, "scenario_revision": scenario_revision(destination)}
+        evidence = studio_runner.route_metadata(origin, destination, receipt, identity)
+        self.assertEqual(evidence["receipt"], receipt)
+        for field, value in (("route_id", "display-to-settings-menu"),
+                             ("route_id", "invented-route"),
+                             ("origin_frame_revision", 11),
+                             ("destination_frame_revision", 12)):
+            altered = dict(receipt, **{field: value})
+            with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                studio_runner.route_metadata(origin, destination, altered, identity)
 
     # self: Synthetic observations with explicit connected and disconnected states.
     # Raises AssertionError if contradictory network data or unsafe text is accepted.
@@ -677,6 +725,17 @@ class ComparisonContractTests(unittest.TestCase):
                 record.metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
                 with self.assertRaisesRegex(ValueError, "receipt"):
                     load_capture(record.metadata_path)
+        for alias in (0, 2, True):
+            with self.subTest(frame_revision=alias):
+                metadata = deepcopy(record.metadata)
+                metadata["frame_identity"]["frame_revision"] = alias
+                record.metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+                with self.assertRaisesRegex(ValueError, "receipt"):
+                    load_capture(record.metadata_path)
+        metadata = deepcopy(record.metadata)
+        metadata["frame_identity"]["frame_revision"] = metadata["frame_identity"]["revision"]
+        record.metadata_path.write_text(json.dumps(metadata), encoding="utf-8")
+        load_capture(record.metadata_path)
 
 
 class BuildProvenanceContractTests(unittest.TestCase):
@@ -688,6 +747,7 @@ class BuildProvenanceContractTests(unittest.TestCase):
         directory = fixture_directory()
         source_names = (
             "cody-device/simulator/native/CODY_host_display.cpp",
+            "cody-device/simulator/native/CODY_host_input.cpp",
             "cody-device/simulator/native/CODY_host_studio_domain.cpp",
             "cody-device/simulator/native/platform/cody_host_studio.h",
             "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp",
@@ -816,6 +876,31 @@ class PilotWorkerTests(unittest.TestCase):
         contexts = {record.metadata["frame_identity"]["context"]["chat_id"] for record in records
                     if record.metadata["inventory_id"] == "C04"}
         self.assertEqual(contexts, {"0000000000000001", "0000000000000002"})
+
+
+class PhaseEWorkerTests(unittest.TestCase):
+    """Compare native animation and route evidence across fresh processes."""
+
+    # self: Independent sessions with unique settings and captured native frames.
+    # Raises worker or assertion errors; no unavailable case is silently skipped.
+    def test_animation_and_routes_repeat_across_fresh_processes(self):
+        directory = fixture_directory()
+        results = []
+        for index in range(2):
+            process = run_host_worker([sys.executable, "-B", __file__, "--phase-e-worker"],
+                                      directory, f"phase-e-{index + 1}", timeout=240)
+            lines = [line for line in process.stdout.splitlines() if line.strip()]
+            self.assertTrue(lines, "Phase E worker did not return its evidence")
+            results.append(json.loads(lines[-1]))
+        self.assertEqual(results[0]["animations"], results[1]["animations"],
+                         "Native source-animation pixels or keyframes changed across fresh processes")
+        self.assertEqual(results[0]["routes"], results[1]["routes"],
+                         "Observed native route destinations changed across fresh processes")
+        self.assertEqual(set(results[0]["animations"]), {"S01", "S02"})
+        self.assertEqual(set(results[0]["routes"]), {"settings-menu-to-display", "display-to-settings-menu"})
+        process = run_host_worker([sys.executable, "-B", __file__, "--phase-e-contended-worker"],
+                                  directory, "phase-e-contended", timeout=120)
+        self.assertEqual(json.loads(process.stdout.splitlines()[-1])["pending_contact_rejected"], True)
 
 
 class NativeUiTests(unittest.TestCase):
@@ -1251,6 +1336,94 @@ class NativeUiTests(unittest.TestCase):
         window.set_current(first)
         self.root.update()
 
+    # self: One real native owner with its actual Tk controls and result queue.
+    # Raises AssertionError for wrong animation, route identity, state or focus.
+    def assert_phase_e_controls(self):
+        window = self.window
+        self.open_case("S01")
+        if not window.sections["Animation"][2]:
+            window.sections["Animation"][0].invoke()
+        plan = window.timeline_contract
+        self.assertIsNotNone(plan)
+        self.assertEqual(plan.duration_ms, 3500)
+        self.assertGreater(len(plan.keyframes_ms), 2)
+        base_revision = plan.scenario_revision
+
+        # sample: Exact native keyframe selected through the product control.
+        # Returns its newly retired capture; errors never count as success.
+        def seek(sample):
+            previous, failures = window.current, len(self.errors)
+            window.animation_keyframe.set(str(sample))
+            window.seek_button.invoke()
+            self.wait_for(lambda: len(self.errors) > failures or
+                          (not window.busy and window.current is not previous),
+                          f"animation seek {sample}", timeout=45)
+            self.assertEqual(len(self.errors), failures)
+            self.assertEqual(window.current.metadata["timeline"]["base_revision"], base_revision)
+            self.assertEqual(window.current.metadata["timeline"]["sample_ms"], sample)
+            self.assertEqual(window.current.metadata["frame_identity"]["source_animation_sample_ms"], sample)
+            return window.current
+
+        initial = seek(plan.keyframes_ms[0])
+        seek(plan.keyframes_ms[len(plan.keyframes_ms) // 2])
+        rewind = seek(plan.keyframes_ms[0])
+        self.assertEqual(rewind.metadata["pixel_sha256"], initial.metadata["pixel_sha256"])
+        previous = window.current
+        window.step_button.invoke()
+        self.wait_for(lambda: not window.busy and window.current is not previous, "animation step", timeout=45)
+        self.assertEqual(window.current.metadata["timeline"]["sample_ms"], plan.keyframes_ms[1])
+        self.assertEqual(window.current.metadata["timeline"]["base_revision"], base_revision)
+        window.animation_speed.set("2x")
+        previous = window.current
+        window.play_button.invoke()
+        self.assertTrue(window.timeline_playing)
+        window.pause_button.invoke()
+        self.assertFalse(window.timeline_playing)
+        self.wait_for(lambda: not window.busy and window.current is not previous, "paused animation retirement", timeout=45)
+        self.assertIsNone(window.timeline_timer)
+        self.assertEqual(window.current.metadata["timeline"]["base_revision"], base_revision)
+        self.reveal_widget(window.step_button, window.bottom_canvas)
+        self.screenshot("studio-animation.png")
+
+        self.open_case("P01")
+        for route_id, expected in (("settings-menu-to-display", "P04"),
+                                   ("display-to-settings-menu", "P01")):
+            index = next(index for index, route in enumerate(window.declared_routes)
+                         if route.get("route_id") == route_id)
+            window.route_control.current(index)
+            window.route_selected()
+            self.assertEqual(window.replay_button.cget("state"), "normal")
+            source_route = window.declared_routes[index]
+            with patch.object(self.ui_module.shutil, "which", return_value=None):
+                window.route_source_button.invoke()
+            source, line = resolve_source({"source": source_route["source"],
+                                           "symbol": source_route["function"].rsplit("::", 1)[-1]})
+            self.assertIn(f"{source.relative_to(ROOT)}:{line}", window.status.get())
+            previous, failures = window.current, len(self.errors)
+            window.replay_button.invoke()
+            self.wait_for(lambda: len(self.errors) > failures or
+                          (not window.busy and window.current is not previous),
+                          f"native UI route {route_id}", timeout=45)
+            self.assertEqual(len(self.errors), failures)
+            self.assertEqual(window.current.metadata["inventory_id"], expected)
+            self.assertEqual(window.current.metadata["route"]["receipt"]["route_id"], route_id)
+            index = next(index for index, route in enumerate(window.declared_routes)
+                         if route.get("route_id") == route_id)
+            window.route_control.current(index)
+            window.route_selected()
+            self.assertIn("Observed in this session", window.route_summary.get())
+            if route_id == "settings-menu-to-display":
+                self.reveal_widget(window.route_control, window.bottom_canvas)
+                self.screenshot("studio-route-observed.png")
+        unsupported = next((index for index, route in enumerate(window.declared_routes)
+                            if not route.get("replay")), None)
+        self.assertIsNotNone(unsupported)
+        window.route_control.current(unsupported)
+        window.route_selected()
+        self.assertEqual(window.replay_button.cget("state"), "disabled")
+        self.assertIn("Not yet replayed", window.route_summary.get())
+        self.open_case("P04")
+
     # self: One real native owner reused through edits and a reopened Tk window.
     # Raises AssertionError for frame contamination, broken controls or lost review state.
     def test_native_ui_edit_compare_resize_focus_and_persistence(self):
@@ -1263,6 +1436,7 @@ class NativeUiTests(unittest.TestCase):
         self.assert_catalog_scrollbar()
         self.assert_catalog_controls()
         self.assert_headless_worker_isolated()
+        self.assert_phase_e_controls()
         self.root.geometry("1440x960+0+0")
         self.wait_for(lambda: window.canvas.winfo_width() > 100, "wide canvas geometry")
         window.draw()
@@ -1513,6 +1687,229 @@ class NativeUiTests(unittest.TestCase):
                          self.window.baseline.metadata_path.relative_to(ROOT).as_posix())
 
 
+# No parameters: test an explicitly queued external contact in an isolated process.
+# Raises AssertionError if a route publishes while another contact is pending.
+def run_phase_e_contended_worker():
+    from cody_native_device import NativeDevice
+    from cody_native_display import NativeDisplayError, completed_studio_frame, completed_studio_route_frame
+
+    directory = fixture_directory()
+    device = NativeDevice({"reason": "SIMULATED-STUDIO-CONTENDED"}, directory / "session.nvs",
+                          80, True, 1, deterministic_clock=True)
+    device.start()
+    runner = studio_runner.StudioRunner(device)
+    origin, destination = default_scenario("P01"), default_scenario("P04")
+    runner.prepare(origin)
+    before_image, before_identity = completed_studio_frame()
+    device.touch(True, 10, 10)
+    try:
+        try:
+            device.replay_studio_route("settings-menu-to-display", scenario_revision(origin),
+                                       scenario_revision(destination))
+        except RuntimeError as error:
+            if "0x00000103" not in str(error):
+                raise
+        else:
+            raise AssertionError("A pending external contact did not block route replay")
+        after_image, after_identity = completed_studio_frame()
+        if (before_image.tobytes(), before_identity) != (after_image.tobytes(), after_identity):
+            raise AssertionError("Rejected contended route changed the completed frame")
+        try:
+            completed_studio_route_frame()
+        except NativeDisplayError:
+            pass
+        else:
+            raise AssertionError("Rejected contended route published a route receipt")
+    finally:
+        device.touch(False, 10, 10)
+    # This checks admission while a contact is already pending. It does not
+    # claim deterministic observation of every press/release interleaving.
+    print(json.dumps({"pending_contact_rejected": True}), flush=True)
+    return 0
+
+
+# device: Active owner with a completed route frame and native ABI functions.
+# Raises AssertionError if a rejected capacity changes any output or frame.
+def assert_route_output_capacity_rejection(device):
+    import ctypes
+    from cody_native_display import StudioFrameIdentity, StudioRouteReceipt, completed_studio_route_frame
+    from cody_native_rgb565 import LOGICAL_PIXEL_COUNT
+
+    snapshot = device.api.cody_host_display_studio_route_snapshot
+    snapshot.argtypes = [ctypes.POINTER(ctypes.c_uint16), ctypes.c_size_t,
+                         ctypes.POINTER(StudioFrameIdentity), ctypes.c_size_t,
+                         ctypes.POINTER(StudioRouteReceipt), ctypes.c_size_t]
+    snapshot.restype = ctypes.c_int
+    before_image, before_identity, before_route = completed_studio_route_frame()
+    identity_size, route_size = ctypes.sizeof(StudioFrameIdentity), ctypes.sizeof(StudioRouteReceipt)
+    pixel_storage = (ctypes.c_uint16 * (LOGICAL_PIXEL_COUNT + 2))()
+    identity_storage = ctypes.create_string_buffer(identity_size + 16)
+    route_storage = ctypes.create_string_buffer(route_size + 16)
+    pixels = ctypes.cast(ctypes.byref(pixel_storage, 2), ctypes.POINTER(ctypes.c_uint16))
+    identity = ctypes.cast(ctypes.byref(identity_storage, 8), ctypes.POINTER(StudioFrameIdentity))
+    route = ctypes.cast(ctypes.byref(route_storage, 8), ctypes.POINTER(StudioRouteReceipt))
+    for count, identity_bytes, route_bytes in (
+            (LOGICAL_PIXEL_COUNT, identity_size, route_size - 1),
+            (LOGICAL_PIXEL_COUNT, identity_size, route_size + 1),
+            (LOGICAL_PIXEL_COUNT, identity_size - 1, route_size),
+            (LOGICAL_PIXEL_COUNT, identity_size + 1, route_size),
+            (LOGICAL_PIXEL_COUNT - 1, identity_size, route_size),
+            (LOGICAL_PIXEL_COUNT + 1, identity_size, route_size)):
+        ctypes.memset(pixel_storage, 0xA5, ctypes.sizeof(pixel_storage))
+        ctypes.memset(identity_storage, 0x5A, ctypes.sizeof(identity_storage))
+        ctypes.memset(route_storage, 0x3C, ctypes.sizeof(route_storage))
+        sentinels = (bytes(pixel_storage), identity_storage.raw, route_storage.raw)
+        error = snapshot(pixels, count, identity, identity_bytes, route, route_bytes)
+        if error != 0x104 or sentinels != (bytes(pixel_storage), identity_storage.raw, route_storage.raw):
+            raise AssertionError(f"Route snapshot modified outputs or misreported invalid capacity: {error}")
+    after_image, after_identity, after_route = completed_studio_route_frame()
+    if (before_image.tobytes(), before_identity, before_route) != (after_image.tobytes(), after_identity, after_route):
+        raise AssertionError("Rejected route snapshot changed the completed frame or receipt")
+
+
+# No parameters: run independent owner-backed animation and route checks.
+# Raises original native/validation errors or AssertionError for inconsistent evidence.
+def run_phase_e_worker():
+    from cody_native_device import NativeDevice
+    from cody_studio_timeline import timeline_capture, timeline_plan
+
+    directory = fixture_directory()
+    device = NativeDevice({"reason": "SIMULATED-STUDIO-PHASE-E"}, directory / "session.nvs",
+                          80, True, 1, deterministic_clock=True)
+    device.start()
+    runner = studio_runner.StudioRunner(device)
+    animations, routes = {}, {}
+    with patch.object(studio_runner, "CAPTURE_ROOT", directory / "captures"):
+        for inventory_id in ("S01", "S02"):
+            base = default_scenario(inventory_id)
+            plan = timeline_plan(runner, base)
+            if plan.duration_ms != (3500 if inventory_id == "S01" else 7000):
+                raise AssertionError(f"{inventory_id} native duration differs from its declared source")
+            if not plan.keyframes_ms or plan.keyframes_ms[0] != 0:
+                raise AssertionError(f"{inventory_id} lacks an initial native keyframe")
+            midpoint = plan.keyframes_ms[len(plan.keyframes_ms) // 2]
+            samples = (0, midpoint, plan.keyframes_ms[-1], 0)
+            captured = []
+            for sample in samples:
+                record = timeline_capture(runner, base, sample)
+                loaded = load_capture(record.metadata_path)
+                timeline = loaded.metadata["timeline"]
+                if (timeline["base_revision"] != scenario_revision(base) or timeline["sample_ms"] != sample or
+                        timeline["clock"] != "source-animation" or timeline["worker_replay"] is not False or
+                        loaded.metadata["frame_identity"]["source_animation_sample_ms"] != sample or
+                        loaded.metadata["at_ms"] != 0):
+                    raise AssertionError(f"{inventory_id} timeline receipt does not match the native frame")
+                captured.append(loaded)
+            if captured[0].metadata["pixel_sha256"] != captured[-1].metadata["pixel_sha256"]:
+                raise AssertionError(f"{inventory_id} backward seek did not reproduce its initial pixels")
+            if captured[0].metadata["pixel_sha256"] == captured[1].metadata["pixel_sha256"]:
+                raise AssertionError(f"{inventory_id} source animation did not advance to a visibly different frame")
+            for field, invalid in (("worker_replay", 0), ("sample_ms", False),
+                                   ("base_revision", None), ("sample_ms", 1)):
+                altered = deepcopy(captured[0].metadata)
+                altered["timeline"][field] = invalid
+                corrupt = fixture_directory()
+                (corrupt / captured[0].image_path.name).write_bytes(captured[0].image_path.read_bytes())
+                path = corrupt / "capture.json"
+                path.write_text(json.dumps(altered), encoding="utf-8")
+                try:
+                    load_capture(path)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError(f"Tampered timeline {field} was accepted")
+            animations[inventory_id] = {"duration_ms": plan.duration_ms, "keyframes_ms": list(plan.keyframes_ms),
+                                        "pixels": [record.metadata["pixel_sha256"] for record in captured]}
+            before = runner.identity.copy()
+            for invalid in (-1, plan.duration_ms, True):
+                try:
+                    timeline_capture(runner, base, invalid)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError(f"{inventory_id} accepted invalid animation instant {invalid!r}")
+                if runner.identity != before:
+                    raise AssertionError("Rejected animation seek changed the prepared frame")
+
+        try:
+            timeline_plan(runner, default_scenario("P04"))
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("A static Display scenario claimed animation availability")
+
+        origin = default_scenario("P01")
+        runner.prepare(origin)
+        origin_identity = deepcopy(runner.identity)
+        from cody_native_display import completed_studio_frame
+        before_image, before_identity = completed_studio_frame()
+        try:
+            device.replay_studio_route("settings-menu-to-display", "0" * 64,
+                                       scenario_revision(default_scenario("P04")))
+        except RuntimeError as error:
+            if "0x00000103" not in str(error):
+                raise
+        else:
+            raise AssertionError("Native route accepted the wrong origin scenario revision")
+        after_image, after_identity = completed_studio_frame()
+        if (before_image.tobytes(), before_identity) != (after_image.tobytes(), after_identity):
+            raise AssertionError("Rejected native route changed the origin frame")
+        try:
+            runner.replay_route("display-to-settings-menu")
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("Route replay accepted a gesture from the wrong origin")
+        if runner.identity != origin_identity:
+            raise AssertionError("Rejected route changed the prepared origin")
+        for route_id, expected_id in (("settings-menu-to-display", "P04"),
+                                      ("display-to-settings-menu", "P01")):
+            before = deepcopy(runner.identity)
+            record = runner.replay_route(route_id)
+            loaded = load_capture(record.metadata_path)
+            assert_pilot_record(loaded, expected_id)
+            observed = loaded.metadata["route"]
+            receipt = observed["receipt"]
+            if (receipt["abi"] != 1 or receipt["route_id"] != route_id or
+                    receipt["origin_scenario_revision"] != before["scenario_revision"] or
+                    receipt["origin_frame_revision"] != before["revision"] or
+                    receipt["destination_frame_revision"] != loaded.metadata["frame_identity"]["revision"] or
+                    observed["destination_revision"] != loaded.metadata["scenario_revision"]):
+                raise AssertionError(f"{route_id} did not retire route identity with its destination pixels")
+            routes[route_id] = {"destination": loaded.metadata["inventory_id"],
+                                "scenario_revision": loaded.metadata["scenario_revision"],
+                                "pixel_sha256": loaded.metadata["pixel_sha256"]}
+            assert_route_output_capacity_rejection(device)
+            for field, value in (("route_id", "unknown-route"), ("abi", 2),
+                                 ("origin_scenario_revision", "0" * 64),
+                                 ("destination_frame_revision", receipt["destination_frame_revision"] + 1)):
+                altered = deepcopy(loaded.metadata)
+                altered["route"]["receipt"][field] = value
+                # Metadata is copied to a unique fixture; original route evidence stays immutable.
+                corrupt = fixture_directory()
+                (corrupt / loaded.image_path.name).write_bytes(loaded.image_path.read_bytes())
+                path = corrupt / "capture.json"
+                path.write_text(json.dumps(altered), encoding="utf-8")
+                try:
+                    load_capture(path)
+                except ValueError:
+                    pass
+                else:
+                    raise AssertionError(f"Tampered route {field} was accepted")
+        rotated = default_scenario("P01")
+        rotated["common"]["settings"]["orientation_degrees"] = 180
+        runner.prepare(rotated)
+        for route_id, expected_id in (("settings-menu-to-display", "P04"),
+                                      ("display-to-settings-menu", "P01")):
+            record = runner.replay_route(route_id)
+            assert_pilot_record(record, expected_id, record.metadata["scenario"])
+            if (record.metadata["scenario"]["common"]["settings"]["orientation_degrees"] != 180 or
+                    record.metadata["route"]["receipt"]["route_id"] != route_id):
+                raise AssertionError("Native route did not retain the logical 180-degree scenario")
+    print(json.dumps({"animations": animations, "routes": routes}), flush=True)
+    return 0
+
+
 # No parameters: exercise one process-owned native session and retained artifacts.
 # Raises native, contract or AssertionError failures without replacing valid captures.
 def run_pilot_worker():
@@ -1649,12 +2046,20 @@ def main(argv=None):
                         help="Also exercise real Tk/native editing, comparisons, focus and resize; requires a display")
     parser.add_argument("--pilot", action="store_true",
                         help="Capture and repeat all ten pilot cases, including native cross-case replay")
+    parser.add_argument("--phase-e", action="store_true",
+                        help="Repeat native animation samples and observed route gestures in fresh processes")
     parser.add_argument("--pilot-worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--phase-e-worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--phase-e-contended-worker", action="store_true", help=argparse.SUPPRESS)
     arguments = parser.parse_args(argv)
-    if arguments.pilot_worker:
-        if arguments.native or arguments.ui or arguments.pilot:
-            parser.error("The internal pilot worker cannot be combined with suite flags")
-        return run_pilot_worker()
+    workers = (arguments.pilot_worker, arguments.phase_e_worker, arguments.phase_e_contended_worker)
+    if any(workers):
+        if (arguments.native or arguments.ui or arguments.pilot or arguments.phase_e or
+                sum(workers) != 1):
+            parser.error("Internal workers cannot be combined with suite flags")
+        if arguments.pilot_worker:
+            return run_pilot_worker()
+        return run_phase_e_worker() if arguments.phase_e_worker else run_phase_e_contended_worker()
     loader = unittest.TestLoader()
     suite = unittest.TestSuite([loader.loadTestsFromTestCase(CatalogContractTests),
                                loader.loadTestsFromTestCase(ScenarioContractTests),
@@ -1666,6 +2071,8 @@ def main(argv=None):
         suite.addTests(loader.loadTestsFromTestCase(NativeUiTests))
     if arguments.pilot:
         suite.addTests(loader.loadTestsFromTestCase(PilotWorkerTests))
+    if arguments.phase_e:
+        suite.addTests(loader.loadTestsFromTestCase(PhaseEWorkerTests))
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     print("Generated artifacts are retained; cleanup is manual.")
     return 0 if result.wasSuccessful() else 1
