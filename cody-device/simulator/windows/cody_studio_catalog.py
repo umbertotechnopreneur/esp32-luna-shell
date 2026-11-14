@@ -15,6 +15,7 @@ from cody_native_runtime import ROOT
 EXTENSION = Path(__file__).with_name("studio_catalog.json")
 AVAILABILITIES = frozenset(("runtime-full", "presenter-isolated", "profile-conditional",
                             "unsupported", "not-applicable"))
+RENDERING_MODES = frozenset(("runtime-full", "presenter-isolated"))
 
 
 # path: The maintained source inventory; defaults to the repository document.
@@ -64,12 +65,21 @@ def load_catalog():
             raise ValueError(f"Unknown or duplicate Studio catalog contract: {identity}")
         if contract.get("availability") not in AVAILABILITIES:
             raise ValueError(f"Invalid Studio availability: {identity}")
+        if (contract.get("availability") in RENDERING_MODES and
+                contract.get("rendering_mode") != contract["availability"]):
+            raise ValueError(f"Studio rendering mode and availability disagree: {identity}")
         declared.add(identity)
         inventory_ids.add(inventory_id)
         entries[identity].update(deepcopy(contract))
         entries[identity]["inventory"] = deepcopy(extension["inventory"])
         entries[identity].pop("reason", None)
     return list(entries.values())
+
+
+# No parameters: return the selected pilot contracts without a second maintained ID list.
+# Raises the original source/catalog validation error before any native operation.
+def pilot_entries():
+    return [entry for entry in load_catalog() if entry.get("suite") == "pilot"]
 
 
 # identity: Qualified stable source identity or explicitly mapped inventory ID.

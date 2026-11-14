@@ -44,6 +44,40 @@ def bounded_int(value, minimum, maximum, name):
         raise ValueError(f"{name} must be an integer from {minimum} to {maximum}")
 
 
+# value: One exact object from the selected catalog contract.
+# fields: Machine-readable field specifications, including nested object boundaries.
+# name: Human-readable path for precise input failures.
+# Raises ValueError for unknown fields, types, ranges, choices or unsupported text.
+def validate_fields(value, fields, name):
+    exact_fields(value, fields, name)
+    for key, specification in fields.items():
+        item, path = value[key], f"{name}.{key}"
+        kind = specification["type"]
+        if kind == "object":
+            validate_fields(item, specification["fields"], path)
+        elif kind == "array":
+            if not isinstance(item, list):
+                raise ValueError(f"{path} must be a list")
+            bounded_int(len(item), specification["minimum_items"], specification["maximum_items"], f"{path} length")
+            for index, row in enumerate(item):
+                validate_fields(row, specification["fields"], f"{path}[{index}]")
+        elif kind == "int":
+            bounded_int(item, specification["minimum"], specification["maximum"], path)
+        elif kind == "bool":
+            if type(item) is not bool:
+                raise ValueError(f"{path} must be boolean")
+        elif kind == "str":
+            if (not isinstance(item, str) or not specification.get("min_length", 0) <= len(item) <= specification["max_length"] or
+                    any(not 32 <= ord(character) <= 126 for character in item)):
+                raise ValueError(f"{path} requires bounded printable ASCII text")
+            if "pattern" in specification and not re.fullmatch(specification["pattern"], item):
+                raise ValueError(f"{path} has an invalid semantic identity")
+        else:
+            raise ValueError(f"Unsupported catalog field type at {path}: {kind}")
+        if "values" in specification and item not in specification["values"]:
+            raise ValueError(f"{path} must be one of {specification['values']}")
+
+
 # scenario: Complete explicit synthetic case; no implicit PC input is admitted.
 # Raises ValueError for unsupported identities, variants, times, fields or services.
 def validate_scenario(scenario):
@@ -55,36 +89,60 @@ def validate_scenario(scenario):
         raise ValueError("Scenario id must be a stable 1..64 character ASCII key")
     if not isinstance(scenario["title"], str) or not scenario["title"].strip() or len(scenario["title"]) > 120:
         raise ValueError("Scenario title must contain 1..120 characters")
-    bounded_int(scenario["seed"], 0, 0, "seed (P04 does not use randomness)")
+    bounded_int(scenario["seed"], 0, 0, "seed (controlled pilot samples use the fixed seed zero)")
     context = scenario["context"]
     exact_fields(context, {"target", "selection", "caller", "return_to"}, "context")
     entry = entry_for(context["target"])
     if context["target"] != entry["id"]:
         raise ValueError("Scenario context.target requires a qualified stable source identity")
-    if entry["id"] != "ui-v1:display" or entry["availability"] != "runtime-full":
+    contract = entry.get("scenario_contract")
+    if entry["availability"] not in ("runtime-full", "presenter-isolated") or not isinstance(contract, dict):
         raise ValueError(f"Native Studio preparation is unsupported: {context['target']!r}")
     if scenario["variant"] not in entry["variants"]:
         raise ValueError(f"Unsupported variant for {entry['id']}: {scenario['variant']!r}")
-    if context["selection"] is not None or context["caller"] != "atlas-v1:10" or context["return_to"] != context["caller"]:
-        raise ValueError("P04 requires no selection and the Settings root caller/return context")
-    if scenario["page"] != {} or scenario["services"] != {}:
-        raise ValueError("P04 has no page payload or asynchronous service responses")
+    if any(context[key] != contract["context"][key] for key in ("selection", "caller", "return_to")):
+        raise ValueError(f"{entry['inventory_id']} requires its declared selection and caller/return context")
+    validate_fields(scenario["page"], contract["page"], "page")
+    validate_fields(scenario["services"], contract["services"], "services")
+    if entry["native_target"] == "cody.settings.quiet-edit":
+        page = scenario["page"]
+        if page["quiet_hours_enabled"] and page["quiet_start_minute"] == page["quiet_end_minute"]:
+            raise ValueError("Enabled quiet hours require distinct saved start and end minutes")
+    if entry["native_target"] == "cody.codex.calls":
+        domain = scenario["services"]["domain"]
+        if any(scenario["page"][key] != domain[key] for key in ("source_id", "chat_id", "turn_id")):
+            raise ValueError("C04 query scope must match its source, chat and turn fixture")
+        identities = set()
+        definitions = {}
+        for call in domain["calls"]:
+            if call["id"] in identities or call["turn_id"] != domain["turn_id"]:
+                raise ValueError("C04 calls require unique IDs and the exact selected turn")
+            identities.add(call["id"])
+            definition = (call["category"], call["label"])
+            if call["tool_name"] in definitions and definitions[call["tool_name"]] != definition:
+                raise ValueError("C04 repeated tool names require the same category and display label")
+            definitions[call["tool_name"]] = definition
+            expected = {"queued": "unknown", "running": "unknown", "failed": "failed", "cancelled": "cancelled"}
+            if call["state"] in expected and call["outcome"] != expected[call["state"]]:
+                raise ValueError("C04 call state and outcome contradict one another")
     exact_fields(scenario["time"], {"mode", "initial_ms", "advances_ms", "capture_at_ms"}, "time")
     timing = scenario["time"]
     if (type(timing["initial_ms"]) is not int or not isinstance(timing["advances_ms"], list) or
             not isinstance(timing["capture_at_ms"], list) or
             any(type(value) is not int for value in timing["advances_ms"] + timing["capture_at_ms"]) or
             timing != {"mode": "controlled-static", "initial_ms": 0, "advances_ms": [], "capture_at_ms": [0]}):
-        raise ValueError("P04 supports only a controlled static sample at t=0; timeline replay is unavailable")
+        raise ValueError("Pilot cases support only a controlled static sample at t=0; timeline replay is unavailable")
     common = scenario["common"]
     exact_fields(common, {"settings", "observations"}, "common")
     settings = common["settings"]
-    exact_fields(settings, {"brightness_percent", "auto_rotate", "orientation_degrees"}, "common.settings")
+    standard = {"brightness_percent", "auto_rotate", "orientation_degrees"}
+    exact_fields(settings, standard | set(contract["settings"]), "common.settings")
+    validate_fields({key: settings[key] for key in contract["settings"]}, contract["settings"], "common.settings")
     bounded_int(settings["brightness_percent"], 10, 100, "brightness_percent")
     if type(settings["auto_rotate"]) is not bool:
         raise ValueError("auto_rotate must be boolean")
     if type(settings["orientation_degrees"]) is not int or settings["orientation_degrees"] not in (0, 180):
-        raise ValueError("P04 orientation_degrees supports only 0 or 180 in this host profile")
+        raise ValueError("orientation_degrees supports only 0 or 180 in this host profile")
     observations = common["observations"]
     exact_fields(observations, {"battery", "network", "clock"}, "common.observations")
     exact_fields(observations["battery"], {"level_percent"}, "battery")
@@ -101,6 +159,9 @@ def validate_scenario(scenario):
         bounded_int(network["rssi"], -100, -1, "network.rssi")
     elif network["ssid"] or network["rssi"] is not None:
         raise ValueError("A disconnected synthetic network requires an empty SSID and null RSSI")
+    if (entry["native_target"] in ("cody.dashboard.reset", "cody.dashboard.limits") and
+            not network["connected"]):
+        raise ValueError("Current statistics require connected synthetic Wi-Fi and scripted Codex READY; historical states are not supported by this pilot")
     clock = observations["clock"]
     exact_fields(clock, {"epoch_seconds", "utc_offset_minutes"}, "clock")
     bounded_int(clock["epoch_seconds"], 1704067200, 4102444799, "clock.epoch_seconds")
@@ -114,10 +175,18 @@ def load_scenario(path):
     return validate_scenario(json.loads(Path(path).read_text(encoding="utf-8"), object_pairs_hook=unique_object))
 
 
-# No parameters: return a fresh copy of the versioned P04 fixture.
+# identity: Explicit inventory ID or stable source identity; P04 remains the default.
 # Raises its original file/schema error if the checked-in fixture is invalid.
-def default_scenario():
-    return load_scenario(DEFAULT_PATH)
+def default_scenario(identity="P04"):
+    entry = entry_for(identity)
+    filename = entry.get("scenario")
+    if not isinstance(filename, str):
+        raise ValueError(f"No native Studio scenario for {identity!r}")
+    directory = DEFAULT_PATH.parent.resolve()
+    path = (directory / filename).resolve(strict=True)
+    if not path.is_relative_to(directory):
+        raise ValueError("Studio scenario fixture escaped the source scenario directory")
+    return load_scenario(path)
 
 
 # scenario: Complete validated scenario whose canonical content defines its revision.

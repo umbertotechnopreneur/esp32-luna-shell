@@ -27,6 +27,20 @@ class ComparisonResult:
         return "not-comparable" if not self.compatible else ("changed" if self.changed_pixels else "unchanged")
 
 
+# metadata: Immutable captured input metadata, possibly predating explicit fixed inputs.
+# Raises ValueError for malformed fixed-input objects; descriptive prose is not an input.
+def fixed_input_values(metadata):
+    policy = metadata.get("fixed_dependencies")
+    if policy is None:
+        return None
+    if not isinstance(policy, dict) or not isinstance(policy.get("quiet_hours"), dict):
+        raise ValueError("Capture fixed native inputs must contain a quiet-hours object")
+    values = deepcopy(policy)
+    values.pop("application", None)
+    values["quiet_hours"].pop("source", None)
+    return values
+
+
 # baseline: Explicitly selected saved native capture.
 # current: Current saved native capture; no baseline is selected or replaced here.
 # Raises original file/image errors or ValueError for corrupted captures.
@@ -36,6 +50,8 @@ def compare_captures(baseline, current):
     reasons = tuple(f"Incompatible {field.replace('_', ' ')}"
                     for field in COMPATIBILITY_FIELDS
                     if baseline.metadata.get(field) is None or baseline.metadata.get(field) != current.metadata.get(field))
+    if fixed_input_values(baseline.metadata) != fixed_input_values(current.metadata):
+        reasons += ("Incompatible fixed native inputs",)
     if reasons:
         return ComparisonResult(False, reasons, None)
     with Image.open(baseline.image_path) as before, Image.open(current.image_path) as after:

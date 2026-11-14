@@ -2,12 +2,384 @@
   "schema": "cody.studio.catalog.v1",
   "source_catalog": "docs/cody/screen-catalog.md",
   "inventory": {
-    "document": null,
-    "revision": null,
+    "document": "artifacts/docs/studio/Cody-screen-inventory.pdf",
+    "revision": "2026-11-14 / working-tree e971b313 + local changes",
+    "sha256": "4db789f7facf03efa79f6f0efb97ab7e57412b0b73435e50a6c24e8a803b9c77",
     "reported_entry_count": 100,
-    "mapping_evidence": "Owner specification dated 2026-11-15; original inventory document and revision pending"
+    "mapping_evidence": "100-entry source inventory dated 2026-11-14; IDs are document-local, independent of firmware enum and source catalog identities"
   },
   "entries": [
+    {
+      "id": "ui-v1:branding",
+      "inventory_id": "S01",
+      "title": "VibeWare branding",
+      "native_target": "cody.boot.branding",
+      "controller": "advance_branding / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Startup",
+      "verification": "Phase C source integration; build and host acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-s01.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {
+          "sample_at_ms": {
+            "type": "int",
+            "minimum": 0,
+            "maximum": 3499
+          }
+        },
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp",
+      "symbol": "advance_branding",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "BootBranding",
+        "VIBEWARE_boot_animation"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:branding",
+          "destination": "ui-v1:birth",
+          "event": "Branding completes",
+          "condition": "Branding frames have retired and the saved birth-introduction marker is pending",
+          "evidence": "source-analysis",
+          "component": "CODY::DeviceUi",
+          "function": "advance_branding",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "A source animation sample; boot readiness, service startup and audio timing are not replayed",
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values"
+      ],
+      "controls": [
+        {
+          "path": [
+            "page",
+            "sample_at_ms"
+          ],
+          "label": "Source animation sample (ms)"
+        }
+      ],
+      "suite": "pilot",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:birth",
+      "inventory_id": "S02",
+      "title": "Muse birth",
+      "native_target": "cody.boot.birth",
+      "controller": "advance_birth_intro / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Startup",
+      "verification": "Phase C source integration; build and host acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-s02.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:branding",
+          "return_to": null
+        },
+        "settings": {},
+        "page": {
+          "sample_at_ms": {
+            "type": "int",
+            "minimum": 0,
+            "maximum": 6999
+          }
+        },
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp",
+      "symbol": "advance_birth_intro",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "PixelAvatar",
+        "Muse source animation"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:branding",
+          "destination": "ui-v1:birth",
+          "event": "First-run birth is pending",
+          "condition": "Branding has completed and the saved birth-introduction marker is pending",
+          "evidence": "source-analysis",
+          "component": "CODY::DeviceUi",
+          "function": "advance_branding",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        },
+        {
+          "origin": "ui-v1:birth",
+          "destination": "next-v1:16",
+          "event": "Introduction completes",
+          "condition": "Introduction frames have completed and retained setup state admits Muse Home",
+          "evidence": "source-analysis",
+          "component": "CODY::DeviceUi",
+          "function": "advance_birth_intro",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "A native source animation sample; persistence and startup cue lifecycle are not replayed",
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values"
+      ],
+      "controls": [
+        {
+          "path": [
+            "page",
+            "sample_at_ms"
+          ],
+          "label": "Source animation sample (ms)"
+        }
+      ],
+      "suite": "pilot",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:guide-buttons",
+      "inventory_id": "S17",
+      "title": "Buttons guide",
+      "native_target": "cody.guide.buttons",
+      "controller": "prepare_guide_presentation / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Setup and guidance",
+      "verification": "Phase C source integration; build and host acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-s17.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:options-preferences",
+          "return_to": "ui-v1:options-preferences"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_guide_presenter.cpp",
+      "symbol": "prepare_guide_presentation",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "GuidePresenter",
+        "OptionsPage::GuideButtons"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:options-preferences",
+          "destination": "ui-v1:guide-buttons",
+          "event": "Quick guide",
+          "condition": "Manual Quick guide is selected from the Settings guide entry",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "prepare_quick_guide_content",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+        },
+        {
+          "origin": "ui-v1:guide-buttons",
+          "destination": "ui-v1:guide-touch",
+          "event": "Next page",
+          "condition": "Buttons guide is visible and the next guide page is admitted",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "navigate_guide_page",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values"
+      ],
+      "controls": [],
+      "suite": "pilot",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "atlas-v1:10",
+      "inventory_id": "P01",
+      "title": "Settings",
+      "native_target": "cody.settings.menu",
+      "controller": "prepare_options_content / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Phase C source integration; build and host acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-p01.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "next-v1:16",
+          "return_to": "next-v1:16"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_options_content",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "OptionsPage::Menu",
+        "SettingsView"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "next-v1:16",
+          "destination": "atlas-v1:10",
+          "event": "BOOT opens Settings",
+          "condition": "Muse Home is active and the local BOOT Settings action is admitted",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "open_companion_options",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+        },
+        {
+          "origin": "atlas-v1:10",
+          "destination": "next-v1:16",
+          "event": "Return to Home",
+          "condition": "Settings returns to its retained Home caller without a pending operation",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "open_device_home",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values"
+      ],
+      "controls": [],
+      "suite": "pilot",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
     {
       "id": "ui-v1:display",
       "inventory_id": "P04",
@@ -15,15 +387,42 @@
       "native_target": "cody.settings.display",
       "controller": "CODY::Onboarding / display worker",
       "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
       "verification": "Linux host build, P04 repeatability and Tk/native UI checks passed; physical acceptance pending",
-      "variants": ["default"],
-      "profiles": ["cody-companion"],
-      "features": ["native-display", "settings"],
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
       "scenario": "cody-studio-p04.json",
-      "capture_at_ms": [0],
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "atlas-v1:10",
+          "return_to": "atlas-v1:10"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
       "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
       "symbol": "prepare_options_content",
-      "dependencies": ["UserSettingsService", "DeviceSnapshotService", "display-owner"],
+      "dependencies": [
+        "UserSettingsService",
+        "DeviceSnapshotService",
+        "display-owner",
+        "OptionsPage::Display",
+        "SettingsView"
+      ],
       "time_control": "Controlled static P04 sample at t=0; animation and asynchronous worker replay are not supported",
       "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
       "routes": [
@@ -35,7 +434,8 @@
           "evidence": "source-analysis",
           "component": "CODY::Onboarding",
           "function": "activate_options_action",
-          "replay": false
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
         },
         {
           "origin": "ui-v1:display",
@@ -45,9 +445,977 @@
           "evidence": "source-analysis",
           "component": "CODY::Onboarding",
           "function": "options_back_available",
-          "replay": false
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
         }
-      ]
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values"
+      ],
+      "controls": [],
+      "suite": "pilot",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:quiet-hours-edit",
+      "inventory_id": "P12",
+      "title": "Quiet hours editor",
+      "native_target": "cody.settings.quiet-edit",
+      "controller": "prepare_options_content / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Phase C source integration; build and host acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-p12.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:quiet-hours",
+          "return_to": "ui-v1:quiet-hours"
+        },
+        "settings": {},
+        "page": {
+          "endpoint": {
+            "type": "str",
+            "min_length": 1,
+            "max_length": 5,
+            "values": [
+              "start",
+              "end"
+            ]
+          },
+          "minute": {
+            "type": "int",
+            "minimum": 0,
+            "maximum": 1439
+          },
+          "quiet_hours_enabled": {
+            "type": "bool"
+          },
+          "quiet_start_minute": {
+            "type": "int",
+            "minimum": 0,
+            "maximum": 1439
+          },
+          "quiet_end_minute": {
+            "type": "int",
+            "minimum": 0,
+            "maximum": 1439
+          }
+        },
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_options_content",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "ClockPreferences",
+        "OptionsPage::QuietEdit",
+        "SettingsView"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:quiet-hours",
+          "destination": "ui-v1:quiet-hours-edit",
+          "event": "Edit start or end",
+          "condition": "Quiet-hours summary is visible and a start/end edit action is admitted",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "activate_options_action",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+        },
+        {
+          "origin": "ui-v1:quiet-hours-edit",
+          "destination": "ui-v1:quiet-hours",
+          "event": "Save or Back",
+          "condition": "The quiet-hours draft is visible; Save uses the existing settings owner and Back retains its caller",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "activate_options_action",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values"
+      ],
+      "controls": [
+        {
+          "path": [
+            "page",
+            "endpoint"
+          ],
+          "label": "Edit endpoint",
+          "values": [
+            "start",
+            "end"
+          ]
+        },
+        {
+          "path": [
+            "page",
+            "minute"
+          ],
+          "label": "Draft minute of day"
+        },
+        {
+          "path": [
+            "page",
+            "quiet_hours_enabled"
+          ],
+          "label": "Quiet hours enabled"
+        },
+        {
+          "path": [
+            "page",
+            "quiet_start_minute"
+          ],
+          "label": "Saved start minute"
+        },
+        {
+          "path": [
+            "page",
+            "quiet_end_minute"
+          ],
+          "label": "Saved end minute"
+        }
+      ],
+      "suite": "pilot",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "scenario.page",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "widget-v1:Reset=1",
+      "inventory_id": "W02",
+      "title": "Reset countdown",
+      "native_target": "cody.dashboard.reset",
+      "controller": "prepare_device_dashboard / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Statistics",
+      "verification": "Phase C source integration; build and host acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-w02.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {
+          "weekly": {
+            "type": "object",
+            "fields": {
+              "reset_unix_seconds": {
+                "type": "int",
+                "minimum": 1704067200,
+                "maximum": 4102444799
+              },
+              "remaining_basis_points": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "source_age_at_receive_ms": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 60000
+              }
+            }
+          }
+        },
+        "services": {
+          "codex_link": {
+            "type": "object",
+            "fields": {
+              "outcome": {
+                "type": "str",
+                "min_length": 1,
+                "max_length": 5,
+                "values": [
+                  "ready"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_device_view.cpp",
+      "symbol": "prepare_device_dashboard",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "CodexWeeklyLimitSnapshot",
+        "DeviceSnapshotService::readCodexWeeklyLimit"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "widget-v1:Device=0",
+          "destination": "widget-v1:Reset=1",
+          "event": "Swipe to the available counter",
+          "condition": "The weekly allowance and reset time admit the Reset counter",
+          "evidence": "source-analysis",
+          "component": "CODY::DeviceDashboard",
+          "function": "prepare_device_dashboard",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_device_view.cpp"
+        },
+        {
+          "origin": "widget-v1:Reset=1",
+          "destination": "widget-v1:Limits=2",
+          "event": "Swipe to the next available counter",
+          "condition": "Limits is available from its canonical observations",
+          "evidence": "source-analysis",
+          "component": "CODY::DeviceDashboard",
+          "function": "prepare_device_dashboard",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_device_view.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values",
+        "Statistics require a connected synthetic Wi-Fi observation and explicit scripted Codex READY/app-open presence; source timestamps age through the production policy, without real CCP packets"
+      ],
+      "controls": [
+        {
+          "path": [
+            "page",
+            "weekly",
+            "reset_unix_seconds"
+          ],
+          "label": "Weekly reset UTC epoch"
+        },
+        {
+          "path": [
+            "page",
+            "weekly",
+            "remaining_basis_points"
+          ],
+          "label": "Weekly remaining (basis points)"
+        },
+        {
+          "path": [
+            "page",
+            "weekly",
+            "source_age_at_receive_ms"
+          ],
+          "label": "Source age on receipt (ms)"
+        },
+        {
+          "path": [
+            "services",
+            "codex_link",
+            "outcome"
+          ],
+          "label": "Scripted Codex link (host only)",
+          "values": [
+            "ready"
+          ]
+        }
+      ],
+      "suite": "pilot",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "widget-v1:Limits=2",
+      "inventory_id": "W04",
+      "title": "Limits",
+      "native_target": "cody.dashboard.limits",
+      "controller": "prepare_account_dashboard / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Statistics",
+      "verification": "Phase C source integration; build and host acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-w04.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {
+          "weekly": {
+            "type": "object",
+            "fields": {
+              "reset_unix_seconds": {
+                "type": "int",
+                "minimum": 1704067200,
+                "maximum": 4102444799
+              },
+              "remaining_basis_points": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "source_age_at_receive_ms": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 60000
+              }
+            }
+          },
+          "account": {
+            "type": "object",
+            "fields": {
+              "short_reset_unix_seconds": {
+                "type": "int",
+                "minimum": 1704067200,
+                "maximum": 4102444799
+              },
+              "short_remaining_basis_points": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 10000
+              },
+              "short_window_minutes": {
+                "type": "int",
+                "minimum": 1,
+                "maximum": 10080
+              },
+              "source_age_at_receive_ms": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 60000
+              }
+            }
+          }
+        },
+        "services": {
+          "codex_link": {
+            "type": "object",
+            "fields": {
+              "outcome": {
+                "type": "str",
+                "min_length": 1,
+                "max_length": 5,
+                "values": [
+                  "ready"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_account_dashboard.cpp",
+      "symbol": "prepare_account_dashboard",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "CodexWeeklyLimitSnapshot",
+        "CodexAccountSnapshot",
+        "DeviceSnapshotService::readCodexAccount"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "widget-v1:Reset=1",
+          "destination": "widget-v1:Limits=2",
+          "event": "Swipe to Limits when data is available",
+          "condition": "The selected counter can advance and canonical quota observations admit Limits",
+          "evidence": "source-analysis",
+          "component": "CODY::DeviceDashboard",
+          "function": "prepare_account_dashboard",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_account_dashboard.cpp"
+        },
+        {
+          "origin": "widget-v1:Limits=2",
+          "destination": "widget-v1:Today=3",
+          "event": "Swipe to the next available counter",
+          "condition": "Today is the next available counter with current or explicitly saved data",
+          "evidence": "source-analysis",
+          "component": "CODY::DeviceDashboard",
+          "function": "prepare_account_dashboard",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_account_dashboard.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values",
+        "Statistics require a connected synthetic Wi-Fi observation and explicit scripted Codex READY/app-open presence; source timestamps age through the production policy, without real CCP packets"
+      ],
+      "controls": [
+        {
+          "path": [
+            "page",
+            "weekly",
+            "reset_unix_seconds"
+          ],
+          "label": "Weekly reset UTC epoch"
+        },
+        {
+          "path": [
+            "page",
+            "weekly",
+            "remaining_basis_points"
+          ],
+          "label": "Weekly remaining (basis points)"
+        },
+        {
+          "path": [
+            "page",
+            "weekly",
+            "source_age_at_receive_ms"
+          ],
+          "label": "Source age on receipt (ms)"
+        },
+        {
+          "path": [
+            "page",
+            "account",
+            "short_reset_unix_seconds"
+          ],
+          "label": "Short-window reset UTC epoch"
+        },
+        {
+          "path": [
+            "page",
+            "account",
+            "short_remaining_basis_points"
+          ],
+          "label": "Short-window remaining (basis points)"
+        },
+        {
+          "path": [
+            "page",
+            "account",
+            "short_window_minutes"
+          ],
+          "label": "Short-window duration (minutes)"
+        },
+        {
+          "path": [
+            "page",
+            "account",
+            "source_age_at_receive_ms"
+          ],
+          "label": "Source age on receipt (ms)"
+        },
+        {
+          "path": [
+            "services",
+            "codex_link",
+            "outcome"
+          ],
+          "label": "Scripted Codex link (host only)",
+          "values": [
+            "ready"
+          ]
+        }
+      ],
+      "suite": "pilot",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "atlas-v1:08",
+      "inventory_id": "S15",
+      "title": "Provisioning error",
+      "native_target": "cody.provisioning.error",
+      "controller": "update_onboarding / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Setup and guidance",
+      "verification": "Phase C source integration; build and host acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-s15.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "atlas-v1:07",
+          "return_to": "atlas-v1:05"
+        },
+        "settings": {},
+        "page": {},
+        "services": {
+          "provisioning": {
+            "type": "object",
+            "fields": {
+              "outcome": {
+                "type": "str",
+                "min_length": 1,
+                "max_length": 17,
+                "values": [
+                  "timeout",
+                  "authentication",
+                  "network-not-found"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "update_onboarding",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "PairingSessionSnapshot",
+        "CODY_host_pairing",
+        "Onboarding failure presenter"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "atlas-v1:07",
+          "destination": "atlas-v1:08",
+          "event": "Typed provisioning failure",
+          "condition": "The canonical provisioning session reports a typed timeout or failure",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "update_onboarding",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+        },
+        {
+          "origin": "atlas-v1:08",
+          "destination": "atlas-v1:05",
+          "event": "Retry or cancel through cleanup",
+          "condition": "The failure action is admitted and existing pairing cleanup permits retry or cancel",
+          "evidence": "source-analysis",
+          "component": "CODY::Onboarding",
+          "function": "update_onboarding",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+        }
+      ],
+      "hard_to_reach": true,
+      "transient_error": true,
+      "limitations": [
+        "Synthetic service failure only; no BLE provisioning or network request is performed",
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values"
+      ],
+      "controls": [
+        {
+          "path": [
+            "services",
+            "provisioning",
+            "outcome"
+          ],
+          "label": "Provisioning outcome",
+          "values": [
+            "timeout",
+            "authentication",
+            "network-not-found"
+          ]
+        }
+      ],
+      "suite": "pilot",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "next-v1:104",
+      "inventory_id": "C04",
+      "title": "Tool calls",
+      "native_target": "cody.codex.calls",
+      "controller": "prepare_codex_browser / native display owner",
+      "availability": "presenter-isolated",
+      "rendering_mode": "presenter-isolated",
+      "group": "Codex",
+      "verification": "Phase C source integration; build and host acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-c04.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "next-v1:103",
+          "return_to": "next-v1:103"
+        },
+        "settings": {},
+        "page": {
+          "source_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          },
+          "chat_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          },
+          "turn_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          }
+        },
+        "services": {
+          "domain": {
+            "type": "object",
+            "fields": {
+              "source_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "generation": {
+                "type": "int",
+                "minimum": 1,
+                "maximum": 4294967295
+              },
+              "chat_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "turn_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "chat_title": {
+                "type": "str",
+                "min_length": 1,
+                "max_length": 128
+              },
+              "execution": {
+                "type": "str",
+                "min_length": 1,
+                "max_length": 7,
+                "values": [
+                  "running",
+                  "waiting",
+                  "stopped"
+                ]
+              },
+              "calls": {
+                "type": "array",
+                "minimum_items": 0,
+                "maximum_items": 8,
+                "fields": {
+                  "id": {
+                    "type": "str",
+                    "min_length": 16,
+                    "max_length": 16,
+                    "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+                  },
+                  "turn_id": {
+                    "type": "str",
+                    "min_length": 16,
+                    "max_length": 16,
+                    "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+                  },
+                  "tool_name": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 128
+                  },
+                  "label": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 96
+                  },
+                  "category": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "command",
+                      "file_read",
+                      "file_edit",
+                      "search",
+                      "browser",
+                      "agent",
+                      "service"
+                    ]
+                  },
+                  "state": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "queued",
+                      "running",
+                      "returned",
+                      "failed",
+                      "cancelled"
+                    ]
+                  },
+                  "outcome": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "unknown",
+                      "succeeded",
+                      "failed",
+                      "cancelled"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_codex_browser.cpp",
+      "symbol": "prepare_codex_browser",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "DeviceSnapshotService::readCodexDomainObservation",
+        "CODY_host_onboarding_snapshot",
+        "CodexBrowser"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "next-v1:103",
+          "destination": "next-v1:104",
+          "event": "Open calls for the exact selected turn",
+          "condition": "The exact source-qualified chat and turn are selected and the canonical query provides their calls",
+          "evidence": "source-analysis",
+          "component": "CODY::CodexBrowser",
+          "function": "prepare_codex_browser",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_codex_browser.cpp"
+        },
+        {
+          "origin": "next-v1:104",
+          "destination": "next-v1:103",
+          "event": "Back to the exact turn",
+          "condition": "The browser retains the exact source-qualified originating turn",
+          "evidence": "source-analysis",
+          "component": "CODY::CodexBrowser",
+          "function": "prepare_codex_browser",
+          "replay": false,
+          "source": "cody-device/components/CODY_companion/src/scenes/CODY_codex_browser.cpp"
+        }
+      ],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The unchanged native browser consumes a bounded synthetic canonical query result; production StateStore decoding, reduction, transport and pagination beyond this fixture are not exercised",
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values"
+      ],
+      "controls": [
+        {
+          "path": [
+            "page",
+            "source_id"
+          ],
+          "label": "Source identity (16 hex)"
+        },
+        {
+          "path": [
+            "page",
+            "chat_id"
+          ],
+          "label": "Chat identity (16 hex)"
+        },
+        {
+          "path": [
+            "page",
+            "turn_id"
+          ],
+          "label": "Turn identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "source_id"
+          ],
+          "label": "Source identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "generation"
+          ],
+          "label": "Query generation"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "chat_id"
+          ],
+          "label": "Chat identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "turn_id"
+          ],
+          "label": "Turn identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "chat_title"
+          ],
+          "label": "Chat title"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "execution"
+          ],
+          "label": "Turn execution",
+          "values": [
+            "running",
+            "waiting",
+            "stopped"
+          ]
+        }
+      ],
+      "suite": "pilot",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
     }
   ]
 }
