@@ -18,7 +18,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Startup",
-      "verification": "Phase C source integration; build and host acceptance pending",
+      "verification": "Linux static capture and replay verified; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -110,7 +110,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Startup",
-      "verification": "Phase C source integration; build and host acceptance pending",
+      "verification": "Linux static capture and replay verified; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -213,7 +213,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Setup and guidance",
-      "verification": "Phase C source integration; build and host acceptance pending",
+      "verification": "Linux static capture and replay verified; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -301,7 +301,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Preferences",
-      "verification": "Phase C source integration; build and host acceptance pending",
+      "verification": "Linux static capture and replay verified; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -389,7 +389,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Preferences",
-      "verification": "Linux host build, P04 repeatability and Tk/native UI checks passed; physical acceptance pending",
+      "verification": "Linux static capture and replay verified; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -477,7 +477,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Preferences",
-      "verification": "Phase C source integration; build and host acceptance pending",
+      "verification": "Linux static capture and replay verified; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -634,7 +634,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Statistics",
-      "verification": "Phase C source integration; build and host acceptance pending",
+      "verification": "Linux static capture and replay verified; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -794,7 +794,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Statistics",
-      "verification": "Phase C source integration; build and host acceptance pending",
+      "verification": "Linux static capture and replay verified; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -1012,7 +1012,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Setup and guidance",
-      "verification": "Phase C source integration; build and host acceptance pending",
+      "verification": "Linux static capture and replay verified; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -1132,7 +1132,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Codex",
-      "verification": "Phase C source integration; build and host acceptance pending",
+      "verification": "Linux static capture and replay verified; physical acceptance pending",
       "variants": [
         "default"
       ],

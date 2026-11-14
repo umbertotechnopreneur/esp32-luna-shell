@@ -52,7 +52,7 @@ class StudioWindow:
 
     # root: Tk interpreter owned by the existing native window entry point.
     # device: Native runtime created with deterministic_clock=True before startup.
-    # scenario: Validated versioned P04 scenario.
+    # scenario: Validated versioned pilot scenario with explicit page and service inputs.
     # Raises catalog/schema/Tk errors; never selects an alternate renderer.
     def __init__(self, root, device, scenario):
         self.root, self.scenario = root, deepcopy(scenario)
@@ -60,6 +60,7 @@ class StudioWindow:
         self.current = self.baseline = None
         self.records, self.sections, self.photos = [], {}, []
         self.busy = self.closed = False
+        self.focus_reveal_id = None
         self.results = queue.Queue()
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='cody-studio')
         self.status = tk.StringVar(value='Preparing native Studio case…')
@@ -71,8 +72,58 @@ class StudioWindow:
         root.protocol('WM_DELETE_WINDOW', self.close)
         self.build()
         self.show_scenario()
+        # Descendants include this Toplevel in their normal bindtags, including
+        # controls created by later scenario changes. Other windows are untouched.
+        self.focus_binding = root.bind('<FocusIn>', self.queue_focus_reveal, add='+')
         self.poll_id = root.after(40, self.poll)
-        root.after_idle(self.apply)
+        self.initial_apply_id = root.after_idle(self.apply)
+
+    # event: Focus transition in this window's normal Toplevel bindtag.
+    # Coalesces ancestor/child events and reveals only fields inside our scroll areas.
+    def queue_focus_reveal(self, event):
+        if self.closed or self.focus_viewport(event.widget) is None:
+            return
+        if self.focus_reveal_id is not None:
+            self.root.after_cancel(self.focus_reveal_id)
+        self.focus_reveal_id = self.root.after_idle(self.reveal_focus)
+
+    # widget: Focused widget whose parent chain is inspected without changing focus.
+    # Returns only this window's inspector/bottom viewport, or None for other controls.
+    def focus_viewport(self, widget):
+        for viewport in (self.inspector_canvas, self.bottom_canvas):
+            current = getattr(widget, 'master', None)
+            while current is not None:
+                if current is viewport:
+                    return viewport
+                current = getattr(current, 'master', None)
+        return None
+
+    # No parameters: reveal the final focused control after pending layout changes.
+    # The same logic handles long scalar forms and lower Atlas thumbnail rows.
+    def reveal_focus(self):
+        self.focus_reveal_id = None
+        if self.closed:
+            return
+        widget = self.root.focus_get()
+        viewport = self.focus_viewport(widget)
+        if viewport is None or not widget.winfo_ismapped():
+            return
+        bounds = viewport.bbox('all')
+        if bounds is None or bounds[3] <= bounds[1]:
+            return
+        height = viewport.winfo_height()
+        visible_top = viewport.canvasy(0)
+        top = viewport.canvasy(widget.winfo_rooty() - viewport.winfo_rooty())
+        bottom = top + widget.winfo_height()
+        margin = 4
+        if top < visible_top + margin:
+            desired_top = top - margin
+        elif bottom > visible_top + height - margin:
+            desired_top = bottom + margin - height
+        else:
+            return
+        desired_top = max(bounds[1], min(desired_top, max(bounds[1], bounds[3] - height)))
+        viewport.yview_moveto((desired_top - bounds[1]) / (bounds[3] - bounds[1]))
 
     # No parameters: restore host visibility preferences, with visible parse errors.
     def read_preferences(self):
@@ -199,6 +250,7 @@ class StudioWindow:
         scroll = tk.Scrollbar(self.right_host, orient='vertical')
         scroll.pack(side='right', fill='y')
         pane = tk.Canvas(self.right_host, bg=BG, width=300, highlightthickness=0, yscrollcommand=scroll.set)
+        self.inspector_canvas = pane
         pane.pack(side='left', fill='both', expand=True)
         scroll.configure(command=pane.yview)
         right = tk.Frame(pane, bg=BG)
@@ -311,6 +363,7 @@ class StudioWindow:
         self.case_fields_host = tk.Frame(scenario, bg=BG)
         self.case_fields_host.pack(fill='x', pady=(8, 0))
         self.case_fields = {}
+        self.case_field_widgets = {}
         self.apply_button = action(scenario, 'Apply and capture', self.apply, True)
         self.apply_button.pack(fill='x')
         action(scenario, 'Open scenario…', self.open_scenario).pack(anchor='w')
@@ -370,6 +423,11 @@ class StudioWindow:
         if not selected or ':' not in selected[0]:
             return
         item = entry_for(selected[0])
+        self.describe_entry(item)
+
+    # item: Source-qualified catalog entry whose declared routes are inspected.
+    # Exceptions: Tk errors propagate without changing the selected native frame.
+    def describe_entry(self, item):
         self.detail.set(f"{item['id']}\n{item['availability']}\n{item.get('verification', item.get('reason', ''))}")
         routes = item.get('routes', [])
         incoming = sum(route['destination'] == item['id'] for route in routes)
@@ -404,7 +462,22 @@ class StudioWindow:
         for child in self.case_fields_host.winfo_children():
             child.destroy()
         self.case_fields = {}
+        self.case_field_widgets = {}
         descriptions = {tuple(item['path']): item for item in entry.get('controls', [])}
+
+        # path: Exact schema location, including a bounded array row when present.
+        # Returns the catalog's scalar field contract for control choices.
+        def field_specification(path):
+            contract = entry['scenario_contract']
+            keys = path[2:] if path[:2] == ('common', 'settings') else path[1:]
+            fields = contract['settings'] if path[:2] == ('common', 'settings') else contract[path[0]]
+            specification = {'type': 'object', 'fields': fields}
+            for key in keys:
+                if specification['type'] == 'array':
+                    specification = {'type': 'object', 'fields': specification['fields']}
+                else:
+                    specification = specification['fields'][key]
+            return specification
 
         # path: Schema location within the detached scenario.
         # value: Supported scalar or nested mapping; containers are never flattened into native pointers.
@@ -413,26 +486,39 @@ class StudioWindow:
                 for key, child in value.items():
                     add_fields((*path, key), child)
                 return
+            if isinstance(value, list):
+                caption(self.case_fields_host, f"{str(path[-1]).replace('_', ' ').title()} · {len(value)} records",
+                        11, True).pack(anchor='w', pady=(8, 0))
+                for index, row in enumerate(value):
+                    add_fields((*path, index), row)
+                return
             description = descriptions.get(path, {})
-            title = description.get('label', ' · '.join(part.replace('_', ' ').title() for part in path))
-            if value is None or isinstance(value, list):
-                caption(self.case_fields_host, f'{title}: unavailable' if value is None else f'{title}: scenario-defined',
-                        10, wraplength=275).pack(anchor='w')
+            title = ' · '.join(str(part + 1) if type(part) is int else part.replace('_', ' ').title() for part in path)
+            if any(type(part) is int for part in path):
+                index = next(part for part in path if type(part) is int)
+                title = f"Call {index + 1} · {str(path[-1]).replace('_', ' ').title()}"
+            title = description.get('label', title)
+            if value is None:
+                caption(self.case_fields_host, f'{title}: unavailable', 10, wraplength=275).pack(anchor='w')
                 return
             if type(value) is bool:
                 variable = tk.BooleanVar(value=value)
-                tk.Checkbutton(self.case_fields_host, text=title, variable=variable, bg=BG, fg=FG,
+                control = tk.Checkbutton(self.case_fields_host, text=title, variable=variable, bg=BG, fg=FG,
                                selectcolor=FIELD, activebackground=BG, activeforeground=ORANGE,
-                               highlightcolor=ORANGE, wraplength=260, anchor='w').pack(fill='x')
+                               highlightcolor=ORANGE, wraplength=260, anchor='w')
+                control.pack(fill='x')
             else:
                 caption(self.case_fields_host, title, 10, wraplength=275).pack(anchor='w', pady=(4, 0))
                 variable = tk.StringVar(value=str(value))
-                if description.get('values'):
-                    ttk.Combobox(self.case_fields_host, textvariable=variable, values=description['values'],
-                                 state='readonly', style='Studio.TCombobox').pack(fill='x')
+                values = description.get('values', field_specification(path).get('values'))
+                if values:
+                    control = ttk.Combobox(self.case_fields_host, textvariable=variable, values=values,
+                                          state='readonly', style='Studio.TCombobox')
                 else:
-                    self.field(self.case_fields_host, variable).pack(fill='x')
+                    control = self.field(self.case_fields_host, variable)
+                control.pack(fill='x')
             self.case_fields[path] = (variable, type(value))
+            self.case_field_widgets[path] = control
 
         add_fields(('page',), self.scenario['page'])
         add_fields(('services',), self.scenario['services'])
@@ -463,7 +549,7 @@ class StudioWindow:
             try:
                 target[path[-1]] = field_type(text)
             except (ValueError, TypeError):
-                raise ValueError(f"{' · '.join(path)} requires a valid {field_type.__name__}") from None
+                raise ValueError(f"{' · '.join(map(str, path))} requires a valid {field_type.__name__}") from None
         validate_scenario(value)
         return value
 
@@ -515,7 +601,12 @@ class StudioWindow:
         self.current = record
         entry = entry_for(record.metadata['id'])
         self.frame_title.set(f"{entry.get('inventory_id') or entry['id']} — {entry['title']}")
-        self.frame_subtitle.set(f"Native C/C++ · {record.metadata['rendering_mode']} · sample t={record.metadata['at_ms']} · 466 × 466")
+        sample = record.metadata['frame_identity'].get('source_animation_sample_ms', 0)
+        timing = f" · source animation {sample} ms" if sample else ''
+        self.frame_subtitle.set(f"Native C/C++ · {record.metadata['rendering_mode']} · t={record.metadata['at_ms']}{timing} · 466 × 466")
+        if self.tree.exists(record.metadata['id']):
+            self.tree.selection_set(record.metadata['id'])
+        self.describe_entry(entry)
         if all(item.metadata_path != record.metadata_path for item in self.records):
             self.records.append(record)
         self.note.delete('1.0', 'end')
@@ -530,7 +621,7 @@ class StudioWindow:
                 photo = ImageTk.PhotoImage(image.resize((72, 72), Image.Resampling.NEAREST))
             self.photos.append(photo)
             control = action(self.thumbnails, f"{item.metadata.get('inventory_id') or item.metadata['id']} · acquired",
-                             lambda chosen=item: self.set_current(chosen))
+                             lambda chosen=item: self.select_capture(chosen))
             control.configure(image=photo, compound='top', font=('TkDefaultFont', 9))
             control.grid(row=index // 4, column=index % 4, sticky='nw', padx=(0, 7))
         screens = len({item.metadata['id'] for item in self.records})
@@ -597,9 +688,24 @@ class StudioWindow:
                                           initialdir=str(STATE_PATH.parent), filetypes=(('Capture metadata', '*.json'),))
         if path:
             try:
-                self.set_current(load_capture(path))
+                self.select_capture(load_capture(path))
             except (OSError, ValueError) as error:
                 self.error(error)
+
+    # record: Explicitly selected history/file capture, already hash-validated.
+    # Synchronizes editable inputs, catalog and routes with that exact frame.
+    # Exceptions: Preserves schema/source errors and leaves native acquisition untouched.
+    def select_capture(self, record):
+        if self.busy:
+            self.status.set('Wait for the active preparation before selecting a saved capture.')
+            return
+        load_review(record)
+        self.scenario = deepcopy(record.metadata['scenario'])
+        self.show_scenario()
+        self.set_current(record)
+        if self.tree.exists(record.metadata['id']):
+            self.tree.selection_set(record.metadata['id'])
+        self.describe_entry(entry_for(record.metadata['id']))
 
     # No parameters: save a scenario for replay, leaving application to Apply.
     def save_scenario(self):
@@ -686,5 +792,10 @@ class StudioWindow:
         self.persist()
         self.closed = True
         self.root.after_cancel(self.poll_id)
+        self.root.after_cancel(self.initial_apply_id)
+        if self.focus_reveal_id is not None:
+            self.root.after_cancel(self.focus_reveal_id)
+            self.focus_reveal_id = None
+        self.root.unbind('<FocusIn>', self.focus_binding)
         self.executor.shutdown(wait=False, cancel_futures=True)
         self.root.destroy()

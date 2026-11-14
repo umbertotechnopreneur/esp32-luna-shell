@@ -83,10 +83,14 @@ def run_host_worker(command, directory, name, timeout=120):
 # inventory_id: Authoritative inventory case selected through the product CLI.
 # directory: Unique retained process-diagnostic directory.
 # name: Fixed filename stem identifying this independent process.
+# scenario_path: Optional saved scenario selected by the same product CLI.
 # Raises worker, metadata, image or provenance errors without preview fallback.
-def capture_in_fresh_worker(inventory_id, directory, name):
-    process = run_host_worker([sys.executable, "-B", str(SIMULATOR / "cody_simulator.py"),
-                               "--studio-case", inventory_id, "--studio-capture"], directory, name)
+def capture_in_fresh_worker(inventory_id, directory, name, scenario_path=None):
+    command = [sys.executable, "-B", str(SIMULATOR / "cody_simulator.py"), "--studio-case", inventory_id]
+    if scenario_path is not None:
+        command += ["--studio-scenario", str(scenario_path)]
+    command += ["--studio-capture"]
+    process = run_host_worker(command, directory, name)
     lines = [line.strip() for line in process.stdout.splitlines() if line.strip()]
     if not lines:
         raise AssertionError(f"Native {inventory_id} worker did not return capture metadata")
@@ -113,6 +117,10 @@ def assert_pilot_record(record, inventory_id, scenario=None):
             raise AssertionError(f"{inventory_id} completed-frame {name} disagrees with its prepared case")
     if type(receipt.get("revision")) is not int or receipt["revision"] <= 0:
         raise AssertionError(f"{inventory_id} has no completed-frame revision")
+    if receipt.get("abi") != 2 or type(receipt["abi"]) is not int:
+        raise AssertionError(f"{inventory_id} fresh capture did not use the current native receipt ABI")
+    if metadata.get("fixed_dependencies") != studio_runner.fixed_dependencies(entry, scenario):
+        raise AssertionError(f"{inventory_id} omitted or changed its declared fixed native inputs")
     if metadata.get("inventory", {}).get("sha256") != INVENTORY_SHA256:
         raise AssertionError(f"{inventory_id} has no matching inventory document identity")
     if inventory_id in ("S01", "S02"):
@@ -141,6 +149,48 @@ def assert_pilot_record(record, inventory_id, scenario=None):
         scoped_calls = {call["id"] for call in domain["calls"] if call["turn_id"] == scenario["page"]["turn_id"]}
         if not set(call_ids).issubset(scoped_calls):
             raise AssertionError("C04 displayed calls from another turn or unmodelled source")
+
+
+# device: Started native session with at least one completed controlled frame.
+# Raises AssertionError if an invalid ABI capacity writes any output or changes the frame.
+def assert_native_output_capacity_rejection(device):
+    import ctypes
+    from cody_native_display import StudioFrameIdentity, completed_studio_frame
+    from cody_native_rgb565 import LOGICAL_PIXEL_COUNT
+
+    size_query = device.api.cody_host_studio_frame_identity_size
+    size_query.argtypes, size_query.restype = [], ctypes.c_size_t
+    identity_size = ctypes.sizeof(StudioFrameIdentity)
+    if identity_size != 240 or size_query() != identity_size:
+        raise AssertionError("Native output capacity does not match the current 240-byte receipt ABI")
+    snapshot = device.api.cody_host_display_studio_snapshot
+    snapshot.argtypes = [ctypes.POINTER(ctypes.c_uint16), ctypes.c_size_t,
+                         ctypes.POINTER(StudioFrameIdentity), ctypes.c_size_t]
+    snapshot.restype = ctypes.c_int
+    # Both allocations have sentinels around the caller-owned payload. All bytes
+    # must survive rejection, including the payload itself and these outer guards.
+    pixel_storage = (ctypes.c_uint16 * (LOGICAL_PIXEL_COUNT + 2))()
+    identity_storage = ctypes.create_string_buffer(identity_size + 16)
+    pixels = ctypes.cast(ctypes.byref(pixel_storage, ctypes.sizeof(ctypes.c_uint16)),
+                         ctypes.POINTER(ctypes.c_uint16))
+    identity = ctypes.cast(ctypes.byref(identity_storage, 8), ctypes.POINTER(StudioFrameIdentity))
+    before_frame, before_receipt = completed_studio_frame()
+    for pixel_count, capacity in ((LOGICAL_PIXEL_COUNT, identity_size - 1),
+                                  (LOGICAL_PIXEL_COUNT, identity_size + 1),
+                                  (LOGICAL_PIXEL_COUNT - 1, identity_size),
+                                  (LOGICAL_PIXEL_COUNT + 1, identity_size)):
+        ctypes.memset(pixel_storage, 0xA5, ctypes.sizeof(pixel_storage))
+        ctypes.memset(identity_storage, 0x5A, ctypes.sizeof(identity_storage))
+        original_pixels = bytes(pixel_storage)
+        original_identity = identity_storage.raw
+        error = snapshot(pixels, pixel_count, identity, capacity)
+        if error != 0x104:
+            raise AssertionError(f"Native snapshot accepted or misreported capacity {pixel_count}/{capacity}: {error}")
+        if bytes(pixel_storage) != original_pixels or identity_storage.raw != original_identity:
+            raise AssertionError("Rejected native ABI capacity modified an output buffer or its sentinels")
+    after_frame, after_receipt = completed_studio_frame()
+    if before_frame.tobytes() != after_frame.tobytes() or before_receipt != after_receipt:
+        raise AssertionError("Rejected native ABI capacities changed the completed frame or its identity")
 
 
 # records: One saved native capture per authoritative pilot inventory ID.
@@ -639,6 +689,7 @@ class NativeWorkerTests(unittest.TestCase):
             lines = [line.strip() for line in process.stdout.splitlines() if line.strip()]
             self.assertTrue(lines, "P04 worker did not return a capture metadata path")
             record = load_capture(lines[-1])
+            assert_pilot_record(record, "P04")
             metadata = record.metadata
             self.assertEqual(metadata["id"], "ui-v1:display")
             self.assertEqual(metadata["inventory_id"], "P04")
@@ -698,6 +749,8 @@ class PilotWorkerTests(unittest.TestCase):
         self.assertTrue(summary["stale_build_rejected"])
         self.assertTrue(summary["baseline_unchanged"])
         self.assertTrue(summary["alternate_context_verified"])
+        self.assertTrue(summary["abi_capacity_rejected"])
+        self.assertTrue(summary["battery_replay_verified"])
         records = [load_capture(path) for path in summary["captures"]]
         seen = {record.metadata["inventory_id"] for record in records}
         self.assertEqual(seen, set(PILOT_CASES))
@@ -843,6 +896,68 @@ class NativeUiTests(unittest.TestCase):
         self.assertEqual(self.window.form(), default_scenario(inventory_id))
         return record
 
+    # No parameters: a separate automatic capture must leave this live owner intact.
+    # Raises AssertionError for modified NVS, live pixels/receipt, sensors or scenario.
+    def assert_headless_worker_isolated(self):
+        from cody_native_display import completed_studio_frame
+
+        # Initial prepare/capture already acknowledged the display and synchronous
+        # settings owners. No arbitrary pause is used as a storage/frame barrier.
+        self.assertFalse(self.window.busy)
+        current = self.window.current
+        self.assertIsNotNone(current)
+        settings_path = self.directory / "session.nvs"
+        self.assertTrue(settings_path.is_file(), "The acknowledged interactive settings store is missing")
+        before_settings = settings_path.read_bytes()
+        before_frame, before_receipt = completed_studio_frame()
+        before_snapshot = self.device.read_snapshot()
+        before_scenario = deepcopy(self.window.runner.scenario)
+        before_form = self.window.form()
+        before_artifacts = (current.image_path.read_bytes(), current.metadata_path.read_bytes())
+        different = default_scenario("P04")
+        different["common"]["settings"].update(brightness_percent=10, auto_rotate=True, orientation_degrees=180)
+        different["common"]["observations"]["battery"]["level_percent"] = 20
+        different["common"]["observations"]["network"] = {
+            "connected": True, "ssid": "SYNTHETIC-ISOLATION", "rssi": -73}
+        different["common"]["observations"]["clock"]["utc_offset_minutes"] = -120
+        path = save_scenario(different, self.directory / "automatic-isolation-scenario.json")
+        automatic = capture_in_fresh_worker("P04", self.directory, "automatic-isolation", path)
+        assert_pilot_record(automatic, "P04", different)
+        self.root.update()
+        after_frame, after_receipt = completed_studio_frame()
+        self.assertEqual(after_frame.tobytes(), before_frame.tobytes(), "Automatic capture modified the live frame")
+        self.assertEqual(after_receipt, before_receipt, "Automatic capture modified the live frame receipt")
+        self.assertEqual(self.device.read_snapshot(), before_snapshot, "Automatic capture changed live sensor inputs")
+        self.assertEqual(settings_path.read_bytes(), before_settings, "Automatic capture wrote the interactive NVS")
+        self.assertEqual(self.window.runner.scenario, before_scenario)
+        self.assertEqual(self.window.form(), before_form)
+        self.assertEqual(self.window.current.metadata_path, current.metadata_path)
+        self.assertEqual((current.image_path.read_bytes(), current.metadata_path.read_bytes()), before_artifacts)
+        self.assertNotEqual(automatic.metadata["scenario_revision"], current.metadata["scenario_revision"])
+
+    # No parameters: keyboard traversal must reveal the final scalar call control.
+    # Raises AssertionError if focus cycles, disappears or leaves its viewport clipped.
+    def assert_long_call_form_keyboard_access(self):
+        first = self.window.case_field_widgets[("services", "domain", "calls", 0, "id")]
+        last = self.window.case_field_widgets[("services", "domain", "calls", 2, "outcome")]
+        first.focus_force()
+        self.root.update()
+        visited = set()
+        for _ in range(len(self.window.case_field_widgets) * 2 + 10):
+            focused = self.root.focus_get()
+            self.assertIsNotNone(focused, "Keyboard traversal lost focus in the call form")
+            if focused == last:
+                break
+            self.assertNotIn(str(focused), visited, "Tab traversal cycled before reaching the final call field")
+            visited.add(str(focused))
+            focused.event_generate("<KeyPress-Tab>")
+            focused.event_generate("<KeyRelease-Tab>")
+            self.root.update()
+        self.assertEqual(self.root.focus_get(), last, "Tab never reached the final Call 3 outcome")
+        self.assert_widget_visible(last, self.window.inspector_canvas)
+        self.assertGreater(self.window.inspector_canvas.yview()[0], 0,
+                           "The long call form never scrolled to its focused final field")
+
     # scenario: Valid scenario to place into actual form controls before Apply.
     def fill_scenario(self, scenario):
         self.window.scenario = deepcopy(scenario)
@@ -948,6 +1063,7 @@ class NativeUiTests(unittest.TestCase):
         window = self.window
         original = default_scenario()
         first = window.current
+        self.assert_headless_worker_isolated()
         self.root.geometry("1440x960+0+0")
         self.wait_for(lambda: window.canvas.winfo_width() > 100, "wide canvas geometry")
         window.draw()
@@ -1083,6 +1199,7 @@ class NativeUiTests(unittest.TestCase):
         self.assertEqual(window.form(), default_scenario("C04"))
         self.assertIn("C04", window.scenario_title.get())
         self.assertEqual(window.tree.selection(), (PILOT_CASES["C04"],))
+        self.assert_long_call_form_keyboard_access()
         call_path = ("services", "domain", "calls", 0)
         for field, value in (("label", "UI changed command"), ("state", "returned"), ("outcome", "succeeded")):
             self.assertIn((*call_path, field), window.case_fields)
@@ -1183,8 +1300,28 @@ def run_pilot_worker():
             if baseline is None:
                 baseline = preserve_baseline(record)
                 retained = (baseline.image_path.read_bytes(), baseline.metadata_path.read_bytes())
+                assert_native_output_capacity_rejection(device)
         if set(original_pixels) != set(PILOT_CASES):
             raise AssertionError("Native replay did not acquire the complete ten-case pilot")
+
+        # Repeated low-battery samples share a frozen monotonic timestamp. The
+        # owner's alert acknowledgement/cache must not leak across preparations.
+        for inventory_id in ("W02", "W04"):
+            battery_pixels = {80: original_pixels[inventory_id]}
+            for level in (20, 20, 80, 20, 80, 20):
+                scenario = default_scenario(inventory_id)
+                scenario["common"]["observations"]["battery"]["level_percent"] = level
+                runner.prepare(scenario)
+                record = runner.capture()
+                assert_pilot_record(record, inventory_id, scenario)
+                with Image.open(record.image_path) as image:
+                    pixels = image.tobytes()
+                if level in battery_pixels and pixels != battery_pixels[level]:
+                    raise AssertionError(f"{inventory_id} battery {level} retained a previous alert/ack state")
+                if level == 20 and pixels == battery_pixels[80]:
+                    raise AssertionError(f"{inventory_id} ignored the valid low-battery input")
+                battery_pixels.setdefault(level, pixels)
+                captures.append(record)
 
         # The isolated domain query must replace exact scopes and their visible rows.
         alternate = default_scenario("C04")
@@ -1254,7 +1391,8 @@ def run_pilot_worker():
         raise AssertionError("Pilot replay replaced its explicitly preserved baseline")
     print(json.dumps({"captures": [str(record.metadata_path) for record in captures],
                       "invalid_scenario_rejected": True, "stale_build_rejected": True,
-                      "baseline_unchanged": True, "alternate_context_verified": True}), flush=True)
+                      "baseline_unchanged": True, "alternate_context_verified": True,
+                      "abi_capacity_rejected": True, "battery_replay_verified": True}), flush=True)
     return 0
 
 
