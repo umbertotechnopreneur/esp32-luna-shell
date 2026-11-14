@@ -15,7 +15,7 @@
       "native_target": "cody.settings.display",
       "controller": "CODY::Onboarding / display worker",
       "availability": "runtime-full",
-      "verification": "source-only; native build and host acceptance pending",
+      "verification": "Linux native host build passed; runtime repeatability and interactive acceptance pending",
       "variants": ["default"],
       "profiles": ["cody-companion"],
       "features": ["native-display", "settings"],
