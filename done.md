@@ -1,44 +1,36 @@
 # Latest validation round
 
-## 2026-11-15 · Cody Studio integrated interface on Linux
+## 2026-11-15 · Cody Studio timeline and observed routes on Linux
 
-The native library from the earlier authorized build was revalidated by its
-provenance manifest for these runs:
+The native host build succeeds with production C/C++ renderers and host owners:
 `pwsh -NoProfile -File ./scripts/device.ps1 generate -Generator cody-simulator-graphics -ToolArguments '--device-runtime'`.
-It compiles production C/C++ renderers and host adapters; compiler warnings
-remain visible and none were globally suppressed.
+Warnings remain visible; none were globally suppressed.
 
-The pilot suite passes **20/20**:
+The focused phase-E suite passes **22/22**:
+`pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--phase-e'`.
+Two independent native processes reproduce S01/S02 source-animation samples
+in forward and backward order and execute P01 Settings → P04 Display → P01 via
+owner-dispatched touch. Captures validate scenario, source sample and atomic
+route/frame identity. Checks cover logical orientation 180°, invalid origins,
+receipt and timeline tampering, ABI output buffer capacities and an external
+contact already pending. The specific interleaving during power admission has
+static review but is not claimed as observed runtime evidence.
+
+The ten-case pilot suite passes **23/23**:
 `pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--pilot'`.
-It includes 18 strict catalog/scenario/capture/comparison/provenance contracts,
-two fresh-process captures of each of the ten inventory cases, and an isolated
-shared-session sequence with forward/reverse preparation and error/recovery.
-Every repeated case has identical RGB pixels and matching same-frame target,
-scenario revision, mode and sample time. The shared sequence also covers C04
-scope replacement, repeated battery 80/20 edits, rejected inputs/build changes,
-unchanged baseline bytes and ABI-capacity sentinels around both output buffers.
-
-The real Tk/native suite passes **19/19**:
+The real Tk/native suite passes **22/22**:
 `xvfb-run -a -s '-screen 0 1920x1200x24' pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--ui'`.
-It opens all ten destinations directly, edits/restores C04 call records,
-synchronizes saved-capture history, and checks scenario/review persistence,
-baseline preservation, comparison, focus/Tab scrolling, expander restoration
-and proportional geometry at 1440x960 and 720x540. It checks availability,
-changed and review filters, source-definition resolution, restored baseline
-selection, unavailable baseline retention, catalog scrollbar and opacity
-control contrast/focus. A separate automatic CLI
-worker leaves the interactive frame, receipt, sensor snapshot, NVS, scenario
-and saved artifacts intact. Window screenshots and all ten native captures
-were visually inspected; the suite retains a labelled contact sheet.
+The window checks play, pause, step, speed, backward keyframe seek, route
+selection and both real gestures, along with the prior pilot, comparison,
+review, focus, resize and baseline checks. Timeline and observed-route
+screenshots were visually inspected. The public `snapshot-integrity` and
+`cody-runtime` checks pass; `git diff --check` passes.
 
-`git diff --check` passes. Generated artifacts are retained; cleanup is manual.
-
-Acquired host coverage is **ten static cases**: S01, S02, S17, P01, P04, P12,
-W02, W04 and S15 use the full native runtime; C04 uses the production browser
-presenter with a typed synthetic query owner. This does not establish domain
-transport/reducer or general pagination acceptance. S01/S02 inspect explicit
-source-animation samples; S15 retains the scripted transient timeout cause.
-Historical scenarios still require the current catalog schema. General
-timeline/worker replay, observed IN/OUT routes, automatic atlas/PDF,
-remaining inventory mappings, Windows and physical acceptance remain open
-under `CODY-NEXT-06`. No physical device was contacted or firmware flashed.
+The timeline samples compiled S01/S02 native source frames with a fresh owner
+preparation per sample. The monotonic worker clock remains frozen; this does
+not establish asynchronous worker, timer, audio or startup-lifecycle replay.
+Only the two Settings/Display gestures have observed route evidence. Other
+routes, general controlled-worker replay, remaining inventory mappings,
+automated atlas/PDF work, Windows and physical acceptance remain open under
+`CODY-NEXT-06`. No physical device was contacted or firmware flashed. Generated
+artifacts are retained; cleanup remains manual.

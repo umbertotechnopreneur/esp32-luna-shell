@@ -15,8 +15,8 @@ Buttons, P01 Settings, P04 Display, P12 Quiet hours editor, W02 Reset countdown,
 W04 Codex limits, S15 Provisioning error and C04 Tool calls. Nine cases use the
 full native runtime; C04 uses the production C++ browser presenter with a typed,
 synthetic query owner. It does not establish domain transport/reducer acceptance.
-The Linux native build and the pilot suite pass (20/20); the real Tk/native
-suite passes (19/19). Every pilot case has exact repeated pixels in fresh
+The Linux native build and the pilot suite pass (23/23); the real Tk/native
+suite passes (22/22). Every pilot case has exact repeated pixels in fresh
 processes and after out-of-order preparation in a shared session. Host captures
 and window screenshots were visually inspected. Windows and physical-device
 acceptance remain separate.
@@ -31,6 +31,7 @@ pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio
 pwsh -NoProfile -File ./scripts/device.ps1 generate -Generator cody-simulator-graphics -ToolArguments '--device-runtime'
 pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--native'
 pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--pilot'
+pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--phase-e'
 pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioCase P04
 pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioCase S15
 ```
@@ -69,9 +70,21 @@ baseline is restored on reopening; if it is unavailable, its reference is kept
 until an explicit replacement or clearing and the error remains visible.
 Expanders persist independently of native state; Catalog and Inspector can
 collapse on smaller windows. Source actions resolve the current definition in
-the checkout and report missing or ambiguous matches. Declared IN/OUT routes
-are source analysis and have not been replayed. Animation is explicitly
-unavailable for this contract. All device pixels come from native C/C++.
+the checkout and report missing or ambiguous matches. Routes show declared
+origins, destinations, events, conditions and source evidence; opening a
+destination and replaying a route are distinct actions. P01 Settings → P04
+Display and its return are replayable through the native touch owner. The
+destination frame and route receipt retire together. Other declared paths
+remain source analysis.
+
+Animation provides play, pause, step, speed and keyframe seek for S01 Branding
+and S02 Birth. Frame boundaries come from the compiled native renderer. Every
+sample re-prepares the isolated scenario, including backward seeks. Captures
+retain the base scenario revision and actual sample instant. Monotonic worker
+time stays frozen: these are native source-animation samples, not boot lifecycle,
+timer, network or audio replay. Playback speed is limited by preparation
+throughput. Up to 40 recent thumbnails are displayed; capture artifacts remain
+available. All device pixels come from native C/C++.
 
 Saving scenarios and reviews writes under `artifacts/simulator/studio/`.
 Scenario saves refuse replacement; captures and baseline copies use unique
@@ -98,7 +111,7 @@ prepares each destination and its caller/return context before rendering.
 Only orientation 0/180 is supported by this host profile. The capture is the
 logical raster before hardware panel rotation; auto rotation has no simulated
 gravity observation. No arbitrary delay or post-capture route query assigns
-identity. Timeline seeking, general worker replay, automatic atlas updates and
+identity. General worker replay, automatic atlas updates and
 PDF integration remain pending under `CODY-NEXT-06`. The inventory is **Cody
 screen map and static inventory**, 14 November 2026, baseline `e971b313` plus
 local changes; its SHA-256 and repository-relative artifact location are in
@@ -116,6 +129,10 @@ invalid inputs and stale build provenance, preserves baseline bytes and writes
 a labelled contact sheet only when every case succeeds. Declared routes are
 not thereby reproduced. C04's ordinary user-facing entry remains unconfirmed;
 S15 scripts a transient provisioning failure without sending a real request.
+The `--phase-e` extension checks forward/backward source-frame sampling, both
+owner-dispatched routes, atomic receipts, invalid inputs, logical orientation
+and a pending external contact in independent processes. It does not claim
+that every concurrent touch interleaving was observed.
 Generated artifacts are retained. Cleanup remains manual and requires an
 explicit request.
 
