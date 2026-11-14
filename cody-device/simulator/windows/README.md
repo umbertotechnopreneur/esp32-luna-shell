@@ -15,8 +15,8 @@ Buttons, P01 Settings, P04 Display, P12 Quiet hours editor, W02 Reset countdown,
 W04 Codex limits, S15 Provisioning error and C04 Tool calls. Nine cases use the
 full native runtime; C04 uses the production C++ browser presenter with a typed,
 synthetic query owner. It does not establish domain transport/reducer acceptance.
-The Linux native build and the pilot suite pass (23/23); the real Tk/native
-suite passes (22/22). Every pilot case has exact repeated pixels in fresh
+The Linux native build and the pilot suite pass (32/32); the real Tk/native
+suite passes (31/31). Every pilot case has exact repeated pixels in fresh
 processes and after out-of-order preparation in a shared session. Host captures
 and window screenshots were visually inspected. Windows and physical-device
 acceptance remain separate.
@@ -33,6 +33,7 @@ pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArgumen
 pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--pilot'
 pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--phase-e'
 pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioCase P04
+pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--host-audio'
 pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioCase S15
 ```
 
@@ -73,41 +74,60 @@ collapse on smaller windows. Source actions resolve the current definition in
 the checkout and report missing or ambiguous matches. Routes show declared
 origins, destinations, events, conditions and source evidence; opening a
 destination and replaying a route are distinct actions. P01 Settings → P04
-Display and its return are replayable through the native touch owner. The
-destination frame and route receipt retire together. Other declared paths
-remain source analysis.
+Display and its return, and adjacent manual guide pages S17–S22, use the native
+touch owner. S19 requires the compiled wake-word profile. Leaving the project
+QR page first taps the page to reveal its controls, retires that intermediate
+frame and then taps the arrow. The destination frame and route receipt retire
+together; other declared paths remain source analysis.
 
 Animation provides play, pause, step, speed and keyframe seek for S01 Branding
-and S02 Birth. Frame boundaries come from the compiled native renderer. Every
-sample re-prepares the isolated scenario, including backward seeks. Captures
-retain the base scenario revision and actual sample instant. Monotonic worker
-time stays frozen: these are native source-animation samples, not boot lifecycle,
-timer, network or audio replay. Playback speed is limited by preparation
-throughput. Up to 40 recent thumbnails are displayed; capture artifacts remain
-available. All device pixels come from native C/C++.
+and S02 Birth. Source sampling uses frame boundaries from the compiled native
+renderer; the display-worker mode also runs the real startup animation worker
+in an isolated process. Backward seeks restart that isolated scenario. Worker
+captures retain both the requested instant and the actual completed-frame time;
+they do not claim deterministic replay of all services, network, audio or timers.
+Playback speed is limited by preparation throughput.
+
+**Boot replay** opens a separate live runtime for S01 or S02, with a progressing
+monotonic clock and a dedicated simulated settings store. It uses the firmware
+audio owner, source PCM clips, Sounds and volume policy, and the native host
+ALSA/WinMM backend. The host voice input is explicitly unavailable and stopped.
+This is a returning-device replay, not an actual first-boot sequence. The UI
+shows each cue outcome; backend initialization and a completed cue do not prove
+that sound was audible through the PC speakers. Pause stops the live process;
+restarting begins again. Its live frames are previews, not captures or baselines.
+To listen, open S01 or S02, expand Animation, enable Sounds and choose a volume
+in Scenario, then press Boot replay. Turn Sounds off before Apply and capture
+or before using the capture timeline.
+Static and isolated captures do not open the host audio device or emit sound.
+Up to 40 recent thumbnails are displayed; capture artifacts remain available.
+All device pixels come from native C/C++.
 
 Saving scenarios and reviews writes under `artifacts/simulator/studio/`.
 Scenario saves refuse replacement; captures and baseline copies use unique
 directories and never overwrite existing evidence. A comparison requires the
 same target, canonical scenario revision, variant, geometry, rendering mode,
-fixed native dependencies and capture instant. Acquisition, pixel difference and human review are independent;
+fixed native dependencies, capture instant, worker-requested instant and navigation provenance. The full
+route chain is recorded from the last direct preparation; a direct capture and
+a route capture do not imply the same animation state. Historical route captures
+without that chain remain readable but are not comparable. Acquisition, pixel difference and human review are independent;
 changed pixels do not declare an error. Previously saved baselines are accepted
 with their historical build hashes and source identity, including after a source
 file is moved. Their scenario must still satisfy the current catalog schema;
-historical schema versioning remains open.
+historical schema versioning and independent validation of retired route contracts remain open.
 
 Replay a saved scenario or capture without a window using the same runner:
 
 ```powershell
-pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioScenario artifacts/simulator/studio/my-case.json
+pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioScenario artifacts/simulator/studio/my-case.json -StudioCapture
 pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioCase P04 -StudioCapture
 ```
 
-The time contract is a **settled static sample at t=0**: monotonic time freezes
-before bootstrap and civil time comes from the scenario. S01 and S02 select a
-separate source-animation sample, recorded with the completed frame. This is
-source-frame inspection, not execution of a worker timeline. The display owner
-prepares each destination and its caller/return context before rendering.
+The default time contract is a **settled static sample at t=0**: monotonic time
+freezes before bootstrap and civil time comes from the scenario. S01 and S02
+also support source-animation samples and an isolated display-worker replay;
+neither establishes a controlled schedule for unrelated worker threads. The
+display owner prepares each destination and its caller/return context before rendering.
 Only orientation 0/180 is supported by this host profile. The capture is the
 logical raster before hardware panel rotation; auto rotation has no simulated
 gravity observation. No arbitrary delay or post-capture route query assigns
@@ -129,10 +149,12 @@ invalid inputs and stale build provenance, preserves baseline bytes and writes
 a labelled contact sheet only when every case succeeds. Declared routes are
 not thereby reproduced. C04's ordinary user-facing entry remains unconfirmed;
 S15 scripts a transient provisioning failure without sending a real request.
-The `--phase-e` extension checks forward/backward source-frame sampling, both
-owner-dispatched routes, atomic receipts, invalid inputs, logical orientation
-and a pending external contact in independent processes. It does not claim
-that every concurrent touch interleaving was observed.
+The `--phase-e` extension checks source-frame samples, controlled display-worker
+replay, owner-dispatched settings and guide routes, atomic receipts, invalid
+inputs, logical orientation, a pending external contact and live firmware PCM
+with Sounds on and off. It does not claim that every concurrent touch
+interleaving or every asynchronous worker was observed. `--host-audio` sends
+the two intro cues to the selected PC output and may make audible sound.
 Generated artifacts are retained. Cleanup remains manual and requires an
 explicit request.
 
@@ -154,8 +176,9 @@ ReportLab tooling; when it is absent the preview shows QR unavailable. Android
 retains its authored QR.
 On Ubuntu, the host packages include `g++`, `python3-tk`, `python3-pil.imagetk`
 and `python3-yaml`. Use a graphical
-session for the interactive window. Host audio uses ALSA `aplay` from `alsa-utils`.
-The console builds the host audio driver before interactive launch. Static captures
+session for the interactive window. The native Boot replay uses ALSA `libasound`
+on Linux or WinMM on Windows; the legacy preview uses `aplay` from `alsa-utils`
+on Linux. The console builds the host audio driver before interactive launch. Static captures
 use the graphics driver and do not start audio.
 
 ```bash

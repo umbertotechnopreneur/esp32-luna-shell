@@ -40,7 +40,7 @@ Work is tracked on `feat/cody-vNext`. Keep the status below aligned with the [ph
 | CODY-NEXT-03 | Broker restores stable records and history under a new epoch and serves bounded state-v1 pages. Complete question correlation and executed acceptance. |
 | CODY-NEXT-04 | Broker preserves exact question, answer and confirmation evidence. Signed CCP1 owns delivery. Complete native turn correlation, state-v1 question publication and restart/race acceptance. |
 | CODY-NEXT-05 | DeviceSnapshotService serves generation-bound queries and the paired device restores counts, a bookmark and unresolved references. Verify storage and recovery. |
-| CODY-NEXT-06 | Studio A-D and part of E have a successful Linux native build, ten-case pilot (23/23), timeline/route suite (22/22) and Tk/native UI acceptance (22/22). S01/S02 source-animation samples and P01 ↔ P04 gestures are exercised; general worker replay, other routes, full inventory, automation/PDF, Windows and physical acceptance remain pending. |
+| CODY-NEXT-06 | Studio A-D and expanded E have Linux native evidence: S01/S02 display-worker and live audio replay, P01 ↔ P04 and ten guide gestures S17–S22; 29/29 phase-E and 31/31 Tk/native checks pass. General worker scheduling, remaining routes, full inventory, automation/PDF, Windows and physical acceptance remain pending. |
 | CODY-NEXT-07 | Native CODY2D floppy-to-Muse showcase changes pose every ten visible seconds. Complete domain-driven direction and physical acceptance. |
 | CODY-NEXT-09 | Native Codex browser exposes Chats, Turns, Tool calls, Active calls, Events and Statistics. Finish Home/Tools gestures, two-dot chrome and hardware acceptance. |
 
