@@ -16,7 +16,7 @@ from cody_semantic_palette import studio_hex
 from cody_studio_catalog import entry_for, load_catalog, resolve_source
 from cody_studio_runner import StudioRunner, load_capture
 from cody_studio_comparison import compare_captures, comparison_image, load_review, preserve_baseline, save_review
-from cody_studio_scenario import load_scenario, save_scenario, validate_scenario
+from cody_studio_scenario import default_scenario, load_scenario, save_scenario, validate_scenario
 from runtime_paths import resolve_runtime_output
 
 BG, FG, MUTED = (studio_hex('host_ui', key) for key in ('background', 'text', 'muted'))
@@ -62,7 +62,7 @@ class StudioWindow:
         self.busy = self.closed = False
         self.results = queue.Queue()
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='cody-studio')
-        self.status = tk.StringVar(value='Preparing native P04…')
+        self.status = tk.StringVar(value='Preparing native Studio case…')
         self.preferences = self.read_preferences()
         root.title('Cody Studio — SIMULATED')
         root.configure(bg=BG)
@@ -217,12 +217,14 @@ class StudioWindow:
         self.search.trace_add('write', self.catalog)
         self.filter.trace_add('write', self.catalog)
         self.catalog()
-        self.detail = tk.StringVar(value='P04 · ui-v1:display\nNative runtime · source-only')
+        self.detail = tk.StringVar()
         caption(self.left, textvariable=self.detail, wraplength=240).pack(fill='x')
         action(self.left, 'Open destination', self.open_destination, True).pack(fill='x', pady=8)
         action(self.left, 'Open source', self.open_source).pack(fill='x')
-        caption(self.center, 'P04 — Display', 28, True).pack(anchor='w')
-        caption(self.center, 'Native C/C++ · controlled static t=0 · 466 × 466', 11).pack(anchor='w', pady=(4, 10))
+        self.frame_title = tk.StringVar(value='Preparing native frame')
+        self.frame_subtitle = tk.StringVar(value='Native C/C++ · synthetic scenario inputs')
+        caption(self.center, textvariable=self.frame_title, size=28, bold=True).pack(anchor='w')
+        caption(self.center, textvariable=self.frame_subtitle, size=11).pack(anchor='w', pady=(4, 10))
         modes = tk.Frame(self.center, bg=BG)
         modes.pack(fill='x')
         self.mode = tk.StringVar(value='current')
@@ -259,7 +261,7 @@ class StudioWindow:
         self.bottom_canvas.bind('<Configure>', lambda event: self.arrange_bottom(), add='+')
         animation = self.section(bottom, 'Animation', False)
         self.refresh_section('Animation', 'Animation · static sample only')
-        caption(animation, 'Playback, stepping and worker replay are not supported by this P04 contract.',
+        caption(animation, 'Pilot cases are fixed native samples. Playback, stepping and worker replay are unavailable.',
                 wraplength=580).pack(anchor='w')
         routes = self.section(bottom, 'Routes', True)
         self.route_summary = tk.StringVar()
@@ -280,6 +282,13 @@ class StudioWindow:
                  command=lambda value: self.draw(), bg=BG, fg=FG, troughcolor=FIELD,
                  activebackground=ORANGE, highlightthickness=0).pack(fill='x')
         scenario = self.section(right, 'Scenario', True)
+        self.scenario_title = tk.StringVar()
+        caption(scenario, textvariable=self.scenario_title, size=11, bold=True, wraplength=275).pack(anchor='w')
+        caption(scenario, 'Variant', 10).pack(anchor='w', pady=(4, 0))
+        self.variant = tk.StringVar()
+        self.variant_control = ttk.Combobox(scenario, textvariable=self.variant, state='readonly',
+                                           style='Studio.TCombobox')
+        self.variant_control.pack(fill='x')
         self.inputs = {}
         for key, text in (('battery', 'Battery (%)'), ('network', 'Network'), ('ssid', 'Network name'),
                           ('rssi', 'Signal (dBm)'), ('epoch', 'Fixed civil clock · UTC epoch seconds'),
@@ -299,6 +308,9 @@ class StudioWindow:
                        activeforeground=ORANGE, highlightcolor=ORANGE).pack(anchor='w', pady=4)
         caption(scenario, 'Logical raster before panel rotation.\nAuto rotation has no simulated gravity input.',
                 10, wraplength=275).pack(anchor='w')
+        self.case_fields_host = tk.Frame(scenario, bg=BG)
+        self.case_fields_host.pack(fill='x', pady=(8, 0))
+        self.case_fields = {}
         self.apply_button = action(scenario, 'Apply and capture', self.apply, True)
         self.apply_button.pack(fill='x')
         action(scenario, 'Open scenario…', self.open_scenario).pack(anchor='w')
@@ -320,7 +332,7 @@ class StudioWindow:
         self.status_label.pack(side='bottom', fill='x', padx=24, pady=10, before=work)
         self.status_label.bind('<Configure>', lambda event: self.status_label.configure(wraplength=max(120, event.width)))
         self.columns()
-        self.tree.selection_set('ui-v1:display')
+        self.tree.selection_set(self.scenario['context']['target'])
 
     # parent: Host form container.
     # variable: Editable string; schema validation precedes native publication.
@@ -340,14 +352,14 @@ class StudioWindow:
         self.tree.delete(*self.tree.get_children())
         groups = {}
         for item in load_catalog():
-            supported = item['availability'] == 'runtime-full'
+            supported = item['availability'] in ('runtime-full', 'presenter-isolated')
             mode = self.filter.get()
             text = f"{item.get('inventory_id') or item['id']} {item['title']}"
             if self.search.get().casefold() not in text.casefold():
                 continue
             if (mode == 'Supported' and not supported) or (mode == 'Unsupported' and supported):
                 continue
-            group = 'Settings' if supported else 'Source catalog · unsupported'
+            group = item.get('group', 'Supported native') if supported else 'Source catalog · unsupported'
             if group not in groups:
                 groups[group] = self.tree.insert('', 'end', text=group, open=supported)
             self.tree.insert(groups[group], 'end', iid=item['id'], text=text)
@@ -369,6 +381,10 @@ class StudioWindow:
 
     # No parameters: load form values without changing native state.
     def show_scenario(self):
+        entry = entry_for(self.scenario['context']['target'])
+        self.scenario_title.set(f"{entry.get('inventory_id') or entry['id']} · {entry['title']} inputs")
+        self.variant_control.configure(values=entry['variants'])
+        self.variant.set(self.scenario['variant'])
         common = self.scenario['common']
         data, settings = common['observations'], common['settings']
         values = {'battery': data['battery']['level_percent'],
@@ -379,22 +395,75 @@ class StudioWindow:
         for key, value in values.items():
             self.inputs[key].set('' if value is None else str(value))
         self.auto_rotate.set(settings['auto_rotate'])
+        self.show_case_fields(entry)
+
+    # entry: Catalog contract describing the currently editable scenario.
+    # Adds leaf controls for page/service inputs and additional owner settings.
+    # Schema validation remains authoritative; nulls are explicitly unavailable.
+    def show_case_fields(self, entry):
+        for child in self.case_fields_host.winfo_children():
+            child.destroy()
+        self.case_fields = {}
+        descriptions = {tuple(item['path']): item for item in entry.get('controls', [])}
+
+        # path: Schema location within the detached scenario.
+        # value: Supported scalar or nested mapping; containers are never flattened into native pointers.
+        def add_fields(path, value):
+            if isinstance(value, dict):
+                for key, child in value.items():
+                    add_fields((*path, key), child)
+                return
+            description = descriptions.get(path, {})
+            title = description.get('label', ' · '.join(part.replace('_', ' ').title() for part in path))
+            if value is None or isinstance(value, list):
+                caption(self.case_fields_host, f'{title}: unavailable' if value is None else f'{title}: scenario-defined',
+                        10, wraplength=275).pack(anchor='w')
+                return
+            if type(value) is bool:
+                variable = tk.BooleanVar(value=value)
+                tk.Checkbutton(self.case_fields_host, text=title, variable=variable, bg=BG, fg=FG,
+                               selectcolor=FIELD, activebackground=BG, activeforeground=ORANGE,
+                               highlightcolor=ORANGE, wraplength=260, anchor='w').pack(fill='x')
+            else:
+                caption(self.case_fields_host, title, 10, wraplength=275).pack(anchor='w', pady=(4, 0))
+                variable = tk.StringVar(value=str(value))
+                if description.get('values'):
+                    ttk.Combobox(self.case_fields_host, textvariable=variable, values=description['values'],
+                                 state='readonly', style='Studio.TCombobox').pack(fill='x')
+                else:
+                    self.field(self.case_fields_host, variable).pack(fill='x')
+            self.case_fields[path] = (variable, type(value))
+
+        add_fields(('page',), self.scenario['page'])
+        add_fields(('services',), self.scenario['services'])
+        for key, value in self.scenario['common']['settings'].items():
+            if key not in ('brightness_percent', 'auto_rotate', 'orientation_degrees'):
+                add_fields(('common', 'settings', key), value)
 
     # No parameters: construct and validate a detached complete scenario.
     # Raises ValueError on malformed form values or unsupported contracts.
     def form(self):
         value = deepcopy(self.scenario)
+        value['variant'] = self.variant.get()
         connected = self.inputs['network'].get() == 'Connected'
-        value['common'] = {
-            'observations': {'battery': {'level_percent': int(self.inputs['battery'].get())},
+        value['common']['observations'] = {'battery': {'level_percent': int(self.inputs['battery'].get())},
                              'network': {'connected': connected,
                                          'ssid': self.inputs['ssid'].get() if connected else '',
                                          'rssi': int(self.inputs['rssi'].get()) if connected and self.inputs['rssi'].get().strip() else None},
                              'clock': {'epoch_seconds': int(self.inputs['epoch'].get()),
-                                       'utc_offset_minutes': int(self.inputs['offset'].get())}},
-            'settings': {'brightness_percent': int(self.inputs['brightness'].get()),
+                                       'utc_offset_minutes': int(self.inputs['offset'].get())}}
+        value['common']['settings'].update({'brightness_percent': int(self.inputs['brightness'].get()),
                          'auto_rotate': self.auto_rotate.get(),
-                         'orientation_degrees': int(self.inputs['orientation'].get())}}
+                         'orientation_degrees': int(self.inputs['orientation'].get())})
+        for path, (variable, field_type) in self.case_fields.items():
+            target = value
+            for key in path[:-1]:
+                target = target[key]
+            text = variable.get()
+            try:
+                target[path[-1]] = field_type(text)
+            except (ValueError, TypeError):
+                raise ValueError(f"{' · '.join(path)} requires a valid {field_type.__name__}") from None
         validate_scenario(value)
         return value
 
@@ -409,7 +478,8 @@ class StudioWindow:
             return
         self.busy = True
         self.apply_button.configure(state='disabled')
-        self.status.set('Preparing P04 on the native display owner…')
+        entry = entry_for(scenario['context']['target'])
+        self.status.set(f"Preparing {entry.get('inventory_id') or entry['id']} on the native owner…")
 
         # No parameters: return results through a queue; this worker never calls Tk.
         def work():
@@ -443,6 +513,9 @@ class StudioWindow:
     def set_current(self, record):
         review = load_review(record)
         self.current = record
+        entry = entry_for(record.metadata['id'])
+        self.frame_title.set(f"{entry.get('inventory_id') or entry['id']} — {entry['title']}")
+        self.frame_subtitle.set(f"Native C/C++ · {record.metadata['rendering_mode']} · sample t={record.metadata['at_ms']} · 466 × 466")
         if all(item.metadata_path != record.metadata_path for item in self.records):
             self.records.append(record)
         self.note.delete('1.0', 'end')
@@ -452,14 +525,16 @@ class StudioWindow:
         for child in self.thumbnails.winfo_children():
             child.destroy()
         self.photos = []
-        for item in self.records[-4:]:
+        for index, item in enumerate(self.records):
             with Image.open(item.image_path) as image:
                 photo = ImageTk.PhotoImage(image.resize((72, 72), Image.Resampling.NEAREST))
             self.photos.append(photo)
-            control = action(self.thumbnails, 'P04 · acquired', lambda chosen=item: self.set_current(chosen))
+            control = action(self.thumbnails, f"{item.metadata.get('inventory_id') or item.metadata['id']} · acquired",
+                             lambda chosen=item: self.set_current(chosen))
             control.configure(image=photo, compound='top', font=('TkDefaultFont', 9))
-            control.pack(side='left', padx=(0, 7))
-        self.refresh_section('Atlas', f'Atlas · {len(self.records)} acquired captures')
+            control.grid(row=index // 4, column=index % 4, sticky='nw', padx=(0, 7))
+        screens = len({item.metadata['id'] for item in self.records})
+        self.refresh_section('Atlas', f'Atlas · {screens} screens / {len(self.records)} captures')
         self.draw()
 
     # No parameters: present proportional native pixels or a compatible comparison.
@@ -567,11 +642,22 @@ class StudioWindow:
 
     # No parameters: direct entry is separate from route replay, which remains unavailable.
     def open_destination(self):
+        if self.busy:
+            self.status.set('Wait for the active native preparation before changing destination.')
+            return
         selected = self.tree.selection()
-        if selected and selected[0] == 'ui-v1:display':
-            self.apply()
-        else:
+        if not selected or ':' not in selected[0]:
+            return
+        entry = entry_for(selected[0])
+        if entry['availability'] not in ('runtime-full', 'presenter-isolated'):
             self.status.set('The selected catalog entry has no supported direct preparation contract yet.')
+            return
+        try:
+            self.scenario = default_scenario(entry['id'])
+            self.show_scenario()
+            self.apply()
+        except (OSError, ValueError, TypeError) as error:
+            self.error(error)
 
     # No parameters: resolve the current symbol line before opening a source editor.
     def open_source(self):
