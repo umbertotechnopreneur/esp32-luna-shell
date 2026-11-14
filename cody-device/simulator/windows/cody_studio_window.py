@@ -291,8 +291,14 @@ class StudioWindow:
                      state='readonly', width=25, style='Studio.TCombobox').pack(fill='x')
         self.catalog_message = tk.StringVar(value='Changed and Needs review use captures loaded in this session.')
         caption(self.left, textvariable=self.catalog_message, size=9, wraplength=240).pack(fill='x', pady=(4, 0))
-        self.tree = ttk.Treeview(self.left, show='tree', style='Studio.Treeview', height=15)
-        self.tree.pack(fill='both', expand=True, pady=10)
+        catalog_list = tk.Frame(self.left, bg=BG)
+        catalog_list.pack(fill='both', expand=True, pady=10)
+        self.catalog_scroll = tk.Scrollbar(catalog_list, orient='vertical')
+        self.catalog_scroll.pack(side='right', fill='y')
+        self.tree = ttk.Treeview(catalog_list, show='tree', style='Studio.Treeview', height=15,
+                                 yscrollcommand=self.catalog_scroll.set)
+        self.tree.pack(side='left', fill='both', expand=True)
+        self.catalog_scroll.configure(command=self.tree.yview)
         self.tree.bind('<<TreeviewSelect>>', self.selection)
         self.search.trace_add('write', self.catalog)
         self.filter.trace_add('write', self.catalog)
@@ -363,9 +369,12 @@ class StudioWindow:
         caption(comparison, textvariable=self.compare_status, wraplength=275).pack(fill='x', pady=5)
         caption(comparison, 'Overlay opacity', 10).pack(anchor='w')
         self.opacity = tk.DoubleVar(value=.5)
-        tk.Scale(comparison, from_=0, to=1, resolution=.05, orient='horizontal', variable=self.opacity,
-                 command=lambda value: self.draw(), bg=BG, fg=FG, troughcolor=FIELD,
-                 activebackground=ORANGE, highlightthickness=0).pack(fill='x')
+        self.opacity_scale = tk.Scale(comparison, from_=0, to=1, resolution=.05, orient='horizontal',
+                                      variable=self.opacity, command=lambda value: self.draw(),
+                                      bg=BG, fg=FG, troughcolor=MUTED, activebackground=BG,
+                                      highlightbackground=BG, highlightcolor=ORANGE,
+                                      highlightthickness=2, takefocus=True)
+        self.opacity_scale.pack(fill='x')
         scenario = self.section(right, 'Scenario', True)
         self.scenario_title = tk.StringVar()
         caption(scenario, textvariable=self.scenario_title, size=11, bold=True, wraplength=275).pack(anchor='w')

@@ -1115,6 +1115,59 @@ class NativeUiTests(unittest.TestCase):
         return {item for group in self.window.tree.get_children()
                 for item in self.window.tree.get_children(group)}
 
+    # No parameters: use the actual catalog scrollbar command and inspect its last row.
+    # Raises AssertionError if the control is hidden, disconnected or cannot reach the end.
+    def assert_catalog_scrollbar(self):
+        tree, scrollbar = self.window.tree, self.window.catalog_scroll
+        groups = tree.get_children()
+        self.assertTrue(groups)
+        opened = {group: bool(tree.item(group, "open")) for group in groups}
+        for group in groups:
+            tree.item(group, open=True)
+        self.root.update()
+        self.assert_widget_visible(scrollbar, self.root)
+        self.assertEqual(scrollbar.cget("orient"), "vertical")
+        self.assertTrue(scrollbar.cget("command"))
+        self.assertTrue(tree.cget("yscrollcommand"))
+        final = tree.get_children(groups[-1])[-1]
+        self.root.tk.call(scrollbar.cget("command"), "moveto", "1.0")
+        self.root.update()
+        self.assertGreater(tree.yview()[0], 0)
+        self.assertAlmostEqual(tree.yview()[1], 1.0)
+        self.assertAlmostEqual(float(scrollbar.get()[1]), 1.0)
+        bounds = tree.bbox(final)
+        self.assertTrue(bounds, "The final catalog row was not exposed by its scrollbar")
+        self.assertGreaterEqual(bounds[1], 0)
+        self.assertLessEqual(bounds[1] + bounds[3], tree.winfo_height())
+        for group, state in opened.items():
+            tree.item(group, open=state)
+        tree.yview_moveto(0)
+        self.root.update()
+
+    # No parameters: compare actual Tk slider colors and make its keyboard focus visible.
+    # Raises AssertionError if either interaction state blends into its trough.
+    def assert_opacity_control_accessible(self):
+        scale = self.window.opacity_scale
+
+        # color: Tk color name resolved by the current display, independent of palette spelling.
+        # Returns WCAG relative luminance for the actual rendered color.
+        def luminance(color):
+            channels = [value / 65535 for value in scale.winfo_rgb(color)]
+            linear = [value / 12.92 if value <= 0.04045 else ((value + 0.055) / 1.055) ** 2.4
+                      for value in channels]
+            return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+
+        trough = luminance(scale.cget("troughcolor"))
+        for option in ("background", "activebackground"):
+            slider = luminance(scale.cget(option))
+            contrast = (max(slider, trough) + 0.05) / (min(slider, trough) + 0.05)
+            self.assertGreaterEqual(contrast, 3.0, f"Opacity slider {option} contrast is {contrast:.2f}:1")
+        self.reveal_widget(scale, self.window.inspector_canvas)
+        scale.focus_force()
+        self.root.update()
+        self.assertEqual(self.root.focus_get(), scale)
+        self.assertGreater(int(scale.cget("highlightthickness")), 0)
+
     # No parameters: exercise search, availability and selected-source resolution.
     # Raises AssertionError if filtering changes the capture or invents support.
     def assert_catalog_controls(self):
@@ -1207,6 +1260,7 @@ class NativeUiTests(unittest.TestCase):
         self.assertEqual({name: data[2] for name, data in window.sections.items()},
                          {"Comparison": False, "Scenario": True, "Changes": False,
                           "Review notes": False, "Animation": False, "Routes": True, "Atlas": True})
+        self.assert_catalog_scrollbar()
         self.assert_catalog_controls()
         self.assert_headless_worker_isolated()
         self.root.geometry("1440x960+0+0")
@@ -1221,6 +1275,7 @@ class NativeUiTests(unittest.TestCase):
         retained = (baseline.image_path.read_bytes(), baseline.metadata_path.read_bytes())
         dict(window.mode_controls)["side-by-side"].invoke()
         self.assertTrue(window.sections["Comparison"][2], "Comparison mode must expose its inspector")
+        self.assert_opacity_control_accessible()
         self.assert_frame_geometry(2)
         self.show_atlas()
         self.assert_status_visible()
