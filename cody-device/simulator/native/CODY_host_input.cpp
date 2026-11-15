@@ -64,9 +64,10 @@ CODY_HOST_INPUT_API esp_err_t cody_host_touch_event(uint8_t pressed, uint16_t x,
     return ESP_OK;
 }
 
-// pressed: One for the route contact, zero for its matching release.
-// x, y: Logical native coordinates chosen by the host route contract.
-// Exception: Rejects an occupied queue or conflicting contact before enqueueing.
+// pressed: One for route contact or held movement, zero for its matching release.
+// x: Logical native x coordinate chosen by the host route contract.
+// y: Logical native y coordinate chosen by the host route contract.
+// Exception: Rejects missing ownership, an occupied queue or an unmatched release before enqueueing.
 // The deterministic display owner immediately consumes each event itself.
 extern "C" esp_err_t cody_host_studio_touch_event(uint8_t pressed, uint16_t x, uint16_t y)
 {
@@ -74,7 +75,7 @@ extern "C" esp_err_t cody_host_studio_touch_event(uint8_t pressed, uint16_t x, u
     const int64_t timestamp = esp_timer_get_time();
     if (timestamp <= 0) return ESP_ERR_NOT_FINISHED;
     std::lock_guard<std::mutex> lock(s_touch_mutex);
-    if (!s_studio_owned || s_count != 0 || (pressed != 0) == s_pressed) return ESP_ERR_INVALID_STATE;
+    if (!s_studio_owned || s_count != 0 || (!pressed && !s_pressed)) return ESP_ERR_INVALID_STATE;
     auto &event = s_touch[s_head];
     event = {true, pressed != 0, x, y, ESP_OK, timestamp};
     s_pressed = pressed != 0;
