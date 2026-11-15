@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 from cody_native_runtime import ROOT
-from cody_studio_catalog import entry_for
+from cody_studio_catalog import inventory_label, entry_for
 
 SCHEMA = "cody.studio.scenario.v1"
 ARTIFACT_ROOT = (ROOT / "artifacts/simulator").resolve()
@@ -61,6 +61,12 @@ def validate_fields(value, fields, name):
             bounded_int(len(item), specification["minimum_items"], specification["maximum_items"], f"{path} length")
             for index, row in enumerate(item):
                 validate_fields(row, specification["fields"], f"{path}[{index}]")
+        elif kind == "int-array":
+            if not isinstance(item, list):
+                raise ValueError(f"{path} must be a list of integers")
+            bounded_int(len(item), specification["minimum_items"], specification["maximum_items"], f"{path} length")
+            for index, number in enumerate(item):
+                bounded_int(number, specification["minimum"], specification["maximum"], f"{path}[{index}]")
         elif kind == "int":
             bounded_int(item, specification["minimum"], specification["maximum"], path)
         elif kind == "bool":
@@ -105,7 +111,7 @@ def validate_scenario(scenario):
     if scenario["variant"] not in entry["variants"]:
         raise ValueError(f"Unsupported variant for {entry['id']}: {scenario['variant']!r}")
     if any(context[key] != contract["context"][key] for key in ("selection", "caller", "return_to")):
-        raise ValueError(f"{entry['inventory_id']} requires its declared selection and caller/return context")
+        raise ValueError(f"{inventory_label(entry)} requires its declared selection and caller/return context")
     validate_fields(scenario["page"], contract["page"], "page")
     validate_fields(scenario["services"], contract["services"], "services")
     if entry["native_target"] in ("cody.settings.quiet-edit", "cody.settings.quiet-hours"):

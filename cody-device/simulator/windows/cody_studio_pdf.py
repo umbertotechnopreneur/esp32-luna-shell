@@ -12,7 +12,7 @@ from uuid import uuid4
 from xml.sax.saxutils import escape
 
 from cody_native_runtime import ROOT
-from cody_studio_catalog import load_catalog
+from cody_studio_catalog import inventory_label, load_catalog
 from cody_studio_runner import load_capture
 
 ARTIFACTS = (ROOT / "artifacts").resolve()
@@ -42,7 +42,7 @@ def export_records(manifest_path):
             raise ValueError(f"Atlas capture metadata hash mismatch: {case['id']}")
         record = load_capture(path)
         metadata = record.metadata
-        for key in ("id", "inventory_id", "variant", "scenario_revision", "source", "symbol", "rendering_mode"):
+        for key in ("id", "inventory_id", "inventory_family_id", "variant", "scenario_revision", "source", "symbol", "rendering_mode"):
             if metadata.get(key) != case.get(key):
                 raise ValueError(f"Atlas case and captured {key} disagree: {case['id']}")
         if metadata["build"] != manifest["build"] or metadata.get("inventory") != manifest["inventory"]:
@@ -121,7 +121,7 @@ def pdf_story(manifest, records, catalog):
               PageBreak()]
     for offset in range(0, len(records), 2):
         for case, metadata, pixels in records[offset:offset + 2]:
-            local_id = case.get("inventory_id") or "Inventory ID unmapped"
+            local_id = inventory_label(case)
             heading = Paragraph(f"{pdf_text(local_id)} / {pdf_text(case['title'])}", styles["AtlasHeading"])
             details = [small(f"<b>Source identity:</b> {pdf_text(case['id'])}"),
                        small(f"<b>Acquisition:</b> {pdf_text(case['acquisition'])}<br/>"
@@ -166,14 +166,14 @@ def pdf_story(manifest, records, catalog):
     story += [Spacer(1, 10), Paragraph(f"Outside this suite / {len(outside)} entries", styles["AtlasHeading"])]
     for entry in outside:
         reason = entry.get("reason") or "Not selected for this run"
-        identity = entry.get("inventory_id") or "Inventory ID unmapped"
+        identity = inventory_label(entry)
         story.append(small(f"<b>{pdf_text(identity)} / {pdf_text(entry['id'])}</b> / {pdf_text(entry['title'])}<br/>"
                            f"{pdf_text(entry['availability'])}: {pdf_text(reason)}"))
     story += [PageBreak(), Paragraph("Corrections register", styles["AtlasTitle"])]
     register = Table([[body(f"{date.today().isoformat()}<br/><b>Generated snapshot</b>"),
                        body("Native acquisitions and absences reflect the selected immutable run. "
                             "Original inventory IDs and revision are retained. "
-                            f"Affected cases: {', '.join(pdf_text(case.get('inventory_id') or case['id']) for case, _, _ in records)}.")]],
+                            f"Affected cases: {', '.join(pdf_text(inventory_label(case)) for case, _, _ in records)}.")]],
                      colWidths=[130, 397], hAlign="LEFT")
     register.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
                                  ("LEFTPADDING", (0, 0), (-1, -1), 0)]))

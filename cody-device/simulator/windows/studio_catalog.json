@@ -5632,6 +5632,2299 @@
         },
         "application": "Existing native settings owners in the isolated simulator NVS store"
       }
+    },
+    {
+      "id": "ui-v1:wifi-networks",
+      "inventory_id": "S08",
+      "title": "Wi-Fi networks",
+      "native_target": "cody.wifi.networks",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Network setup",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s08.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "atlas-v1:05",
+          "return_to": "atlas-v1:05"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Host canonical connectivity adapter",
+        "Native onboarding controller"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; this static sample does not execute the corresponding service operation",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network scan, credential write, provisioning, account request or paired-device operation is performed"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "wifi_credentials_configured": false,
+        "wifi_scan": {
+          "generation": 1,
+          "revision": 1,
+          "state": "Complete",
+          "networks": [
+            {
+              "ssid": "SIM-STUDIO-SECURE",
+              "security": "Wpa2Personal",
+              "rssi": -45,
+              "channel": 1,
+              "bssid": "02:00:00:00:00:01"
+            },
+            {
+              "ssid": "SIM-STUDIO-OPEN",
+              "security": "Open",
+              "rssi": -62,
+              "channel": 6,
+              "bssid": "02:00:00:00:00:02"
+            },
+            {
+              "ssid": "SIM-STUDIO-GUEST",
+              "security": "Wpa2Personal",
+              "rssi": -76,
+              "channel": 11,
+              "bssid": "02:00:00:00:00:03"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ui-v1:wifi-scan-unavailable",
+      "inventory_id": null,
+      "title": "Wi-Fi scan unavailable",
+      "native_target": "cody.wifi.scan-unavailable",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Network setup",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s08-scan-unavailable.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "atlas-v1:05",
+          "return_to": "atlas-v1:05"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Host canonical connectivity adapter",
+        "Native onboarding controller"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": true,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; this static sample does not execute the corresponding service operation",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network scan, credential write, provisioning, account request or paired-device operation is performed",
+        "This S08 family member shows the actual scan-unavailable failure presentation; it is not an empty successful scan"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "wifi_credentials_configured": false,
+        "wifi_scan": "unavailable: ESP_ERR_NOT_SUPPORTED"
+      },
+      "inventory_family_id": "S08"
+    },
+    {
+      "id": "ui-v1:wifi-password",
+      "inventory_id": "S09",
+      "title": "Wi-Fi password",
+      "native_target": "cody.wifi.password",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Network setup",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s09.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:wifi-networks",
+          "return_to": "ui-v1:wifi-networks"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Host canonical connectivity adapter",
+        "Native onboarding controller"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; this static sample does not execute the corresponding service operation",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network scan, credential write, provisioning, account request or paired-device operation is performed",
+        "The native secret-entry draft is empty; no credential is provided or submitted"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "wifi_credentials_configured": false,
+        "wifi_scan": {
+          "generation": 1,
+          "revision": 1,
+          "state": "Complete",
+          "networks": [
+            {
+              "ssid": "SIM-STUDIO-SECURE",
+              "security": "Wpa2Personal",
+              "rssi": -45,
+              "channel": 1,
+              "bssid": "02:00:00:00:00:01"
+            },
+            {
+              "ssid": "SIM-STUDIO-OPEN",
+              "security": "Open",
+              "rssi": -62,
+              "channel": 6,
+              "bssid": "02:00:00:00:00:02"
+            },
+            {
+              "ssid": "SIM-STUDIO-GUEST",
+              "security": "Wpa2Personal",
+              "rssi": -76,
+              "channel": 11,
+              "bssid": "02:00:00:00:00:03"
+            }
+          ]
+        },
+        "selected_network": "SIM-STUDIO-SECURE",
+        "password_draft": {
+          "value": "",
+          "capacity": 64,
+          "secret": true
+        }
+      }
+    },
+    {
+      "id": "ui-v1:wifi-open-confirm",
+      "inventory_id": "S10",
+      "title": "Open-network confirmation",
+      "native_target": "cody.wifi.open-confirm",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Network setup",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s10.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:wifi-networks",
+          "return_to": "ui-v1:wifi-networks"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Host canonical connectivity adapter",
+        "Native onboarding controller"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; this static sample does not execute the corresponding service operation",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network scan, credential write, provisioning, account request or paired-device operation is performed",
+        "The native confirmation refers to the synthetic open AP; capture does not confirm or connect"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "wifi_credentials_configured": false,
+        "wifi_scan": {
+          "generation": 1,
+          "revision": 1,
+          "state": "Complete",
+          "networks": [
+            {
+              "ssid": "SIM-STUDIO-SECURE",
+              "security": "Wpa2Personal",
+              "rssi": -45,
+              "channel": 1,
+              "bssid": "02:00:00:00:00:01"
+            },
+            {
+              "ssid": "SIM-STUDIO-OPEN",
+              "security": "Open",
+              "rssi": -62,
+              "channel": 6,
+              "bssid": "02:00:00:00:00:02"
+            },
+            {
+              "ssid": "SIM-STUDIO-GUEST",
+              "security": "Wpa2Personal",
+              "rssi": -76,
+              "channel": 11,
+              "bssid": "02:00:00:00:00:03"
+            }
+          ]
+        },
+        "selected_network": "SIM-STUDIO-OPEN"
+      }
+    },
+    {
+      "id": "ui-v1:wifi-connecting",
+      "inventory_id": "S11",
+      "title": "Local Wi-Fi connecting",
+      "native_target": "cody.wifi.connecting",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Network setup",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s11.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:wifi-networks",
+          "return_to": "ui-v1:wifi-networks"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Host canonical connectivity adapter",
+        "Native onboarding controller"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; this static sample does not execute the corresponding service operation",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network scan, credential write, provisioning, account request or paired-device operation is performed",
+        "The native controller projects submitted/waiting context without starting an asynchronous connection"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "wifi_credentials_configured": false,
+        "wifi_scan": {
+          "generation": 1,
+          "revision": 1,
+          "state": "Complete",
+          "networks": [
+            {
+              "ssid": "SIM-STUDIO-SECURE",
+              "security": "Wpa2Personal",
+              "rssi": -45,
+              "channel": 1,
+              "bssid": "02:00:00:00:00:01"
+            },
+            {
+              "ssid": "SIM-STUDIO-OPEN",
+              "security": "Open",
+              "rssi": -62,
+              "channel": 6,
+              "bssid": "02:00:00:00:00:02"
+            },
+            {
+              "ssid": "SIM-STUDIO-GUEST",
+              "security": "Wpa2Personal",
+              "rssi": -76,
+              "channel": 11,
+              "bssid": "02:00:00:00:00:03"
+            }
+          ]
+        },
+        "selected_network": "SIM-STUDIO-SECURE",
+        "wifi_connect_requested": true
+      }
+    },
+    {
+      "id": "ui-v1:wifi-connection-error",
+      "inventory_id": null,
+      "title": "Local Wi-Fi connection error",
+      "native_target": "cody.wifi.connection-error",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Network setup",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s15-wifi-error.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:wifi-connecting",
+          "return_to": "atlas-v1:05"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Host canonical connectivity adapter",
+        "Native onboarding controller"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": true,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; this static sample does not execute the corresponding service operation",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network scan, credential write, provisioning, account request or paired-device operation is performed",
+        "The native owner consumes a synthetic typed timeout receipt; the original S15 family also contains distinct Bluetooth provisioning errors"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "wifi_credentials_configured": false,
+        "wifi_scan": {
+          "generation": 1,
+          "revision": 1,
+          "state": "Complete",
+          "networks": [
+            {
+              "ssid": "SIM-STUDIO-SECURE",
+              "security": "Wpa2Personal",
+              "rssi": -45,
+              "channel": 1,
+              "bssid": "02:00:00:00:00:01"
+            },
+            {
+              "ssid": "SIM-STUDIO-OPEN",
+              "security": "Open",
+              "rssi": -62,
+              "channel": 6,
+              "bssid": "02:00:00:00:00:02"
+            },
+            {
+              "ssid": "SIM-STUDIO-GUEST",
+              "security": "Wpa2Personal",
+              "rssi": -76,
+              "channel": 11,
+              "bssid": "02:00:00:00:00:03"
+            }
+          ]
+        },
+        "selected_network": "SIM-STUDIO-SECURE",
+        "local_wifi_result": {
+          "work": "LocalWifiConnect",
+          "error": "ESP_ERR_TIMEOUT"
+        }
+      },
+      "inventory_family_id": "S15"
+    },
+    {
+      "id": "ui-v1:bluetooth-instructions",
+      "inventory_id": "S12",
+      "title": "Bluetooth setup instructions",
+      "native_target": "cody.setup.bluetooth-instructions",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Network setup",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s12.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "atlas-v1:05",
+          "return_to": "atlas-v1:05"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Host canonical connectivity adapter",
+        "Native onboarding controller"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:bluetooth-instructions",
+          "destination": "atlas-v1:05",
+          "event": "Swipe right (130,120) -> (330,120)",
+          "condition": "The compatible origin frame is retired, authored actions are visible and the native controller accepts the horizontal release; Bluetooth-instruction context returns to the distinct Wi-Fi-choice variant without starting provisioning",
+          "evidence": "source-analysis",
+          "component": "CODY::DeviceUi",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "bluetooth-to-wifi-choice",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; this static sample does not execute the corresponding service operation",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network scan, credential write, provisioning, account request or paired-device operation is performed",
+        "Synthetic BLE identity is an explicitly fixed host label; advertising, provisioning, connection and radio-operation flags remain false"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "wifi_credentials_configured": false,
+        "synthetic_ble_name": "AiGadget-000001"
+      }
+    },
+    {
+      "id": "ui-v1:retained-pc",
+      "inventory_id": "H06",
+      "title": "Saved PC",
+      "native_target": "cody.codex.retained-pc",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Connections",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-h06.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "atlas-v1:41",
+          "return_to": "atlas-v1:41"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Host canonical connectivity adapter",
+        "Native onboarding controller"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:retained-pc",
+          "destination": "atlas-v1:41",
+          "event": "Swipe right (130,120) -> (330,120)",
+          "condition": "The compatible origin frame is retired, authored actions are visible and the native controller accepts the horizontal release; the synthetic retained association remains unchanged and no link operation is issued",
+          "evidence": "source-analysis",
+          "component": "CODY::DeviceUi",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "retained-pc-to-connections",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; this static sample does not execute the corresponding service operation",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network scan, credential write, provisioning, account request or paired-device operation is performed",
+        "The firmware has no PC-name source for this retained association; its native unavailable caption is preserved",
+        "Wi-Fi is not configured in this sample; the retained link does not imply a current transport connection"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "wifi_credentials_configured": false,
+        "codex_link": {
+          "attempt_id": 1,
+          "state": "Paired",
+          "retained_link_present": true,
+          "command_pending": false,
+          "device_id": "000000000001",
+          "paired_pc_id": "11111111111111111111111111111111",
+          "pc_name": "unavailable"
+        }
+      }
+    },
+    {
+      "id": "ui-v1:forget-pc",
+      "inventory_id": "H07",
+      "title": "Forget saved PC confirmation",
+      "native_target": "cody.codex.forget-pc",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Connections",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-h07.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:retained-pc",
+          "return_to": "ui-v1:retained-pc"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Host canonical connectivity adapter",
+        "Native onboarding controller"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:forget-pc",
+          "destination": "ui-v1:retained-pc",
+          "event": "Swipe right (130,120) -> (330,120)",
+          "condition": "The compatible origin frame is retired, authored actions are visible and the native controller accepts the horizontal release; the synthetic retained association remains unchanged and no link operation is issued",
+          "evidence": "source-analysis",
+          "component": "CODY::DeviceUi",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "forget-to-retained-pc",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; this static sample does not execute the corresponding service operation",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network scan, credential write, provisioning, account request or paired-device operation is performed",
+        "The firmware has no PC-name source for this retained association; its native unavailable caption is preserved",
+        "Wi-Fi is not configured in this sample; the retained link does not imply a current transport connection"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "wifi_credentials_configured": false,
+        "codex_link": {
+          "attempt_id": 1,
+          "state": "Paired",
+          "retained_link_present": true,
+          "command_pending": false,
+          "device_id": "000000000001",
+          "paired_pc_id": "11111111111111111111111111111111",
+          "pc_name": "unavailable"
+        }
+      }
+    },
+    {
+      "id": "ui-v1:pairing-cleanup",
+      "inventory_id": "H08",
+      "title": "Removing saved PC",
+      "native_target": "cody.codex.cleanup",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Connections",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-h08.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:forget-pc",
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Host canonical connectivity adapter",
+        "Native onboarding controller"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; this static sample does not execute the corresponding service operation",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network scan, credential write, provisioning, account request or paired-device operation is performed",
+        "The firmware has no PC-name source for this retained association; its native unavailable caption is preserved",
+        "Wi-Fi is not configured in this sample; the retained link does not imply a current transport connection",
+        "The removing-link page is a pending synthetic observation; no Forget command is issued and completion is not replayed"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "wifi_credentials_configured": false,
+        "codex_link": {
+          "attempt_id": 1,
+          "state": "Idle",
+          "retained_link_present": true,
+          "command_pending": true,
+          "device_id": "000000000001",
+          "paired_pc_id": "11111111111111111111111111111111",
+          "pc_name": "unavailable"
+        }
+      }
+    },
+    {
+      "id": "ui-v1:pairing-forgotten",
+      "inventory_id": null,
+      "title": "Saved PC forgotten",
+      "native_target": "cody.codex.forgotten",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Connections",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-h08-forgotten.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:pairing-cleanup",
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Host canonical connectivity adapter",
+        "Native onboarding controller"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; this static sample does not execute the corresponding service operation",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network scan, credential write, provisioning, account request or paired-device operation is performed",
+        "The firmware has no PC-name source for this retained association; its native unavailable caption is preserved",
+        "Wi-Fi is not configured in this sample; the retained link does not imply a current transport connection",
+        "The completed cleanup observation is prepared directly; no preceding removal is executed. Native Done enters Connections, which is not replayed by this static case"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "wifi_credentials_configured": false,
+        "codex_link": {
+          "attempt_id": 1,
+          "state": "Idle",
+          "retained_link_present": false,
+          "command_pending": false,
+          "device_id": "",
+          "paired_pc_id": "",
+          "pc_name": "unavailable"
+        }
+      },
+      "inventory_family_id": "H08"
+    },
+    {
+      "id": "atlas-v1:07",
+      "inventory_id": "S14",
+      "title": "Bluetooth pairing QR",
+      "native_target": "cody.provisioning.qr",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Network setup",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s14.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Host canonical connectivity adapter",
+        "Native onboarding controller"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; this static sample does not execute the corresponding service operation",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network scan, credential write, provisioning, account request or paired-device operation is performed",
+        "This source state is a direct lifecycle observation, not evidence of asynchronous provisioning or cancellation; the retained generic guide return is not modelled as the Wi-Fi-choice variant",
+        "The native QR encoder renders the host payload SIMULATED:CODY-STUDIO-BLE; it cannot pair a real device"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "wifi_credentials_configured": false,
+        "pairing": {
+          "attempt_id": 1,
+          "state": "ReadyToScan",
+          "changed_at": "current controlled host observation",
+          "session_id": 1
+        },
+        "provisioning": {
+          "initialized": true,
+          "running": true,
+          "state": "WaitingForApp",
+          "session_id": 1,
+          "qr_payload": "SIMULATED:CODY-STUDIO-BLE"
+        }
+      }
+    },
+    {
+      "id": "ui-v1:provisioning-starting",
+      "inventory_id": null,
+      "title": "Bluetooth pairing starting",
+      "native_target": "cody.provisioning.starting",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Network setup",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s14-starting.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Host canonical connectivity adapter",
+        "Native onboarding controller"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; this static sample does not execute the corresponding service operation",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network scan, credential write, provisioning, account request or paired-device operation is performed",
+        "This source state is a direct lifecycle observation, not evidence of asynchronous provisioning or cancellation; the retained generic guide return is not modelled as the Wi-Fi-choice variant"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "wifi_credentials_configured": false,
+        "pairing": {
+          "attempt_id": 1,
+          "state": "Starting",
+          "changed_at": "current controlled host observation"
+        }
+      },
+      "inventory_family_id": "S14"
+    },
+    {
+      "id": "ui-v1:provisioning-connecting",
+      "inventory_id": null,
+      "title": "Bluetooth pairing connecting",
+      "native_target": "cody.provisioning.connecting",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Network setup",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s14-connecting.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Host canonical connectivity adapter",
+        "Native onboarding controller"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; this static sample does not execute the corresponding service operation",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network scan, credential write, provisioning, account request or paired-device operation is performed",
+        "This source state is a direct lifecycle observation, not evidence of asynchronous provisioning or cancellation; the retained generic guide return is not modelled as the Wi-Fi-choice variant"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "wifi_credentials_configured": false,
+        "pairing": {
+          "attempt_id": 1,
+          "state": "Connecting",
+          "changed_at": "current controlled host observation"
+        }
+      },
+      "inventory_family_id": "S14"
+    },
+    {
+      "id": "ui-v1:provisioning-completing",
+      "inventory_id": null,
+      "title": "Bluetooth pairing completing",
+      "native_target": "cody.provisioning.completing",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Network setup",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s14-completing.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Host canonical connectivity adapter",
+        "Native onboarding controller"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; this static sample does not execute the corresponding service operation",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network scan, credential write, provisioning, account request or paired-device operation is performed",
+        "This source state is a direct lifecycle observation, not evidence of asynchronous provisioning or cancellation; the retained generic guide return is not modelled as the Wi-Fi-choice variant"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "wifi_credentials_configured": false,
+        "pairing": {
+          "attempt_id": 1,
+          "state": "Completing",
+          "changed_at": "current controlled host observation"
+        }
+      },
+      "inventory_family_id": "S14"
+    },
+    {
+      "id": "widget-v1:Today=3",
+      "inventory_id": "W05",
+      "title": "Today token usage",
+      "native_target": "cody.dashboard.today",
+      "controller": "prepare_account_dashboard / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Counters",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-w05.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {
+          "codex_link": {
+            "type": "object",
+            "fields": {
+              "outcome": {
+                "type": "str",
+                "max_length": 5,
+                "values": [
+                  "ready"
+                ]
+              }
+            }
+          },
+          "statistics": {
+            "type": "object",
+            "fields": {
+              "source_age_ms": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 60000
+              },
+              "daily_tokens": {
+                "type": "int-array",
+                "minimum_items": 8,
+                "maximum_items": 8,
+                "minimum": 0,
+                "maximum": 18446744073709551615
+              },
+              "daily_valid_mask": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 255
+              }
+            }
+          }
+        }
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_account_dashboard.cpp",
+      "symbol": "prepare_account_dashboard",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Canonical account/statistics host adapter",
+        "Canonical Codex READY app lease"
+      ],
+      "time_control": "Controlled static account/interval sample at t=0; civil time comes from the scenario and observations carry explicit source age",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The production C/C++ dashboard renderer consumes explicitly synthetic canonical account/interval observations and a current synthetic READY app lease",
+        "Direct static preparation does not request an account, contact a PC, replay transport/reducer activity or validate billing",
+        "Omitted observations remain unavailable; capture acquisition and visual differences are separate from human approval",
+        "Eight explicit UTC-day samples are chronological: seven complete days followed by the current day; valid zero samples are distinct from unavailable samples"
+      ],
+      "controls": [
+        {
+          "path": [
+            "services",
+            "statistics",
+            "source_age_ms"
+          ],
+          "label": "Source Age Ms"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "daily_tokens"
+          ],
+          "label": "Daily Tokens"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "daily_valid_mask"
+          ],
+          "label": "Daily Valid Mask"
+        }
+      ],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "codex_link": "Canonical synthetic READY app lease, exact native owner-scoped identifiers"
+      }
+    },
+    {
+      "id": "widget-v1:LastSevenDays=4",
+      "inventory_id": "W06",
+      "title": "Last seven days",
+      "native_target": "cody.dashboard.seven-days",
+      "controller": "prepare_account_dashboard / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Counters",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-w06.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {
+          "codex_link": {
+            "type": "object",
+            "fields": {
+              "outcome": {
+                "type": "str",
+                "max_length": 5,
+                "values": [
+                  "ready"
+                ]
+              }
+            }
+          },
+          "statistics": {
+            "type": "object",
+            "fields": {
+              "source_age_ms": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 60000
+              },
+              "daily_tokens": {
+                "type": "int-array",
+                "minimum_items": 8,
+                "maximum_items": 8,
+                "minimum": 0,
+                "maximum": 18446744073709551615
+              },
+              "daily_valid_mask": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 255
+              }
+            }
+          }
+        }
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_account_dashboard.cpp",
+      "symbol": "prepare_account_dashboard",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Canonical account/statistics host adapter",
+        "Canonical Codex READY app lease"
+      ],
+      "time_control": "Controlled static account/interval sample at t=0; civil time comes from the scenario and observations carry explicit source age",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The production C/C++ dashboard renderer consumes explicitly synthetic canonical account/interval observations and a current synthetic READY app lease",
+        "Direct static preparation does not request an account, contact a PC, replay transport/reducer activity or validate billing",
+        "Omitted observations remain unavailable; capture acquisition and visual differences are separate from human approval",
+        "Eight explicit UTC-day samples are chronological: seven complete days followed by the current day; valid zero samples are distinct from unavailable samples"
+      ],
+      "controls": [
+        {
+          "path": [
+            "services",
+            "statistics",
+            "source_age_ms"
+          ],
+          "label": "Source Age Ms"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "daily_tokens"
+          ],
+          "label": "Daily Tokens"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "daily_valid_mask"
+          ],
+          "label": "Daily Valid Mask"
+        }
+      ],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "codex_link": "Canonical synthetic READY app lease, exact native owner-scoped identifiers"
+      }
+    },
+    {
+      "id": "widget-v1:TokenHistory=5",
+      "inventory_id": "W07",
+      "title": "Token history",
+      "native_target": "cody.dashboard.token-history",
+      "controller": "prepare_token_history / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Counters",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-w07.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {
+          "codex_link": {
+            "type": "object",
+            "fields": {
+              "outcome": {
+                "type": "str",
+                "max_length": 5,
+                "values": [
+                  "ready"
+                ]
+              }
+            }
+          },
+          "statistics": {
+            "type": "object",
+            "fields": {
+              "source_age_ms": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 60000
+              },
+              "interval_tokens": {
+                "type": "int-array",
+                "minimum_items": 96,
+                "maximum_items": 96,
+                "minimum": 0,
+                "maximum": 18446744073709551615
+              },
+              "interval_valid_mask": {
+                "type": "int-array",
+                "minimum_items": 3,
+                "maximum_items": 3,
+                "minimum": 0,
+                "maximum": 4294967295
+              }
+            }
+          }
+        }
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_token_history.cpp",
+      "symbol": "prepare_token_history",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Canonical account/statistics host adapter",
+        "Canonical Codex READY app lease"
+      ],
+      "time_control": "Controlled static account/interval sample at t=0; civil time comes from the scenario and observations carry explicit source age",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The production C/C++ dashboard renderer consumes explicitly synthetic canonical account/interval observations and a current synthetic READY app lease",
+        "Direct static preparation does not request an account, contact a PC, replay transport/reducer activity or validate billing",
+        "Omitted observations remain unavailable; capture acquisition and visual differences are separate from human approval",
+        "Only the latest four chronological quarters are valid in this fixture; earlier zero slots are unavailable and never presented as measured zero activity"
+      ],
+      "controls": [
+        {
+          "path": [
+            "services",
+            "statistics",
+            "source_age_ms"
+          ],
+          "label": "Source Age Ms"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "interval_tokens"
+          ],
+          "label": "Interval Tokens"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "interval_valid_mask"
+          ],
+          "label": "Interval Valid Mask"
+        }
+      ],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "codex_link": "Canonical synthetic READY app lease, exact native owner-scoped identifiers",
+        "history_interval": "Native default one-hour view; the last four of 96 chronological UTC-quarter slots are valid"
+      }
+    },
+    {
+      "id": "widget-v1:Credits=6",
+      "inventory_id": "W08",
+      "title": "Credits",
+      "native_target": "cody.dashboard.credits",
+      "controller": "prepare_account_dashboard / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Counters",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-w08.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {
+          "codex_link": {
+            "type": "object",
+            "fields": {
+              "outcome": {
+                "type": "str",
+                "max_length": 5,
+                "values": [
+                  "ready"
+                ]
+              }
+            }
+          },
+          "statistics": {
+            "type": "object",
+            "fields": {
+              "source_age_ms": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 60000
+              },
+              "credits_kind": {
+                "type": "str",
+                "min_length": 1,
+                "max_length": 11,
+                "values": [
+                  "finite",
+                  "unlimited",
+                  "unavailable"
+                ]
+              },
+              "credit_milliunits": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 9223372036854775807
+              },
+              "reset_vouchers": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 4294967295
+              }
+            }
+          }
+        }
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_account_dashboard.cpp",
+      "symbol": "prepare_account_dashboard",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Canonical account/statistics host adapter",
+        "Canonical Codex READY app lease"
+      ],
+      "time_control": "Controlled static account/interval sample at t=0; civil time comes from the scenario and observations carry explicit source age",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The production C/C++ dashboard renderer consumes explicitly synthetic canonical account/interval observations and a current synthetic READY app lease",
+        "Direct static preparation does not request an account, contact a PC, replay transport/reducer activity or validate billing",
+        "Omitted observations remain unavailable; capture acquisition and visual differences are separate from human approval",
+        "Reset-voucher count is synthetic; voucher expiry observations are unavailable and no expiry dates are invented"
+      ],
+      "controls": [
+        {
+          "path": [
+            "services",
+            "statistics",
+            "source_age_ms"
+          ],
+          "label": "Source Age Ms"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "credits_kind"
+          ],
+          "label": "Credits Kind"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "credit_milliunits"
+          ],
+          "label": "Credit Milliunits"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "reset_vouchers"
+          ],
+          "label": "Reset Vouchers"
+        }
+      ],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "codex_link": "Canonical synthetic READY app lease, exact native owner-scoped identifiers"
+      }
+    },
+    {
+      "id": "widget-v1:Account=7",
+      "inventory_id": "W09",
+      "title": "Account",
+      "native_target": "cody.dashboard.account",
+      "controller": "prepare_account_dashboard / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Counters",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-w09.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {
+          "codex_link": {
+            "type": "object",
+            "fields": {
+              "outcome": {
+                "type": "str",
+                "max_length": 5,
+                "values": [
+                  "ready"
+                ]
+              }
+            }
+          },
+          "statistics": {
+            "type": "object",
+            "fields": {
+              "source_age_ms": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 60000
+              },
+              "plan": {
+                "type": "str",
+                "max_length": 24,
+                "min_length": 1
+              },
+              "plan_label": {
+                "type": "str",
+                "max_length": 24
+              },
+              "plan_price": {
+                "type": "str",
+                "max_length": 24
+              }
+            }
+          }
+        }
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_account_dashboard.cpp",
+      "symbol": "prepare_account_dashboard",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Canonical account/statistics host adapter",
+        "Canonical Codex READY app lease"
+      ],
+      "time_control": "Controlled static account/interval sample at t=0; civil time comes from the scenario and observations carry explicit source age",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The production C/C++ dashboard renderer consumes explicitly synthetic canonical account/interval observations and a current synthetic READY app lease",
+        "Direct static preparation does not request an account, contact a PC, replay transport/reducer activity or validate billing",
+        "Omitted observations remain unavailable; capture acquisition and visual differences are separate from human approval",
+        "Plan Plus and price 20 USD/mo are synthetic scenario captions, not current pricing, a billing statement or an observed workspace count"
+      ],
+      "controls": [
+        {
+          "path": [
+            "services",
+            "statistics",
+            "source_age_ms"
+          ],
+          "label": "Source Age Ms"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "plan"
+          ],
+          "label": "Plan"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "plan_label"
+          ],
+          "label": "Plan Label"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "plan_price"
+          ],
+          "label": "Plan Price"
+        }
+      ],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "codex_link": "Canonical synthetic READY app lease, exact native owner-scoped identifiers"
+      }
+    },
+    {
+      "id": "widget-v1:Context=8",
+      "inventory_id": "W03",
+      "title": "Context usage",
+      "native_target": "cody.dashboard.context",
+      "controller": "prepare_context_dashboard / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Counters",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-w03.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {
+          "codex_link": {
+            "type": "object",
+            "fields": {
+              "outcome": {
+                "type": "str",
+                "max_length": 5,
+                "values": [
+                  "ready"
+                ]
+              }
+            }
+          },
+          "statistics": {
+            "type": "object",
+            "fields": {
+              "source_age_ms": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 60000
+              },
+              "context_used_tokens": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 4294967295
+              },
+              "context_capacity_tokens": {
+                "type": "int",
+                "minimum": 1,
+                "maximum": 4294967295
+              },
+              "context_cumulative_tokens": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 18446744073709551615
+              },
+              "context_chat_title": {
+                "type": "str",
+                "max_length": 128
+              }
+            }
+          }
+        }
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_account_dashboard.cpp",
+      "symbol": "prepare_context_dashboard",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Canonical account/statistics host adapter",
+        "Canonical Codex READY app lease"
+      ],
+      "time_control": "Controlled static account/interval sample at t=0; civil time comes from the scenario and observations carry explicit source age",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The production C/C++ dashboard renderer consumes explicitly synthetic canonical account/interval observations and a current synthetic READY app lease",
+        "Direct static preparation does not request an account, contact a PC, replay transport/reducer activity or validate billing",
+        "Omitted observations remain unavailable; capture acquisition and visual differences are separate from human approval",
+        "Context is scoped to fixed synthetic native source/chat identities and the provided title; used/capacity and cumulative counts are separate observations"
+      ],
+      "controls": [
+        {
+          "path": [
+            "services",
+            "statistics",
+            "source_age_ms"
+          ],
+          "label": "Source Age Ms"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "context_used_tokens"
+          ],
+          "label": "Context Used Tokens"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "context_capacity_tokens"
+          ],
+          "label": "Context Capacity Tokens"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "context_cumulative_tokens"
+          ],
+          "label": "Context Cumulative Tokens"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "context_chat_title"
+          ],
+          "label": "Context Chat Title"
+        }
+      ],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "codex_link": "Canonical synthetic READY app lease, exact native owner-scoped identifiers"
+      }
+    },
+    {
+      "id": "ui-v1:audio",
+      "inventory_id": "H10",
+      "title": "Audio levels",
+      "native_target": "cody.settings.audio",
+      "controller": "prepare_audio_view / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Audio",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-h10.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_audio_view.cpp",
+      "symbol": "prepare_audio_view",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Canonical audio observations",
+        "Native AudioView"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The production C/C++ renderer prepares this direct static sample; hardware measurements, interaction and physical acceptance remain separate",
+        "The host has no acquisition driver for these hardware values; canonical unavailable/error states remain visible and no PC measurements are substituted",
+        "This standalone inspection does not claim a replayed entry or return journey",
+        "The static suite uses silent audio mode and unavailable input levels. Firmware cue audition is a separate live PCM operation, not a microphone measurement"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "audio_input_driver": "NONE",
+        "audio_playback": "Actual canonical host codec/playback readback; no fabricated meter level"
+      }
+    },
+    {
+      "id": "ui-v1:memory-detail",
+      "inventory_id": "A07",
+      "title": "Diagnostics memory",
+      "native_target": "cody.diagnostics.memory",
+      "controller": "draw_memory_diagnostics_rows / native display owner",
+      "availability": "presenter-isolated",
+      "rendering_mode": "presenter-isolated",
+      "group": "Diagnostics",
+      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-a07.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/diagnostics/CODY_debug_views.cpp",
+      "symbol": "draw_memory_diagnostics_rows",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "MemoryDiagnosticReadout",
+        "Original debug memory renderer"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The production C/C++ renderer prepares this direct static sample; hardware measurements, interaction and physical acceptance remain separate",
+        "The host has no acquisition driver for these hardware values; canonical unavailable/error states remain visible and no PC measurements are substituted",
+        "This standalone inspection does not claim a replayed entry or return journey",
+        "The original debug memory presenter is isolated because this host profile has no active runtime route for it; only its original Back glyph is rendered, input/navigation are not replayed, and genuine heap measurements remain unavailable"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "memory_metrics": "Unavailable in this host profile"
+      }
     }
   ]
 }

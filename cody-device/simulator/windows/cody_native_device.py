@@ -29,6 +29,16 @@ class StudioCall(ctypes.Structure):
                 ("outcome", ctypes.c_char * 16)]
 
 
+class StudioStatistics(ctypes.Structure):
+    _fields_ = [("source_age_ms", ctypes.c_uint32), ("daily_tokens", ctypes.c_uint64 * 8),
+                ("daily_valid_mask", ctypes.c_uint32), ("credits_kind", ctypes.c_char * 16),
+                ("credit_milliunits", ctypes.c_int64), ("reset_vouchers", ctypes.c_uint32),
+                ("plan", ctypes.c_char * 25), ("plan_label", ctypes.c_char * 25), ("plan_price", ctypes.c_char * 25),
+                ("interval_tokens", ctypes.c_uint64 * 96), ("interval_valid_mask", ctypes.c_uint32 * 3),
+                ("context_used_tokens", ctypes.c_uint32), ("context_capacity_tokens", ctypes.c_uint32),
+                ("context_cumulative_tokens", ctypes.c_uint64), ("context_chat_title", ctypes.c_char * 129)]
+
+
 class StudioCase(ctypes.Structure):
     _fields_ = [("abi", ctypes.c_uint32), ("size", ctypes.c_uint32), ("identity", StudioFrameIdentity),
                 ("brightness_percent", ctypes.c_uint32), ("auto_rotate", ctypes.c_uint32),
@@ -44,7 +54,8 @@ class StudioCase(ctypes.Structure):
                 ("domain_source_id", ctypes.c_uint64), ("domain_chat_id", ctypes.c_uint64),
                 ("domain_turn_id", ctypes.c_uint64), ("domain_generation", ctypes.c_uint32),
                 ("domain_call_count", ctypes.c_uint32), ("domain_chat_title", ctypes.c_char * 129),
-                ("domain_execution", ctypes.c_char * 16), ("domain_calls", StudioCall * 8)]
+                ("domain_execution", ctypes.c_char * 16), ("domain_calls", StudioCall * 8),
+                ("statistics", StudioStatistics)]
 
 
 class StudioLiveCue(ctypes.Structure):
@@ -283,7 +294,7 @@ class NativeDevice:
         if settings.get("sounds_enabled", False):
             raise ValueError("Static Studio cannot play sound with a frozen clock; use an isolated live session")
         request = StudioCase()
-        request.abi, request.size = 1, ctypes.sizeof(StudioCase)
+        request.abi, request.size = 2, ctypes.sizeof(StudioCase)
         request.identity.abi = 2
         request.identity.target = target.encode("ascii")
         request.identity.scenario_revision = scenario_revision.encode("ascii")
@@ -339,7 +350,23 @@ class NativeDevice:
                 row.id, row.turn_id = int(call["id"], 16), int(call["turn_id"], 16)
                 for name in ("tool_name", "label", "category", "state", "outcome"):
                     setattr(row, name, call[name].encode("ascii"))
+        if "codex_link" in services:
+            request.codex_link_outcome = services["codex_link"]["outcome"].encode("ascii")
+        statistics = services.get("statistics", {})
+        for name, value in statistics.items():
+            if name in ("daily_tokens", "interval_tokens", "interval_valid_mask"):
+                target_array = getattr(request.statistics, name)
+                if len(value) != len(target_array):
+                    raise ValueError(f"Studio statistics {name} has the wrong native capacity")
+                for index, number in enumerate(value):
+                    target_array[index] = number
+            else:
+                setattr(request.statistics, name, value.encode("ascii") if isinstance(value, str) else value)
         api = load_runtime_library("graphics-device")
+        capacity = api.cody_host_studio_case_size
+        capacity.argtypes, capacity.restype = [], ctypes.c_size_t
+        if capacity() != ctypes.sizeof(StudioCase):
+            raise ValueError("Native Studio request capacity does not match the current Python ABI")
         prepare = api.cody_host_studio_prepare_case
         prepare.argtypes = [ctypes.POINTER(StudioCase)]
         prepare.restype = ctypes.c_int

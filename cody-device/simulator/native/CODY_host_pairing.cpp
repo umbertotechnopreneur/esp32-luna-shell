@@ -1,6 +1,7 @@
 #include "CODY_host_pairing.hpp"
 
 #include <array>
+#include <atomic>
 #include <cstring>
 #include <mutex>
 
@@ -8,10 +9,18 @@ namespace {
 std::mutex s_mutex;
 bool s_configured = false;
 bool s_running = false;
+std::atomic<bool> s_studio_qr_available{false};
 esp_err_t s_start_error = ESP_ERR_NOT_SUPPORTED;
 LUNASHELL_radio_cleanup_result_t s_cleanup{ESP_ERR_NOT_SUPPORTED, ESP_ERR_NOT_SUPPORTED};
 LUNASHELL::ProvisioningSnapshot s_ready{};
 std::array<char, 256> s_qr{};
+}
+
+// available: Static Studio QR projection, never admission of a radio operation.
+// Exception: No exceptions; the canonical provisioning observation validates every copy.
+void CODY::host_onboarding::configure_studio_pairing_qr(bool available)
+{
+    s_studio_qr_available.store(available, std::memory_order_release);
 }
 
 // start_error: Explicit outcome of this synthetic radio scenario.
@@ -103,6 +112,19 @@ extern "C" esp_err_t LUNASHELL_provisioning_copy_qr(char *buffer, size_t size, u
 {
     if (!buffer || size == 0) return ESP_ERR_INVALID_ARG;
     buffer[0] = '\0';
+    if (s_studio_qr_available.load(std::memory_order_acquire)) {
+        LUNASHELL::PairingObservation observation{};
+        const auto error = LUNASHELL::DeviceSnapshotService::instance().readPairingObservation(observation);
+        if (error != ESP_OK) return error;
+        const auto &source = observation.provisioning;
+        if (!source.data_valid || source.data_stale || source.last_error != ESP_OK ||
+            !source.initialized || !source.running || source.session_id != session_id ||
+            source.state != LUNASHELL::ProvisioningState::WaitingForApp) return ESP_ERR_INVALID_STATE;
+        static constexpr char payload[] = "SIMULATED:CODY-STUDIO-BLE";
+        if (size < sizeof(payload)) return ESP_ERR_INVALID_SIZE;
+        std::memcpy(buffer, payload, sizeof(payload));
+        return ESP_OK;
+    }
     std::lock_guard<std::mutex> lock(s_mutex);
     if (!s_configured || !s_running || session_id == 0 || session_id != s_ready.session_id)
         return ESP_ERR_INVALID_STATE;

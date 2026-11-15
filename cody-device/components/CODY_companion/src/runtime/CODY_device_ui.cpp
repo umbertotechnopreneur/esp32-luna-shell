@@ -57,6 +57,8 @@
 #include "scene_data.hpp"
 #if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
 #include "cody_host_studio.h"
+#include "CODY_debug_views.hpp"
+#include "../../../../simulator/native/CODY_host_studio_statistics.hpp"
 #include "../../../../simulator/native/CODY_host_audio_codec.hpp"
 #include "../../../../simulator/native/CODY_host_onboarding_snapshot.hpp"
 #include "LUNASHELL_clock.hpp"
@@ -4037,6 +4039,68 @@ bool studio_info_page(const char *target, CODY::InfoPage &page)
     return false;
 }
 
+// target: Stable dashboard destination with an explicitly prepared account owner.
+// screen: Receives the native typed carousel page only for an exact supported name.
+// Exception: No exceptions; unknown targets leave screen unchanged.
+bool studio_dashboard_page(const char *target, WidgetScreen &screen)
+{
+    struct NamedPage { const char *target; WidgetScreen screen; };
+    static constexpr NamedPage pages[]{
+        {"cody.dashboard.device", WidgetScreen::Device}, {"cody.dashboard.reset", WidgetScreen::Reset},
+        {"cody.dashboard.limits", WidgetScreen::Limits}, {"cody.dashboard.today", WidgetScreen::Today},
+        {"cody.dashboard.seven-days", WidgetScreen::LastSevenDays},
+        {"cody.dashboard.token-history", WidgetScreen::TokenHistory},
+        {"cody.dashboard.credits", WidgetScreen::Credits}, {"cody.dashboard.account", WidgetScreen::Account},
+        {"cody.dashboard.context", WidgetScreen::Context},
+    };
+    for (const auto &page : pages) if (std::strcmp(target, page.target) == 0) {
+        screen = page.screen;
+        return true;
+    }
+    return false;
+}
+
+// The original debug presenter has no active runtime route in this profile.
+// Its bounded readout belongs exclusively to the display owner between frames.
+CODY::MemoryDiagnosticReadout s_studio_memory{};
+
+// state: Immutable bounded canonical heap projection retained for this native frame.
+// strip: Borrowed logical RGB565 tile owned by the common display transaction.
+// first_row: Logical tile y origin.
+// first_column: Logical tile x origin.
+// Exception: Preserves the original diagnostic renderer and Back raster errors.
+esp_err_t draw_studio_memory_rows(const void *state, CODY2D::Surface strip,
+    uint16_t first_row, uint16_t first_column)
+{
+    if (state != &s_studio_memory) return ESP_ERR_INVALID_ARG;
+    auto error = CODY::draw_memory_diagnostics_rows(s_studio_memory, CODY::SceneData::body_font,
+        strip, first_row, first_column);
+    if (error == ESP_OK) error = CODY::draw_debug_view_back_rows(strip, first_row, first_column);
+    return error;
+}
+
+// ui: Exclusive display owner retaining the canonical diagnostics observation.
+// frame: Receives the isolated production memory presenter and its native Back glyph.
+// Exception: No numeric heap data is emitted when its acquisition is unavailable.
+void prepare_studio_memory(DeviceRuntime &ui, FrameView &frame)
+{
+    s_studio_memory = {};
+    const auto &memory = ui.model.diagnostics.memory;
+    if (memory.data_valid && !memory.data_stale && memory.last_error == ESP_OK) {
+        s_studio_memory.internal = {memory.internal_heap_total_bytes, memory.internal_free_bytes,
+            memory.internal_largest_block_bytes, memory.internal_minimum_free_bytes,
+            memory.internal_free_blocks, memory.internal_heap_total_bytes > 0, false};
+        s_studio_memory.psram = {memory.psram_heap_total_bytes, memory.psram_free_bytes,
+            memory.psram_largest_block_bytes, memory.psram_minimum_free_bytes,
+            memory.psram_free_blocks, memory.psram_heap_total_bytes > 0, false};
+    }
+    frame.presentation = {};
+    frame.presentation.content.state = &s_studio_memory;
+    frame.presentation.content.draw_rows = draw_studio_memory_rows;
+    frame.presentation.content.bounds = {0, 0, kGeometry.width, kGeometry.height};
+    frame.arrows = false;
+}
+
 // frame: Owner-prepared view about to enter the display transaction.
 // Exception: No exceptions; rejects a different effective layer, page or query scope.
 bool studio_frame_matches(const FrameView &frame)
@@ -4047,12 +4111,13 @@ bool studio_frame_matches(const FrameView &frame)
     if (std::strcmp(target, "cody.boot.birth") == 0) return frame.layer == Layer::Birth &&
         ui.state.birth_frame == s_studio_identity.source_animation_sample_ms / kBirthFrameMs;
     if (!CODY::studio_scene_active(target)) return false;
-    if (std::strcmp(target, "cody.dashboard.reset") == 0)
-        return frame.layer == Layer::Dashboard && ui.state.widgets.selected_screen == WidgetScreen::Reset;
-    if (std::strcmp(target, "cody.dashboard.limits") == 0)
-        return frame.layer == Layer::Dashboard && ui.state.widgets.selected_screen == WidgetScreen::Limits;
-    if (std::strcmp(target, "cody.dashboard.device") == 0)
-        return frame.layer == Layer::Dashboard && ui.state.widgets.selected_screen == WidgetScreen::Device;
+    WidgetScreen screen{};
+    if (studio_dashboard_page(target, screen))
+        return frame.layer == Layer::Dashboard && ui.state.widgets.selected_screen == screen;
+    if (std::strcmp(target, "cody.settings.audio") == 0)
+        return frame.layer == Layer::Audio && ui.state.audio_open;
+    if (std::strcmp(target, "cody.diagnostics.memory") == 0)
+        return frame.layer == Layer::Diagnostics && frame.presentation.content.state == &s_studio_memory;
     if (std::strcmp(target, "cody.diagnostics.overview") == 0)
         return frame.layer == Layer::Diagnostics && ui.state.diagnostics;
     CODY::InfoPage info{};
@@ -4133,6 +4198,9 @@ constexpr StudioRouteDefinition kStudioRoutes[]{
     {"info-vibeware-to-project", "cody.info.vibeware", "cody.info.project", 330, 233, StudioRouteGesture::SwipeLeft},
     {"info-project-to-vibeware", "cody.info.project", "cody.info.vibeware", 130, 233, StudioRouteGesture::SwipeRight},
     {"info-system-to-settings-parent", "cody.info.system", "cody.settings.preferences", 130, 233, StudioRouteGesture::SwipeRight},
+    {"bluetooth-to-wifi-choice", "cody.setup.bluetooth-instructions", "cody.setup.wifi-guide", 130, 120, StudioRouteGesture::SwipeRight},
+    {"retained-pc-to-connections", "cody.codex.retained-pc", "cody.setup.connections", 130, 120, StudioRouteGesture::SwipeRight},
+    {"forget-to-retained-pc", "cody.codex.forget-pc", "cody.codex.retained-pc", 130, 120, StudioRouteGesture::SwipeRight},
     {"guide-buttons-to-touch", "cody.guide.buttons", "cody.guide.touch", 426, 233},
     {"guide-touch-to-buttons", "cody.guide.touch", "cody.guide.buttons", 40, 233},
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
@@ -4495,7 +4563,8 @@ esp_err_t process_studio_request(DeviceRuntime &ui)
     const auto browser_route = studio_browser_route(target);
     const bool browser = browser_route != CODY::CodexBrowserRoute::Closed;
     const bool calls = browser_route == CODY::CodexBrowserRoute::Calls || browser_route == CODY::CodexBrowserRoute::ActiveCalls;
-    std::strcpy(s_studio_identity.rendering_mode, browser ? "presenter-isolated" : "runtime-full");
+    const bool memory = std::strcmp(target, "cody.diagnostics.memory") == 0;
+    std::strcpy(s_studio_identity.rendering_mode, browser || memory ? "presenter-isolated" : "runtime-full");
     FrameView frame{};
     if (error == ESP_OK && branding) {
         stage = "prepare-branding";
@@ -4521,17 +4590,13 @@ esp_err_t process_studio_request(DeviceRuntime &ui)
             stage = "prepare-browser-scope";
             error = prepare_studio_browser(ui, *request);
         }
-        if (error == ESP_OK && std::strcmp(target, "cody.dashboard.reset") == 0) {
+        WidgetScreen screen{};
+        if (error == ESP_OK && studio_dashboard_page(target, screen)) {
             ui.state.activity_page = ActivityPage::Statistics;
-            CODY::select_widget_screen(ui.state.widgets, WidgetScreen::Reset);
-        } else if (error == ESP_OK && std::strcmp(target, "cody.dashboard.limits") == 0) {
-            ui.state.activity_page = ActivityPage::Statistics;
-            CODY::select_widget_screen(ui.state.widgets, WidgetScreen::Limits);
+            CODY::select_widget_screen(ui.state.widgets, screen);
         }
-        if (error == ESP_OK && std::strcmp(target, "cody.dashboard.device") == 0) {
-            ui.state.activity_page = ActivityPage::Statistics;
-            CODY::select_widget_screen(ui.state.widgets, WidgetScreen::Device);
-        }
+        if (error == ESP_OK && std::strcmp(target, "cody.settings.audio") == 0)
+            ui.state.audio_open = true;
         CODY::InfoPage info{};
         if (error == ESP_OK && studio_info_page(target, info)) {
             ui.state.activity_page = ActivityPage::Statistics;
@@ -4539,13 +4604,14 @@ esp_err_t process_studio_request(DeviceRuntime &ui)
             ui.state.info_page = info;
             CODY::select_widget_screen(ui.state.widgets, WidgetScreen::About);
         }
-        if (error == ESP_OK && std::strcmp(target, "cody.diagnostics.overview") == 0) {
+        if (error == ESP_OK && (memory || std::strcmp(target, "cody.diagnostics.overview") == 0)) {
             ui.state.activity_page = ActivityPage::Statistics;
             ui.state.diagnostics = true;
         }
         if (error == ESP_OK) {
             stage = "prepare-view";
             error = prepare_current_view(frame, esp_timer_get_time());
+            if (error == ESP_OK && memory) prepare_studio_memory(ui, frame);
         }
     }
     if (error == ESP_OK && calls) {
@@ -4826,7 +4892,7 @@ bool studio_ascii(const char (&text)[Size])
 esp_err_t validate_studio_request(const CodyHostStudioCase &request)
 {
     const auto &identity = request.identity;
-    if (request.abi != 1 || request.size != sizeof(CodyHostStudioCase) || identity.abi != 2)
+    if (request.abi != 2 || request.size != sizeof(CodyHostStudioCase) || identity.abi != 2)
         return ESP_ERR_INVALID_SIZE;
     if (!studio_ascii(identity.target) || !studio_ascii(identity.scenario_revision) ||
         !studio_ascii(identity.rendering_mode) || !studio_ascii(identity.service_outcome) ||
@@ -4858,8 +4924,16 @@ esp_err_t validate_studio_request(const CodyHostStudioCase &request)
     }
     auto error = CODY::host_onboarding::validate_studio_case(request);
     if (error == ESP_OK) error = CODY::host_studio_domain::validate(request);
+    if (error == ESP_OK) error = CODY::host_studio_statistics::validate(request);
     return error;
 }
+}
+
+// No parameters: exact request capacity for the current host-only ABI.
+// Exception: No exceptions; callers must compare before passing a ctypes allocation.
+CODY_HOST_STUDIO_API size_t cody_host_studio_case_size()
+{
+    return sizeof(CodyHostStudioCase);
 }
 
 // request: Fixed-size named case; copied into a process-lifetime mailbox before enqueue.
@@ -4867,7 +4941,7 @@ esp_err_t validate_studio_request(const CodyHostStudioCase &request)
 CODY_HOST_STUDIO_API esp_err_t cody_host_studio_prepare_case(const CodyHostStudioCase *request)
 {
     if (!request) return ESP_ERR_INVALID_ARG;
-    if (request->abi != 1 || request->size != sizeof(CodyHostStudioCase)) return ESP_ERR_INVALID_SIZE;
+    if (request->abi != 2 || request->size != sizeof(CodyHostStudioCase)) return ESP_ERR_INVALID_SIZE;
     auto error = validate_studio_request(*request);
     if (error != ESP_OK) return error;
     // Firmware cue drain uses the monotonic clock. A frozen Studio clock cannot
@@ -4905,6 +4979,7 @@ CODY_HOST_STUDIO_API esp_err_t cody_host_studio_prepare_case(const CodyHostStudi
     }
     if (error == ESP_OK) error = CODY::host_onboarding::publish_studio_case(value);
     if (error == ESP_OK) error = CODY::host_studio_domain::publish(value);
+    if (error == ESP_OK) error = CODY::host_studio_statistics::publish(value);
     if (error != ESP_OK) return error;
     s_studio->complete = false;
     s_studio->pending = true;

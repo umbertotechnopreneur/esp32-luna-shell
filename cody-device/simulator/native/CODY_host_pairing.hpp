@@ -5,6 +5,10 @@
 
 namespace CODY::host_onboarding {
 
+// available: Explicit static Studio QR source, independent of simulated radio operation.
+// Exception: No exceptions; retiring the source prevents reuse by the next case.
+void configure_studio_pairing_qr(bool available);
+
 // start_error: Exact result that the synthetic radio should return at admission.
 // cleanup: Separate synthetic cleanup and DMA-reservation outcomes.
 // ready: Explicit provisioning observation to publish after successful start.

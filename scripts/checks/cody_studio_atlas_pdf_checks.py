@@ -30,7 +30,9 @@ class AtlasPdfTests(unittest.TestCase):
         cls.directory.mkdir(parents=True, exist_ok=False)
         cls.catalog = load_catalog()
         unsupported = next(entry for entry in cls.catalog if entry["availability"] == "unsupported")
-        identities = [entry["id"] for entry in pilot_entries()] + [unsupported["id"]]
+        family = next(entry for entry in cls.catalog if entry.get("scenario") and entry.get("inventory_family_id"))
+        cls.family = family
+        identities = [entry["id"] for entry in pilot_entries()] + [family["id"], unsupported["id"]]
         job = AtlasJob.start(identities)
         deadline = time.monotonic() + 180
         while not job.done and time.monotonic() < deadline:
@@ -54,7 +56,10 @@ class AtlasPdfTests(unittest.TestCase):
         destination = export_atlas(self.manifest_path, self.directory / "native-pilot-atlas.pdf")
         reader = PdfReader(destination)
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        self.assertIn("10 acquired native frames / 11 selected cases", text)
+        captured = sum(case["acquisition"] == "captured" for case in self.manifest["cases"])
+        self.assertEqual(captured, len(pilot_entries()) + 1)
+        self.assertIn(f"{captured} acquired native frames / {len(self.manifest['cases'])} selected cases", text)
+        self.assertIn(self.family["inventory_family_id"] + " (family)", text)
         self.assertIn(f"catalog contains {len(self.catalog)} entries", text)
         self.assertIn(self.manifest["inventory"]["revision"], text)
         self.assertIn(self.manifest["inventory"]["sha256"], text.replace("\n", ""))
@@ -68,7 +73,7 @@ class AtlasPdfTests(unittest.TestCase):
             if case["acquisition"] != "captured":
                 continue
             metadata = load_capture(ROOT / case["capture"]).metadata
-            self.assertIn(case["inventory_id"], text)
+            self.assertIn(case["inventory_id"] or case["inventory_family_id"], text)
             self.assertIn(case["rendering_mode"], text)
             self.assertIn(case["symbol"], text)
             self.assertIn(case["source"], text.replace("\n", ""))

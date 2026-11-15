@@ -16,7 +16,7 @@ from PIL import Image, ImageTk
 
 from cody_native_runtime import ROOT
 from cody_semantic_palette import studio_hex
-from cody_studio_catalog import entry_for, load_catalog, resolve_source, routes_for
+from cody_studio_catalog import inventory_label, entry_for, load_catalog, resolve_source, routes_for
 from cody_studio_atlas import AtlasJob, BuildWatcher, latest_atlas_path, load_atlas, verify_contract_inputs
 from cody_studio_runner import StudioRunner, load_capture, verify_current_build
 from cody_studio_comparison import compare_captures, comparison_image, load_review, preserve_baseline, save_review
@@ -765,7 +765,7 @@ class StudioWindow:
                                 ('captured', 'failed', 'unsupported', 'not-applicable') or
                                 (case.get('reason') is not None and not isinstance(case['reason'], str))):
                             raise ValueError('Invalid atlas case-result progress payload')
-                        identity = case.get('inventory_id') or case.get('id', '?')
+                        identity = inventory_label(case)
                         message = f"{identity}: {case['acquisition']}"
                         if case.get('reason'):
                             message += f" · {case['reason']}"
@@ -873,9 +873,9 @@ class StudioWindow:
                 supported, reason = self.runner.availability(item)
             except (OSError, ValueError, RuntimeError) as error:
                 supported, reason = False, str(error)
-                failures.append(f"{item.get('inventory_id') or item['id']}: {reason}")
+                failures.append(f"{inventory_label(item)}: {reason}")
             mode = self.filter.get()
-            text = f"{item.get('inventory_id') or item['id']} {item['title']}"
+            text = f"{inventory_label(item)} {item['title']}"
             if self.search.get().casefold() not in text.casefold():
                 continue
             if mode == 'Supported' and not supported:
@@ -893,7 +893,7 @@ class StudioWindow:
                     elif load_review(record)['status'] == 'approved':
                         continue
                 except (OSError, ValueError) as error:
-                    failures.append(f"{item.get('inventory_id') or item['id']}: {error}")
+                    failures.append(f"{inventory_label(item)}: {error}")
                     continue
             group = item.get('group', 'Supported native') if supported else 'Source catalog · ' + item['availability']
             if group not in groups:
@@ -923,7 +923,7 @@ class StudioWindow:
                 difference = compare_captures(self.baseline, record).status if self.baseline else 'not compared'
             except (OSError, ValueError, RuntimeError):
                 difference = 'not comparable'
-            control.configure(text=f"{record.metadata.get('inventory_id') or record.metadata['id']} · {difference}")
+            control.configure(text=f"{inventory_label(record.metadata)} · {difference}")
         if self.filter.get() in ('Changed', 'Needs review'):
             self.catalog()
 
@@ -1031,7 +1031,7 @@ class StudioWindow:
     # No parameters: load form values without changing native state.
     def show_scenario(self):
         entry = entry_for(self.scenario['context']['target'])
-        self.scenario_title.set(f"{entry.get('inventory_id') or entry['id']} · {entry['title']} inputs")
+        self.scenario_title.set(f"{inventory_label(entry)} · {entry['title']} inputs")
         self.variant_control.configure(values=entry['variants'])
         self.variant.set(self.scenario['variant'])
         common = self.scenario['common']
@@ -1233,7 +1233,7 @@ class StudioWindow:
             if getattr(self.runner.device.api, '_cody_library_sha256', None) != build['library_sha256']:
                 raise ValueError('A different native build is loaded in Studio; restart this session')
             entry = entry_for(scenario['context']['target'])
-            self.live_title = f"{entry.get('inventory_id') or entry['id']} — {entry['title']}"
+            self.live_title = f"{inventory_label(entry)} — {entry['title']}"
             self.live_caption_backup = (self.frame_title.get(), self.frame_subtitle.get())
             self.live_process, self.live_directory = start_live(scenario)
             self.live_build_sha256 = build['library_sha256']
@@ -1406,6 +1406,17 @@ class StudioWindow:
                 for key, child in value.items():
                     add_fields((*path, key), child)
                 return
+            if isinstance(value, list) and field_specification(path)['type'] == 'int-array':
+                description = descriptions.get(path, {})
+                title = description.get('label', str(path[-1]).replace('_', ' ').title())
+                caption(self.case_fields_host, f'{title} · {len(value)} samples · JSON integers',
+                        10, wraplength=275).pack(anchor='w', pady=(8, 0))
+                variable = tk.StringVar(value=json.dumps(value, separators=(',', ':')))
+                control = self.field(self.case_fields_host, variable)
+                control.pack(fill='x')
+                self.case_fields[path] = (variable, list)
+                self.case_field_widgets[path] = control
+                return
             if isinstance(value, list):
                 caption(self.case_fields_host, f"{str(path[-1]).replace('_', ' ').title()} · {len(value)} records",
                         11, True).pack(anchor='w', pady=(8, 0))
@@ -1445,6 +1456,9 @@ class StudioWindow:
         for key, value in self.scenario['common']['settings'].items():
             if key not in ('brightness_percent', 'auto_rotate', 'orientation_degrees', 'sounds_enabled', 'playback_volume'):
                 add_fields(('common', 'settings', key), value)
+        # Retire the recursive closure on Tk's thread, without retaining this
+        # window and its variables until a worker happens to trigger cyclic GC.
+        add_fields = None
 
     # No parameters: construct and validate a detached complete scenario.
     # Raises ValueError on malformed form values or unsupported contracts.
@@ -1471,7 +1485,7 @@ class StudioWindow:
                 target = target[key]
             text = variable.get()
             try:
-                target[path[-1]] = field_type(text)
+                target[path[-1]] = json.loads(text) if field_type is list else field_type(text)
             except (ValueError, TypeError):
                 raise ValueError(f"{' · '.join(map(str, path))} requires a valid {field_type.__name__}") from None
         validate_scenario(value)
@@ -1497,7 +1511,7 @@ class StudioWindow:
         self.busy = True
         self.apply_button.configure(state='disabled')
         entry = entry_for(scenario['context']['target'])
-        self.status.set(f"Preparing {entry.get('inventory_id') or entry['id']} on the native owner…")
+        self.status.set(f"Preparing {inventory_label(entry)} on the native owner…")
 
         # No parameters: return results through a queue; this worker never calls Tk.
         def work():
@@ -1584,7 +1598,7 @@ class StudioWindow:
             if route_id:
                 self.route_records[route_id] = dict(record.metadata)
         entry = entry_for(record.metadata['id'])
-        self.frame_title.set(f"{entry.get('inventory_id') or entry['id']} — {entry['title']}")
+        self.frame_title.set(f"{inventory_label(entry)} — {entry['title']}")
         sample = record.metadata['frame_identity'].get('source_animation_sample_ms', 0)
         timing = f" · source animation {sample} ms" if sample else ''
         if record.metadata.get('worker'):
@@ -1613,10 +1627,10 @@ class StudioWindow:
                     difference = compare_captures(self.baseline, record).status
                 except (OSError, ValueError, RuntimeError):
                     difference = 'not comparable'
-            control = action(self.thumbnails, f"{record.metadata.get('inventory_id') or record.metadata['id']} · acquired",
+            control = action(self.thumbnails, f"{inventory_label(record.metadata)} · acquired",
                              lambda chosen=record: self.select_capture(chosen))
             control.configure(image=photo, compound='top', font=('TkDefaultFont', 9))
-            control.configure(text=f"{record.metadata.get('inventory_id') or record.metadata['id']} · {difference}")
+            control.configure(text=f"{inventory_label(record.metadata)} · {difference}")
             self.records.append(record)
             self.photos.append(photo)
             self.thumbnail_controls.append(control)

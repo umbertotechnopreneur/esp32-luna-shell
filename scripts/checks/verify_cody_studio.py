@@ -251,6 +251,7 @@ def capture_fixture(image=None, overrides=None, scenario=None):
     metadata = {
         "schema": "cody.studio.capture.v1", "capture_id": uuid4().hex,
         "acquisition": "captured", "id": entry["id"], "inventory_id": entry["inventory_id"],
+        "inventory_family_id": entry.get("inventory_family_id"),
         "inventory": entry["inventory"],
         "fixed_dependencies": studio_runner.fixed_dependencies(entry, scenario),
         "scenario": scenario, "scenario_id": scenario["id"],
@@ -297,6 +298,31 @@ class CatalogContractTests(unittest.TestCase):
         source, line = resolve_source(display)
         self.assertTrue(source.is_relative_to(ROOT))
         self.assertGreater(line, 0)
+
+    # self: Contract-only source/family mappings, with no native owner loaded.
+    # Raises AssertionError for an ambiguous primary alias or an unbound/mixed family reference.
+    def test_inventory_family_links_preserve_unambiguous_primary_identity(self):
+        import cody_studio_catalog as catalog
+        families = [entry for entry in load_catalog() if entry.get("inventory_family_id")]
+        self.assertTrue(families)
+        for entry in families:
+            primary = entry_for(entry["inventory_family_id"])
+            self.assertIsNone(entry["inventory_id"])
+            self.assertNotEqual(primary["id"], entry["id"])
+            self.assertEqual(entry_for(entry["id"]), entry)
+            self.assertEqual(catalog.inventory_label(entry), entry["inventory_family_id"] + " (family)")
+        original = json.loads(catalog.EXTENSION.read_text())
+        directory = fixture_directory()
+        for index, invalid in enumerate(("unknown-family", "", True)):
+            value = deepcopy(original)
+            selected = next(item for item in value["entries"] if item.get("inventory_family_id"))
+            selected["inventory_family_id"] = invalid
+            path = directory / f"invalid-family-{index}.json"
+            path.write_text(json.dumps(value))
+            with patch.object(catalog, "EXTENSION", path), self.assertRaises(ValueError):
+                load_catalog()
+        with self.assertRaisesRegex(ValueError, "identity disagree"):
+            capture_fixture(overrides={"inventory_family_id": families[0]["inventory_family_id"]})
 
     # self: Both views must expose the same declared native transitions.
     # Raises AssertionError if source analysis is confused with an observed run.
@@ -949,6 +975,8 @@ class BuildProvenanceContractTests(unittest.TestCase):
             "cody-device/simulator/native/CODY_host_display.cpp",
             "cody-device/simulator/native/CODY_host_input.cpp",
             "cody-device/simulator/native/CODY_host_studio_domain.cpp",
+            "cody-device/simulator/native/CODY_host_studio_statistics.hpp",
+            "cody-device/simulator/native/CODY_host_optional_services.cpp",
             "cody-device/simulator/native/platform/cody_host_studio.h",
             "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp",
             "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
@@ -1206,6 +1234,18 @@ class CueUiWorkerTests(unittest.TestCase):
         directory = fixture_directory()
         process = run_host_worker([sys.executable, "-B", str(Path(__file__).resolve()),
                                    "--audio-cues-ui-worker"], directory, "cue-ui", timeout=120)
+        print(process.stdout, end="", flush=True)
+
+
+class StatisticsUiWorkerTests(unittest.TestCase):
+    """Keep typed-array and family UI checks in a fresh process-global native lifetime."""
+
+    # self: Parent check; only the child loads this native/Tk workflow.
+    # Raises original worker errors and retains diagnostics beneath artifacts.
+    def test_statistics_controls_in_a_fresh_process(self):
+        directory = fixture_directory()
+        process = run_host_worker([sys.executable, "-B", str(Path(__file__).resolve()),
+                                   "--statistics-ui-worker"], directory, "statistics-ui", timeout=180)
         print(process.stdout, end="", flush=True)
 
 
@@ -2655,6 +2695,11 @@ def main(argv=None):
                         help="Verify isolated firmware cue audition with native PCM and sound policy")
     parser.add_argument("--audio-cues-ui", action="store_true",
                         help="Verify real Studio cue controls and session isolation; requires a display")
+    parser.add_argument("--statistics", action="store_true",
+                        help="Verify editable native statistics fixtures, isolation and ABI rejections")
+    parser.add_argument("--statistics-ui", action="store_true",
+                        help="Verify typed statistics arrays and inventory-family identity in real Tk/native Studio")
+    parser.add_argument("--statistics-ui-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--pilot-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--phase-e-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--phase-e-contended-worker", action="store_true", help=argparse.SUPPRESS)
@@ -2665,11 +2710,11 @@ def main(argv=None):
     arguments = parser.parse_args(argv)
     workers = (arguments.pilot_worker, arguments.phase_e_worker, arguments.phase_e_contended_worker,
                bool(arguments.live_audio_worker), arguments.guide_worker, arguments.atlas_ui_worker,
-               arguments.audio_cues_ui_worker)
+               arguments.audio_cues_ui_worker, arguments.statistics_ui_worker)
     if any(workers):
         if (arguments.native or arguments.ui or arguments.pilot or arguments.phase_e or arguments.live_audio or arguments.guide or arguments.host_audio or
                 arguments.atlas or arguments.atlas_pdf or arguments.atlas_ui or
-                arguments.coverage or arguments.audio_cues or arguments.audio_cues_ui or
+                arguments.coverage or arguments.audio_cues or arguments.audio_cues_ui or arguments.statistics or arguments.statistics_ui or
                 sum(workers) != 1):
             parser.error("Internal workers cannot be combined with suite flags")
         if arguments.pilot_worker:
@@ -2681,6 +2726,10 @@ def main(argv=None):
         if arguments.atlas_ui_worker:
             import cody_studio_atlas_ui_checks
             result = unittest.TextTestRunner(verbosity=2).run(cody_studio_atlas_ui_checks.suite(NativeUiTests))
+            return 0 if result.wasSuccessful() else 1
+        if arguments.statistics_ui_worker:
+            import cody_studio_statistics_checks
+            result = unittest.TextTestRunner(verbosity=2).run(cody_studio_statistics_checks.ui_suite(NativeUiTests))
             return 0 if result.wasSuccessful() else 1
         if arguments.audio_cues_ui_worker:
             import cody_studio_audio_checks
@@ -2722,6 +2771,11 @@ def main(argv=None):
         suite.addTests(loader.loadTestsFromModule(cody_studio_audio_checks))
     if arguments.audio_cues_ui:
         suite.addTests(loader.loadTestsFromTestCase(CueUiWorkerTests))
+    if arguments.statistics:
+        import cody_studio_statistics_checks
+        suite.addTests(loader.loadTestsFromModule(cody_studio_statistics_checks))
+    if arguments.statistics_ui:
+        suite.addTests(loader.loadTestsFromTestCase(StatisticsUiWorkerTests))
     if arguments.host_audio:
         import cody_studio_audio_checks
         suite.addTests(cody_studio_audio_checks.host_suite())

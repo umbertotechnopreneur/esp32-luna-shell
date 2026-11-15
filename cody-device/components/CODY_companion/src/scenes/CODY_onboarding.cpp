@@ -7527,11 +7527,103 @@ static Route studio_setup_route(const char *target)
     static constexpr NamedRoute routes[]{
         {"cody.setup.welcome", Route::Hello04}, {"cody.setup.connect", Route::Hello04},
         {"cody.setup.wifi-guide", Route::Invitation05}, {"cody.setup.app-qr", Route::Install06},
+        {"cody.setup.bluetooth-instructions", Route::Invitation05},
         {"cody.setup.online", Route::Online09}, {"cody.setup.codex-choice", Route::CodexChoice},
         {"cody.setup.connections", Route::SetupMenu}, {"cody.setup.network-wait", Route::NetworkWait},
     };
     for (const auto &route : routes) if (std::strcmp(route.target, target) == 0) return route.route;
     return Route::None;
+}
+
+// target: Exact static local Wi-Fi view, distinct from its retained setup scene.
+// Exception: No exceptions; unknown identities never select a local Wi-Fi page.
+static bool studio_local_wifi_target(const char *target)
+{
+    static constexpr const char *targets[]{"cody.wifi.networks", "cody.wifi.scan-unavailable",
+        "cody.wifi.password", "cody.wifi.open-confirm", "cody.wifi.connecting", "cody.wifi.connection-error"};
+    for (const auto *candidate : targets) if (std::strcmp(target, candidate) == 0) return true;
+    return false;
+}
+
+// target: Explicit simulated provisioning phase, not a request to start BLE.
+// Exception: No exceptions; unsupported phases remain unavailable.
+static bool studio_provisioning_target(const char *target)
+{
+    static constexpr const char *targets[]{"cody.provisioning.starting", "cody.provisioning.connecting",
+        "cody.provisioning.completing", "cody.provisioning.qr"};
+    for (const auto *candidate : targets) if (std::strcmp(target, candidate) == 0) return true;
+    return false;
+}
+
+// target: Static retained-link confirmation or lifecycle observation.
+// Exception: Unsupported names return None without requesting a link operation.
+static Route studio_link_route(const char *target)
+{
+    struct NamedRoute { const char *target; Route route; };
+    static constexpr NamedRoute routes[]{
+        {"cody.codex.retained-pc", Route::CodexReplace}, {"cody.codex.forget-pc", Route::CodexForget},
+        {"cody.codex.cleanup", Route::CodexCleanup}, {"cody.codex.forgotten", Route::CodexForgotten},
+    };
+    for (const auto &route : routes) if (std::strcmp(route.target, target) == 0) return route.route;
+    return Route::None;
+}
+
+// scene: Display-owned setup underlay whose title is owned by the local Wi-Fi content.
+// target: Exact local page backed by the previously published synthetic scan/station owner.
+// Exception: Preserves missing scan, invalid selection, keyboard and content errors.
+static esp_err_t prepare_studio_local_wifi(SceneFrame &scene, const char *target)
+{
+    if (std::strcmp(target, "cody.wifi.scan-unavailable") == 0) return open_local_wifi(scene);
+    clear_text_entry(s_local_wifi.entry);
+    clear_text_entry_view(s_local_wifi.keyboard);
+    wipe(&s_local_wifi, sizeof(s_local_wifi));
+    auto &view = s_local_wifi;
+    view.page = LocalWifiPage::Networks;
+    view.touch_control = -1;
+    view.selected_network = -1;
+    auto error = LUNASHELL::DeviceSnapshotService::instance().readWifiScanObservation(view.scan_observation);
+    if (error != ESP_OK) return error;
+    if (view.scan_observation.state != LUNASHELL::WifiScanState::Complete || view.scan_observation.count < 2 ||
+        view.scan_observation.count > LUNASHELL::kWifiScanMaxNetworks) return ESP_ERR_INVALID_STATE;
+    view.presented_revision = view.scan_observation.revision;
+    view.scan_baseline_generation = view.scan_observation.generation;
+    if (std::strcmp(target, "cody.wifi.networks") == 0) return attach_local_wifi(scene);
+    const bool open = std::strcmp(target, "cody.wifi.open-confirm") == 0;
+    const auto &selected = view.scan_observation.networks[open ? 1U : 0U];
+    if ((open && selected.security != LUNASHELL::WifiNetworkSecurity::Open) ||
+        (!open && selected.security != LUNASHELL::WifiNetworkSecurity::Wpa2Personal)) return ESP_ERR_INVALID_STATE;
+    std::memcpy(view.selected_ssid, selected.ssid, sizeof(view.selected_ssid));
+    std::memcpy(view.selected_ap.bssid, selected.bssid, sizeof(view.selected_ap.bssid));
+    view.selected_ap.security = open ? LUNASHELL_WIFI_SELECTED_OPEN : LUNASHELL_WIFI_SELECTED_WPA2;
+    view.selected_scan_generation = view.scan_observation.generation;
+    if (open) {
+        view.page = LocalWifiPage::ConfirmOpen;
+        std::snprintf(view.detail_text, sizeof(view.detail_text), "Unsecured network");
+    } else if (std::strcmp(target, "cody.wifi.password") == 0) {
+        error = begin_text_entry(view.entry, 64, true);
+        if (error == ESP_OK) view.page = LocalWifiPage::Password;
+    } else {
+        error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(view.connectivity_scratch);
+        if (error != ESP_OK) return error;
+        const auto &wifi = view.connectivity_scratch.radios.wifi;
+        view.connection_attempt_baseline = wifi.connect_attempt_count;
+        view.association_baseline = wifi.association_count;
+        view.connect_started_us = esp_timer_get_time();
+        view.page = LocalWifiPage::Connecting;
+        view.connect_submitted = true;
+        if (std::strcmp(target, "cody.wifi.connection-error") == 0) {
+            if (wifi.last_error == ESP_OK) return ESP_ERR_INVALID_STATE;
+            // Consume the same typed terminal receipt as the existing worker path.
+            // No worker is started and no credential is written by preparation.
+            Result &result = *new (&s_result) Result{};
+            result.command.work = Work::LocalWifiConnect;
+            result.error = wifi.last_error;
+            s_result_ready.store(true, std::memory_order_release);
+            bool changed = false;
+            error = update_local_wifi(scene, 0, false, changed);
+        }
+    }
+    return error == ESP_OK ? attach_local_wifi(scene) : error;
 }
 
 // target: Explicit display-owned dashboard, info, diagnostics or browser identity.
@@ -7540,7 +7632,9 @@ static bool studio_dashboard_target(const char *target)
 {
     static constexpr const char *targets[]{"cody.dashboard.reset", "cody.dashboard.limits", "cody.dashboard.device",
         "cody.info.system", "cody.info.memory", "cody.info.firmware", "cody.info.vibeware", "cody.info.project",
-        "cody.diagnostics.overview"};
+        "cody.diagnostics.overview", "cody.diagnostics.memory", "cody.settings.audio",
+        "cody.dashboard.today", "cody.dashboard.seven-days", "cody.dashboard.token-history",
+        "cody.dashboard.credits", "cody.dashboard.account", "cody.dashboard.context"};
     for (const auto *candidate : targets) if (std::strcmp(target, candidate) == 0) return true;
     return false;
 }
@@ -7561,7 +7655,8 @@ bool studio_scene_supported(const char *target)
 {
     return target != nullptr && (studio_options_page(target) != OptionsPage::None ||
         studio_guide_page(target) != OptionsPage::None || studio_setup_route(target) != Route::None ||
-        studio_dashboard_target(target) || studio_browser_target(target) ||
+        studio_dashboard_target(target) || studio_browser_target(target) || studio_local_wifi_target(target) ||
+        studio_provisioning_target(target) || studio_link_route(target) != Route::None ||
         std::strcmp(target, "cody.settings.quiet-edit") == 0 ||
         std::strcmp(target, "cody.provisioning.error") == 0);
 }
@@ -7588,6 +7683,7 @@ esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &requ
     const auto guide_page = studio_guide_page(target);
     const auto options_page = studio_options_page(target);
     const auto setup_route = studio_setup_route(target);
+    const auto link_route = studio_link_route(target);
     if (options_page != OptionsPage::None) {
         error = show_options_page(scene, options_page);
     } else if (std::strcmp(target, "cody.settings.quiet-edit") == 0) {
@@ -7601,6 +7697,66 @@ esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &requ
         s_first_run_guide = false;
         s_first_run_guide_replay = false;
         error = show_options_page(scene, guide_page);
+    } else if (studio_local_wifi_target(target)) {
+        s_home_wifi_flow = true;
+        s_home_wifi_intro = false;
+        s_pairing_guide_return = Route::SetupMenu;
+        error = enter_route(Route::Invitation05, scene);
+        if (error == ESP_OK) error = prepare_studio_local_wifi(scene, target);
+    } else if (link_route != Route::None) {
+        if (link_route == Route::CodexReplace || link_route == Route::CodexForget) {
+            // This retained association was opened from Options > Connections.
+            // Its eventual Back must retain that controller's real parent too.
+            s_connections_from_options = true;
+            error = begin_codex_connection(scene, CodexConnectionIntent::Setup);
+            if (error == ESP_OK && s_route != Route::CodexReplace) error = ESP_ERR_INVALID_STATE;
+            if (error == ESP_OK && link_route == Route::CodexForget) error = enter_route(link_route, scene);
+        } else {
+            LUNASHELL::ConnectivityObservation observation{};
+            error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
+            if (error == ESP_OK && (!observation.radios.codex_link.data_valid ||
+                observation.radios.codex_link.data_stale)) error = ESP_ERR_INVALID_STATE;
+            if (error == ESP_OK) {
+                s_codex_attempt = observation.radios.codex_link.attempt_id;
+                s_codex_cleanup = link_route == Route::CodexCleanup ? CodexCleanup::Forget : CodexCleanup::None;
+                error = enter_route(link_route, scene);
+            }
+        }
+    } else if (studio_provisioning_target(target)) {
+        LUNASHELL::ConnectivityObservation observation{};
+        error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
+        const auto &pairing = observation.radios.pairing;
+        if (error == ESP_OK && (!pairing.data_valid || pairing.data_stale || pairing.attempt_id == 0))
+            error = ESP_ERR_INVALID_STATE;
+        if (error == ESP_OK) {
+            s_pairing_owned = true;
+            s_pairing_from_guide = true;
+            s_attempt = pairing.attempt_id;
+            s_last_pairing_change_us = -1;
+            error = enter_route(Route::Pairing07, scene);
+        }
+        if (error == ESP_OK && std::strcmp(target, "cody.provisioning.qr") == 0) {
+            if (pairing.state != PairState::ReadyToScan || pairing.provisioning_session_id == 0)
+                return ESP_ERR_INVALID_STATE;
+            char payload[192]{};
+            error = LUNASHELL_provisioning_copy_qr(payload, sizeof(payload), pairing.provisioning_session_id);
+            if (error == ESP_OK) error = encode_qr(payload, s_view.qr);
+            wipe(payload, sizeof(payload));
+            if (error == ESP_OK) {
+                static constexpr char title[] = "Scan to pair";
+                ++s_text_generation;
+                error = set_scene_title(scene, {title, sizeof(title) - 1U});
+                s_view.qr_bounds = kSessionQrBounds;
+                s_view.line_count = 0;
+                s_session = pairing.provisioning_session_id;
+                s_last_pairing_change_us = pairing.changed_at_us;
+                if (error == ESP_OK) error = prepare_action(OnboardingAction::Cancel, true);
+            }
+        } else if (error == ESP_OK) {
+            bool changed = false;
+            const SceneFrame completed{};
+            error = update_onboarding(scene, completed, 0, 0, changed, false);
+        }
     } else if (setup_route != Route::None) {
         if (setup_route == Route::Hello04) {
             s_first_run_guide = true;
@@ -7610,7 +7766,7 @@ esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &requ
         }
         if (setup_route == Route::Invitation05 || setup_route == Route::Install06) {
             s_home_wifi_flow = true;
-            s_home_wifi_intro = false;
+            s_home_wifi_intro = std::strcmp(target, "cody.setup.bluetooth-instructions") == 0;
             s_pairing_guide_return = Route::SetupMenu;
             // Normal onboarding composes this borrowed artwork before its first
             // menu. Direct host entry must establish the same owner dependency.
@@ -7657,7 +7813,7 @@ esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &requ
     }
     // Static time zero means the settled page. No worker time is advanced.
     if (error == ESP_OK) error = advance_scene(scene, 10000000);
-    return error == ESP_OK ? attach_content(scene) : error;
+    return error == ESP_OK ? (s_local_wifi.page != LocalWifiPage::None ? attach_local_wifi(scene) : attach_content(scene)) : error;
 }
 
 // target: Semantic identity checked against the same route/page used by drawing.
@@ -7667,7 +7823,26 @@ bool studio_scene_active(const char *target)
     if (!target) return false;
     if (std::strcmp(target, "cody.provisioning.error") == 0) return s_route == Route::Failed08;
     if (studio_dashboard_target(target)) return onboarding_dashboard_active();
+    if (studio_local_wifi_target(target)) {
+        if (s_route != Route::Invitation05 || !s_home_wifi_flow) return false;
+        if (std::strcmp(target, "cody.wifi.password") == 0) return s_local_wifi.page == LocalWifiPage::Password;
+        if (std::strcmp(target, "cody.wifi.open-confirm") == 0) return s_local_wifi.page == LocalWifiPage::ConfirmOpen;
+        if (std::strcmp(target, "cody.wifi.connecting") == 0)
+            return s_local_wifi.page == LocalWifiPage::Connecting && s_local_wifi.connect_submitted;
+        if (s_local_wifi.page != LocalWifiPage::Networks) return false;
+        if (std::strcmp(target, "cody.wifi.connection-error") == 0) return s_local_wifi.failure_visible;
+        if (std::strcmp(target, "cody.wifi.scan-unavailable") == 0)
+            return s_local_wifi.presented_revision == std::numeric_limits<uint64_t>::max();
+        return !s_local_wifi.failure_visible && s_local_wifi.scan_observation.state == LUNASHELL::WifiScanState::Complete;
+    }
+    const auto link_route = studio_link_route(target);
+    if (link_route != Route::None) return s_route == link_route;
+    if (studio_provisioning_target(target)) return s_route == Route::Pairing07 &&
+        (std::strcmp(target, "cody.provisioning.qr") != 0 || (s_session != 0 && s_view.qr.side != 0));
     const auto setup_route = studio_setup_route(target);
+    if (setup_route == Route::Invitation05) return s_route == setup_route && s_home_wifi_flow &&
+        s_local_wifi.page == LocalWifiPage::None && s_home_wifi_intro ==
+            (std::strcmp(target, "cody.setup.bluetooth-instructions") == 0);
     if (setup_route != Route::None) return s_route == setup_route &&
         (setup_route != Route::Hello04 || s_first_run_intro ==
             (std::strcmp(target, "cody.setup.welcome") == 0 ? FirstRunIntro::Welcome : FirstRunIntro::Connect));
@@ -7685,7 +7860,7 @@ bool studio_scene_active(const char *target)
 esp_err_t settle_studio_scene(SceneFrame &scene)
 {
     const auto error = advance_scene(scene, 10000000);
-    return error == ESP_OK ? attach_content(scene) : error;
+    return error == ESP_OK ? (s_local_wifi.page != LocalWifiPage::None ? attach_local_wifi(scene) : attach_content(scene)) : error;
 }
 #endif
 

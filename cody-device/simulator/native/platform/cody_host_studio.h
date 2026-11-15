@@ -90,8 +90,28 @@ struct CodyHostStudioLiveStatus {
     CodyHostStudioLiveCue cues[8]{};
 };
 
+// Bounded canonical account/history inputs. Values are synthetic observations;
+// validity masks and source age remain explicit rather than inferred from zero.
+struct CodyHostStudioStatistics {
+    uint32_t source_age_ms = 0;
+    uint64_t daily_tokens[8]{};
+    uint32_t daily_valid_mask = 0;
+    char credits_kind[16]{};
+    int64_t credit_milliunits = 0;
+    uint32_t reset_vouchers = 0;
+    char plan[25]{};
+    char plan_label[25]{};
+    char plan_price[25]{};
+    uint64_t interval_tokens[96]{};
+    uint32_t interval_valid_mask[3]{};
+    uint32_t context_used_tokens = 0;
+    uint32_t context_capacity_tokens = 0;
+    uint64_t context_cumulative_tokens = 0;
+    char context_chat_title[129]{};
+};
+
 struct CodyHostStudioCase {
-    uint32_t abi = 1;
+    uint32_t abi = 2;
     uint32_t size = 0;
     CodyHostStudioFrameIdentity identity{};
     uint32_t brightness_percent = 80;
@@ -121,6 +141,7 @@ struct CodyHostStudioCase {
     char domain_chat_title[129]{};
     char domain_execution[16]{};
     CodyHostStudioCall domain_calls[8]{};
+    CodyHostStudioStatistics statistics{};
 };
 
 #if defined(_WIN32)
@@ -149,6 +170,9 @@ esp_err_t cody_host_display_ack_studio_worker(const CodyHostStudioWorkerReceipt 
 // Exception: Returns validation before settings mutation, owner/frame errors or a real wait timeout.
 #if defined(CODY_HOST_REAL_AUDIO)
 CODY_HOST_STUDIO_API esp_err_t cody_host_studio_prepare_case(const CodyHostStudioCase *request);
+// No parameters: exact request capacity for the current host-only ABI.
+// Exception: No exceptions.
+CODY_HOST_STUDIO_API size_t cody_host_studio_case_size();
 // Start an isolated live-clock boot animation from a prepared source frame.
 CODY_HOST_STUDIO_API esp_err_t cody_host_studio_start_live(uint32_t sounds_enabled, uint32_t playback_volume);
 CODY_HOST_STUDIO_API esp_err_t cody_host_studio_live_status(CodyHostStudioLiveStatus *status, size_t capacity);

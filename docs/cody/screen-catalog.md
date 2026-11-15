@@ -106,6 +106,9 @@ identify the owning journey; exact current controls remain in navigation.md.
 | ui-v1:birth | UI `advance_birth_intro`, original Muse renderer and settings owner | First-boot birth introduction -> mascot/setup; host direct sample preserves the original renderer | Active source; boot-only entry requires explicit preparation |
 | ui-v1:welcome-connect | ON `FirstRunIntro::Connect` on `Route::Hello04` | First-run welcome -> connection choice; prepared on the display owner | Active source; host static inspection does not complete first-run setup |
 | ui-v1:wifi-networks, wifi-scan-unavailable | ON `LocalWifiPage::Networks`, scan result | Wi-Fi setup -> network list or unavailable scan; Back returns to setup | Active source; synthetic host network observations are labelled in the simulator |
+| ui-v1:wifi-password, wifi-open-confirm, wifi-connecting, wifi-connection-error | ON `LocalWifiPage::Password/ConfirmOpen/Connecting` and its failure observation | The selected scanned AP, credential entry and connect result retain separate owner context | Active source; host fixtures never scan a real network, submit credentials or claim connection success |
+| ui-v1:bluetooth-instructions | ON `Route::Invitation05` with the Bluetooth-instructions context | Wi-Fi choice -> Bluetooth instructions -> app QR or provisioning; Back returns to the Wi-Fi choice | Active source; distinct from the Wi-Fi choice even though the route enum is shared |
+| ui-v1:provisioning-starting, provisioning-connecting, provisioning-completing | ON `Route::Pairing07` and `LUNASHELL::PairingSessionState` | Explicit provisioning lifecycle observations before QR readiness or completion | Active source; these are separate source-state identities within the original S14 inventory family |
 | ui-v1:options-preferences, options-device | ON `MenuMore`, `MenuMaintenance` | Options pages -> child setting or Home | Active source |
 | ui-v1:display, behavior, behavior-more, synth-voice | ON corresponding `OptionsPage` | Settings owner readback -> caller | Active source; synth rows report unsupported where excluded |
 | ui-v1:display-rings, time, behavior-settings, alarms, idle-options | ON `DisplayRings`, `Time`, `BehaviorMoreSettings`, `Alarms`, `IdleOptions` | Display/Behavior child pages -> owning parent; snapshot and settings observations | Active source; service-dependent values retain their actual availability |
@@ -126,6 +129,7 @@ identify the owning journey; exact current controls remain in navigation.md.
 | ui-v1:visible-screens | Retired | Pages are selected automatically according to available data | Retired; identity preserved |
 | ui-v1:timer | Retired | Local countdown screen removed from Options and runtime | Retired; identity preserved |
 | ui-v1:diagnostics, memory-detail | `CODY_debug_views.cpp`, UI diagnostics layer | Debug/Release entry -> overview -> retained route | Active source |
+| ui-v1:audio | `CODY_audio_view.cpp`, UI audio layer | Options Audio levels -> retained Options caller; canonical microphone/playback observations | Active source; unavailable channel levels remain unavailable rather than synthetic microphone measurements |
 | ui-v1:screensaver | `CODY_screensaver.cpp` | Enabled idle policy -> first-touch dismissal | Active source, setting initially disabled |
 | ui-v1:activity-events, current-turn, reply, statistics | CP; UI `ActivityPage` | Activity navigation -> event/detail/statistics | Active source, canonical selected-chat projection only |
 | next-v1:101 / codex | Native Codex browser hub | Options -> Chats, Active calls, Questions, Events, Statistics or Saved when its bookmarked chat is available | Source |
@@ -174,6 +178,12 @@ its summary. S15 denotes **Provisioning error**, and C04 denotes the
 turn-scoped **Tool calls** browser. The latter's ordinary user-facing entry is
 unconfirmed in the inventory and requires explicit host context. Do not infer
 these IDs from enum numbers, screen names or table positions.
+
+One original inventory family can have several distinct source-state identities.
+The primary member retains the unique `inventory_id` lookup; secondary members
+declare `inventory_family_id` and are selected by their qualified source key.
+This keeps states such as scan failure, pairing progress and completed cleanup
+distinct without inventing new document IDs or merging their native owners.
 
 Catalog availability describes the declared rendering path: full runtime,
 isolated presenter, profile conditional, unsupported or not applicable. It is

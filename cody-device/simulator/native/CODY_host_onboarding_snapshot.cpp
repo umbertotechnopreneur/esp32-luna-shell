@@ -1,4 +1,6 @@
 #include "CODY_host_onboarding_snapshot.hpp"
+#include "CODY_host_pairing.hpp"
+#include "CODY_host_studio_statistics.hpp"
 #include "LUNASHELL_snapshot_aging.hpp"
 #include "LUNASHELL_snapshot_internal.hpp"
 #include "LUNASHELL_codex_presence.hpp"
@@ -34,6 +36,16 @@ bool s_wifi_scan_available = false;
 LUNASHELL::CodexWeeklyLimitSnapshot s_studio_weekly{};
 LUNASHELL::CodexAccountSnapshot s_studio_account{};
 bool s_studio_statistics = false;
+
+// target: Explicit synthetic dashboard scope requiring a current READY/app lease.
+// Exception: No exceptions; no prefix matches admit an unrelated native page.
+bool studio_counter_target(const char *target)
+{
+    static constexpr const char *targets[]{"cody.dashboard.today", "cody.dashboard.seven-days",
+        "cody.dashboard.token-history", "cody.dashboard.credits", "cody.dashboard.account", "cody.dashboard.context"};
+    for (const auto *candidate : targets) if (std::strcmp(target, candidate) == 0) return true;
+    return false;
+}
 }
 
 namespace CODY::host_onboarding {
@@ -52,6 +64,17 @@ esp_err_t validate_studio_case(const CodyHostStudioCase &request)
             request.quiet_start_minute >= 1440 || request.quiet_end_minute >= 1440 ||
             request.quiet_draft_minute >= 1440 || (request.quiet_enabled &&
             request.quiet_start_minute == request.quiet_end_minute)) return ESP_ERR_INVALID_ARG;
+    }
+    const bool statistics = studio_counter_target(identity.target);
+    if (statistics) {
+        if (std::strcmp(request.codex_link_outcome, "ready") != 0) return ESP_ERR_INVALID_ARG;
+        LUNASHELL::HardwareStatus hardware{};
+        const auto error = LUNASHELL::DeviceSnapshotService::instance().readHardwareStatus(hardware);
+        if (error != ESP_OK) return error;
+        const auto &wifi = hardware.wifi;
+        if (!wifi.data_valid || wifi.data_stale || wifi.last_error != ESP_OK ||
+            !wifi.connection_state_valid || !wifi.connected || !wifi.ip_acquired || wifi.ip_address[0] == '\0')
+            return ESP_ERR_INVALID_ARG;
     }
     const bool reset = std::strcmp(identity.target, "cody.dashboard.reset") == 0;
     const bool limits = std::strcmp(identity.target, "cody.dashboard.limits") == 0;
@@ -75,7 +98,7 @@ esp_err_t validate_studio_case(const CodyHostStudioCase &request)
             request.short_remaining_basis_points > 10000 || request.short_window_minutes == 0 ||
             request.short_window_minutes > 10080 || request.short_source_age_ms > 60000))
             return ESP_ERR_INVALID_ARG;
-    } else if (request.codex_link_outcome[0] != '\0') return ESP_ERR_INVALID_ARG;
+    } else if (!statistics && request.codex_link_outcome[0] != '\0') return ESP_ERR_INVALID_ARG;
     if (std::strcmp(identity.target, "cody.provisioning.error") == 0 &&
         std::strcmp(request.provisioning_outcome, "timeout") != 0 &&
         std::strcmp(request.provisioning_outcome, "authentication") != 0 &&
@@ -94,17 +117,95 @@ esp_err_t publish_studio_case(const CodyHostStudioCase &request)
     s_studio_weekly = {};
     s_studio_account = {};
     s_snapshot.radios.pairing = {};
+    s_snapshot.radios.provisioning = {};
     s_snapshot.radios.codex_link = {};
+    s_wifi_scan = {};
+    s_wifi_scan_available = false;
+    const char *target = request.identity.target;
+    const bool studio_qr = std::strcmp(target, "cody.provisioning.qr") == 0;
+    // The QR source is a host adapter projection, not an admitted BLE operation.
+    configure_studio_pairing_qr(studio_qr);
+    const bool local_wifi = std::strcmp(target, "cody.wifi.networks") == 0 ||
+        std::strcmp(target, "cody.wifi.password") == 0 || std::strcmp(target, "cody.wifi.open-confirm") == 0 ||
+        std::strcmp(target, "cody.wifi.connecting") == 0 || std::strcmp(target, "cody.wifi.connection-error") == 0;
+    if (local_wifi) {
+        s_wifi_scan_available = true;
+        s_wifi_scan.state = LUNASHELL::WifiScanState::Complete;
+        s_wifi_scan.generation = 1;
+        s_wifi_scan.revision = 1;
+        s_wifi_scan.completed_at_us = now;
+        s_wifi_scan.count = 3;
+        static constexpr const char *names[]{"SIM-STUDIO-SECURE", "SIM-STUDIO-OPEN", "SIM-STUDIO-GUEST"};
+        static constexpr int8_t strengths[]{-45, -62, -76};
+        static constexpr uint8_t channels[]{1, 6, 11};
+        for (uint8_t index = 0; index < s_wifi_scan.count; ++index) {
+            auto &network = s_wifi_scan.networks[index];
+            std::strcpy(network.ssid, names[index]);
+            network.bssid[0] = 0x02;
+            network.bssid[5] = static_cast<uint8_t>(index + 1U);
+            network.rssi = strengths[index];
+            network.channel = channels[index];
+            network.security = index == 1 ? LUNASHELL::WifiNetworkSecurity::Open :
+                LUNASHELL::WifiNetworkSecurity::Wpa2Personal;
+        }
+    }
+    const bool starting = std::strcmp(target, "cody.provisioning.starting") == 0;
+    const bool connecting = std::strcmp(target, "cody.provisioning.connecting") == 0;
+    const bool completing = std::strcmp(target, "cody.provisioning.completing") == 0;
+    if (starting || connecting || completing || studio_qr) {
+        auto &pairing = s_snapshot.radios.pairing;
+        LUNASHELL::snapshot_detail::mark_sample_success(pairing, now);
+        pairing.attempt_id = 1;
+        pairing.changed_at_us = now;
+        pairing.cleanup_error = pairing.dma_reservation_error = ESP_OK;
+        pairing.state = starting ? LUNASHELL::PairingSessionState::Starting :
+            connecting ? LUNASHELL::PairingSessionState::Connecting :
+            completing ? LUNASHELL::PairingSessionState::Completing : LUNASHELL::PairingSessionState::ReadyToScan;
+        if (studio_qr) {
+            pairing.provisioning_session_id = 1;
+            auto &provisioning = s_snapshot.radios.provisioning;
+            LUNASHELL::snapshot_detail::mark_sample_success(provisioning, now);
+            provisioning.initialized = provisioning.running = true;
+            provisioning.session_id = 1;
+            provisioning.state = LUNASHELL::ProvisioningState::WaitingForApp;
+        }
+    }
+    const bool retained = std::strcmp(target, "cody.codex.retained-pc") == 0 ||
+        std::strcmp(target, "cody.codex.forget-pc") == 0;
+    const bool cleanup = std::strcmp(target, "cody.codex.cleanup") == 0;
+    const bool forgotten = std::strcmp(target, "cody.codex.forgotten") == 0;
+    if (retained || cleanup || forgotten) {
+        auto &link = s_snapshot.radios.codex_link;
+        LUNASHELL::snapshot_detail::mark_sample_success(link, now);
+        link.attempt_id = 1;
+        link.changed_at_us = now;
+        link.state = retained ? LUNASHELL::CodexLinkState::Paired : LUNASHELL::CodexLinkState::Idle;
+        link.retained_link_present = retained || cleanup;
+        link.command_pending = cleanup;
+        if (link.retained_link_present) {
+            std::strcpy(link.device_id, "000000000001");
+            std::strcpy(link.paired_pc_id, "11111111111111111111111111111111");
+        }
+    }
     // Studio has no saved-credential or live-BLE base inputs. Retire the
     // preceding case's explicitly supplied setup context before publishing this
     // case; no acquisition, advertising or connection operation is started.
     s_snapshot.radios.wifi.credentials_configured = false;
     s_snapshot.radios.ble = {};
-    if (std::strcmp(request.identity.target, "cody.setup.wifi-guide") == 0) {
+    if (std::strcmp(target, "cody.setup.wifi-guide") == 0 ||
+        std::strcmp(target, "cody.setup.bluetooth-instructions") == 0) {
         auto &ble = s_snapshot.radios.ble;
         LUNASHELL::snapshot_detail::mark_sample_success(ble, now);
         std::memcpy(ble.device_name, "AiGadget-000001", sizeof("AiGadget-000001"));
         // Name availability does not imply provisioning, advertising or a link.
+    }
+    if (std::strcmp(target, "cody.wifi.connecting") == 0 ||
+        std::strcmp(target, "cody.wifi.connection-error") == 0) {
+        auto &wifi = s_snapshot.radios.wifi;
+        std::strcpy(wifi.ssid, "SIM-STUDIO-SECURE");
+        wifi.connect_requested = std::strcmp(target, "cody.wifi.connecting") == 0;
+        if (!wifi.connect_requested)
+            LUNASHELL::snapshot_detail::mark_sample_failure(wifi, ESP_ERR_TIMEOUT, now);
     }
     if (std::strcmp(request.identity.target, "cody.setup.online") == 0) {
         // This synthetic result represents a successfully retained local Wi-Fi
@@ -117,7 +218,7 @@ esp_err_t publish_studio_case(const CodyHostStudioCase &request)
     }
     const bool reset = std::strcmp(request.identity.target, "cody.dashboard.reset") == 0;
     const bool limits = std::strcmp(request.identity.target, "cody.dashboard.limits") == 0;
-    if (reset || limits) {
+    if (reset || limits || studio_counter_target(target)) {
         // This is an explicit synthetic READY/app lease, never a transport ACK.
         // The same snapshot owner and production aging rules qualify its data.
         auto &link = s_snapshot.radios.codex_link;
@@ -135,18 +236,20 @@ esp_err_t publish_studio_case(const CodyHostStudioCase &request)
         link.app_presence.last_error = ESP_OK;
         link.app_presence.received_at_us = now;
         link.app_presence.sequence = 1;
-        LUNASHELL::snapshot_detail::mark_sample_success(s_studio_weekly, now);
-        s_studio_weekly.reset_unix_seconds = request.weekly_reset_unix_seconds;
-        s_studio_weekly.remaining_basis_points = static_cast<uint16_t>(request.weekly_remaining_basis_points);
-        s_studio_weekly.source_age_at_receive_ms = request.weekly_source_age_ms;
-        if (limits) {
-            LUNASHELL::snapshot_detail::mark_sample_success(s_studio_account, now);
-            s_studio_account.short_reset_unix_seconds = request.short_reset_unix_seconds;
-            s_studio_account.short_remaining_basis_points = static_cast<uint16_t>(request.short_remaining_basis_points);
-            s_studio_account.short_window_minutes = static_cast<uint16_t>(request.short_window_minutes);
-            s_studio_account.source_age_at_receive_ms = request.short_source_age_ms;
+        if (reset || limits) {
+            LUNASHELL::snapshot_detail::mark_sample_success(s_studio_weekly, now);
+            s_studio_weekly.reset_unix_seconds = request.weekly_reset_unix_seconds;
+            s_studio_weekly.remaining_basis_points = static_cast<uint16_t>(request.weekly_remaining_basis_points);
+            s_studio_weekly.source_age_at_receive_ms = request.weekly_source_age_ms;
+            if (limits) {
+                LUNASHELL::snapshot_detail::mark_sample_success(s_studio_account, now);
+                s_studio_account.short_reset_unix_seconds = request.short_reset_unix_seconds;
+                s_studio_account.short_remaining_basis_points = static_cast<uint16_t>(request.short_remaining_basis_points);
+                s_studio_account.short_window_minutes = static_cast<uint16_t>(request.short_window_minutes);
+                s_studio_account.source_age_at_receive_ms = request.short_source_age_ms;
+            }
+            s_studio_statistics = true;
         }
-        s_studio_statistics = true;
     }
     if (std::strcmp(request.identity.target, "cody.provisioning.error") == 0) {
         auto &pairing = s_snapshot.radios.pairing;
@@ -332,8 +435,14 @@ esp_err_t DeviceSnapshotService::readCodexWeeklyLimit(CodexWeeklyLimitSnapshot &
 
 // account: Receives the canonical synthetic account observation, including its actual validity.
 // Exception: Unavailable sessions preserve the output and return NOT_SUPPORTED.
+// account: Receives the applicable canonical synthetic account-owner projection.
+// Exception: Preserves owner scope/aging errors and retains the pilot fallback when unsupported.
 esp_err_t DeviceSnapshotService::readCodexAccount(CodexAccountSnapshot &account) const
 {
+    // The statistics helper ages its own canonical records against presence and
+    // therefore must run before acquiring the device snapshot owner lock.
+    const auto studio_error = CODY::host_studio_statistics::read_account(account);
+    if (studio_error != ESP_ERR_NOT_SUPPORTED) return studio_error;
     std::lock_guard<std::mutex> lock(s_mutex);
     if (!s_seeded || !s_studio_statistics) return ESP_ERR_NOT_SUPPORTED;
     auto current = s_studio_account;
@@ -344,9 +453,15 @@ esp_err_t DeviceSnapshotService::readCodexAccount(CodexAccountSnapshot &account)
     account = current;
     return ESP_OK;
 }
-esp_err_t DeviceSnapshotService::readCodexVouchers(CodexVoucherSnapshot &) const { return ESP_ERR_NOT_SUPPORTED; }
+// vouchers: Receives the current synthetic canonical voucher-owner projection.
+// Exception: Preserves unavailable, stale-source and scope errors from that owner.
+esp_err_t DeviceSnapshotService::readCodexVouchers(CodexVoucherSnapshot &vouchers) const
+{ return CODY::host_studio_statistics::read_vouchers(vouchers); }
 esp_err_t DeviceSnapshotService::readCodexSaved(CodexSavedSnapshot &) const { return ESP_ERR_NOT_SUPPORTED; }
-esp_err_t DeviceSnapshotService::readCodexTokenIntervals(CodexTokenIntervalsSnapshot &) const { return ESP_ERR_NOT_SUPPORTED; }
+// intervals: Receives the bounded synthetic canonical history-owner projection.
+// Exception: Preserves unavailable, stale-source and scope errors from that owner.
+esp_err_t DeviceSnapshotService::readCodexTokenIntervals(CodexTokenIntervalsSnapshot &intervals) const
+{ return CODY::host_studio_statistics::read_intervals(intervals); }
 // request: Exact bounded source/chat/turn query from the native browser presenter.
 // result: Receives a copied synthetic host-owner projection, never authenticated domain data.
 // Exception: Preserves fixture scope, generation, availability and original query errors.
@@ -581,7 +696,9 @@ esp_err_t DeviceSnapshotService::readCodexTechnicalObservation(CodexTechnicalObs
     CodexTechnicalObservation copy{};
     copy.link = s_snapshot.radios.codex_link;
     copy.technical = s_snapshot.codex_technical;
-    codex_presence::age(copy.link.app_presence, esp_timer_get_time());
+    const auto now = esp_timer_get_time();
+    codex_presence::age(copy.link.app_presence, now);
+    age_codex_technical(copy.technical, now);
     observation = copy;
     return ESP_OK;
 }

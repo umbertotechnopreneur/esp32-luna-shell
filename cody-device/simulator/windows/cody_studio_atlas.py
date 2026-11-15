@@ -151,7 +151,8 @@ def load_atlas(path=None):
         entry = entry_for(case["id"])
         if case["id"] != entry["id"]:
             raise ValueError("Atlas cases require qualified source identities")
-        if case.get("inventory_id") != entry.get("inventory_id"):
+        if (case.get("inventory_id") != entry.get("inventory_id") or
+                case.get("inventory_family_id") != entry.get("inventory_family_id")):
             raise ValueError("Atlas case inventory identity disagrees with its source mapping")
         seen.add(case["id"])
         acquisition = case.get("acquisition")
@@ -167,7 +168,7 @@ def load_atlas(path=None):
         if hashlib.sha256(capture_path.read_bytes()).hexdigest() != case.get("metadata_sha256"):
             raise ValueError("Atlas capture metadata hash mismatch")
         metadata = load_capture(capture_path).metadata
-        fields = ("id", "inventory_id", "variant", "scenario_revision", "source", "symbol", "rendering_mode")
+        fields = ("id", "inventory_id", "inventory_family_id", "variant", "scenario_revision", "source", "symbol", "rendering_mode")
         if any(metadata.get(field) != case.get(field) for field in fields) or metadata["build"] != value["build"]:
             raise ValueError("Atlas case identity disagrees with its completed native frame")
         if metadata.get("inventory") != value["inventory"]:
@@ -384,7 +385,7 @@ def run_worker(directory):
             events.write(json.dumps({"type": "case-start", "id": entry["id"], "completed": index,
                                      "total": len(entries), "message": entry.get("inventory_id") or entry["id"]}) + "\n")
             case = {key: deepcopy(entry.get(key)) for key in
-                    ("id", "inventory_id", "title", "source", "symbol", "rendering_mode")}
+                    ("id", "inventory_id", "inventory_family_id", "title", "source", "symbol", "rendering_mode")}
             case.update({"variant": None, "scenario_revision": None, "capture": None})
             try:
                 available, reason = runner.availability(entry)

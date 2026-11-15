@@ -40,6 +40,8 @@ def verify_current_build():
     required = {"cody-device/simulator/native/CODY_host_display.cpp",
                 "cody-device/simulator/native/CODY_host_input.cpp",
                 "cody-device/simulator/native/CODY_host_studio_domain.cpp",
+                "cody-device/simulator/native/CODY_host_studio_statistics.hpp",
+                "cody-device/simulator/native/CODY_host_optional_services.cpp",
                 "cody-device/simulator/native/platform/cody_host_studio.h",
                 "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp",
                 "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"}
@@ -258,6 +260,7 @@ def load_capture(metadata_path):
     entry = entry_for(scenario["context"]["target"])
     revision = scenario_revision(scenario)
     if (metadata.get("id") != entry["id"] or metadata.get("inventory_id") != entry["inventory_id"] or
+            metadata.get("inventory_family_id") != entry.get("inventory_family_id") or
             metadata.get("scenario_revision") != revision or
             metadata.get("scenario_id") != scenario["id"] or metadata.get("variant") != scenario["variant"] or
             type(metadata.get("at_ms")) is not int or
@@ -570,6 +573,7 @@ class StudioRunner:
             self.image.save(output, format="PNG")
         metadata = {"schema": "cody.studio.capture.v1", "capture_id": identity,
                     "id": entry["id"], "inventory_id": entry["inventory_id"],
+                    "inventory_family_id": entry.get("inventory_family_id"),
                     "inventory": entry["inventory"], "variant": self.scenario["variant"],
                     "acquisition": "captured", "review": "unreviewed", "baseline": False,
                     "rendering_mode": self.identity["rendering_mode"], "at_ms": self.identity["at_ms"],

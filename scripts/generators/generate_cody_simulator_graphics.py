@@ -213,6 +213,7 @@ def source_provenance(device_runtime=False):
         paths.update(ROOT / path for path in (
             "cody-device/simulator/native/CODY_host_device_bootstrap.hpp",
             "cody-device/simulator/native/CODY_host_audio_codec.hpp",
+            "cody-device/simulator/native/CODY_host_studio_statistics.hpp",
             "cody-device/simulator/native/CODY_host_time_compat.hpp",
             "cody-device/simulator/native/CODY_host_bsp_display.hpp",
             "cody-device/components/LUNASHELL_platform/src/runtime/LUNASHELL_time.cpp",

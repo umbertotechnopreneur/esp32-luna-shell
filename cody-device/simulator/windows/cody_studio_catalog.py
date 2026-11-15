@@ -92,7 +92,7 @@ def source_entries(path=None):
             availability, reason = source_availability(identity, cells[-1], cells[1] if len(cells) == 4 else cells[2])
             entries.append({"id": identity, "title": source_title(identity, name, cells), "source_state": cells[-1],
                             "source_owner": cells[1] if len(cells) == 4 else cells[2],
-                            "availability": availability, "inventory_id": None,
+                            "availability": availability, "inventory_id": None, "inventory_family_id": None,
                             "reason": reason, "variants": [],
                             "routes": []})
     if not entries:
@@ -101,7 +101,7 @@ def source_entries(path=None):
 
 
 # No parameters: project source identities plus their explicit executable contracts.
-# Raises OSError, JSON errors or ValueError for unknown/duplicate/invalid extensions.
+# Raises OSError, JSON errors or ValueError for unknown/duplicate/invalid extensions or family references.
 def load_catalog():
     extension = json.loads(EXTENSION.read_text(encoding="utf-8"))
     if extension.get("schema") != "cody.studio.catalog.v1":
@@ -109,9 +109,17 @@ def load_catalog():
     entries = {entry["id"]: entry for entry in source_entries()}
     declared = set()
     inventory_ids = set()
+    family_references = []
     for contract in extension["entries"]:
         identity = contract["id"]
         inventory_id = contract.get("inventory_id")
+        family_id = contract.get("inventory_family_id")
+        if inventory_id is not None and (not isinstance(inventory_id, str) or not inventory_id):
+            raise ValueError(f"Invalid primary inventory identity: {identity}")
+        if family_id is not None:
+            if inventory_id is not None or not isinstance(family_id, str) or not family_id:
+                raise ValueError(f"An inventory family requires a nonempty reference and no primary ID: {identity}")
+            family_references.append((identity, family_id))
         if identity not in entries or identity in declared or (inventory_id and inventory_id in inventory_ids):
             raise ValueError(f"Unknown or duplicate Studio catalog contract: {identity}")
         if contract.get("availability") not in AVAILABILITIES:
@@ -125,6 +133,9 @@ def load_catalog():
         entries[identity]["inventory"] = deepcopy(extension["inventory"])
         if contract["availability"] in RENDERING_MODES or contract["availability"] == "profile-conditional":
             entries[identity].pop("reason", None)
+    for identity, family_id in family_references:
+        if family_id not in inventory_ids:
+            raise ValueError(f"Unknown primary inventory family {family_id!r} for {identity}")
     return list(entries.values())
 
 
@@ -134,7 +145,8 @@ def pilot_entries():
     return [entry for entry in load_catalog() if entry.get("suite") == "pilot"]
 
 
-# identity: Qualified stable source identity or explicitly mapped inventory ID.
+# identity: Qualified stable source identity or explicitly mapped primary inventory ID.
+# Secondary family members retain their qualified source lookup, avoiding ambiguous inventory aliases.
 # Raises ValueError for unknown or ambiguous identities, without guessing enum values.
 def entry_for(identity):
     matches = [entry for entry in load_catalog()
@@ -142,6 +154,17 @@ def entry_for(identity):
     if len(matches) != 1:
         raise ValueError(f"Unknown or ambiguous Studio screen identity: {identity!r}")
     return matches[0]
+
+
+# item: Catalog entry or capture metadata with an optional primary or family inventory ID.
+# Returns an unambiguous display label; secondary members keep their source lookup identity.
+# Raises KeyError only when an unmapped item does not contain its qualified source ID.
+def inventory_label(item):
+    if item.get("inventory_id"):
+        return item["inventory_id"]
+    if item.get("inventory_family_id"):
+        return f"{item['inventory_family_id']} (family)"
+    return item["id"]
 
 
 # identity: A qualified source identity or its mapped inventory ID.
