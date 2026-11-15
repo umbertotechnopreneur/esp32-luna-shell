@@ -135,6 +135,8 @@ def pdf_story(manifest, records, catalog):
                                   f"<b>Function:</b> {pdf_text(metadata['symbol'])}"),
                             small(f"<b>Capture:</b> {pdf_text(metadata['capture_id'])}<br/>"
                                   "<b>Human review:</b> separate per-capture record; acquisition alone is not approval")]
+                if metadata.get("limitations"):
+                    details.append(small("<b>Limits:</b> " + "; ".join(pdf_text(value) for value in metadata["limitations"])))
                 frame = Image(BytesIO(pixels), width=202, height=202)
                 frame.hAlign = "LEFT"
             else:

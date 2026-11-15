@@ -295,6 +295,10 @@ class NativeDevice:
         request.playback_volume = settings.get("playback_volume", 90)
         request.quiet_start_minute, request.quiet_end_minute = 1320, 420
         request.quiet_edit_start, request.quiet_draft_minute = 1, 1320
+        if target == "cody.settings.quiet-hours":
+            request.quiet_enabled = int(page["quiet_hours_enabled"])
+            request.quiet_start_minute = page["quiet_start_minute"]
+            request.quiet_end_minute = page["quiet_end_minute"]
         if target in ("cody.boot.branding", "cody.boot.birth"):
             request.identity.source_animation_sample_ms = page["sample_at_ms"]
         elif target == "cody.settings.quiet-edit":
@@ -317,7 +321,8 @@ class NativeDevice:
                 request.short_source_age_ms = account["source_age_at_receive_ms"]
         elif target == "cody.provisioning.error":
             request.provisioning_outcome = services["provisioning"]["outcome"].encode("ascii")
-        elif target == "cody.codex.calls":
+        elif target in ("cody.codex.hub", "cody.codex.chats", "cody.codex.turns", "cody.codex.calls",
+                        "cody.codex.active", "cody.codex.questions"):
             domain = services["domain"]
             request.identity.source_id = int(page["source_id"], 16)
             request.identity.chat_id = int(page["chat_id"], 16)
@@ -437,20 +442,15 @@ class NativeDevice:
     def replay_studio_route(self, route_id, origin_revision, destination_revision):
         if not self.deterministic_clock:
             raise ValueError("Studio route replay requires a controlled static session")
-        destinations = {"settings-menu-to-display": "cody.settings.display",
-                        "display-to-settings-menu": "cody.settings.menu",
-                        "guide-buttons-to-touch": "cody.guide.touch",
-                        "guide-touch-to-buttons": "cody.guide.buttons",
-                        "guide-touch-to-sofia": "cody.guide.sofia",
-                        "guide-sofia-to-touch": "cody.guide.touch",
-                        "guide-sofia-to-offline": "cody.guide.offline",
-                        "guide-offline-to-sofia": "cody.guide.sofia",
-                        "guide-offline-to-project": "cody.guide.project",
-                        "guide-project-to-offline": "cody.guide.offline",
-                        "guide-project-to-thanks": "cody.guide.thanks",
-                        "guide-thanks-to-project": "cody.guide.project"}
-        if route_id not in destinations:
+        from cody_studio_catalog import entry_for, load_catalog
+        candidates = {route["destination"] for entry in load_catalog() for route in entry.get("routes", [])
+                      if route.get("replay") is True and route.get("route_id") == route_id}
+        if len(candidates) != 1:
             raise ValueError(f"Unsupported native Studio route: {route_id!r}")
+        destination = entry_for(candidates.pop())["native_target"]
+        if (not isinstance(route_id, str) or not 1 <= len(route_id) <= 31 or
+                any(character not in "abcdefghijklmnopqrstuvwxyz0123456789-" for character in route_id)):
+            raise ValueError("Native Studio route requires a bounded semantic key")
         for revision in (origin_revision, destination_revision):
             if (not isinstance(revision, str) or len(revision) != 64 or
                     any(character not in "0123456789abcdef" for character in revision)):
@@ -464,7 +464,7 @@ class NativeDevice:
         replay.argtypes, replay.restype = [ctypes.POINTER(StudioRouteRequest)], ctypes.c_int
         checked("Studio route replay", replay(ctypes.byref(request)))
         image, identity, receipt = completed_studio_route_frame()
-        if (identity["target"] != destinations[route_id] or identity["scenario_revision"] != destination_revision or
+        if (identity["target"] != destination or identity["scenario_revision"] != destination_revision or
                 receipt["route_id"] != route_id or receipt["origin_scenario_revision"] != origin_revision):
             raise ValueError("Native observed route does not match the requested source and destination")
         return image, identity, receipt

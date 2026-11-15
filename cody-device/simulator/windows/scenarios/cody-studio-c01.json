@@ -1,0 +1,86 @@
+{
+  "schema": "cody.studio.scenario.v1",
+  "id": "c01-codex-hub-default",
+  "title": "C01 Codex hub - synthetic controlled sample",
+  "variant": "default",
+  "seed": 0,
+  "common": {
+    "settings": {
+      "brightness_percent": 80,
+      "auto_rotate": false,
+      "orientation_degrees": 0
+    },
+    "observations": {
+      "battery": {
+        "level_percent": 80
+      },
+      "network": {
+        "connected": false,
+        "ssid": "",
+        "rssi": null
+      },
+      "clock": {
+        "epoch_seconds": 1794704400,
+        "utc_offset_minutes": 420
+      }
+    }
+  },
+  "page": {
+    "source_id": "0000000000000001",
+    "chat_id": "0000000000000001",
+    "turn_id": "0000000000000010"
+  },
+  "context": {
+    "target": "next-v1:101",
+    "selection": null,
+    "caller": "atlas-v1:10",
+    "return_to": "atlas-v1:10"
+  },
+  "time": {
+    "mode": "controlled-static",
+    "initial_ms": 0,
+    "advances_ms": [],
+    "capture_at_ms": [
+      0
+    ]
+  },
+  "services": {
+    "domain": {
+      "source_id": "0000000000000001",
+      "generation": 1,
+      "chat_id": "0000000000000001",
+      "turn_id": "0000000000000010",
+      "chat_title": "Synthetic pilot chat",
+      "execution": "running",
+      "calls": [
+        {
+          "id": "0000000000000101",
+          "turn_id": "0000000000000010",
+          "tool_name": "exec_command",
+          "label": "Command",
+          "category": "command",
+          "state": "running",
+          "outcome": "unknown"
+        },
+        {
+          "id": "0000000000000102",
+          "turn_id": "0000000000000010",
+          "tool_name": "read_file",
+          "label": "Read file",
+          "category": "file_read",
+          "state": "returned",
+          "outcome": "succeeded"
+        },
+        {
+          "id": "0000000000000103",
+          "turn_id": "0000000000000010",
+          "tool_name": "search",
+          "label": "Search",
+          "category": "search",
+          "state": "failed",
+          "outcome": "failed"
+        }
+      ]
+    }
+  }
+}

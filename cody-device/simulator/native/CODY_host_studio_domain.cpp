@@ -25,6 +25,17 @@ struct FixtureOwner {
 // Host workers have process lifetime; they cannot outlive this allocated owner.
 FixtureOwner *const s_owner = new (std::nothrow) FixtureOwner{};
 
+// target: Fixed-capacity target from a size-checked host case, never an enum ordinal.
+// Exception: No exceptions; unknown identities leave the synthetic owner unavailable.
+bool browser_target(const char (&target)[48])
+{
+    constexpr const char *targets[]{"cody.codex.hub", "cody.codex.chats", "cody.codex.turns",
+        "cody.codex.calls", "cody.codex.active", "cody.codex.questions"};
+    for (const auto *candidate : targets)
+        if (std::strncmp(target, candidate, sizeof(target)) == 0) return true;
+    return false;
+}
+
 // value: Bounded native ABI string, including room for its terminator.
 // empty_allowed: Whether known-empty text is meaningful for this field.
 // Exception: No exceptions; false rejects unterminated or non-ASCII input.
@@ -155,7 +166,7 @@ void qualify(StateQueryResult &result)
 // Exception: Rejects invalid IDs, fields and enum spellings without publication.
 esp_err_t validate(const CodyHostStudioCase &request)
 {
-    if (std::strncmp(request.identity.target, "cody.codex.calls", sizeof(request.identity.target)) != 0) return ESP_OK;
+    if (!browser_target(request.identity.target)) return ESP_OK;
     if (!request.domain_source_id || !request.domain_chat_id || !request.domain_turn_id ||
         !request.domain_generation || request.domain_call_count > std::size(request.domain_calls) ||
         request.identity.source_id != request.domain_source_id || request.identity.chat_id != request.domain_chat_id ||
@@ -194,7 +205,7 @@ esp_err_t publish(const CodyHostStudioCase &request)
     if (error != ESP_OK) return error;
     if (!s_owner) return ESP_ERR_NO_MEM;
     std::lock_guard<std::mutex> lock(s_owner->mutex);
-    if (std::strncmp(request.identity.target, "cody.codex.calls", sizeof(request.identity.target)) != 0) {
+    if (!browser_target(request.identity.target)) {
         s_owner->available = false;
         return ESP_OK;
     }

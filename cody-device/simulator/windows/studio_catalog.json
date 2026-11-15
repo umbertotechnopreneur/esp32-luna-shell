@@ -6,8 +6,9 @@
     "revision": "2026-11-14 / working-tree e971b313 + local changes",
     "sha256": "4db789f7facf03efa79f6f0efb97ab7e57412b0b73435e50a6c24e8a803b9c77",
     "reported_entry_count": 100,
-    "entry_count_status": "owner-estimate-unverified",
-    "mapping_evidence": "Inventory dated 2026-11-14; 100 was an owner estimate, not verified coverage. IDs are document-local, independent of firmware enum and source catalog identities"
+    "entry_count_status": "document-count-verified",
+    "mapping_evidence": "The original PDF inventory section on pages 6-10 contains 100 unique document-local IDs, verified by text extraction. The earlier reported count is retained as provenance; document entries are families and states, not a firmware-screen or acquired-coverage denominator. IDs remain independent of firmware enums and source-catalog identities.",
+    "verified_document_entry_count": 100
   },
   "entries": [
     {
@@ -288,7 +289,8 @@
       "hard_to_reach": false,
       "transient_error": false,
       "limitations": [
-        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values"
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values",
+        "Native visual review retains the existing close spacing of the guide caption and page markers; capture is not visual approval or physical acceptance"
       ],
       "controls": [],
       "suite": "pilot",
@@ -827,6 +829,42 @@
           "function": "open_device_home",
           "replay": false,
           "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+        },
+        {
+          "origin": "atlas-v1:10",
+          "destination": "ui-v1:options-preferences",
+          "event": "Swipe left (330, 233) -> (130, 233)",
+          "condition": "The origin native frame has retired and the Settings owner admits the horizontal page gesture",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "settings-menu-to-preferences",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        },
+        {
+          "origin": "atlas-v1:10",
+          "destination": "ui-v1:behavior",
+          "event": "Touch (233, 278)",
+          "condition": "The origin native frame has retired and the native navigation/action control admits this touch",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "settings-menu-to-behavior",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        },
+        {
+          "origin": "atlas-v1:10",
+          "destination": "ui-v1:personalization",
+          "event": "Touch (233, 340)",
+          "condition": "The origin native frame has retired and the native navigation/action control admits this touch",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "menu-to-personalization",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
         }
       ],
       "hard_to_reach": false,
@@ -917,6 +955,18 @@
           "replay": true,
           "route_id": "display-to-settings-menu",
           "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"
+        },
+        {
+          "origin": "ui-v1:display",
+          "destination": "ui-v1:display-rings",
+          "event": "Swipe left (330, 233) -> (130, 233)",
+          "condition": "The origin native frame has retired and the Settings owner admits the horizontal page gesture",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "display-to-rings",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
         }
       ],
       "hard_to_reach": false,
@@ -1875,6 +1925,3702 @@
         }
       ],
       "suite": "pilot",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:options-preferences",
+      "inventory_id": "P02",
+      "title": "Settings menu - page 2",
+      "native_target": "cody.settings.preferences",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p02.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "next-v1:16",
+          "return_to": "next-v1:16"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:options-preferences",
+          "destination": "atlas-v1:10",
+          "event": "Touch (40, 233)",
+          "condition": "The origin native frame has retired and the native navigation/action control admits this touch",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "preferences-to-settings-menu",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        },
+        {
+          "origin": "ui-v1:options-preferences",
+          "destination": "ui-v1:options-device",
+          "event": "Swipe left (330, 233) -> (130, 233)",
+          "condition": "The origin native frame has retired and the Settings owner admits the horizontal page gesture",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "preferences-to-device",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:options-device",
+      "inventory_id": "P03",
+      "title": "Settings menu - page 3",
+      "native_target": "cody.settings.device",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p03.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "next-v1:16",
+          "return_to": "next-v1:16"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:options-device",
+          "destination": "ui-v1:options-preferences",
+          "event": "Touch (40, 233)",
+          "condition": "The origin native frame has retired and the native navigation/action control admits this touch",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "device-to-preferences",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:display-rings",
+      "inventory_id": "P05",
+      "title": "Display and rings",
+      "native_target": "cody.settings.display-rings",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p05.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:display",
+          "return_to": "ui-v1:display"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:display-rings",
+          "destination": "ui-v1:display",
+          "event": "Touch (40, 233)",
+          "condition": "The origin native frame has retired and the native navigation/action control admits this touch",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "rings-to-display",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        },
+        {
+          "origin": "ui-v1:display-rings",
+          "destination": "ui-v1:time",
+          "event": "Swipe left (330, 233) -> (130, 233)",
+          "condition": "The origin native frame has retired and the Settings owner admits the horizontal page gesture",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "rings-to-time",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:time",
+      "inventory_id": "P06",
+      "title": "Time",
+      "native_target": "cody.settings.time",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p06.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:display-rings",
+          "return_to": "ui-v1:display-rings"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:time",
+          "destination": "ui-v1:display-rings",
+          "event": "Touch (40, 233)",
+          "condition": "The origin native frame has retired and the native navigation/action control admits this touch",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "time-to-rings",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:behavior",
+      "inventory_id": "P07",
+      "title": "Behavior",
+      "native_target": "cody.settings.behavior",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p07.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "atlas-v1:10",
+          "return_to": "atlas-v1:10"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:behavior",
+          "destination": "atlas-v1:10",
+          "event": "Touch (40, 233)",
+          "condition": "The origin native frame has retired and the native navigation/action control admits this touch",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "behavior-to-settings-menu",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        },
+        {
+          "origin": "ui-v1:behavior",
+          "destination": "ui-v1:behavior-more",
+          "event": "Swipe left (330, 233) -> (130, 233)",
+          "condition": "The origin native frame has retired and the Settings owner admits the horizontal page gesture",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "behavior-to-more",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:behavior-more",
+      "inventory_id": "P08",
+      "title": "Behavior - more",
+      "native_target": "cody.settings.behavior-more",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p08.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:behavior",
+          "return_to": "ui-v1:behavior"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:behavior-more",
+          "destination": "ui-v1:behavior",
+          "event": "Touch (40, 233)",
+          "condition": "The origin native frame has retired and the native navigation/action control admits this touch",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "more-to-behavior",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        },
+        {
+          "origin": "ui-v1:behavior-more",
+          "destination": "ui-v1:behavior-settings",
+          "event": "Swipe left (330, 233) -> (130, 233)",
+          "condition": "The origin native frame has retired and the Settings owner admits the horizontal page gesture",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "behavior-more-to-settings",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:behavior-settings",
+      "inventory_id": "P09",
+      "title": "Behavior - more settings",
+      "native_target": "cody.settings.behavior-settings",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p09.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:behavior-more",
+          "return_to": "ui-v1:behavior-more"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:behavior-settings",
+          "destination": "ui-v1:behavior-more",
+          "event": "Touch (40, 233)",
+          "condition": "The origin native frame has retired and the native navigation/action control admits this touch",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "behavior-settings-to-more",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:idle-options",
+      "inventory_id": "P10",
+      "title": "Idle display",
+      "native_target": "cody.settings.idle",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p10.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:behavior-more",
+          "return_to": "ui-v1:behavior-more"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:quiet-hours",
+      "inventory_id": "P11",
+      "title": "Quiet hours",
+      "native_target": "cody.settings.quiet-hours",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p11.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:behavior-settings",
+          "return_to": "ui-v1:behavior-settings"
+        },
+        "settings": {},
+        "page": {
+          "quiet_hours_enabled": {
+            "type": "bool"
+          },
+          "quiet_start_minute": {
+            "type": "int",
+            "minimum": 0,
+            "maximum": 1439
+          },
+          "quiet_end_minute": {
+            "type": "int",
+            "minimum": 0,
+            "maximum": 1439
+          }
+        },
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off"
+      ],
+      "controls": [
+        {
+          "path": [
+            "page",
+            "quiet_hours_enabled"
+          ],
+          "label": "Quiet hours enabled"
+        },
+        {
+          "path": [
+            "page",
+            "quiet_start_minute"
+          ],
+          "label": "Saved start minute"
+        },
+        {
+          "path": [
+            "page",
+            "quiet_end_minute"
+          ],
+          "label": "Saved end minute"
+        }
+      ],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "scenario.page",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:alarms",
+      "inventory_id": "P13",
+      "title": "Alarms",
+      "native_target": "cody.settings.alarms",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p13.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:behavior-settings",
+          "return_to": "ui-v1:behavior-settings"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:synth-voice",
+      "inventory_id": "P14",
+      "title": "Synth Voice",
+      "native_target": "cody.settings.synth-voice",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p14.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:behavior-settings",
+          "return_to": "ui-v1:behavior-settings"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "Voice availability/error comes from the host service adapter; this static capture never starts speech playback"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:personalization",
+      "inventory_id": "P15",
+      "title": "Cody personalization",
+      "native_target": "cody.settings.personalization",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p15.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "atlas-v1:10",
+          "return_to": "atlas-v1:10"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:personalization",
+          "destination": "atlas-v1:10",
+          "event": "Touch (40, 233)",
+          "condition": "The origin native frame has retired and the native navigation/action control admits this touch",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "personalization-to-menu",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:themes-first",
+      "inventory_id": "P16",
+      "title": "Cody themes - page 1",
+      "native_target": "cody.settings.themes-first",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p16.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:personalization",
+          "return_to": "ui-v1:personalization"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:themes-second",
+      "inventory_id": "P17",
+      "title": "Cody themes - page 2",
+      "native_target": "cody.settings.themes-second",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p17.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:personalization",
+          "return_to": "ui-v1:personalization"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:restart-confirm",
+      "inventory_id": "P18",
+      "title": "Restart confirmation",
+      "native_target": "cody.settings.restart-confirm",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p18.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:options-preferences",
+          "return_to": "ui-v1:options-preferences"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:restart-confirm",
+          "destination": "ui-v1:options-preferences",
+          "event": "Touch (40, 233)",
+          "condition": "The origin native frame has retired and the native navigation/action control admits this touch",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "restart-confirm-to-preferences",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "Only the confirmation page is prepared; no restart, reset, erase or destructive action is submitted"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:reset-confirm",
+      "inventory_id": "P20",
+      "title": "Factory reset confirmation",
+      "native_target": "cody.settings.reset-confirm",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Preferences",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p20.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:options-preferences",
+          "return_to": "ui-v1:options-preferences"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:reset-confirm",
+          "destination": "ui-v1:options-preferences",
+          "event": "Touch (40, 233)",
+          "condition": "The origin native frame has retired and the native navigation/action control admits this touch",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "reset-confirm-to-preferences",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "Only the confirmation page is prepared; no restart, reset, erase or destructive action is submitted"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "atlas-v1:04",
+      "inventory_id": "S03",
+      "title": "Welcome",
+      "native_target": "cody.setup.welcome",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Setup and guidance",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s03.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network provisioning, account request or paired-device operation is performed"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:welcome-connect",
+      "inventory_id": "S04",
+      "title": "Let us connect",
+      "native_target": "cody.setup.connect",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Setup and guidance",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s04.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "atlas-v1:04",
+          "return_to": "atlas-v1:04"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network provisioning, account request or paired-device operation is performed"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "atlas-v1:05",
+      "inventory_id": "S07",
+      "title": "Wi-Fi setup choice",
+      "native_target": "cody.setup.wifi-guide",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Setup and guidance",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s07.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "atlas-v1:41",
+          "return_to": "atlas-v1:41"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network provisioning, account request or paired-device operation is performed",
+        "The host owner publishes the fixed synthetic Bluetooth setup label AiGadget-000001 with valid sample time; advertising, links and radio operations remain inactive"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "synthetic_ble_name": "AiGadget-000001"
+      }
+    },
+    {
+      "id": "atlas-v1:06",
+      "inventory_id": "S13",
+      "title": "App download QR",
+      "native_target": "cody.setup.app-qr",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Setup and guidance",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s13.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network provisioning, account request or paired-device operation is performed",
+        "The directly prepared native QR has no simulated caller; its Back enters the Bluetooth-instructions state, which has no separate executable Studio identity in this batch"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "atlas-v1:09",
+      "inventory_id": "S16",
+      "title": "Wi-Fi connected result",
+      "native_target": "cody.setup.online",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Setup and guidance",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s16.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network provisioning, account request or paired-device operation is performed",
+        "Connected Wi-Fi comes from the explicitly synthetic network observation; it is not a real provisioning result",
+        "The host owner marks the explicitly synthetic Wi-Fi credentials configured for this result page; no real provisioning or credential write is performed",
+        "This direct connected-result sample has no Back; Continue delegates to returning-device saved-setup evaluation, whose exit is not replayed by this scenario"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "wifi_credentials_configured": true
+      }
+    },
+    {
+      "id": "atlas-v1:40",
+      "inventory_id": "S23",
+      "title": "Connect Codex choice",
+      "native_target": "cody.setup.codex-choice",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Setup and guidance",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-s23.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network provisioning, account request or paired-device operation is performed",
+        "This direct Codex choice uses returning-device context with no Back or first-run guide caller; Decline delegates to the native local-Home owner and is not replayed here"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "atlas-v1:41",
+      "inventory_id": "H05",
+      "title": "Connections",
+      "native_target": "cody.setup.connections",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Connections",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-h05.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "atlas-v1:10",
+          "return_to": "atlas-v1:10"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network provisioning, account request or paired-device operation is performed"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "atlas-v1:42",
+      "inventory_id": "S06",
+      "title": "Offline / network recovery",
+      "controller": "prepare_studio_scene / native display owner",
+      "availability": "unsupported",
+      "group": "Setup and guidance",
+      "verification": "Native frame acquired and repeatable; excluded from current supported coverage after visual review",
+      "variants": [],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "No real network provisioning, account request or paired-device operation is performed"
+      ],
+      "suite": "deferred",
+      "reason": "Deferred after native visual review: the network-recovery page has overlapping mascot/title content and needs a separate production layout review"
+    },
+    {
+      "id": "ui-v1:info-system",
+      "inventory_id": "A01",
+      "title": "About: System",
+      "native_target": "cody.info.system",
+      "controller": "prepare_system_info / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "About and diagnostics",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-a01.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:options-preferences",
+          "return_to": "ui-v1:options-preferences"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_system_info.cpp",
+      "symbol": "prepare_system_info",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:info-system",
+          "destination": "ui-v1:info-memory",
+          "event": "Swipe left (330, 233) -> (130, 233)",
+          "condition": "The origin About frame has retired and its native horizontal navigation admits the next information page",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "info-system-to-memory",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        },
+        {
+          "origin": "ui-v1:info-system",
+          "destination": "ui-v1:options-preferences",
+          "event": "Swipe right (130, 233) -> (330, 233)",
+          "condition": "The origin About System frame has retired and a native right swipe returns to its retained Settings parent independently of faded arrow controls",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "info-system-to-settings-parent",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "Hardware metrics retain canonical unavailable/error states where the host has no acquisition owner; host values are not Cody measurements"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:info-memory",
+      "inventory_id": "A02",
+      "title": "About: Memory",
+      "native_target": "cody.info.memory",
+      "controller": "prepare_system_info / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "About and diagnostics",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-a02.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:options-preferences",
+          "return_to": "ui-v1:options-preferences"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_system_info.cpp",
+      "symbol": "prepare_system_info",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:info-memory",
+          "destination": "ui-v1:info-system",
+          "event": "Swipe right (130, 233) -> (330, 233)",
+          "condition": "The origin About frame has retired and its native horizontal navigation admits the previous information page",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "info-memory-to-system",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        },
+        {
+          "origin": "ui-v1:info-memory",
+          "destination": "ui-v1:info-firmware",
+          "event": "Swipe left (330, 233) -> (130, 233)",
+          "condition": "The origin About frame has retired and its native horizontal navigation admits the next information page",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "info-memory-to-firmware",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "Hardware metrics retain canonical unavailable/error states where the host has no acquisition owner; host values are not Cody measurements"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:info-firmware",
+      "inventory_id": "A03",
+      "title": "About: Firmware",
+      "native_target": "cody.info.firmware",
+      "controller": "prepare_system_info / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "About and diagnostics",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-a03.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:options-preferences",
+          "return_to": "ui-v1:options-preferences"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_system_info.cpp",
+      "symbol": "prepare_system_info",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:info-firmware",
+          "destination": "ui-v1:info-memory",
+          "event": "Swipe right (130, 233) -> (330, 233)",
+          "condition": "The origin About frame has retired and its native horizontal navigation admits the previous information page",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "info-firmware-to-memory",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        },
+        {
+          "origin": "ui-v1:info-firmware",
+          "destination": "ui-v1:vibeware",
+          "event": "Swipe left (330, 233) -> (130, 233)",
+          "condition": "The origin About frame has retired and its native horizontal navigation admits the next information page",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "info-firmware-to-vibeware",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "Hardware metrics retain canonical unavailable/error states where the host has no acquisition owner; host values are not Cody measurements"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:vibeware",
+      "inventory_id": "A04",
+      "title": "About: VibeWare",
+      "native_target": "cody.info.vibeware",
+      "controller": "prepare_system_info / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "About and diagnostics",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-a04.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:options-preferences",
+          "return_to": "ui-v1:options-preferences"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_system_info.cpp",
+      "symbol": "prepare_system_info",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:vibeware",
+          "destination": "ui-v1:info-firmware",
+          "event": "Swipe right (130, 233) -> (330, 233)",
+          "condition": "The origin About frame has retired and its native horizontal navigation admits the previous information page",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "info-vibeware-to-firmware",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        },
+        {
+          "origin": "ui-v1:vibeware",
+          "destination": "ui-v1:project-qr",
+          "event": "Swipe left (330, 233) -> (130, 233)",
+          "condition": "The origin About frame has retired and its native horizontal navigation admits the next information page",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "info-vibeware-to-project",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "Hardware metrics retain canonical unavailable/error states where the host has no acquisition owner; host values are not Cody measurements"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:project-qr",
+      "inventory_id": "A05",
+      "title": "About: Project QR",
+      "native_target": "cody.info.project",
+      "controller": "prepare_about_project_link / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "About and diagnostics",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-a05.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "ui-v1:options-preferences",
+          "return_to": "ui-v1:options-preferences"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_about_project_link",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [
+        {
+          "origin": "ui-v1:project-qr",
+          "destination": "ui-v1:vibeware",
+          "event": "Touch (233, 233), then Swipe right (130, 233) -> (330, 233)",
+          "condition": "A central touch first reveals the native QR navigation chrome and its intermediate frame retires before the right swipe",
+          "evidence": "source-analysis",
+          "component": "CODY native display/input owner",
+          "function": "replay_studio_route",
+          "replay": true,
+          "route_id": "info-project-to-vibeware",
+          "source": "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp"
+        }
+      ],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "Hardware metrics retain canonical unavailable/error states where the host has no acquisition owner; host values are not Cody measurements",
+        "The native project heading uses its original scrolling viewport; the settled initial sample may show a partial title while the QR remains complete"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:diagnostics",
+      "inventory_id": "A06",
+      "title": "Diagnostics overview",
+      "native_target": "cody.diagnostics.overview",
+      "controller": "prepare_device_diagnostics / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "About and diagnostics",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-a06.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "next-v1:16",
+          "return_to": "next-v1:16"
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_device_view.cpp",
+      "symbol": "prepare_device_diagnostics",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "Hardware metrics retain canonical unavailable/error states where the host has no acquisition owner; host values are not Cody measurements"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "widget-v1:Device=0",
+      "inventory_id": "W01",
+      "title": "Device",
+      "native_target": "cody.dashboard.device",
+      "controller": "prepare_device_dashboard / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Counters",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-w01.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_device_view.cpp",
+      "symbol": "prepare_device_dashboard",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": false,
+      "transient_error": false,
+      "limitations": [
+        "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
+        "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
+        "Device and connection state is synthetic; optional firmware observations remain unavailable where unsupported by the host"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "next-v1:101",
+      "inventory_id": "C01",
+      "title": "Codex hub",
+      "native_target": "cody.codex.hub",
+      "controller": "prepare_codex_browser / native display owner",
+      "availability": "presenter-isolated",
+      "rendering_mode": "presenter-isolated",
+      "group": "Codex",
+      "verification": "Linux isolated presenter frame acquired and repeatable; domain transport and physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-c01.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "atlas-v1:10",
+          "return_to": "atlas-v1:10"
+        },
+        "settings": {},
+        "page": {
+          "source_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          },
+          "chat_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          },
+          "turn_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          }
+        },
+        "services": {
+          "domain": {
+            "type": "object",
+            "fields": {
+              "source_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "generation": {
+                "type": "int",
+                "minimum": 1,
+                "maximum": 4294967295
+              },
+              "chat_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "turn_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "chat_title": {
+                "type": "str",
+                "min_length": 1,
+                "max_length": 128
+              },
+              "execution": {
+                "type": "str",
+                "min_length": 1,
+                "max_length": 7,
+                "values": [
+                  "running",
+                  "waiting",
+                  "stopped"
+                ]
+              },
+              "calls": {
+                "type": "array",
+                "minimum_items": 0,
+                "maximum_items": 8,
+                "fields": {
+                  "id": {
+                    "type": "str",
+                    "min_length": 16,
+                    "max_length": 16,
+                    "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+                  },
+                  "turn_id": {
+                    "type": "str",
+                    "min_length": 16,
+                    "max_length": 16,
+                    "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+                  },
+                  "tool_name": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 128
+                  },
+                  "label": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 96
+                  },
+                  "category": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "command",
+                      "file_read",
+                      "file_edit",
+                      "search",
+                      "browser",
+                      "agent",
+                      "service"
+                    ]
+                  },
+                  "state": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "queued",
+                      "running",
+                      "returned",
+                      "failed",
+                      "cancelled"
+                    ]
+                  },
+                  "outcome": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "unknown",
+                      "succeeded",
+                      "failed",
+                      "cancelled"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_codex_browser.cpp",
+      "symbol": "prepare_codex_browser",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "DeviceSnapshotService::readCodexDomainObservation",
+        "CODY_host_onboarding_snapshot",
+        "CodexBrowser"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The unchanged native browser consumes a bounded synthetic canonical query result; production StateStore decoding, reduction, transport and pagination beyond this fixture are not exercised",
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values"
+      ],
+      "controls": [
+        {
+          "path": [
+            "page",
+            "source_id"
+          ],
+          "label": "Source identity (16 hex)"
+        },
+        {
+          "path": [
+            "page",
+            "chat_id"
+          ],
+          "label": "Chat identity (16 hex)"
+        },
+        {
+          "path": [
+            "page",
+            "turn_id"
+          ],
+          "label": "Turn identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "source_id"
+          ],
+          "label": "Source identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "generation"
+          ],
+          "label": "Query generation"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "chat_id"
+          ],
+          "label": "Chat identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "turn_id"
+          ],
+          "label": "Turn identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "chat_title"
+          ],
+          "label": "Chat title"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "execution"
+          ],
+          "label": "Turn execution",
+          "values": [
+            "running",
+            "waiting",
+            "stopped"
+          ]
+        }
+      ],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "next-v1:102",
+      "inventory_id": "C02",
+      "title": "Chats",
+      "native_target": "cody.codex.chats",
+      "controller": "prepare_codex_browser / native display owner",
+      "availability": "presenter-isolated",
+      "rendering_mode": "presenter-isolated",
+      "group": "Codex",
+      "verification": "Linux isolated presenter frame acquired and repeatable; domain transport and physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-c02.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "next-v1:101",
+          "return_to": "next-v1:101"
+        },
+        "settings": {},
+        "page": {
+          "source_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          },
+          "chat_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          },
+          "turn_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          }
+        },
+        "services": {
+          "domain": {
+            "type": "object",
+            "fields": {
+              "source_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "generation": {
+                "type": "int",
+                "minimum": 1,
+                "maximum": 4294967295
+              },
+              "chat_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "turn_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "chat_title": {
+                "type": "str",
+                "min_length": 1,
+                "max_length": 128
+              },
+              "execution": {
+                "type": "str",
+                "min_length": 1,
+                "max_length": 7,
+                "values": [
+                  "running",
+                  "waiting",
+                  "stopped"
+                ]
+              },
+              "calls": {
+                "type": "array",
+                "minimum_items": 0,
+                "maximum_items": 8,
+                "fields": {
+                  "id": {
+                    "type": "str",
+                    "min_length": 16,
+                    "max_length": 16,
+                    "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+                  },
+                  "turn_id": {
+                    "type": "str",
+                    "min_length": 16,
+                    "max_length": 16,
+                    "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+                  },
+                  "tool_name": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 128
+                  },
+                  "label": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 96
+                  },
+                  "category": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "command",
+                      "file_read",
+                      "file_edit",
+                      "search",
+                      "browser",
+                      "agent",
+                      "service"
+                    ]
+                  },
+                  "state": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "queued",
+                      "running",
+                      "returned",
+                      "failed",
+                      "cancelled"
+                    ]
+                  },
+                  "outcome": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "unknown",
+                      "succeeded",
+                      "failed",
+                      "cancelled"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_codex_browser.cpp",
+      "symbol": "prepare_codex_browser",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "DeviceSnapshotService::readCodexDomainObservation",
+        "CODY_host_onboarding_snapshot",
+        "CodexBrowser"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The unchanged native browser consumes a bounded synthetic canonical query result; production StateStore decoding, reduction, transport and pagination beyond this fixture are not exercised",
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values"
+      ],
+      "controls": [
+        {
+          "path": [
+            "page",
+            "source_id"
+          ],
+          "label": "Source identity (16 hex)"
+        },
+        {
+          "path": [
+            "page",
+            "chat_id"
+          ],
+          "label": "Chat identity (16 hex)"
+        },
+        {
+          "path": [
+            "page",
+            "turn_id"
+          ],
+          "label": "Turn identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "source_id"
+          ],
+          "label": "Source identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "generation"
+          ],
+          "label": "Query generation"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "chat_id"
+          ],
+          "label": "Chat identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "turn_id"
+          ],
+          "label": "Turn identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "chat_title"
+          ],
+          "label": "Chat title"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "execution"
+          ],
+          "label": "Turn execution",
+          "values": [
+            "running",
+            "waiting",
+            "stopped"
+          ]
+        }
+      ],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "next-v1:103",
+      "inventory_id": "C03",
+      "title": "Turns",
+      "native_target": "cody.codex.turns",
+      "controller": "prepare_codex_browser / native display owner",
+      "availability": "presenter-isolated",
+      "rendering_mode": "presenter-isolated",
+      "group": "Codex",
+      "verification": "Linux isolated presenter frame acquired and repeatable; domain transport and physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-c03.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "next-v1:102",
+          "return_to": "next-v1:102"
+        },
+        "settings": {},
+        "page": {
+          "source_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          },
+          "chat_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          },
+          "turn_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          }
+        },
+        "services": {
+          "domain": {
+            "type": "object",
+            "fields": {
+              "source_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "generation": {
+                "type": "int",
+                "minimum": 1,
+                "maximum": 4294967295
+              },
+              "chat_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "turn_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "chat_title": {
+                "type": "str",
+                "min_length": 1,
+                "max_length": 128
+              },
+              "execution": {
+                "type": "str",
+                "min_length": 1,
+                "max_length": 7,
+                "values": [
+                  "running",
+                  "waiting",
+                  "stopped"
+                ]
+              },
+              "calls": {
+                "type": "array",
+                "minimum_items": 0,
+                "maximum_items": 8,
+                "fields": {
+                  "id": {
+                    "type": "str",
+                    "min_length": 16,
+                    "max_length": 16,
+                    "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+                  },
+                  "turn_id": {
+                    "type": "str",
+                    "min_length": 16,
+                    "max_length": 16,
+                    "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+                  },
+                  "tool_name": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 128
+                  },
+                  "label": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 96
+                  },
+                  "category": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "command",
+                      "file_read",
+                      "file_edit",
+                      "search",
+                      "browser",
+                      "agent",
+                      "service"
+                    ]
+                  },
+                  "state": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "queued",
+                      "running",
+                      "returned",
+                      "failed",
+                      "cancelled"
+                    ]
+                  },
+                  "outcome": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "unknown",
+                      "succeeded",
+                      "failed",
+                      "cancelled"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_codex_browser.cpp",
+      "symbol": "prepare_codex_browser",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "DeviceSnapshotService::readCodexDomainObservation",
+        "CODY_host_onboarding_snapshot",
+        "CodexBrowser"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The unchanged native browser consumes a bounded synthetic canonical query result; production StateStore decoding, reduction, transport and pagination beyond this fixture are not exercised",
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values"
+      ],
+      "controls": [
+        {
+          "path": [
+            "page",
+            "source_id"
+          ],
+          "label": "Source identity (16 hex)"
+        },
+        {
+          "path": [
+            "page",
+            "chat_id"
+          ],
+          "label": "Chat identity (16 hex)"
+        },
+        {
+          "path": [
+            "page",
+            "turn_id"
+          ],
+          "label": "Turn identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "source_id"
+          ],
+          "label": "Source identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "generation"
+          ],
+          "label": "Query generation"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "chat_id"
+          ],
+          "label": "Chat identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "turn_id"
+          ],
+          "label": "Turn identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "chat_title"
+          ],
+          "label": "Chat title"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "execution"
+          ],
+          "label": "Turn execution",
+          "values": [
+            "running",
+            "waiting",
+            "stopped"
+          ]
+        }
+      ],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "next-v1:105",
+      "inventory_id": "C05",
+      "title": "Active calls",
+      "native_target": "cody.codex.active",
+      "controller": "prepare_codex_browser / native display owner",
+      "availability": "presenter-isolated",
+      "rendering_mode": "presenter-isolated",
+      "group": "Codex",
+      "verification": "Linux isolated presenter frame acquired and repeatable; domain transport and physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-c05.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "next-v1:101",
+          "return_to": "next-v1:101"
+        },
+        "settings": {},
+        "page": {
+          "source_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          },
+          "chat_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          },
+          "turn_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          }
+        },
+        "services": {
+          "domain": {
+            "type": "object",
+            "fields": {
+              "source_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "generation": {
+                "type": "int",
+                "minimum": 1,
+                "maximum": 4294967295
+              },
+              "chat_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "turn_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "chat_title": {
+                "type": "str",
+                "min_length": 1,
+                "max_length": 128
+              },
+              "execution": {
+                "type": "str",
+                "min_length": 1,
+                "max_length": 7,
+                "values": [
+                  "running",
+                  "waiting",
+                  "stopped"
+                ]
+              },
+              "calls": {
+                "type": "array",
+                "minimum_items": 0,
+                "maximum_items": 8,
+                "fields": {
+                  "id": {
+                    "type": "str",
+                    "min_length": 16,
+                    "max_length": 16,
+                    "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+                  },
+                  "turn_id": {
+                    "type": "str",
+                    "min_length": 16,
+                    "max_length": 16,
+                    "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+                  },
+                  "tool_name": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 128
+                  },
+                  "label": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 96
+                  },
+                  "category": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "command",
+                      "file_read",
+                      "file_edit",
+                      "search",
+                      "browser",
+                      "agent",
+                      "service"
+                    ]
+                  },
+                  "state": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "queued",
+                      "running",
+                      "returned",
+                      "failed",
+                      "cancelled"
+                    ]
+                  },
+                  "outcome": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "unknown",
+                      "succeeded",
+                      "failed",
+                      "cancelled"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_codex_browser.cpp",
+      "symbol": "prepare_codex_browser",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "DeviceSnapshotService::readCodexDomainObservation",
+        "CODY_host_onboarding_snapshot",
+        "CodexBrowser"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The unchanged native browser consumes a bounded synthetic canonical query result; production StateStore decoding, reduction, transport and pagination beyond this fixture are not exercised",
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values"
+      ],
+      "controls": [
+        {
+          "path": [
+            "page",
+            "source_id"
+          ],
+          "label": "Source identity (16 hex)"
+        },
+        {
+          "path": [
+            "page",
+            "chat_id"
+          ],
+          "label": "Chat identity (16 hex)"
+        },
+        {
+          "path": [
+            "page",
+            "turn_id"
+          ],
+          "label": "Turn identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "source_id"
+          ],
+          "label": "Source identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "generation"
+          ],
+          "label": "Query generation"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "chat_id"
+          ],
+          "label": "Chat identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "turn_id"
+          ],
+          "label": "Turn identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "chat_title"
+          ],
+          "label": "Chat title"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "execution"
+          ],
+          "label": "Turn execution",
+          "values": [
+            "running",
+            "waiting",
+            "stopped"
+          ]
+        }
+      ],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "next-v1:106",
+      "inventory_id": "C06",
+      "title": "Pending questions unavailable",
+      "native_target": "cody.codex.questions",
+      "controller": "prepare_codex_browser / native display owner",
+      "availability": "presenter-isolated",
+      "rendering_mode": "presenter-isolated",
+      "group": "Codex",
+      "verification": "Linux isolated presenter frame acquired and repeatable; domain transport and physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "synthetic-input"
+      ],
+      "scenario": "cody-studio-c06.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": "next-v1:101",
+          "return_to": "next-v1:101"
+        },
+        "settings": {},
+        "page": {
+          "source_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          },
+          "chat_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          },
+          "turn_id": {
+            "type": "str",
+            "min_length": 16,
+            "max_length": 16,
+            "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+          }
+        },
+        "services": {
+          "domain": {
+            "type": "object",
+            "fields": {
+              "source_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "generation": {
+                "type": "int",
+                "minimum": 1,
+                "maximum": 4294967295
+              },
+              "chat_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "turn_id": {
+                "type": "str",
+                "min_length": 16,
+                "max_length": 16,
+                "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+              },
+              "chat_title": {
+                "type": "str",
+                "min_length": 1,
+                "max_length": 128
+              },
+              "execution": {
+                "type": "str",
+                "min_length": 1,
+                "max_length": 7,
+                "values": [
+                  "running",
+                  "waiting",
+                  "stopped"
+                ]
+              },
+              "calls": {
+                "type": "array",
+                "minimum_items": 0,
+                "maximum_items": 8,
+                "fields": {
+                  "id": {
+                    "type": "str",
+                    "min_length": 16,
+                    "max_length": 16,
+                    "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+                  },
+                  "turn_id": {
+                    "type": "str",
+                    "min_length": 16,
+                    "max_length": 16,
+                    "pattern": "(?!0000000000000000$)[0-9a-f]{16}"
+                  },
+                  "tool_name": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 128
+                  },
+                  "label": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 96
+                  },
+                  "category": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "command",
+                      "file_read",
+                      "file_edit",
+                      "search",
+                      "browser",
+                      "agent",
+                      "service"
+                    ]
+                  },
+                  "state": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "queued",
+                      "running",
+                      "returned",
+                      "failed",
+                      "cancelled"
+                    ]
+                  },
+                  "outcome": {
+                    "type": "str",
+                    "min_length": 1,
+                    "max_length": 9,
+                    "values": [
+                      "unknown",
+                      "succeeded",
+                      "failed",
+                      "cancelled"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_codex_browser.cpp",
+      "symbol": "prepare_codex_browser",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "DeviceSnapshotService::readCodexDomainObservation",
+        "CODY_host_onboarding_snapshot",
+        "CodexBrowser"
+      ],
+      "time_control": "Controlled static sample at t=0; source animation samples are explicit, not asynchronous worker replay",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The unchanged native browser consumes a bounded synthetic canonical query result; production StateStore decoding, reduction, transport and pagination beyond this fixture are not exercised",
+        "Native pilot dependencies use Counter mode off and Sounds off; quiet hours are off at 22:00-07:00 except the explicit P12 editor values",
+        "The isolated query owner reports pending questions unsupported; this capture covers the production unavailable/events-handoff presentation, not question content or reply actions"
+      ],
+      "controls": [
+        {
+          "path": [
+            "page",
+            "source_id"
+          ],
+          "label": "Source identity (16 hex)"
+        },
+        {
+          "path": [
+            "page",
+            "chat_id"
+          ],
+          "label": "Chat identity (16 hex)"
+        },
+        {
+          "path": [
+            "page",
+            "turn_id"
+          ],
+          "label": "Turn identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "source_id"
+          ],
+          "label": "Source identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "generation"
+          ],
+          "label": "Query generation"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "chat_id"
+          ],
+          "label": "Chat identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "turn_id"
+          ],
+          "label": "Turn identity (16 hex)"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "chat_title"
+          ],
+          "label": "Chat title"
+        },
+        {
+          "path": [
+            "services",
+            "domain",
+            "execution"
+          ],
+          "label": "Turn execution",
+          "values": [
+            "running",
+            "waiting",
+            "stopped"
+          ]
+        }
+      ],
+      "suite": "extension",
       "fixed_dependencies": {
         "counter_mode": false,
         "sounds_enabled": false,

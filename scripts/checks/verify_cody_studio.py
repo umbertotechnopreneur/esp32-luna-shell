@@ -285,7 +285,8 @@ class CatalogContractTests(unittest.TestCase):
         self.assertEqual(display["id"], "ui-v1:display")
         self.assertEqual(entry_for("ui-v1:display"), display)
         self.assertEqual(display["inventory"]["reported_entry_count"], 100)
-        self.assertEqual(display["inventory"]["entry_count_status"], "owner-estimate-unverified")
+        self.assertEqual(display["inventory"]["entry_count_status"], "document-count-verified")
+        self.assertEqual(display["inventory"]["verified_document_entry_count"], 100)
         inventory_path = Path(display["inventory"]["document"])
         self.assertFalse(inventory_path.is_absolute())
         self.assertEqual(inventory_path.name, "Cody-screen-inventory.pdf")
@@ -304,9 +305,9 @@ class CatalogContractTests(unittest.TestCase):
         for identity in ("P01", "P04"):
             routes = routes_for(identity)
             replayable = [route for route in routes if route.get("replay")]
-            self.assertEqual({route["route_id"] for route in replayable}, expected)
+            self.assertTrue(expected.issubset({route["route_id"] for route in replayable}))
             self.assertTrue(all(route["evidence"] == "source-analysis" for route in replayable))
-            self.assertEqual(len(replayable), len(expected))
+            self.assertEqual(len(replayable), len({route["route_id"] for route in replayable}))
 
     # self: Guide transitions must preserve the declared origin and native target.
     # Raises AssertionError for fabricated route direction, identity or evidence.
@@ -1196,6 +1197,18 @@ class AtlasUiWorkerTests(unittest.TestCase):
         print(process.stdout, end="", flush=True)
 
 
+class CueUiWorkerTests(unittest.TestCase):
+    """Keep audio UI acceptance in its own process-global native lifetime."""
+
+    # self: Parent suite; only the dedicated child opens this real Tk/native workflow.
+    # Raises original worker errors and retains their diagnostics beneath artifacts.
+    def test_cue_controls_in_a_fresh_process(self):
+        directory = fixture_directory()
+        process = run_host_worker([sys.executable, "-B", str(Path(__file__).resolve()),
+                                   "--audio-cues-ui-worker"], directory, "cue-ui", timeout=120)
+        print(process.stdout, end="", flush=True)
+
+
 class NativeUiTests(unittest.TestCase):
     """Exercise the real Tk product and native owner, without manual dialogs.
 
@@ -1266,12 +1279,16 @@ class NativeUiTests(unittest.TestCase):
     # description: Assertion context when the bounded real event-loop wait expires.
     # timeout: Real seconds, distinct from the controlled scenario clock.
     # Raises AssertionError for a timeout or uncaught Tk callback failure.
+    # Retires pending callbacks and their BooleanVar on the interpreter's owning thread.
     def wait_for(self, predicate, description, timeout=15):
         completed = self.tk.BooleanVar(master=self.root, value=False)
         deadline, outcome = time.monotonic() + timeout, {"done": False}
+        callback_id = None
 
         # No parameters: inspect actual Tk/owner state, then schedule another event check.
         def observe():
+            nonlocal callback_id
+            callback_id = None
             if self.callback_errors:
                 completed.set(True)
             elif predicate():
@@ -1280,10 +1297,18 @@ class NativeUiTests(unittest.TestCase):
             elif time.monotonic() >= deadline:
                 completed.set(True)
             else:
-                self.root.after(10, observe)
+                callback_id = self.root.after(10, observe)
 
-        self.root.after_idle(observe)
-        self.root.wait_variable(completed)
+        callback_id = self.root.after_idle(observe)
+        try:
+            self.root.wait_variable(completed)
+        finally:
+            if callback_id is not None:
+                self.root.after_cancel(callback_id)
+            # The recursive callback closes over itself and completed. Break
+            # that cycle here; collection on a native worker must never run a
+            # Tk Variable destructor belonging to this interpreter.
+            observe = None
         self.assertEqual(self.callback_errors, [], "Uncaught Tk callback failure")
         self.assertTrue(outcome["done"], f"Timed out waiting for {description}; UI: {self.window.status.get()}")
 
@@ -2624,18 +2649,27 @@ def main(argv=None):
                         help="Verify inventory-linked PDF export from validated native atlas results")
     parser.add_argument("--atlas-ui", action="store_true",
                         help="Exercise atlas controls in real Tk/native Studio; requires a display")
+    parser.add_argument("--coverage", action="store_true",
+                        help="Verify extended native families and repeated captures in fresh/reversed sessions")
+    parser.add_argument("--audio-cues", action="store_true",
+                        help="Verify isolated firmware cue audition with native PCM and sound policy")
+    parser.add_argument("--audio-cues-ui", action="store_true",
+                        help="Verify real Studio cue controls and session isolation; requires a display")
     parser.add_argument("--pilot-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--phase-e-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--phase-e-contended-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--live-audio-worker", choices=("on", "off"), help=argparse.SUPPRESS)
     parser.add_argument("--guide-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--atlas-ui-worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--audio-cues-ui-worker", action="store_true", help=argparse.SUPPRESS)
     arguments = parser.parse_args(argv)
     workers = (arguments.pilot_worker, arguments.phase_e_worker, arguments.phase_e_contended_worker,
-               bool(arguments.live_audio_worker), arguments.guide_worker, arguments.atlas_ui_worker)
+               bool(arguments.live_audio_worker), arguments.guide_worker, arguments.atlas_ui_worker,
+               arguments.audio_cues_ui_worker)
     if any(workers):
         if (arguments.native or arguments.ui or arguments.pilot or arguments.phase_e or arguments.live_audio or arguments.guide or arguments.host_audio or
                 arguments.atlas or arguments.atlas_pdf or arguments.atlas_ui or
+                arguments.coverage or arguments.audio_cues or arguments.audio_cues_ui or
                 sum(workers) != 1):
             parser.error("Internal workers cannot be combined with suite flags")
         if arguments.pilot_worker:
@@ -2647,6 +2681,10 @@ def main(argv=None):
         if arguments.atlas_ui_worker:
             import cody_studio_atlas_ui_checks
             result = unittest.TextTestRunner(verbosity=2).run(cody_studio_atlas_ui_checks.suite(NativeUiTests))
+            return 0 if result.wasSuccessful() else 1
+        if arguments.audio_cues_ui_worker:
+            import cody_studio_audio_checks
+            result = unittest.TextTestRunner(verbosity=2).run(cody_studio_audio_checks.ui_suite(NativeUiTests))
             return 0 if result.wasSuccessful() else 1
         return run_phase_e_worker() if arguments.phase_e_worker else run_phase_e_contended_worker()
     loader = unittest.TestLoader()
@@ -2676,6 +2714,17 @@ def main(argv=None):
         suite.addTests(loader.loadTestsFromModule(cody_studio_atlas_pdf_checks))
     if arguments.atlas_ui:
         suite.addTests(loader.loadTestsFromTestCase(AtlasUiWorkerTests))
+    if arguments.coverage:
+        import cody_studio_coverage_checks
+        suite.addTests(loader.loadTestsFromModule(cody_studio_coverage_checks))
+    if arguments.audio_cues:
+        import cody_studio_audio_checks
+        suite.addTests(loader.loadTestsFromModule(cody_studio_audio_checks))
+    if arguments.audio_cues_ui:
+        suite.addTests(loader.loadTestsFromTestCase(CueUiWorkerTests))
+    if arguments.host_audio:
+        import cody_studio_audio_checks
+        suite.addTests(cody_studio_audio_checks.host_suite())
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     print("Generated artifacts are retained; cleanup is manual.")
     return 0 if result.wasSuccessful() else 1

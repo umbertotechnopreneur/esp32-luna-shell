@@ -37,6 +37,20 @@ struct CodyHostAudioPlaybackProbe {
     int64_t observed_at_us;
 };
 
+// Semantic audition outcome; numeric firmware enums never cross this boundary.
+struct CodyHostAudioAudition {
+    uint32_t abi = 1;
+    uint32_t size = sizeof(CodyHostAudioAudition);
+    uint32_t cue_id = 0;
+    uint32_t sequence = 0;
+    int32_t error = 0;
+    char state[24]{};
+};
+
+// No parameters: the isolated audition child keeps its display owner parked.
+// Exception: No exceptions; ordinary native windows and boot replay return false.
+bool cody_host_audio_audition_active();
+
 // sink: Explicit host output owner; no callback means the audio route is unavailable.
 // context: Borrowed host state retained until route deinitialization.
 // Registration must precede native settings startup; it arms the real Cody policy

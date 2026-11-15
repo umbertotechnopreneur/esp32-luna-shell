@@ -104,9 +104,12 @@ identify the owning journey; exact current controls remain in navigation.md.
 | next-v1:10 / tools | ON `OptionsPage::Menu` is reusable source | Proposed top-level peer of Muse Home | Planned exposure; current Tools is inside Options |
 | ui-v1:branding | `VIBEWARE_boot_animation.c`, `assets/branding/VibeWare` | Cold boot/software restart -> Muse | Active source |
 | ui-v1:birth | UI `advance_birth_intro`, original Muse renderer and settings owner | First-boot birth introduction -> mascot/setup; host direct sample preserves the original renderer | Active source; boot-only entry requires explicit preparation |
+| ui-v1:welcome-connect | ON `FirstRunIntro::Connect` on `Route::Hello04` | First-run welcome -> connection choice; prepared on the display owner | Active source; host static inspection does not complete first-run setup |
 | ui-v1:wifi-networks, wifi-scan-unavailable | ON `LocalWifiPage::Networks`, scan result | Wi-Fi setup -> network list or unavailable scan; Back returns to setup | Active source; synthetic host network observations are labelled in the simulator |
 | ui-v1:options-preferences, options-device | ON `MenuMore`, `MenuMaintenance` | Options pages -> child setting or Home | Active source |
 | ui-v1:display, behavior, behavior-more, synth-voice | ON corresponding `OptionsPage` | Settings owner readback -> caller | Active source; synth rows report unsupported where excluded |
+| ui-v1:display-rings, time, behavior-settings, alarms, idle-options | ON `DisplayRings`, `Time`, `BehaviorMoreSettings`, `Alarms`, `IdleOptions` | Display/Behavior child pages -> owning parent; snapshot and settings observations | Active source; service-dependent values retain their actual availability |
+| ui-v1:personalization, themes-first, themes-second | ON `OptionsPage::CodyOptions`, `OptionsPage::ThemesFirst`, `OptionsPage::ThemesSecond` | Cody preferences -> theme pages -> parent | Active source; no extra artwork or actions invented by Studio |
 | ui-v1:quiet-hours, quiet-hours-edit | ON `QuietHours`, `QuietEdit`; clock/settings owner | Behavior -> quiet-hours summary -> selected start/end editor; Back retains caller and draft context | Active source; summary and editor are distinct identities |
 | ui-v1:guide-buttons, guide-touch, guide-sofia, guide-offline, guide-project, guide-thanks | ON `GuideButtons/Touch/Sofia/Offline/Project/Thanks` and `CODY_guide_presenter.cpp` | First-run tour or Device help -> adjacent guide page | Active source; Sofia requires the wake-word profile and first-run progress is independent of Wi-Fi first-boot completion |
 | ui-v1:restart-confirm, restart-pending | ON restart pages | Explicit confirmation -> power owner, no reset of saved settings | Active source |
@@ -178,8 +181,9 @@ separate from acquisition, pixel comparison and human review status. All ten
 pilot cases have executed Linux exact-pixel repeatability and Tk acceptance:
 nine full-runtime cases and C04 through the production C++ presenter with typed
 synthetic queries. C04 does not establish transport/reducer or general
-pagination acceptance. S01/S02 inspect explicit source-animation samples;
-they do not replay asynchronous startup workers. The suite also checks
+pagination acceptance. S01/S02 inspect explicit source-animation samples and
+support isolated display-worker replay; general asynchronous service-worker
+scheduling remains outside that controlled scope. The suite also checks
 out-of-order preparation, error recovery and isolation from an interactive
 session. Source presence alone does not extend that evidence to new cases or
 physical devices. Clock and worker limits remain attached to each capture.

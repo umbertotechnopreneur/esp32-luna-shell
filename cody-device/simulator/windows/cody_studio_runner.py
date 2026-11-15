@@ -83,19 +83,26 @@ def validate_receipt(receipt, scenario, entry, rendering_mode=None):
                 (worker_mode and not 0 <= observed <= receipt["at_ms"]) or
                 (not worker_mode and observed != scenario["page"]["sample_at_ms"])):
             raise ValueError("Native completed-frame receipt has a different source animation sample")
-    if entry["native_target"] == "cody.codex.calls":
+    if entry["native_target"] in ("cody.codex.hub", "cody.codex.chats", "cody.codex.turns", "cody.codex.calls",
+                                 "cody.codex.active", "cody.codex.questions"):
         context = receipt.get("context")
         if (type(receipt.get("abi")) is not int or receipt["abi"] < 2 or not isinstance(context, dict) or
                 any(context.get(key) != scenario["page"][key] for key in ("source_id", "chat_id", "turn_id"))):
-            raise ValueError("Native C04 completed-frame receipt has a different effective query scope")
+            raise ValueError("Native Codex completed-frame receipt has a different effective query scope")
         calls = {call["id"]: call for call in scenario["services"]["domain"]["calls"]}
+        if entry["native_target"] == "cody.codex.active":
+            expected_ids = [identity for identity, call in calls.items() if call["state"] in ("queued", "running")][:3]
+        elif entry["native_target"] == "cody.codex.calls":
+            expected_ids = list(calls)[:3]
+        else:
+            expected_ids = []
         visible = context.get("call_ids")
-        if (not isinstance(visible, list) or len(visible) != min(3, len(calls)) or
+        if (not isinstance(visible, list) or visible != expected_ids or
                 any(not isinstance(identity, str) for identity in visible) or len(set(visible)) != len(visible) or
                 any(identity not in calls or calls[identity]["turn_id"] != context["turn_id"] for identity in visible)):
-            raise ValueError("Native C04 completed-frame receipt has unrelated or missing visible calls")
+            raise ValueError("Native Codex completed-frame receipt has unrelated or missing visible calls")
         if type(receipt.get("call_count")) is not int or receipt["call_count"] != len(visible):
-            raise ValueError("Native C04 completed-frame receipt has an inconsistent visible call count")
+            raise ValueError("Native Codex completed-frame receipt has an inconsistent visible call count")
     if entry["native_target"] == "cody.provisioning.error":
         if (receipt.get("service_outcome") != scenario["services"]["provisioning"]["outcome"] or
                 type(receipt.get("service_error")) is not int or receipt["service_error"] == 0):
@@ -110,7 +117,7 @@ def fixed_dependencies(entry, scenario):
     settings = scenario["common"]["settings"]
     if "sounds_enabled" in settings:
         policy["sounds_enabled"] = settings["sounds_enabled"]
-    if entry["native_target"] == "cody.settings.quiet-edit":
+    if entry["native_target"] in ("cody.settings.quiet-edit", "cody.settings.quiet-hours"):
         page = scenario["page"]
         policy["quiet_hours"].update(enabled=page["quiet_hours_enabled"],
                                      start_minute=page["quiet_start_minute"],

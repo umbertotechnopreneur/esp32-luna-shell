@@ -57,6 +57,7 @@
 #include "scene_data.hpp"
 #if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
 #include "cody_host_studio.h"
+#include "../../../../simulator/native/CODY_host_audio_codec.hpp"
 #include "../../../../simulator/native/CODY_host_onboarding_snapshot.hpp"
 #include "LUNASHELL_clock.hpp"
 #include <chrono>
@@ -4003,6 +4004,39 @@ void advance_lifecycle_request(LifecycleRequest &request, CODY::SettingsLifecycl
 }
 
 #if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
+// target: Validated semantic browser target.
+// Exception: No exceptions; unknown targets remain Closed and are never treated as browser pages.
+CODY::CodexBrowserRoute studio_browser_route(const char *target)
+{
+    using Route = CODY::CodexBrowserRoute;
+    struct NamedRoute { const char *target; Route route; };
+    static constexpr NamedRoute routes[]{
+        {"cody.codex.hub", Route::Hub}, {"cody.codex.chats", Route::Chats},
+        {"cody.codex.turns", Route::Turns}, {"cody.codex.calls", Route::Calls},
+        {"cody.codex.active", Route::ActiveCalls}, {"cody.codex.questions", Route::PendingQuestions},
+    };
+    for (const auto &route : routes) if (std::strcmp(target, route.target) == 0) return route.route;
+    return Route::Closed;
+}
+
+// target: Stable About child identity selected by the host controller.
+// page: Receives the typed InfoPage only for a supported target.
+// Exception: No exceptions; unsupported names leave page unchanged.
+bool studio_info_page(const char *target, CODY::InfoPage &page)
+{
+    struct NamedPage { const char *target; CODY::InfoPage page; };
+    static constexpr NamedPage pages[]{
+        {"cody.info.system", CODY::InfoPage::System}, {"cody.info.memory", CODY::InfoPage::Memory},
+        {"cody.info.firmware", CODY::InfoPage::Firmware}, {"cody.info.vibeware", CODY::InfoPage::VibeWare},
+        {"cody.info.project", CODY::InfoPage::ProjectLink},
+    };
+    for (const auto &candidate : pages) if (std::strcmp(target, candidate.target) == 0) {
+        page = candidate.page;
+        return true;
+    }
+    return false;
+}
+
 // frame: Owner-prepared view about to enter the display transaction.
 // Exception: No exceptions; rejects a different effective layer, page or query scope.
 bool studio_frame_matches(const FrameView &frame)
@@ -4017,8 +4051,16 @@ bool studio_frame_matches(const FrameView &frame)
         return frame.layer == Layer::Dashboard && ui.state.widgets.selected_screen == WidgetScreen::Reset;
     if (std::strcmp(target, "cody.dashboard.limits") == 0)
         return frame.layer == Layer::Dashboard && ui.state.widgets.selected_screen == WidgetScreen::Limits;
-    if (std::strcmp(target, "cody.codex.calls") == 0)
-        return frame.layer == Layer::CodexBrowser && ui.state.codex_browser.route == CODY::CodexBrowserRoute::Calls &&
+    if (std::strcmp(target, "cody.dashboard.device") == 0)
+        return frame.layer == Layer::Dashboard && ui.state.widgets.selected_screen == WidgetScreen::Device;
+    if (std::strcmp(target, "cody.diagnostics.overview") == 0)
+        return frame.layer == Layer::Diagnostics && ui.state.diagnostics;
+    CODY::InfoPage info{};
+    if (studio_info_page(target, info)) return ui.state.widgets.selected_screen == WidgetScreen::About &&
+        ui.state.info_page == info && frame.layer == (info == CODY::InfoPage::ProjectLink ? Layer::AboutLink : Layer::Dashboard);
+    const auto browser_route = studio_browser_route(target);
+    if (browser_route != CODY::CodexBrowserRoute::Closed)
+        return frame.layer == Layer::CodexBrowser && ui.state.codex_browser.route == browser_route &&
             ui.state.codex_browser.chat.source.value == s_studio_identity.source_id &&
             ui.state.codex_browser.chat.value == s_studio_identity.chat_id &&
             ui.state.codex_browser.turn.value == s_studio_identity.turn_id;
@@ -4028,7 +4070,7 @@ bool studio_frame_matches(const FrameView &frame)
 // ui: Serialized display owner whose browser scratch retains the exact query rows.
 // request: Explicit selection checked against the synthetic canonical query owner.
 // Exception: Returns unavailable, mismatched parent scope or original query errors.
-esp_err_t prepare_studio_calls(DeviceRuntime &ui, const CodyHostStudioCase &request)
+esp_err_t prepare_studio_browser(DeviceRuntime &ui, const CodyHostStudioCase &request)
 {
     auto &browser = ui.state.codex_browser;
     CODY::Domain::StateQuery query{};
@@ -4043,10 +4085,12 @@ esp_err_t prepare_studio_calls(DeviceRuntime &ui, const CodyHostStudioCase &requ
     browser.chat = turn->rows[0].chat;
     browser.turn = turn->rows[0].id;
     browser.turns_parent = CODY::CodexBrowserRoute::Chats;
-    browser.route = CODY::CodexBrowserRoute::Calls;
+    browser.route = studio_browser_route(request.identity.target);
     browser.refresh_at_us = 0;
-    return ESP_OK;
+    return browser.route == CODY::CodexBrowserRoute::Closed ? ESP_ERR_NOT_SUPPORTED : ESP_OK;
 }
+
+enum class StudioRouteGesture : uint8_t { Touch, SwipeLeft, SwipeRight };
 
 struct StudioRouteDefinition {
     const char *id;
@@ -4054,6 +4098,7 @@ struct StudioRouteDefinition {
     const char *destination;
     uint16_t x;
     uint16_t y;
+    StudioRouteGesture gesture = StudioRouteGesture::Touch;
 };
 
 // These are host gesture contracts, not Python enum ordinals. Scene admission
@@ -4061,6 +4106,33 @@ struct StudioRouteDefinition {
 constexpr StudioRouteDefinition kStudioRoutes[]{
     {"settings-menu-to-display", "cody.settings.menu", "cody.settings.display", 233, 216},
     {"display-to-settings-menu", "cody.settings.display", "cody.settings.menu", 40, 233},
+    {"settings-menu-to-preferences", "cody.settings.menu", "cody.settings.preferences", 330, 233, StudioRouteGesture::SwipeLeft},
+    {"preferences-to-settings-menu", "cody.settings.preferences", "cody.settings.menu", 40, 233},
+    {"preferences-to-device", "cody.settings.preferences", "cody.settings.device", 330, 233, StudioRouteGesture::SwipeLeft},
+    {"device-to-preferences", "cody.settings.device", "cody.settings.preferences", 40, 233},
+    {"settings-menu-to-behavior", "cody.settings.menu", "cody.settings.behavior", 233, 278},
+    {"behavior-to-settings-menu", "cody.settings.behavior", "cody.settings.menu", 40, 233},
+    {"menu-to-personalization", "cody.settings.menu", "cody.settings.personalization", 233, 340},
+    {"personalization-to-menu", "cody.settings.personalization", "cody.settings.menu", 40, 233},
+    {"display-to-rings", "cody.settings.display", "cody.settings.display-rings", 330, 233, StudioRouteGesture::SwipeLeft},
+    {"rings-to-display", "cody.settings.display-rings", "cody.settings.display", 40, 233},
+    {"rings-to-time", "cody.settings.display-rings", "cody.settings.time", 330, 233, StudioRouteGesture::SwipeLeft},
+    {"time-to-rings", "cody.settings.time", "cody.settings.display-rings", 40, 233},
+    {"behavior-to-more", "cody.settings.behavior", "cody.settings.behavior-more", 330, 233, StudioRouteGesture::SwipeLeft},
+    {"more-to-behavior", "cody.settings.behavior-more", "cody.settings.behavior", 40, 233},
+    {"behavior-more-to-settings", "cody.settings.behavior-more", "cody.settings.behavior-settings", 330, 233, StudioRouteGesture::SwipeLeft},
+    {"behavior-settings-to-more", "cody.settings.behavior-settings", "cody.settings.behavior-more", 40, 233},
+    {"restart-confirm-to-preferences", "cody.settings.restart-confirm", "cody.settings.preferences", 40, 233},
+    {"reset-confirm-to-preferences", "cody.settings.reset-confirm", "cody.settings.preferences", 40, 233},
+    {"info-system-to-memory", "cody.info.system", "cody.info.memory", 330, 233, StudioRouteGesture::SwipeLeft},
+    {"info-memory-to-system", "cody.info.memory", "cody.info.system", 130, 233, StudioRouteGesture::SwipeRight},
+    {"info-memory-to-firmware", "cody.info.memory", "cody.info.firmware", 330, 233, StudioRouteGesture::SwipeLeft},
+    {"info-firmware-to-memory", "cody.info.firmware", "cody.info.memory", 130, 233, StudioRouteGesture::SwipeRight},
+    {"info-firmware-to-vibeware", "cody.info.firmware", "cody.info.vibeware", 330, 233, StudioRouteGesture::SwipeLeft},
+    {"info-vibeware-to-firmware", "cody.info.vibeware", "cody.info.firmware", 130, 233, StudioRouteGesture::SwipeRight},
+    {"info-vibeware-to-project", "cody.info.vibeware", "cody.info.project", 330, 233, StudioRouteGesture::SwipeLeft},
+    {"info-project-to-vibeware", "cody.info.project", "cody.info.vibeware", 130, 233, StudioRouteGesture::SwipeRight},
+    {"info-system-to-settings-parent", "cody.info.system", "cody.settings.preferences", 130, 233, StudioRouteGesture::SwipeRight},
     {"guide-buttons-to-touch", "cody.guide.buttons", "cody.guide.touch", 426, 233},
     {"guide-touch-to-buttons", "cody.guide.touch", "cody.guide.buttons", 40, 233},
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
@@ -4096,7 +4168,9 @@ esp_err_t replay_studio_route(DeviceRuntime &ui, const CodyHostStudioRouteReques
     CodyHostStudioFrameIdentity observed{};
     auto error = cody_host_display_read_studio_identity(&observed);
     if (error != ESP_OK) return error;
-    if (!ui.state.retired.valid || ui.state.retired.layer != Layer::Scene ||
+    const bool source_layer = ui.state.retired.layer == Layer::Scene ||
+        ui.state.retired.layer == Layer::Dashboard || ui.state.retired.layer == Layer::AboutLink;
+    if (!ui.state.retired.valid || !source_layer ||
         std::strcmp(observed.target, origin) != 0 ||
         std::strcmp(observed.scenario_revision, request.origin_scenario_revision) != 0 ||
         std::strcmp(s_studio_identity.target, origin) != 0 ||
@@ -4104,9 +4178,10 @@ esp_err_t replay_studio_route(DeviceRuntime &ui, const CodyHostStudioRouteReques
         !CODY::studio_scene_active(origin)) return ESP_ERR_INVALID_STATE;
     error = cody_host_studio_touch_begin();
     if (error != ESP_OK) return error;
-    if (std::strcmp(origin, "cody.guide.project") == 0) {
-        // The QR page initially hides its chevrons. A real central tap reveals
-        // them; retain input ownership while the intermediate frame retires.
+    if (std::strcmp(origin, "cody.guide.project") == 0 ||
+        std::strcmp(origin, "cody.info.project") == 0) {
+        // QR pages initially hide native chrome. A real central tap reveals
+        // it; retain input ownership while the intermediate frame retires.
         error = cody_host_studio_touch_event(1, 233, 233);
         if (error == ESP_OK) error = sample_touch();
         if (error == ESP_OK) error = cody_host_studio_touch_event(0, 233, 233);
@@ -4134,18 +4209,32 @@ esp_err_t replay_studio_route(DeviceRuntime &ui, const CodyHostStudioRouteReques
             return error != ESP_OK ? error : ESP_ERR_INVALID_STATE;
         }
     }
-    // Coordinates are native logical hit targets: Display row 2 or the visible
-    // left chevron. sample_touch applies the same retired-frame admission and
-    // onboarding press/release handling as an ordinary simulated contact.
+    // Coordinates are native logical hit targets or authored swipe endpoints.
+    // sample_touch applies the same retired-frame admission and owner handling
+    // as an ordinary simulated contact.
     const uint16_t x = route->x;
     const uint16_t y = route->y;
     error = cody_host_studio_touch_event(1, x, y);
     const bool dispatched = error == ESP_OK;
     if (dispatched) {
         const auto press_error = sample_touch();
-        const auto release_error = cody_host_studio_touch_event(0, x, y);
-        const auto read_error = release_error == ESP_OK ? sample_touch() : release_error;
-        error = press_error != ESP_OK ? press_error : read_error;
+        const bool swipe = route->gesture != StudioRouteGesture::Touch;
+        const uint16_t release_x = route->gesture == StudioRouteGesture::SwipeLeft ? 130U :
+            route->gesture == StudioRouteGesture::SwipeRight ? 330U : x;
+        esp_err_t motion_error = ESP_OK;
+        if (press_error == ESP_OK && swipe) {
+            // Settings and About pagination use the authored horizontal gesture.
+            // The held report establishes dx for the same native touch owner.
+            motion_error = cody_host_studio_touch_event(1, release_x, y);
+            if (motion_error == ESP_OK) motion_error = sample_touch();
+        }
+        error = press_error != ESP_OK ? press_error : motion_error;
+        if (error == ESP_OK) {
+            const auto release_error = cody_host_studio_touch_event(0, release_x, y);
+            error = release_error == ESP_OK ? sample_touch() : release_error;
+        }
+        // A failed held report must be aborted below, never converted into a
+        // released tap that could enqueue a settings write on the start row.
     }
     if (error == ESP_OK) error = cody_host_studio_touch_end(false);
     if (error != ESP_OK) {
@@ -4403,8 +4492,10 @@ esp_err_t process_studio_request(DeviceRuntime &ui)
     const char *target = s_studio_identity.target;
     const bool branding = std::strcmp(target, "cody.boot.branding") == 0;
     const bool birth = std::strcmp(target, "cody.boot.birth") == 0;
-    const bool calls = std::strcmp(target, "cody.codex.calls") == 0;
-    std::strcpy(s_studio_identity.rendering_mode, calls ? "presenter-isolated" : "runtime-full");
+    const auto browser_route = studio_browser_route(target);
+    const bool browser = browser_route != CODY::CodexBrowserRoute::Closed;
+    const bool calls = browser_route == CODY::CodexBrowserRoute::Calls || browser_route == CODY::CodexBrowserRoute::ActiveCalls;
+    std::strcpy(s_studio_identity.rendering_mode, browser ? "presenter-isolated" : "runtime-full");
     FrameView frame{};
     if (error == ESP_OK && branding) {
         stage = "prepare-branding";
@@ -4426,9 +4517,9 @@ esp_err_t process_studio_request(DeviceRuntime &ui)
     } else if (error == ESP_OK) {
         stage = "prepare-route";
         error = CODY::prepare_studio_scene(ui.state.scene, *request);
-        if (error == ESP_OK && calls) {
-            stage = "prepare-calls-scope";
-            error = prepare_studio_calls(ui, *request);
+        if (error == ESP_OK && browser) {
+            stage = "prepare-browser-scope";
+            error = prepare_studio_browser(ui, *request);
         }
         if (error == ESP_OK && std::strcmp(target, "cody.dashboard.reset") == 0) {
             ui.state.activity_page = ActivityPage::Statistics;
@@ -4436,6 +4527,21 @@ esp_err_t process_studio_request(DeviceRuntime &ui)
         } else if (error == ESP_OK && std::strcmp(target, "cody.dashboard.limits") == 0) {
             ui.state.activity_page = ActivityPage::Statistics;
             CODY::select_widget_screen(ui.state.widgets, WidgetScreen::Limits);
+        }
+        if (error == ESP_OK && std::strcmp(target, "cody.dashboard.device") == 0) {
+            ui.state.activity_page = ActivityPage::Statistics;
+            CODY::select_widget_screen(ui.state.widgets, WidgetScreen::Device);
+        }
+        CODY::InfoPage info{};
+        if (error == ESP_OK && studio_info_page(target, info)) {
+            ui.state.activity_page = ActivityPage::Statistics;
+            ui.state.about_from_options = true;
+            ui.state.info_page = info;
+            CODY::select_widget_screen(ui.state.widgets, WidgetScreen::About);
+        }
+        if (error == ESP_OK && std::strcmp(target, "cody.diagnostics.overview") == 0) {
+            ui.state.activity_page = ActivityPage::Statistics;
+            ui.state.diagnostics = true;
         }
         if (error == ESP_OK) {
             stage = "prepare-view";
@@ -4500,7 +4606,7 @@ void device_ui_worker(void *context)
     esp_err_t error = ESP_OK;
     while (error == ESP_OK) {
 #if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
-        if (cody_host_manual_time_us.load(std::memory_order_acquire) > 0) {
+        if (cody_host_manual_time_us.load(std::memory_order_acquire) > 0 || cody_host_audio_audition_active()) {
             error = process_studio_request(ui);
             continue;
         }
@@ -4732,16 +4838,9 @@ esp_err_t validate_studio_request(const CodyHostStudioCase &request)
         const char value = identity.scenario_revision[index];
         if (!((value >= '0' && value <= '9') || (value >= 'a' && value <= 'f'))) return ESP_ERR_INVALID_ARG;
     }
-    static constexpr const char *targets[]{"cody.boot.branding", "cody.boot.birth", "cody.guide.buttons", "cody.guide.touch",
-        "cody.guide.offline", "cody.guide.project", "cody.guide.thanks",
-#if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
-        "cody.guide.sofia",
-#endif
-        "cody.settings.menu", "cody.settings.display", "cody.settings.quiet-edit", "cody.dashboard.reset",
-        "cody.dashboard.limits", "cody.provisioning.error", "cody.codex.calls"};
-    if (std::none_of(std::begin(targets), std::end(targets), [&](const char *target) {
-        return std::strcmp(target, identity.target) == 0;
-    })) return ESP_ERR_NOT_SUPPORTED;
+    if (std::strcmp(identity.target, "cody.boot.branding") != 0 &&
+        std::strcmp(identity.target, "cody.boot.birth") != 0 &&
+        !CODY::studio_scene_supported(identity.target)) return ESP_ERR_NOT_SUPPORTED;
     if (identity.at_ms != 0 || identity.frame_revision != 0 || identity.rendering_mode[0] != '\0' ||
         identity.call_count != 0 || identity.service_error != 0 || identity.service_outcome[0] != '\0' ||
         std::any_of(std::begin(identity.call_ids), std::end(identity.call_ids), [](uint64_t id) { return id != 0; }) ||
@@ -4751,7 +4850,7 @@ esp_err_t validate_studio_request(const CodyHostStudioCase &request)
         request.quiet_enabled > 1 || request.quiet_edit_start > 1 ||
         request.quiet_start_minute >= 1440 || request.quiet_end_minute >= 1440 || request.quiet_draft_minute >= 1440 ||
         (request.quiet_enabled && request.quiet_start_minute == request.quiet_end_minute)) return ESP_ERR_INVALID_ARG;
-    if (std::strcmp(identity.target, "cody.codex.calls") != 0 &&
+    if (studio_browser_route(identity.target) == CODY::CodexBrowserRoute::Closed &&
         (identity.source_id || identity.chat_id || identity.turn_id)) return ESP_ERR_INVALID_ARG;
     for (const auto &call : request.domain_calls) {
         if (!studio_ascii(call.tool_name) || !studio_ascii(call.label) || !studio_ascii(call.category) ||

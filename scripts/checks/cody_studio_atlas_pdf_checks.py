@@ -60,7 +60,7 @@ class AtlasPdfTests(unittest.TestCase):
         self.assertIn(self.manifest["inventory"]["sha256"], text.replace("\n", ""))
         self.assertIn("FRAME UNAVAILABLE", text)
         self.assertIn(self.unsupported["id"], text)
-        self.assertIn("No native Studio preparation contract yet", text)
+        self.assertIn("".join(self.unsupported["reason"].split()), "".join(text.split()))
         self.assertIn("INCOMPLETE", text)
         self.assertIn("Corrections register", text)
         expected_images = []

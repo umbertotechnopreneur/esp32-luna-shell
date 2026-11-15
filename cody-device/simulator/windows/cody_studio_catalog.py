@@ -18,6 +18,55 @@ AVAILABILITIES = frozenset(("runtime-full", "presenter-isolated", "profile-condi
 RENDERING_MODES = frozenset(("runtime-full", "presenter-isolated"))
 
 
+# identity: Qualified source key, never a firmware enum ordinal.
+# state: Availability prose maintained in the source catalog.
+# owner: Presenter/dependency description from the same source row.
+# Returns the declared applicability and a specific reason when no executable contract exists.
+# Raises no exceptions; this projection never marks a source-only row capturable.
+def source_availability(identity, state, owner):
+    if state.lower().startswith(("retained", "retired", "planned", "reference only")):
+        return "not-applicable", f"Outside the current native screen suite: {state}"
+    if identity.startswith("widget-v1:"):
+        reason = "Counter-specific account, history or device observations have no direct native fixture in this batch"
+    elif identity.startswith("ui-v1:wifi-"):
+        reason = "The local Wi-Fi owner needs a scan/result or credential-entry fixture before direct preparation"
+    elif identity in ("atlas-v1:07", "atlas-v1:12", "atlas-v1:13", "atlas-v1:14", "atlas-v1:15",
+                      "ui-v1:retained-pc", "ui-v1:forget-pc", "ui-v1:pairing-cleanup", "ui-v1:pairing-forgotten"):
+        reason = "The pairing/discovery owner needs a retained association and a scripted operation lifecycle"
+    elif identity in ("atlas-v1:28", "atlas-v1:29"):
+        reason = "Voice capture/delivery needs a profile-supported session, frozen destination and transport observations"
+    elif identity in ("atlas-v1:35A", "atlas-v1:35B"):
+        reason = "Sleep/wake requires the power owner's lifecycle and retained display context; no static fixture is declared"
+    elif identity.startswith("ui-v1:restart-") or identity.startswith("ui-v1:reset-"):
+        reason = "The maintenance operation/result fixture is not implemented; no restart or reset is performed for the atlas"
+    elif identity in ("ui-v1:diagnostics", "ui-v1:memory-detail"):
+        reason = "The diagnostics owner has no direct native fixture for this view and its observed metrics"
+    elif identity == "ui-v1:screensaver":
+        reason = "Screensaver admission and return to a retained route have no isolated native fixture"
+    elif identity.startswith("next-v1:"):
+        reason = "The current domain/controller entry has no direct native preparation contract"
+    elif identity.startswith("ui-v1:") or identity.startswith("atlas-v1:"):
+        reason = "The route's event, selection or operation dependencies have no isolated native fixture in this batch"
+    else:
+        reason = "No isolated native preparation contract is declared for this source"
+    return "unsupported", f"{reason}. Source owner: {owner}"
+
+
+# identity: Qualified symbolic key from a compact source table.
+# name: Symbolic row value before namespace qualification.
+# cells: Maintained source row, including its owner and state.
+# Returns a host catalog label; device captions continue to come from C/C++ renderers.
+# Raises no exceptions; labels do not introduce a new maintained screen list.
+def source_title(identity, name, cells):
+    if len(cells) >= 5 or identity.startswith("next-v1:") and identity not in ("next-v1:10", "next-v1:16"):
+        return cells[1]
+    symbolic = name.split("=", 1)[0]
+    if " / " in cells[0]:
+        symbolic = cells[0].split(" / ", 1)[1]
+    symbolic = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", symbolic).replace("-", " ")
+    return symbolic.title()
+
+
 # path: The maintained source inventory; defaults to the repository document.
 # Raises OSError or ValueError for unreadable, empty or duplicate source identities.
 def source_entries(path=None):
@@ -40,9 +89,11 @@ def source_entries(path=None):
             if identity in seen:
                 raise ValueError(f"Duplicate source catalog identity: {identity}")
             seen.add(identity)
-            entries.append({"id": identity, "title": cells[1], "source_state": cells[-1],
-                            "availability": "unsupported", "inventory_id": None,
-                            "reason": "No native Studio preparation contract yet", "variants": [],
+            availability, reason = source_availability(identity, cells[-1], cells[1] if len(cells) == 4 else cells[2])
+            entries.append({"id": identity, "title": source_title(identity, name, cells), "source_state": cells[-1],
+                            "source_owner": cells[1] if len(cells) == 4 else cells[2],
+                            "availability": availability, "inventory_id": None,
+                            "reason": reason, "variants": [],
                             "routes": []})
     if not entries:
         raise ValueError("Source catalog contains no qualified screen identities")
@@ -72,7 +123,8 @@ def load_catalog():
         inventory_ids.add(inventory_id)
         entries[identity].update(deepcopy(contract))
         entries[identity]["inventory"] = deepcopy(extension["inventory"])
-        entries[identity].pop("reason", None)
+        if contract["availability"] in RENDERING_MODES or contract["availability"] == "profile-conditional":
+            entries[identity].pop("reason", None)
     return list(entries.values())
 
 

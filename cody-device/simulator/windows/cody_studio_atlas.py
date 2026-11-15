@@ -65,7 +65,8 @@ def selected_entries(identities=None, suite="pilot"):
 # Returns repository-relative source hashes for the catalog and selected fixtures.
 # Raises invalid scenario/source paths before any native process is started.
 def contract_inputs(entries):
-    paths = {Path(__file__).with_name("studio_catalog.json"), ROOT / "docs/cody/screen-catalog.md"}
+    paths = {Path(__file__).with_name("studio_catalog.json"),
+             Path(__file__).with_name("cody_studio_catalog.py"), ROOT / "docs/cody/screen-catalog.md"}
     for entry in entries:
         if entry.get("scenario") is not None:
             default_scenario(entry["id"])

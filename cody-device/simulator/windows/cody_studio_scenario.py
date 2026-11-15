@@ -108,27 +108,28 @@ def validate_scenario(scenario):
         raise ValueError(f"{entry['inventory_id']} requires its declared selection and caller/return context")
     validate_fields(scenario["page"], contract["page"], "page")
     validate_fields(scenario["services"], contract["services"], "services")
-    if entry["native_target"] == "cody.settings.quiet-edit":
+    if entry["native_target"] in ("cody.settings.quiet-edit", "cody.settings.quiet-hours"):
         page = scenario["page"]
         if page["quiet_hours_enabled"] and page["quiet_start_minute"] == page["quiet_end_minute"]:
             raise ValueError("Enabled quiet hours require distinct saved start and end minutes")
-    if entry["native_target"] == "cody.codex.calls":
+    if entry["native_target"] in ("cody.codex.hub", "cody.codex.chats", "cody.codex.turns", "cody.codex.calls",
+                                 "cody.codex.active", "cody.codex.questions"):
         domain = scenario["services"]["domain"]
         if any(scenario["page"][key] != domain[key] for key in ("source_id", "chat_id", "turn_id")):
-            raise ValueError("C04 query scope must match its source, chat and turn fixture")
+            raise ValueError("Codex query scope must match its source, chat and turn fixture")
         identities = set()
         definitions = {}
         for call in domain["calls"]:
             if call["id"] in identities or call["turn_id"] != domain["turn_id"]:
-                raise ValueError("C04 calls require unique IDs and the exact selected turn")
+                raise ValueError("Codex calls require unique IDs and the exact selected turn")
             identities.add(call["id"])
             definition = (call["category"], call["label"])
             if call["tool_name"] in definitions and definitions[call["tool_name"]] != definition:
-                raise ValueError("C04 repeated tool names require the same category and display label")
+                raise ValueError("Codex repeated tool names require the same category and display label")
             definitions[call["tool_name"]] = definition
             expected = {"queued": "unknown", "running": "unknown", "failed": "failed", "cancelled": "cancelled"}
             if call["state"] in expected and call["outcome"] != expected[call["state"]]:
-                raise ValueError("C04 call state and outcome contradict one another")
+                raise ValueError("Codex call state and outcome contradict one another")
     exact_fields(scenario["time"], {"mode", "initial_ms", "advances_ms", "capture_at_ms"}, "time")
     timing = scenario["time"]
     if (type(timing["initial_ms"]) is not int or not isinstance(timing["advances_ms"], list) or

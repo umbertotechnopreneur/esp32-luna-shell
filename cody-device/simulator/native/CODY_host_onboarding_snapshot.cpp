@@ -95,6 +95,26 @@ esp_err_t publish_studio_case(const CodyHostStudioCase &request)
     s_studio_account = {};
     s_snapshot.radios.pairing = {};
     s_snapshot.radios.codex_link = {};
+    // Studio has no saved-credential or live-BLE base inputs. Retire the
+    // preceding case's explicitly supplied setup context before publishing this
+    // case; no acquisition, advertising or connection operation is started.
+    s_snapshot.radios.wifi.credentials_configured = false;
+    s_snapshot.radios.ble = {};
+    if (std::strcmp(request.identity.target, "cody.setup.wifi-guide") == 0) {
+        auto &ble = s_snapshot.radios.ble;
+        LUNASHELL::snapshot_detail::mark_sample_success(ble, now);
+        std::memcpy(ble.device_name, "AiGadget-000001", sizeof("AiGadget-000001"));
+        // Name availability does not imply provisioning, advertising or a link.
+    }
+    if (std::strcmp(request.identity.target, "cody.setup.online") == 0) {
+        // This synthetic result represents a successfully retained local Wi-Fi
+        // profile, not an ephemeral association. Publish configuration with the
+        // same canonical owner as connection validity and the observed SSID.
+        auto &wifi = s_snapshot.radios.wifi;
+        if (!wifi.data_valid || wifi.data_stale || !wifi.connection_state_valid ||
+            !wifi.connected || !wifi.ip_acquired || wifi.ssid[0] == '\0') return ESP_ERR_INVALID_STATE;
+        wifi.credentials_configured = true;
+    }
     const bool reset = std::strcmp(request.identity.target, "cody.dashboard.reset") == 0;
     const bool limits = std::strcmp(request.identity.target, "cody.dashboard.limits") == 0;
     if (reset || limits) {

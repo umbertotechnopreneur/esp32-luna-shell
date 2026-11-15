@@ -1,0 +1,44 @@
+{
+  "schema": "cody.studio.scenario.v1",
+  "id": "s07-05-default",
+  "title": "S07 Wi-Fi setup choice - synthetic controlled sample",
+  "variant": "default",
+  "seed": 0,
+  "common": {
+    "settings": {
+      "brightness_percent": 80,
+      "auto_rotate": false,
+      "orientation_degrees": 0
+    },
+    "observations": {
+      "battery": {
+        "level_percent": 80
+      },
+      "network": {
+        "connected": false,
+        "ssid": "",
+        "rssi": null
+      },
+      "clock": {
+        "epoch_seconds": 1794704400,
+        "utc_offset_minutes": 420
+      }
+    }
+  },
+  "page": {},
+  "context": {
+    "target": "atlas-v1:05",
+    "selection": null,
+    "caller": "atlas-v1:41",
+    "return_to": "atlas-v1:41"
+  },
+  "time": {
+    "mode": "controlled-static",
+    "initial_ms": 0,
+    "advances_ms": [],
+    "capture_at_ms": [
+      0
+    ]
+  },
+  "services": {}
+}

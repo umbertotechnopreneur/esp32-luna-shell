@@ -81,6 +81,7 @@ class StudioWindow:
         self.live_process = self.live_directory = self.live_timer = self.live_image = None
         self.live_started = None
         self.live_caption_backup = self.live_title = None
+        self.cue_job = None
         self.route_records = {}
         self.declared_routes = []
         self.atlas_job = self.atlas_manifest_path = None
@@ -423,6 +424,21 @@ class StudioWindow:
         self.seek_button = action(keyframes, 'Show keyframe', self.seek_timeline)
         self.seek_button.pack(side='left')
         self.refresh_section('Animation', 'Animation · availability pending')
+        from cody_studio_audio import CUE_KEYS
+        caption(animation, 'Authored audio cue', 11, True).pack(anchor='w', pady=(10, 3))
+        self.cue_choice = tk.StringVar(value='pet:tap')
+        self.cue_control = ttk.Combobox(animation, textvariable=self.cue_choice, values=CUE_KEYS,
+                                         state='readonly', width=28, style='Studio.TCombobox')
+        self.cue_control.pack(anchor='w')
+        cue_actions = tk.Frame(animation, bg=BG)
+        cue_actions.pack(fill='x')
+        self.cue_play_button = action(cue_actions, 'Audition cue', self.play_cue_audition, True)
+        self.cue_play_button.pack(side='left', padx=(0, 12))
+        self.cue_stop_button = action(cue_actions, 'Stop cue', self.stop_cue_audition)
+        self.cue_stop_button.configure(state='disabled')
+        self.cue_stop_button.pack(side='left')
+        self.cue_status = tk.StringVar(value='26 authored cues · uses Scenario Sounds, volume and quiet hours. Audition is not route evidence.')
+        caption(animation, textvariable=self.cue_status, size=10, wraplength=580).pack(anchor='w')
         routes = self.section(bottom, 'Routes', True)
         self.route_summary = tk.StringVar()
         self.route_choice = tk.StringVar()
@@ -544,7 +560,7 @@ class StudioWindow:
         self.field(scenario, self.playback_volume).pack(fill='x')
         self.audio_status = tk.StringVar(value='Audio backend status pending')
         caption(scenario, textvariable=self.audio_status, size=10, wraplength=275).pack(anchor='w', pady=4)
-        caption(scenario, 'Boot replay uses these sound settings. Turn Sounds off before Apply and capture or timeline capture.',
+        caption(scenario, 'Boot replay and cue audition use these sound settings. Turn Sounds off before Apply and capture or timeline capture.',
                 10, wraplength=275).pack(anchor='w')
         self.refresh_audio_status()
         caption(scenario, 'Logical raster before panel rotation.\nAuto rotation has no simulated gravity input.',
@@ -1065,7 +1081,7 @@ class StudioWindow:
         else:
             self.keyframe_control.configure(values=(), state='disabled')
             self.animation_keyframe.set('')
-            self.refresh_section('Animation', 'Animation · unavailable')
+            self.refresh_section('Animation', 'Animation · no sequence · 26 audio cues')
         for control in (self.play_button, self.step_button, self.seek_button):
             control.configure(state='normal' if plan else 'disabled')
         self.live_button.configure(state='normal' if plan and isinstance(item.get('worker_replay'), dict) else 'disabled')
@@ -1153,12 +1169,62 @@ class StudioWindow:
             self.animation_status.set('Pausing · waiting for the admitted frame' if self.busy else
                                       'Paused · current completed frame retained')
 
+    # No parameters: audition one authored native cue using a copied form and independent owner.
+    # Exceptions: Admission failures remain visible without mutating current capture or baseline.
+    def play_cue_audition(self):
+        if self.closed or self.cue_job is not None:
+            return
+        try:
+            self.pause_timeline()
+            from cody_studio_audio import AudioAudition
+            self.cue_job = AudioAudition.start(self.form(), self.cue_choice.get())
+            self.cue_play_button.configure(state='disabled')
+            self.cue_stop_button.configure(state='normal')
+            self.cue_status.set(f'Audition starting · {self.cue_choice.get()} · separate native audio owner')
+        except (OSError, ValueError, RuntimeError) as error:
+            self.cue_status.set(f'Audition could not start: {error}')
+
+    # No parameters: stop and reap only the explicit audition process.
+    # Exceptions: Original cancellation errors remain visible in the audio status.
+    def stop_cue_audition(self):
+        job, self.cue_job = self.cue_job, None
+        if job is not None:
+            try:
+                job.cancel()
+                self.cue_status.set('Audition stopped · interactive frame and baseline retained')
+            except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                self.cue_status.set(f'Audition cancellation failed: {error}')
+        if hasattr(self, 'cue_play_button'):
+            self.cue_play_button.configure(state='normal')
+            self.cue_stop_button.configure(state='disabled')
+
+    # No parameters: project real audio admission/completion, never inferred event acceptance.
+    # Exceptions: Malformed or failed child outcomes preserve all interactive state.
+    def poll_cue_audition(self):
+        job = self.cue_job
+        if job is None:
+            return
+        try:
+            status = job.poll()
+            if status is not None:
+                self.cue_status.set(f"Audition · {status['cue']} · {status['state']} · error 0x{status['error'] & 0xffffffff:08x}")
+            if job.done:
+                self.cue_job = None
+                self.cue_play_button.configure(state='normal')
+                self.cue_stop_button.configure(state='disabled')
+                if job.error:
+                    self.cue_status.set(job.error)
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            self.stop_cue_audition()
+            self.cue_status.set(f'Audition failed: {error}')
+
     # No parameters: preview the real live native worker and its actual sound cues.
     # Live frames never become capture, baseline or review evidence.
     def play_live(self):
         if self.busy or self.live_process is not None:
             return
         try:
+            self.stop_cue_audition()
             self.pause_timeline()
             scenario = self.form()
             from cody_studio_live import start_live
@@ -1448,6 +1514,7 @@ class StudioWindow:
         if self.closed:
             return
         self.poll_atlas()
+        self.poll_cue_audition()
         try:
             scenario, record, error, operation = self.results.get_nowait()
         except queue.Empty:
@@ -1827,6 +1894,7 @@ class StudioWindow:
 
     # No parameters: close only this window and retain generated artifacts.
     def close(self):
+        self.stop_cue_audition()
         self.pause_timeline()
         if self.atlas_job is not None:
             try:

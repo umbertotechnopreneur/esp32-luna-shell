@@ -192,6 +192,10 @@ esp_err_t return_to_options_page(SceneFrame &scene, uint8_t token);
 esp_err_t return_to_options_device(SceneFrame &scene);
 
 #if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
+// target: Semantic host destination, never a numeric firmware route.
+// Exception: No exceptions; false rejects unsupported or profile-excluded preparation.
+bool studio_scene_supported(const char *target);
+
 // scene: Display-worker-owned frame receiving the complete local destination context.
 // request: Validated semantic target and bounded page input; never a firmware enum ordinal.
 // Exception: Preserves source route, service observation, settings and preparation errors.

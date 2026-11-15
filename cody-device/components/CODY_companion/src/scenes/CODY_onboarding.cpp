@@ -7490,6 +7490,82 @@ static OptionsPage studio_guide_page(const char *target)
     return OptionsPage::None;
 }
 
+// target: Explicit stable host settings identity, never a firmware enum ordinal.
+// Exception: Unsupported identities return None without changing native owner state.
+static OptionsPage studio_options_page(const char *target)
+{
+    struct NamedPage { const char *target; OptionsPage page; };
+    static constexpr NamedPage pages[]{
+        {"cody.settings.menu", OptionsPage::Menu},
+        {"cody.settings.preferences", OptionsPage::MenuMore},
+        {"cody.settings.device", OptionsPage::MenuMaintenance},
+        {"cody.settings.display", OptionsPage::Display},
+        {"cody.settings.display-rings", OptionsPage::DisplayRings},
+        {"cody.settings.time", OptionsPage::Time},
+        {"cody.settings.behavior", OptionsPage::Behavior},
+        {"cody.settings.behavior-more", OptionsPage::BehaviorMore},
+        {"cody.settings.behavior-settings", OptionsPage::BehaviorMoreSettings},
+        {"cody.settings.alarms", OptionsPage::Alarms},
+        {"cody.settings.idle", OptionsPage::IdleOptions},
+        {"cody.settings.personalization", OptionsPage::CodyOptions},
+        {"cody.settings.themes-first", OptionsPage::ThemesFirst},
+        {"cody.settings.themes-second", OptionsPage::ThemesSecond},
+        {"cody.settings.quiet-hours", OptionsPage::QuietHours},
+        {"cody.settings.synth-voice", OptionsPage::SynthVoice},
+        {"cody.settings.restart-confirm", OptionsPage::RestartConfirm},
+        {"cody.settings.reset-confirm", OptionsPage::ResetConfirm},
+    };
+    for (const auto &page : pages) if (std::strcmp(page.target, target) == 0) return page.page;
+    return OptionsPage::None;
+}
+
+// target: Explicit static setup identity with no radio command implied by entry.
+// Exception: Unsupported identities return None without mutating setup context.
+static Route studio_setup_route(const char *target)
+{
+    struct NamedRoute { const char *target; Route route; };
+    static constexpr NamedRoute routes[]{
+        {"cody.setup.welcome", Route::Hello04}, {"cody.setup.connect", Route::Hello04},
+        {"cody.setup.wifi-guide", Route::Invitation05}, {"cody.setup.app-qr", Route::Install06},
+        {"cody.setup.online", Route::Online09}, {"cody.setup.codex-choice", Route::CodexChoice},
+        {"cody.setup.connections", Route::SetupMenu}, {"cody.setup.network-wait", Route::NetworkWait},
+    };
+    for (const auto &route : routes) if (std::strcmp(route.target, target) == 0) return route.route;
+    return Route::None;
+}
+
+// target: Explicit display-owned dashboard, info, diagnostics or browser identity.
+// Exception: No exceptions; only known identities admit the dashboard underlay.
+static bool studio_dashboard_target(const char *target)
+{
+    static constexpr const char *targets[]{"cody.dashboard.reset", "cody.dashboard.limits", "cody.dashboard.device",
+        "cody.info.system", "cody.info.memory", "cody.info.firmware", "cody.info.vibeware", "cody.info.project",
+        "cody.diagnostics.overview"};
+    for (const auto *candidate : targets) if (std::strcmp(target, candidate) == 0) return true;
+    return false;
+}
+
+// target: Explicit presenter-isolated browser identity with a Settings parent scene.
+// Exception: No exceptions; unrecognized browser names are not accepted as a family wildcard.
+static bool studio_browser_target(const char *target)
+{
+    static constexpr const char *targets[]{"cody.codex.hub", "cody.codex.chats", "cody.codex.turns",
+        "cody.codex.calls", "cody.codex.active", "cody.codex.questions"};
+    for (const auto *candidate : targets) if (std::strcmp(target, candidate) == 0) return true;
+    return false;
+}
+
+// target: Stable host semantic destination, including the current compiled guide profile.
+// Exception: No exceptions; unsupported targets cannot enter the display mailbox.
+bool studio_scene_supported(const char *target)
+{
+    return target != nullptr && (studio_options_page(target) != OptionsPage::None ||
+        studio_guide_page(target) != OptionsPage::None || studio_setup_route(target) != Route::None ||
+        studio_dashboard_target(target) || studio_browser_target(target) ||
+        std::strcmp(target, "cody.settings.quiet-edit") == 0 ||
+        std::strcmp(target, "cody.provisioning.error") == 0);
+}
+
 // scene: Exclusive display-owner frame, with no live route or service work to discard.
 // request: Validated named destination, local draft and previously published synthetic response.
 // Exception: Returns busy ownership, unsupported targets or original source preparation errors.
@@ -7500,14 +7576,20 @@ esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &requ
     // Only the static host worker invokes this reset. It has no active radio
     // operation; synthetic failures are observations, not discarded live work.
     reset_onboarding();
+    // A new static case has no failed action admitted by its previous caller.
+    // These local outcomes belong to the controller, not a cached service observation.
+    s_restart_error = ESP_OK;
+    s_manual_network_time_error = ESP_OK;
     s_setup_return = Route::CompanionIdle16;
     s_options_from_setup = false;
     auto error = enter_route(Route::MakeItYours10, scene);
     if (error != ESP_OK) return error;
     const char *target = request.identity.target;
     const auto guide_page = studio_guide_page(target);
-    if (std::strcmp(target, "cody.settings.display") == 0) {
-        error = show_options_page(scene, OptionsPage::Display);
+    const auto options_page = studio_options_page(target);
+    const auto setup_route = studio_setup_route(target);
+    if (options_page != OptionsPage::None) {
+        error = show_options_page(scene, options_page);
     } else if (std::strcmp(target, "cody.settings.quiet-edit") == 0) {
         // Initialize the caller and saved projection before opening its edit draft,
         // just like Quiet start/end through the existing Settings controller.
@@ -7519,8 +7601,43 @@ esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &requ
         s_first_run_guide = false;
         s_first_run_guide_replay = false;
         error = show_options_page(scene, guide_page);
-    } else if (std::strcmp(target, "cody.dashboard.reset") == 0 ||
-               std::strcmp(target, "cody.dashboard.limits") == 0) {
+    } else if (setup_route != Route::None) {
+        if (setup_route == Route::Hello04) {
+            s_first_run_guide = true;
+            s_first_run_wifi_pending = true;
+            s_first_run_intro = std::strcmp(target, "cody.setup.welcome") == 0 ?
+                FirstRunIntro::Welcome : FirstRunIntro::Connect;
+        }
+        if (setup_route == Route::Invitation05 || setup_route == Route::Install06) {
+            s_home_wifi_flow = true;
+            s_home_wifi_intro = false;
+            s_pairing_guide_return = Route::SetupMenu;
+            // Normal onboarding composes this borrowed artwork before its first
+            // menu. Direct host entry must establish the same owner dependency.
+            const auto composed = compose_muse_frame(s_wifi_mascot,
+                {PixelAvatarPose::Idle, 1000, 1000, kPixelAvatarReactionMs});
+            if (composed != PixelAvatarComposeStatus::Ok) return ESP_ERR_INVALID_STATE;
+            s_wifi_mascot.palette[0] = s_wifi_mascot.dim_palette[0] = kPairingBackground;
+            s_wifi_mascot_theme = 0;
+            s_wifi_mascot_static = true;
+            reset_muse_animation(0);
+        }
+        if (setup_route == Route::SetupMenu) s_connections_from_options = true;
+        LUNASHELL::ConnectivityObservation observation{};
+        if (setup_route == Route::Online09) {
+            error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
+            if (error == ESP_OK && (!observation.radios.wifi.data_valid || !observation.radios.wifi.connected))
+                error = ESP_ERR_INVALID_STATE;
+        }
+        if (error == ESP_OK) error = enter_route(setup_route, scene,
+            setup_route == Route::Online09 ? &observation.radios.wifi : nullptr);
+        if (error == ESP_OK && setup_route == Route::Install06) {
+            // This is the same pure producer used by Work::InstallQr. It neither
+            // fetches the URL nor starts provisioning; the display owner retains
+            // the complete QR before the common frame/content barrier.
+            error = encode_qr(kInstallUrl, s_view.qr);
+        }
+    } else if (studio_dashboard_target(target)) {
         error = open_device_dashboard(scene);
     } else if (std::strcmp(target, "cody.provisioning.error") == 0) {
         LUNASHELL::ConnectivityObservation observation{};
@@ -7535,8 +7652,7 @@ esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &requ
         const SceneFrame completed{}; // The intermediate pairing route was never displayed.
         if (error == ESP_OK) error = update_onboarding(scene, completed, 0, 0, changed, false);
         if (error == ESP_OK && s_route != Route::Failed08) return ESP_ERR_INVALID_STATE;
-    } else if (std::strcmp(target, "cody.settings.menu") != 0 &&
-               std::strcmp(target, "cody.codex.calls") != 0) {
+    } else if (!studio_browser_target(target)) {
         return ESP_ERR_NOT_SUPPORTED;
     }
     // Static time zero means the settled page. No worker time is advanced.
@@ -7550,12 +7666,15 @@ bool studio_scene_active(const char *target)
 {
     if (!target) return false;
     if (std::strcmp(target, "cody.provisioning.error") == 0) return s_route == Route::Failed08;
-    if (std::strcmp(target, "cody.dashboard.reset") == 0 ||
-        std::strcmp(target, "cody.dashboard.limits") == 0) return onboarding_dashboard_active();
+    if (studio_dashboard_target(target)) return onboarding_dashboard_active();
+    const auto setup_route = studio_setup_route(target);
+    if (setup_route != Route::None) return s_route == setup_route &&
+        (setup_route != Route::Hello04 || s_first_run_intro ==
+            (std::strcmp(target, "cody.setup.welcome") == 0 ? FirstRunIntro::Welcome : FirstRunIntro::Connect));
     if (s_route != Route::MakeItYours10) return false;
-    if (std::strcmp(target, "cody.settings.display") == 0) return s_options_page == OptionsPage::Display;
-    if (std::strcmp(target, "cody.settings.menu") == 0 || std::strcmp(target, "cody.codex.calls") == 0)
-        return s_options_page == OptionsPage::Menu;
+    const auto options_page = studio_options_page(target);
+    if (options_page != OptionsPage::None) return s_options_page == options_page;
+    if (studio_browser_target(target)) return s_options_page == OptionsPage::Menu;
     if (std::strcmp(target, "cody.settings.quiet-edit") == 0) return s_options_page == OptionsPage::QuietEdit;
     const auto guide_page = studio_guide_page(target);
     return guide_page != OptionsPage::None && s_options_page == guide_page;
