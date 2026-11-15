@@ -17,6 +17,7 @@
 #include "CODY_onboarding.hpp"
 #if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
 #include "cody_host_studio.h"
+#include "cody_host_studio_events.hpp"
 #endif
 #include "CODY_onboarding_catalog.hpp"
 #include "CODY_guide_presenter.hpp"
@@ -697,6 +698,8 @@ esp_err_t s_restart_error = ESP_OK;
 #if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
 // Display-owner-only static inspection never admits a maintenance operation.
 bool s_studio_maintenance_inspection = false;
+// Static host event presentation never submits reply, dismissal or navigation.
+bool s_studio_event_inspection = false;
 #endif
 PreferenceId s_requested_preference = PreferenceId::ShakeWake;
 uint32_t s_requested_preference_value = 0;
@@ -6314,6 +6317,7 @@ void reset_onboarding()
 {
 #if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
     s_studio_maintenance_inspection = false;
+    s_studio_event_inspection = false;
 #endif
     clear_text_entry(s_local_wifi.entry);
     clear_text_entry_view(s_local_wifi.keyboard);
@@ -7699,6 +7703,28 @@ static bool studio_browser_target(const char *target)
     return false;
 }
 
+// event: Canonical synthetic event retained by the display owner for this frame.
+// Exception: No exceptions; rejects a selected or terminal question in the pending queue.
+static bool studio_event_pending_matches(const LUNASHELL::CodexEventSnapshot &event)
+{
+    if (event.kind != LUNASHELL::CodexEventKind::Question)
+        return event.pending_question_count == 0 && event.pending_entry_count == 0;
+    if (event.choice_count != 2 || std::strcmp(event.choices[0].id, "approve") != 0 ||
+        std::strcmp(event.choices[1].id, "decline") != 0) return false;
+    const auto state = event.state;
+    if (state == LUNASHELL::CodexEventState::Pending)
+        return event.pending_question_count == 2 && event.pending_entry_count == 2 &&
+            event.selected_id[0] == '\0' &&
+            std::strcmp(event.pending_questions[0].request_id, event.request_id) == 0 &&
+            std::strcmp(event.pending_questions[1].request_id, "22222222222222222222222222222222") == 0;
+    if (state == LUNASHELL::CodexEventState::Sending || state == LUNASHELL::CodexEventState::Delivered)
+        return event.pending_question_count == (state == LUNASHELL::CodexEventState::Sending ? 2 : 1) &&
+            event.pending_entry_count == 1 && std::strcmp(event.selected_id, "approve") == 0 &&
+            std::strcmp(event.pending_questions[0].request_id, "22222222222222222222222222222222") == 0 &&
+            event.pending_questions[1].request_id[0] == '\0';
+    return false;
+}
+
 // target: Stable host semantic destination, including the current compiled guide profile.
 // Exception: No exceptions; unsupported targets cannot enter the display mailbox.
 bool studio_scene_supported(const char *target)
@@ -7707,6 +7733,7 @@ bool studio_scene_supported(const char *target)
         studio_guide_page(target) != OptionsPage::None || studio_setup_route(target) != Route::None ||
         studio_dashboard_target(target) || studio_browser_target(target) || studio_local_wifi_target(target) ||
         studio_provisioning_target(target) || studio_link_route(target) != Route::None ||
+        CODY::host_studio_events::is_target(target) ||
         std::strcmp(target, "cody.settings.quiet-edit") == 0 ||
         std::strcmp(target, "cody.provisioning.error") == 0);
 }
@@ -7751,6 +7778,42 @@ esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &requ
         s_first_run_guide = false;
         s_first_run_guide_replay = false;
         error = show_options_page(scene, guide_page);
+    } else if (CODY::host_studio_events::is_target(target)) {
+        // Read the canonical host owner once, then initialize only the
+        // display-owned presenter; no inbox selection or reply is submitted.
+        EventStage requested_stage{};
+        Route expected_route{};
+        if (!CODY::host_studio_events::describe(target, requested_stage, expected_route))
+            return ESP_ERR_NOT_SUPPORTED;
+        error = LUNASHELL::DeviceSnapshotService::instance().readCodexTechnicalObservation(s_technical_observation);
+        const auto &link = s_technical_observation.link;
+        if (error == ESP_OK && (!link.data_valid || link.data_stale || link.last_error != ESP_OK ||
+                                link.state != LUNASHELL::CodexLinkState::Connected)) error = ESP_ERR_INVALID_STATE;
+        if (error == ESP_OK) error = LUNASHELL::DeviceSnapshotService::instance().readCodexEventObservation(s_observed_event);
+        const auto *expected = CODY::host_studio_events::definition(target);
+        if (error == ESP_OK && (!expected || !s_observed_event.data_valid || s_observed_event.data_stale ||
+            s_observed_event.last_error != ESP_OK || s_observed_event.request_id[0] == '\0' ||
+            s_observed_event.revision != 1 || std::strcmp(s_observed_event.request_id,
+                "11111111111111111111111111111111") != 0 ||
+            s_observed_event.last_success_at_us != esp_timer_get_time() ||
+            s_observed_event.kind != expected->kind || s_observed_event.state != expected->state ||
+            !studio_event_pending_matches(s_observed_event)))
+            error = ESP_ERR_INVALID_STATE;
+        if (error == ESP_OK) {
+            // From this point even a renderer failure must not admit side effects.
+            s_studio_event_inspection = true;
+            s_presented_event = s_observed_event;
+            wipe(s_presented_event.reply_speech, sizeof(s_presented_event.reply_speech));
+            s_event_origin = EventOrigin::Codex;
+            s_event_online = true;
+            s_event_stage = requested_stage;
+            s_event_reply_admitted = s_presented_event.state == LUNASHELL::CodexEventState::Sending ||
+                                     s_presented_event.state == LUNASHELL::CodexEventState::Received;
+            std::memcpy(s_event_selected_id, s_presented_event.selected_id, sizeof(s_event_selected_id));
+            if (codex_event_destination() != expected_route) return ESP_ERR_INVALID_STATE;
+            error = render_codex_event(scene);
+        }
+        if (error == ESP_OK && s_route != expected_route) error = ESP_ERR_INVALID_STATE;
     } else if (studio_local_wifi_target(target)) {
         s_home_wifi_flow = true;
         s_home_wifi_intro = false;
@@ -7880,6 +7943,21 @@ esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &requ
 bool studio_scene_active(const char *target)
 {
     if (!target) return false;
+    if (CODY::host_studio_events::is_target(target)) {
+        EventStage expected_stage{};
+        Route expected_route{};
+        const auto *expected = CODY::host_studio_events::definition(target);
+        return expected && CODY::host_studio_events::describe(target, expected_stage, expected_route) &&
+            s_studio_event_inspection && s_event_origin == EventOrigin::Codex && s_event_online &&
+            s_event_stage == expected_stage && s_route == expected_route &&
+            codex_event_destination() == expected_route && s_presented_event.data_valid &&
+            !s_presented_event.data_stale && s_presented_event.last_error == ESP_OK &&
+            s_presented_event.kind == expected->kind && s_presented_event.state == expected->state &&
+            s_presented_event.revision == 1 && std::strcmp(s_presented_event.request_id,
+                "11111111111111111111111111111111") == 0 &&
+            s_presented_event.last_success_at_us == esp_timer_get_time() &&
+            studio_event_pending_matches(s_presented_event);
+    }
     if (std::strcmp(target, "cody.provisioning.error") == 0) return s_route == Route::Failed08;
     if (studio_dashboard_target(target)) return onboarding_dashboard_active();
     if (studio_local_wifi_target(target)) {
@@ -8428,7 +8506,7 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
     changed = false;
 #if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
     // A synthetic frozen maintenance image has no request to poll or complete.
-    if (s_studio_maintenance_inspection) return ESP_OK;
+    if (s_studio_maintenance_inspection || s_studio_event_inspection) return ESP_OK;
 #endif
     s_startup_avatar_only = false;
     const esp_err_t activity_error = synchronize_screen_activity(inactivity_active_time_us);
@@ -9994,7 +10072,7 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
     consumed = false;
 #if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
     // Static inspection is read-only, even when the renderer shows Retry.
-    if (s_studio_maintenance_inspection) return ESP_ERR_NOT_SUPPORTED;
+    if (s_studio_maintenance_inspection || s_studio_event_inspection) return ESP_ERR_NOT_SUPPORTED;
 #endif
     if (s_local_wifi.page != LocalWifiPage::None) {
         return handle_local_wifi_touch(scene, point, pressed, pressed_edge, rotation_degrees, consumed);

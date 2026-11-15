@@ -1031,6 +1031,7 @@ class BuildProvenanceContractTests(unittest.TestCase):
             "cody-device/simulator/native/CODY_host_studio_statistics.hpp",
             "cody-device/simulator/native/CODY_host_optional_services.cpp",
             "cody-device/simulator/native/platform/cody_host_studio.h",
+            "cody-device/simulator/native/platform/cody_host_studio_events.hpp",
             "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp",
             "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
         )
@@ -1311,6 +1312,18 @@ class InspectionUiWorkerTests(unittest.TestCase):
         directory = fixture_directory()
         process = run_host_worker([sys.executable, "-B", str(Path(__file__).resolve()),
                                    "--inspection-ui-worker"], directory, "inspection-ui", timeout=180)
+        print(process.stdout, end="", flush=True)
+
+
+class EventsUiWorkerTests(unittest.TestCase):
+    """Exercise event selection in a separate real Tk/native session."""
+
+    # self: Parent suite that retains child diagnostics beneath artifacts.
+    # Raises the original worker error without sharing interactive native state.
+    def test_event_destinations_in_a_fresh_process(self):
+        directory = fixture_directory()
+        process = run_host_worker([sys.executable, "-B", str(Path(__file__).resolve()),
+                                   "--events-ui-worker"], directory, "events-ui", timeout=180)
         print(process.stdout, end="", flush=True)
 
 
@@ -2769,6 +2782,9 @@ def main(argv=None):
                         help="Verify native Home, pairing observations and populated-question variants")
     parser.add_argument("--inspection-ui", action="store_true",
                         help="Verify populated-question variant controls in real Tk/native Studio")
+    parser.add_argument("--events-ui", action="store_true",
+                        help="Verify Codex event destinations in real Tk/native Studio")
+    parser.add_argument("--events-ui-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--inspection-ui-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--pilot-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--phase-e-worker", action="store_true", help=argparse.SUPPRESS)
@@ -2780,12 +2796,13 @@ def main(argv=None):
     arguments = parser.parse_args(argv)
     workers = (arguments.pilot_worker, arguments.phase_e_worker, arguments.phase_e_contended_worker,
                bool(arguments.live_audio_worker), arguments.guide_worker, arguments.atlas_ui_worker,
-               arguments.audio_cues_ui_worker, arguments.statistics_ui_worker, arguments.inspection_ui_worker)
+               arguments.audio_cues_ui_worker, arguments.statistics_ui_worker, arguments.inspection_ui_worker,
+               arguments.events_ui_worker)
     if any(workers):
         if (arguments.native or arguments.ui or arguments.pilot or arguments.phase_e or arguments.live_audio or arguments.guide or arguments.host_audio or
                 arguments.atlas or arguments.atlas_pdf or arguments.atlas_ui or
                 arguments.coverage or arguments.audio_cues or arguments.audio_cues_ui or arguments.statistics or arguments.statistics_ui or
-                arguments.inspection or arguments.inspection_ui or
+                arguments.inspection or arguments.inspection_ui or arguments.events_ui or
                 sum(workers) != 1):
             parser.error("Internal workers cannot be combined with suite flags")
         if arguments.pilot_worker:
@@ -2805,6 +2822,10 @@ def main(argv=None):
         if arguments.inspection_ui_worker:
             import cody_studio_inspection_checks
             result = unittest.TextTestRunner(verbosity=2).run(cody_studio_inspection_checks.ui_suite(NativeUiTests))
+            return 0 if result.wasSuccessful() else 1
+        if arguments.events_ui_worker:
+            import cody_studio_events_ui_checks
+            result = unittest.TextTestRunner(verbosity=2).run(cody_studio_events_ui_checks.ui_suite(NativeUiTests))
             return 0 if result.wasSuccessful() else 1
         if arguments.audio_cues_ui_worker:
             import cody_studio_audio_checks
@@ -2844,6 +2865,8 @@ def main(argv=None):
     if arguments.coverage or arguments.inspection:
         import cody_studio_maintenance_checks
         suite.addTests(loader.loadTestsFromModule(cody_studio_maintenance_checks))
+        import cody_studio_event_checks
+        suite.addTests(loader.loadTestsFromModule(cody_studio_event_checks))
     if arguments.audio_cues:
         import cody_studio_audio_checks
         suite.addTests(loader.loadTestsFromModule(cody_studio_audio_checks))
@@ -2859,6 +2882,8 @@ def main(argv=None):
         suite.addTests(loader.loadTestsFromModule(cody_studio_inspection_checks))
     if arguments.inspection_ui:
         suite.addTests(loader.loadTestsFromTestCase(InspectionUiWorkerTests))
+    if arguments.events_ui:
+        suite.addTests(loader.loadTestsFromTestCase(EventsUiWorkerTests))
     if arguments.host_audio:
         import cody_studio_audio_checks
         suite.addTests(cody_studio_audio_checks.host_suite())

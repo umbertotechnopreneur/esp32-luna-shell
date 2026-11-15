@@ -46,6 +46,7 @@ def load_runtime_library(driver="graphics"):
                      "cody-device/simulator/native/CODY_host_input.cpp",
                      "cody-device/simulator/native/CODY_host_studio_domain.cpp",
                      "cody-device/simulator/native/platform/cody_host_studio.h",
+                     "cody-device/simulator/native/platform/cody_host_studio_events.hpp",
                      "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp",
                      "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp"}
     if not isinstance(inputs, dict) or not required.issubset(inputs):

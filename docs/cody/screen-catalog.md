@@ -207,6 +207,14 @@ updates and touch never submit a restart, reset or erase operation for these
 fixtures. They have no retained caller or return journey; actual navigation,
 operation recovery and physical-device acceptance remain unverified.
 
+Studio event fixtures publish a bounded synthetic event and READY observation
+through the host snapshot owner, then prepare the original Codex presenter on
+the display owner. Static inspection blocks actions and updates; it does not
+replay authenticated transport, a reply, an inbox journey or event audio.
+Question choice and review are distinct states; the latter is not covered by
+the current choice fixture. Declared source-family links do not create new
+inventory IDs. Acquisition and physical evidence remain separate.
+
 Catalog availability describes the declared rendering path: full runtime,
 isolated presenter, profile conditional, unsupported or not applicable. It is
 separate from acquisition, pixel comparison and human review status. All ten

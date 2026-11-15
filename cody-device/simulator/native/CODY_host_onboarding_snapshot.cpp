@@ -1,6 +1,7 @@
 #include "CODY_host_onboarding_snapshot.hpp"
 #include "CODY_host_pairing.hpp"
 #include "CODY_host_studio_statistics.hpp"
+#include "cody_host_studio_events.hpp"
 #include "LUNASHELL_snapshot_aging.hpp"
 #include "LUNASHELL_snapshot_internal.hpp"
 #include "LUNASHELL_codex_presence.hpp"
@@ -78,6 +79,16 @@ esp_err_t validate_studio_case(const CodyHostStudioCase &request)
             request.quiet_start_minute == request.quiet_end_minute)) return ESP_ERR_INVALID_ARG;
     }
     const char *static_codex_outcome = studio_static_codex_outcome(identity.target);
+    const bool studio_event = CODY::host_studio_events::is_target(identity.target);
+    if (studio_event) {
+        LUNASHELL::HardwareStatus hardware{};
+        const auto error = LUNASHELL::DeviceSnapshotService::instance().readHardwareStatus(hardware);
+        if (error != ESP_OK) return error;
+        const auto &wifi = hardware.wifi;
+        if (!wifi.data_valid || wifi.data_stale || wifi.last_error != ESP_OK ||
+            !wifi.connection_state_valid || !wifi.connected || !wifi.ip_acquired || wifi.ip_address[0] == '\0')
+            return ESP_ERR_INVALID_ARG;
+    }
     if (static_codex_outcome) {
         if (std::strcmp(request.codex_link_outcome, static_codex_outcome) != 0) return ESP_ERR_INVALID_ARG;
         LUNASHELL::HardwareStatus hardware{};
@@ -137,15 +148,23 @@ esp_err_t publish_studio_case(const CodyHostStudioCase &request)
     std::lock_guard<std::mutex> lock(s_mutex);
     if (!s_seeded) return ESP_ERR_INVALID_STATE;
     const auto now = esp_timer_get_time();
+    const char *target = request.identity.target;
+    const bool studio_event = CODY::host_studio_events::is_target(target);
+    // Host-only staging is a bounded caller-stack copy. Validate the complete
+    // event and its native destination before touching the canonical owner.
+    LUNASHELL::CodexEventSnapshot staged_event{};
+    if (studio_event && !CODY::host_studio_events::fill(target, now, staged_event))
+        return ESP_ERR_INVALID_STATE;
     s_studio_statistics = false;
     s_studio_weekly = {};
     s_studio_account = {};
     s_snapshot.radios.pairing = {};
     s_snapshot.radios.provisioning = {};
     s_snapshot.radios.codex_link = {};
+    // A preceding event never survives another Studio scenario's publication.
+    s_snapshot.codex_event = {};
     s_wifi_scan = {};
     s_wifi_scan_available = false;
-    const char *target = request.identity.target;
     // A static code is readable through the actual host service API only while
     // this explicitly selected Pair Codex case owns its canonical observation.
     configure_studio_codex_pairing_code(std::strcmp(target, "cody.codex.pair-pc") == 0);
@@ -275,7 +294,7 @@ esp_err_t publish_studio_case(const CodyHostStudioCase &request)
     }
     const bool reset = std::strcmp(request.identity.target, "cody.dashboard.reset") == 0;
     const bool limits = std::strcmp(request.identity.target, "cody.dashboard.limits") == 0;
-    if (reset || limits || studio_counter_target(target)) {
+    if (reset || limits || studio_counter_target(target) || studio_event) {
         // This is an explicit synthetic READY/app lease, never a transport ACK.
         // The same snapshot owner and production aging rules qualify its data.
         auto &link = s_snapshot.radios.codex_link;
@@ -293,6 +312,7 @@ esp_err_t publish_studio_case(const CodyHostStudioCase &request)
         link.app_presence.last_error = ESP_OK;
         link.app_presence.received_at_us = now;
         link.app_presence.sequence = 1;
+        if (studio_event) s_snapshot.codex_event = staged_event;
         if (reset || limits) {
             LUNASHELL::snapshot_detail::mark_sample_success(s_studio_weekly, now);
             s_studio_weekly.reset_unix_seconds = request.weekly_reset_unix_seconds;
