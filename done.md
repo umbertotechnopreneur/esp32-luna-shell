@@ -1,63 +1,45 @@
 # Latest validation round
 
-## 2026-11-16 · Cody Studio native Codex event inspection
+## 2026-11-16 · Cody Studio events and Activity
 
-The shared catalog declares **94 executable source identities**, 15 unsupported
-and 17 not applicable, from 126 source entries. The executable set includes 71
-full-runtime cases (including one conditional profile) and 23 isolated presenters.
-Acquisitions map to 83 distinct document-local IDs, ten additional source states
-linked to those inventory families, and one event source without a verified local
-inventory ID. The original PDF's 100 IDs are a separate documentary denominator.
+The catalog declares **98 executable source identities**, 12 unsupported and 17
+not applicable, from 127 source entries. The executable set comprises 73
+full-runtime cases (including one profile-conditional guide) and 25 isolated
+presenters. They map to 87 document-local IDs, ten additional source states
+linked to inventory families and one unmapped event source. The original PDF's
+100 local IDs remain a separate documentary denominator.
 
-Eleven new static Codex event cases cover PR pending, checks running and failed,
-failure detail, question notice, choices and queue, sending and delivered reply,
-a notice and approval on the PC. Typed synthetic observations are published by
-the host DeviceSnapshotService with explicit validity, time, ID and revision.
-The original C++ presenter retains and verifies the observation, stage and route
-on the display owner before retiring pixels with the frame identity. Wi-Fi and
-READY are synthetic. No event, reply, selection or dismissal is sent to CCP.
-Inputs and choice texts are fixed catalog dependencies, not yet editable in the
-Studio form. Static inspection blocks actions and updates; it does not replay
-event sound, authenticated delivery or an inbox journey. N05 reply review and
-Event unavailable are not established by these fixtures.
+N05 prepares the native reply review with a synthetic local selection; N11
+renders an explicit synthetic owner read failure without inventing an event.
+N01 presents unavailable local and PC notifications; C07 displays a synthetic
+Working current turn. No reply, Retry, notification paging, live PC event or
+physical device operation is replayed by these fixtures. The local error state
+is distinct from an empty notification list and has a separate PC status.
 
-Host validation through `scripts/device.ps1`:
+Linux host validation through `scripts/device.ps1`:
 
-- The Linux native graphics/runtime generator compiled the final C++ sources;
-  source provenance includes the new host fixture header.
-- `--inspection` passed **56/56**, including eleven events prepared twice,
-  22 P04 restorations, completed-frame target/revision/mode, disconnected-network
-  rejection and distinct pixels for visually distinct cases. Eleven final event
-  frames were inspected visually. Touch admission and external service calls are
-  not independently observed by that worker; guards were reviewed in source.
-- `--events-ui` passed **47/47** in real Tk/native Studio: direct catalog entry
-  for PR and failure details, correct frames and geometry, explicit incompatible
-  comparison and unchanged P04 baseline. Representative UI screenshots were
-  inspected. Counts include pre-existing preference checks in the shared workspace.
-- `--coverage --audio-cues --host-audio` passed **66/66**: all 94 cases repeated
-  in independent processes and reverse preparation order; 42 declared native
-  routes were observed. All 26 firmware cues completed with PCM, volume, mute,
-  quiet hours and cancellation were checked, and intro/Pet cues reached the PC
-  audio backend. Event-specific cue playback and human listening remain separate.
-- `--atlas-pdf` passed **52/52**, including N10 source identity, isolated mode
-  and its exact native RGB frame on the same exported PDF page. It also checks
-  immutable baselines, unsafe paths and three handwriting lines on every page.
-- Full-catalog generation published **94 captured, 15 unsupported, 17 not
-  applicable and zero failed**. The final PDF has 66 pages, source/inventory IDs,
-  native modes, explicit absences and three handwriting lines per page. Final
-  All 66 final pages were visually inspected. No annotation films were generated.
+- The native graphics/runtime generator compiled the current host sources.
+- The combined `--coverage --events-ui --atlas-pdf` suite ran 64 tests: 63
+  passed and the PDF identity/pixel test errored because the selected system
+  Python lacks `pypdf`. This is not a successful complete suite.
+- Coverage repeated all 98 cases in independent processes, including reverse
+  order, and observed 42 declared routes. Activity frames repeated and restored
+  P04. The local notification presenter distinguished success, error and recovery.
+- Thirteen Codex event cases repeated, restored P04 26 times and verified
+  unavailable-to-valid-event recovery. Native Studio UI checks opened the
+  added events and preserved the baseline. N01, C07, N05 and N11 images were
+  inspected visually; screenshots are host evidence, not physical acceptance.
+- The atlas PDF test requires a separate rerun using an interpreter with `pypdf`.
+  The previously published 94-case PDF remains at
+  `artifacts/simulator/studio/atlas/exports/cody-native-atlas-94d596e32f324e0580b39b69610635fd-b989bf94.pdf`;
+  it does not include the four new cases. A concurrent local PDF-generator edit
+  was preserved and is outside this checkpoint.
+- Scoped index whitespace review passed. Outputs remain under `artifacts/`;
+  cleanup is manual.
 
-- Scoped source/index whitespace checks passed. Generated outputs remain under
-  `artifacts/`; concurrent unrelated local work is outside these checkpoints.
-
-Published artifacts:
-
-- `artifacts/simulator/studio/atlas/runs/94d596e32f324e0580b39b69610635fd/manifest.json`
-- `artifacts/simulator/studio/atlas/exports/cody-native-atlas-94d596e32f324e0580b39b69610635fd-b989bf94.pdf`
-
-Remaining work includes N05 review, event unavailable and editable event inputs,
-authenticated event transport/replies, real maintenance operations, voice and
-sleep/wake. S06 native character/title overlap and the ambiguous existing reset
-failure caption remain open. Windows, human listening and physical acceptance
-are separate. No firmware build/flash, device contact or Git push was performed.
-Artifacts are retained; cleanup remains manual.
+Remaining work includes editable event fixtures, actual reply and Retry,
+populated notification lists/paging, real operations, voice and sleep/wake.
+Lost32 remains unsupported because the dashboard can mask its scene. S06
+character/title overlap and the reset failure wording remain open. No firmware
+build or flash, physical-device operation, human audio acceptance or push was
+performed; Windows and device acceptance remain separate.

@@ -618,18 +618,18 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   Windows and physical acceptance remain open.
 - [ ] 🟡 **CODY-NEXT-06.12** Studio G: extend remaining families and report actual
   coverage by declared availability. Report actual acquisition separately from the 80–90 target.
-  The implementation has 94 executable cases: Settings, confirmation-only views,
+  The implementation has 98 executable cases: Settings, confirmation-only views,
   setup/guide states, Wi-Fi scan/input/progress/failure, Bluetooth instructions,
   provisioning QR/progress, saved-PC views, Device/About/diagnostics, Audio,
   isolated Memory, six editable account/statistics pages and six isolated
   browser views, direct Home/Muse and carousel About, isolated screensaver and
   Connected, and four explicit Codex link observations. All use the production
   C/C++ renderers and real host owners.
-  The source catalog contains 126 entries: 94 executable, 15 unsupported and 17
-  not applicable. Acquired cases map to 83 distinct document-local IDs plus ten
+  The source catalog contains 127 entries: 98 executable, 12 unsupported and 17
+  not applicable. Acquired cases map to 87 distinct document-local IDs plus ten
   explicit secondary family states and one unmapped event source; primary aliases remain unambiguous. The
   reference PDF's 100 local inventory IDs are a separate verified count.
-  Native checks repeat all 94 selected static cases in fresh processes and reverse order,
+  Native checks repeat all 98 selected static cases in fresh processes and reverse order,
   observe 42 touch/swipe routes, verify six visible statistics edits and prior-case
   retirement, and reject 13 native ABI/input errors without changing the frame.
   Integer arrays, masks, source ages and captions remain explicit scenario inputs.
@@ -658,9 +658,8 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   "Restart did not occur" caption needs firmware wording review. Visible Back and
   Retry actions are disabled in the fixture. PDF pages reserve three blank
   handwriting lines at 7 mm spacing.
-  Source-only additions awaiting fresh native and visual checks cover N05 reply
-  review, N11 failed event observation, N01 empty/unavailable Activity and
-  C07 current turn. They do not replay replies, Retry, notification paging or
+  Linux host captures and visual inspection cover N05 reply review, N11 failed
+  event observation, N01 unavailable Activity and C07 current turn. They do not replay replies, Retry, notification paging or
   live PC updates. Local inbox read failure is shown as `Local notices unavailable`;
   PC status remains separate, and the normal empty label requires a successful
   read. Lost32 remains unsupported while dashboard precedence can mask its scene.
