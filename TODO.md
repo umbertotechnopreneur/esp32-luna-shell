@@ -35,11 +35,19 @@ This file tracks open implementation and acceptance. See [planned-todo.md](plann
    S17–S22 (29/29 phase-E checks). S19 is conditional on wake-word support.
    Captures retain navigation history, and direct/route frames are not assumed
    to have the same animated state. Remaining routes, general worker scheduling,
-   Windows and physical acceptance remain open. Isolated atlas regeneration and
-   PDF export remain later slices of this activity.
-   Next, complete phase F with isolated suite generation, progress/cancellation,
-   preserved valid results and inventory-linked PDF export; then extend actual
-   coverage in phase G. Prioritize audio playback and visual fidelity. General
+   Windows and physical acceptance remain open. Phase F now integrates isolated
+   suite generation, per-case progress/errors, cancellation/reaping, atomic
+   last-valid publication and opt-in validated-build watching. Publication
+   verifies the exact selection plus build/catalog/scenario dependencies.
+   Studio preserves the interactive owner, NVS, pending form and explicit
+   baseline; thumbnails and differences update after publication. PDF export
+   retains native pixels, inventory revision/IDs, source functions and absence
+   reasons. Linux atlas contracts, native suites, PDF integrity/visual checks
+   and the 32-check Tk suite pass, including automatic generation and a visible
+   native frame at 720x540 with Atlas open.
+   Next, extend actual coverage in phase G. The shared source catalog contains
+   108 entries, including retained families; the earlier 100 was an unverified
+   owner estimate. Prioritize audio playback and visual fidelity. General
    worker/timer precision can remain deferred.
 
 ## First-run tour
@@ -80,7 +88,7 @@ Work is tracked on `feat/cody-vNext`. Keep the status below aligned with the [ph
 | CODY-NEXT-03 | Broker restores stable records and history under a new epoch and serves bounded state-v1 pages. Complete question correlation and executed acceptance. |
 | CODY-NEXT-04 | Broker preserves exact question, answer and confirmation evidence. Signed CCP1 owns delivery. Complete native turn correlation, state-v1 question publication and restart/race acceptance. |
 | CODY-NEXT-05 | DeviceSnapshotService serves generation-bound queries and the paired device restores counts, a bookmark and unresolved references. Verify storage and recovery. |
-| CODY-NEXT-06 | Studio A-D and expanded E have Linux native evidence: S01/S02 display-worker and live audio replay, P01 ↔ P04 and ten guide gestures S17–S22; 29/29 phase-E and 31/31 Tk/native checks pass. General worker scheduling, remaining routes, full inventory, automation/PDF, Windows and physical acceptance remain pending. |
+| CODY-NEXT-06 | Studio A-D, expanded E and F have Linux host evidence: native pilot/guide cases, live firmware PCM, isolated atlas jobs/build watcher and inventory-linked PDF. The 32-check Tk suite verifies session/baseline preservation and small-window frame visibility. Extend measured coverage in G; remaining routes, general worker scheduling, Windows and physical acceptance remain pending. |
 | CODY-NEXT-07 | Native CODY2D floppy-to-Muse showcase changes pose every ten visible seconds. Complete domain-driven direction and physical acceptance. |
 | CODY-NEXT-09 | Native Codex browser exposes Chats, Turns, Tool calls, Active calls, Events and Statistics. Finish Home/Tools gestures, two-dot chrome and hardware acceptance. |
 

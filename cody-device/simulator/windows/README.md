@@ -43,6 +43,7 @@ screenshots and isolated settings/preferences:
 
 ```bash
 xvfb-run -a -s '-screen 0 1920x1200x24' pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--ui'
+xvfb-run -a -s '-screen 0 1920x1200x24' pwsh -NoProfile -Command '& ./scripts/device.ps1 check -Check cody-studio -ToolArguments @("--ui","--atlas-ui")'
 ```
 
 This suite checks direct preparation of all ten cases, editing at input bounds
@@ -104,6 +105,54 @@ Static and isolated captures do not open the host audio device or emit sound.
 Up to 40 recent thumbnails are displayed; capture artifacts remain available.
 All device pixels come from native C/C++.
 
+### Generate and export an atlas
+
+The Atlas expander runs the pilot, all supported contracts or the currently
+filtered catalog in a separate process with a separate native library and NVS.
+Generate atlas reports progress and each captured, failed, unsupported or
+not-applicable case. Cancel stops that child and retains the last published
+atlas. Neither generation nor publication prepares the interactive scenario,
+selects a different current frame, writes its settings or changes the chosen
+baseline. Published captures appear as thumbnails; click one explicitly to
+inspect or compare it. Each generation reruns its entire selection.
+
+Automatic regeneration is opt-in for each window. It watches only the native
+build manifest and library, validates the complete source/binary provenance,
+and starts after a newly validated build. Atlas output cannot retrigger it.
+An outdated build is rejected rather than rebuilt implicitly. Failed,
+cancelled or stale jobs leave the previous valid publication intact. Historical
+results keep their build identity and do not establish current-source coverage.
+
+Export PDF uses the same validated, immutable atlas manifest as the window.
+It includes the original inventory document revision and mapped IDs, stable
+source identities, variants, rendering modes, source functions and reasons for
+absent captures. The selected-suite count and complete source-catalog count
+remain separate; neither is an assertion of physical acceptance. Exports and
+intermediate artifacts stay under `artifacts/`, with no workstation-specific
+mirror path or annotation films.
+
+```powershell
+pwsh -NoProfile -Command '& ./scripts/device.ps1 generate -Generator cody-studio-atlas -ToolArguments @("--suite","supported")'
+pwsh -NoProfile -Command '& ./scripts/device.ps1 generate -Generator cody-studio-atlas -ToolArguments @("--case","P04","--case","S15")'
+pwsh -NoProfile -File ./scripts/device.ps1 generate -Generator cody-native-screen-atlas -ToolArguments '--render'
+pwsh -NoProfile -Command '& ./scripts/device.ps1 check -Check cody-studio -ToolArguments @("--atlas","--atlas-pdf")'
+```
+
+The PDF generator defaults to the published atlas; `--manifest` selects a
+retained result and `--output` selects a new PDF beneath `artifacts/`.
+`--render` additionally produces retained PNG previews of every page for visual
+review, using Poppler. Each export and preview prefix is unique.
+PDF export loads ReportLab only when requested; ordinary Studio capture does
+not require it. The PDF verification suite additionally uses pypdf and
+Poppler to inspect extracted content, native image bytes and rendered pages.
+Select an existing interpreter containing these packages with
+`-PythonExecutable <python>` when the default host interpreter lacks them.
+The phase-F Tk check runs in its own native process, so `--ui` and `--atlas-ui`
+can be combined without attempting to reinitialize process-global audio owners.
+Use `--suite all` to retain explicit absences for every source-catalog entry.
+The suite exposes only declared native contracts, not an inferred complete
+navigation graph. Windows and physical Cody remain separate acceptance gates.
+
 Saving scenarios and reviews writes under `artifacts/simulator/studio/`.
 Scenario saves refuse replacement; captures and baseline copies use unique
 directories and never overwrite existing evidence. A comparison requires the
@@ -132,12 +181,11 @@ display owner prepares each destination and its caller/return context before ren
 Only orientation 0/180 is supported by this host profile. The capture is the
 logical raster before hardware panel rotation; auto rotation has no simulated
 gravity observation. No arbitrary delay or post-capture route query assigns
-identity. General worker replay, automatic atlas updates and
-PDF integration remain pending under `CODY-NEXT-06`. The inventory is **Cody
+identity. General worker replay remains deferred under `CODY-NEXT-06`. The inventory is **Cody
 screen map and static inventory**, 14 November 2026, baseline `e971b313` plus
 local changes; its SHA-256 and repository-relative artifact location are in
-`studio_catalog.json`. Its 100 entries and 214 declared links describe that
-document, independently of native acquisition coverage. No physical acceptance
+`studio_catalog.json`. The initially reported 100 entries remain an unverified
+owner estimate. Declared links describe the document model, independently of native acquisition coverage. No physical acceptance
 is claimed.
 
 The default suite checks contracts without loading the native library. Its

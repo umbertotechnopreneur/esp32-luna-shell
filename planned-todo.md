@@ -594,12 +594,27 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   further gestures, Windows validation and full startup lifecycle remain open.
   The owner's current priority is faithful graphics and audible firmware cues;
   exact scheduling of unrelated workers is not a prerequisite for phase F.
-- [ ] ⚪ **CODY-NEXT-06.11** Studio F: detect validated native builds, regenerate
+- [x] 🟢 **CODY-NEXT-06.11** Studio F: detect validated native builds, regenerate
   selected suites in isolated processes with progress/cancellation/per-case
   errors, retain the last valid result and extend the existing atlas PDF with
   inventory revision/ID, variant, rendering mode, source and missing reasons.
   Exclude generated outputs from watching. Visually inspect the PDF; do not
   generate annotation films automatically.
+  Implemented source now shares one isolated atlas job between Studio and the
+  public generator, with per-case progress/errors, cancellation/reaping,
+  atomic last-valid publication and build/catalog/scenario provenance.
+  Publication covers the exact original selection. Studio adds published
+  thumbnails without preparing its interactive owner or replacing a baseline.
+  An opt-in watcher accepts new validated builds only; output changes do not
+  trigger regeneration. The shared PDF exporter retains native image bytes,
+  inventory revision/ID, variant, mode, source and explicit absences beneath
+  artifacts, with no workstation-specific mirror. Linux validation passes all
+  ten atlas extension checks, the 36-check contract/PDF suite and the 32-check
+  Tk/native suite. Tests cover a verified watcher notification through a real
+  automatic child/publication, malformed progress, unchanged native pixels/NVS/
+  pending form/baseline, and visible 180-pixel native frames with Atlas open at
+  720x540. PDF image pixels are unchanged and rendered pages were inspected.
+  Windows and physical acceptance remain open.
 - [ ] ⚪ **CODY-NEXT-06.12** Studio G: extend remaining families and report actual
   coverage by declared availability. The 80–90 target is not an acquired count.
 
