@@ -36,13 +36,18 @@ This file tracks open implementation and acceptance. See [planned-todo.md](plann
    at 7 mm spacing. See `done.md` for current validation and inspected artifacts.
    S06 remains deferred for its native character/title overlap. Wi-Fi operation
    replay, voucher expiry, microphone/heap availability and isolated Memory
-   navigation retain explicit limits. Next add the N05 reply review, event
-   unavailable, editable event fixtures, actual replay and signed replies, plus
+   navigation retain explicit limits. Next add editable event fixtures, actual
+   replay and signed replies, plus
    operation, maintenance, voice and sleep/wake lifecycles through
    their actual owners. Screensaver/Connected static inspection does not establish
    idle or authenticated-link replay. General worker/timer precision stays deferred
    under the owner's graphics/audio priority. Windows, human listening and
    physical Cody acceptance remain separate gates.
+   New source fixtures add N05 reply review, N11 event read failure, N01
+   empty/unavailable Activity events and C07 current turn. They require a
+   fresh native build and host/visual checks; they do not replay reply, Retry,
+   populated notification paging or live PC activity. Lost32 remains deferred
+   because the current dashboard can mask its connection-lost scene.
 
 ## First-run tour
 

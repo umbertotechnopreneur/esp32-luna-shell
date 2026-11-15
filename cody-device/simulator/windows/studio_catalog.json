@@ -9456,7 +9456,7 @@
         "Static inspection does not replay navigation, authenticated transport, replies or device approval",
         "Touch and event actions are disabled; no real account, network or device operation is submitted",
         "Synthetic Wi-Fi must remain connected; physical-device acceptance is separate",
-        "Choose reply only; N05 Review reply is not represented by this fixture"
+        "Choose reply only; the selected reply is inspected separately under N05"
       ],
       "controls": [],
       "suite": "extension",
@@ -9521,6 +9521,127 @@
               "title": "Review another change"
             }
           ]
+        }
+      }
+    },
+    {
+      "id": "ui-v1:review-reply",
+      "inventory_id": "N05",
+      "title": "Review reply",
+      "native_target": "cody.event.review-reply",
+      "controller": "prepare_studio_scene / isolated native event presenter",
+      "availability": "presenter-isolated",
+      "rendering_mode": "presenter-isolated",
+      "group": "Notifications",
+      "verification": "Source implementation; host capture, repeatability and physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "codex"
+      ],
+      "scenario": "cody-studio-event-review-reply.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "Native event presentation",
+        "Synthetic host Codex event and READY observation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Production C/C++ event presentation with an isolated synthetic event and READY observation",
+        "Static inspection does not replay navigation, authenticated transport, replies or device approval",
+        "Touch and event actions are disabled; no real account, network or device operation is submitted",
+        "Synthetic Wi-Fi must remain connected; physical-device acceptance is separate",
+        "The first synthetic choice is selected locally for review; no reply is admitted or sent"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "codex_event": {
+          "source": "CODY::host_studio_events::fill; DeviceSnapshotService synthetic observation",
+          "request_id": "11111111111111111111111111111111",
+          "revision": 1,
+          "lifetime_us": 180000000,
+          "kind": "Question",
+          "state": "Pending",
+          "stage": "Confirm",
+          "expected_route": "DecisionConfirm27",
+          "context": "Synthetic Studio",
+          "title": "Review update",
+          "body": "Review the proposed change.",
+          "origin_title": "Studio chat",
+          "status": "",
+          "link": "Synthetic READY / retained association / current app open",
+          "choices": [
+            "approve",
+            "decline"
+          ],
+          "pending_request_ids": [
+            "11111111111111111111111111111111",
+            "22222222222222222222222222222222"
+          ],
+          "pending_question_count": 2,
+          "pending_entry_count": 2,
+          "choice_details": [
+            {
+              "id": "approve",
+              "label": "Approve",
+              "detail": "Proceed with the change",
+              "tone": "Positive"
+            },
+            {
+              "id": "decline",
+              "label": "Decline",
+              "detail": "Keep the current result",
+              "tone": "Negative"
+            }
+          ],
+          "pending_entries": [
+            {
+              "request_id": "11111111111111111111111111111111",
+              "context": "Synthetic Studio",
+              "title": "Review update"
+            },
+            {
+              "request_id": "22222222222222222222222222222222",
+              "context": "Synthetic Studio",
+              "title": "Review another change"
+            }
+          ],
+          "navigation_selected_id": "approve"
         }
       }
     },
@@ -9958,6 +10079,81 @@
       }
     },
     {
+      "id": "ui-v1:event-unavailable",
+      "inventory_id": "N11",
+      "title": "Codex event unavailable",
+      "native_target": "cody.event.unavailable",
+      "controller": "prepare_studio_scene / isolated native event presenter",
+      "availability": "presenter-isolated",
+      "rendering_mode": "presenter-isolated",
+      "group": "Notifications",
+      "verification": "Source implementation; host capture, repeatability and physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "codex"
+      ],
+      "scenario": "cody-studio-event-unavailable.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "Native event presentation",
+        "Synthetic host Codex event and READY observation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": true,
+      "limitations": [
+        "Production C/C++ unavailable presenter with an explicit synthetic event-observation read timeout",
+        "Static inspection does not replay Retry, authenticated transport or recovery",
+        "Touch and event actions are disabled; no real account, network or device operation is submitted",
+        "Synthetic Wi-Fi must remain connected; physical-device acceptance is separate"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "codex_event": {
+          "source": "DeviceSnapshotService synthetic read failure",
+          "observation_error": "ESP_ERR_TIMEOUT",
+          "event_observation": "not published",
+          "stage": "Notice",
+          "expected_route": "EventUnavailable",
+          "link": "Synthetic READY / retained association / current app open"
+        }
+      }
+    },
+    {
       "id": "ui-v1:approval-pc",
       "inventory_id": "N08",
       "title": "Approval on PC",
@@ -10038,6 +10234,224 @@
           "status": "",
           "link": "Synthetic READY / retained association / current app open"
         }
+      }
+    },
+    {
+      "id": "ui-v1:activity-events",
+      "inventory_id": "N01",
+      "title": "Notifications list",
+      "native_target": "cody.activity.events",
+      "controller": "prepare_codex_events / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Notifications and events",
+      "verification": "Source implementation; native capture and physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-n01.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_codex_panels.cpp",
+      "symbol": "prepare_codex_events",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "Local notifications owner",
+        "Canonical host inbox owner"
+      ],
+      "time_control": "Controlled static sample at t=0; source paging and delivery are not replayed",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Production native notification list with an empty or unavailable host inbox; populated rows, local/remote merge and paging have no synthetic fixture",
+        "Direct static preparation does not replay remote synchronization, acknowledgement or paging",
+        "Capture acquisition and visual differences do not constitute human approval or physical acceptance"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store"
+      }
+    },
+    {
+      "id": "ui-v1:current-turn",
+      "inventory_id": "C07",
+      "title": "Current turn / PC activity",
+      "native_target": "cody.activity.current-turn",
+      "controller": "prepare_current_turn / native display owner",
+      "availability": "runtime-full",
+      "rendering_mode": "runtime-full",
+      "group": "Codex",
+      "verification": "Source implementation; native capture and physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-c07.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {
+          "codex_link": {
+            "type": "object",
+            "fields": {
+              "outcome": {
+                "type": "str",
+                "max_length": 5,
+                "values": [
+                  "ready"
+                ]
+              }
+            }
+          },
+          "statistics": {
+            "type": "object",
+            "fields": {
+              "source_age_ms": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 60000
+              },
+              "context_used_tokens": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 4294967295
+              },
+              "context_capacity_tokens": {
+                "type": "int",
+                "minimum": 1,
+                "maximum": 4294967295
+              },
+              "context_cumulative_tokens": {
+                "type": "int",
+                "minimum": 0,
+                "maximum": 18446744073709551615
+              },
+              "context_chat_title": {
+                "type": "str",
+                "max_length": 128
+              }
+            }
+          }
+        }
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_codex_panels.cpp",
+      "symbol": "prepare_current_turn",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation",
+        "Canonical account/statistics host adapter",
+        "Canonical Codex READY app lease"
+      ],
+      "time_control": "Controlled static account/interval sample at t=0; civil time comes from the scenario and observations carry explicit source age",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The production C/C++ presenter consumes an explicit synthetic current chat and Working activity from the canonical host snapshot owner",
+        "Direct static preparation does not replay real activity, transport, timers, tool execution or navigation",
+        "Capture acquisition and visual differences do not constitute human approval or physical acceptance"
+      ],
+      "controls": [
+        {
+          "path": [
+            "services",
+            "statistics",
+            "source_age_ms"
+          ],
+          "label": "Source Age Ms"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "context_used_tokens"
+          ],
+          "label": "Context Used Tokens"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "context_capacity_tokens"
+          ],
+          "label": "Context Capacity Tokens"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "context_cumulative_tokens"
+          ],
+          "label": "Context Cumulative Tokens"
+        },
+        {
+          "path": [
+            "services",
+            "statistics",
+            "context_chat_title"
+          ],
+          "label": "Context Chat Title"
+        }
+      ],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "codex_link": "Canonical synthetic READY app lease, exact native owner-scoped identifiers"
       }
     }
   ]

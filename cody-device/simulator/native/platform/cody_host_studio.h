@@ -187,6 +187,10 @@ CODY_HOST_STUDIO_API esp_err_t cody_host_studio_prepare_case(const CodyHostStudi
 // No parameters: exact request capacity for the current host-only ABI.
 // Exception: No exceptions.
 CODY_HOST_STUDIO_API size_t cody_host_studio_case_size();
+// output: Receives three 64-byte captions for healthy, unavailable and recovered local inbox states.
+// capacity: Complete destination capacity, at least 192 bytes.
+// Exception: Preserves native presenter errors and rejects invalid output capacity.
+CODY_HOST_STUDIO_API esp_err_t cody_host_studio_notification_subtitles(char *output, size_t capacity);
 // Start an isolated live-clock boot animation from a prepared source frame.
 CODY_HOST_STUDIO_API esp_err_t cody_host_studio_start_live(uint32_t sounds_enabled, uint32_t playback_volume);
 CODY_HOST_STUDIO_API esp_err_t cody_host_studio_live_status(CodyHostStudioLiveStatus *status, size_t capacity);

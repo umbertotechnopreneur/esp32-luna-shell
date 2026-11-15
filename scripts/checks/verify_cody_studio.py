@@ -2863,6 +2863,8 @@ def main(argv=None):
         import cody_studio_coverage_checks
         suite.addTests(loader.loadTestsFromModule(cody_studio_coverage_checks))
     if arguments.coverage or arguments.inspection:
+        import cody_studio_activity_checks
+        suite.addTests(loader.loadTestsFromModule(cody_studio_activity_checks))
         import cody_studio_maintenance_checks
         suite.addTests(loader.loadTestsFromModule(cody_studio_maintenance_checks))
         import cody_studio_event_checks

@@ -284,7 +284,8 @@ bool same_page(const NotificationListPage &left, const NotificationListPage &rig
     if (left.total != right.total || left.unread != right.unread || left.offset != right.offset ||
         left.count != right.count || left.revision != right.revision || left.dropped != right.dropped ||
         left.remote_current != right.remote_current || left.remote_retained != right.remote_retained ||
-        left.remote_error != right.remote_error || left.remote_pending != right.remote_pending ||
+        left.local_error != right.local_error || left.remote_error != right.remote_error ||
+        left.remote_pending != right.remote_pending ||
         left.action_error != right.action_error) return false;
     for (uint8_t index = 0; index < left.count; ++index) {
         const auto &a = left.rows[index];
@@ -313,7 +314,8 @@ esp_err_t prepare_codex_events(CodexPanelView &view, const NotificationListPage 
     for (uint8_t index = 0; index < inbox.count; ++index) available = available || inbox.rows[index].current;
     const bool retained = inbox.count > 0 || inbox.remote_retained;
     char subtitle[sizeof(view.subtitle)]{};
-    if (inbox.dropped > 0) std::snprintf(subtitle, sizeof(subtitle), "%u/%u unread; %lu dropped",
+    if (inbox.local_error != ESP_OK) std::strcpy(subtitle, "Local notices unavailable");
+    else if (inbox.dropped > 0) std::snprintf(subtitle, sizeof(subtitle), "%u/%u unread; %lu dropped",
         unsigned(inbox.unread), unsigned(inbox.total), static_cast<unsigned long>(inbox.dropped));
     else if (inbox.total == 0) std::strcpy(subtitle, "No notifications");
     else std::snprintf(subtitle, sizeof(subtitle), "%u unread / %u saved", unsigned(inbox.unread), unsigned(inbox.total));

@@ -22,11 +22,13 @@ CASES = {
     "atlas-v1:24": ("cody.event.check-failures", "N10", None),
     "atlas-v1:26": ("cody.event.question", "N03", None),
     "atlas-v1:27": ("cody.event.question-choices", "N04", None),
+    "ui-v1:review-reply": ("cody.event.review-reply", "N05", None),
     "atlas-v1:31": ("cody.event.reply-sent", "N07", None),
     "ui-v1:question-queue": ("cody.event.question-queue", None, "N03"),
     "ui-v1:sending-reply": ("cody.event.sending-reply", "N06", None),
     "ui-v1:notice": ("cody.event.notice", None, None),
     "ui-v1:approval-pc": ("cody.event.approval-pc", "N08", None),
+    "ui-v1:event-unavailable": ("cody.event.unavailable", "N11", None),
 }
 
 
@@ -49,7 +51,7 @@ class EventContractTests(unittest.TestCase):
     def test_question_delivery_retains_only_the_other_pending_row(self):
         first = "11111111111111111111111111111111"
         second = "22222222222222222222222222222222"
-        for identity in ("atlas-v1:26", "atlas-v1:27", "ui-v1:question-queue"):
+        for identity in ("atlas-v1:26", "atlas-v1:27", "ui-v1:question-queue", "ui-v1:review-reply"):
             fixture = entry_for(identity)["fixed_dependencies"]["codex_event"]
             self.assertEqual((fixture["pending_question_count"], fixture["pending_entry_count"]), (2, 2))
             self.assertEqual(fixture["pending_request_ids"], [first, second])
@@ -59,6 +61,18 @@ class EventContractTests(unittest.TestCase):
             self.assertEqual(fixture["pending_request_ids"], [second])
             self.assertEqual(fixture["request_id"], first)
             self.assertEqual(fixture["selected_id"], "approve")
+
+    # self: Explicit read failure and local pending-choice review fixture contracts.
+    # Raises AssertionError if the failure invents an event or the review admits a reply.
+    def test_review_and_unavailable_inputs_are_distinct(self):
+        review = entry_for("N05")["fixed_dependencies"]["codex_event"]
+        self.assertEqual((review["state"], review["stage"], review["navigation_selected_id"]),
+                         ("Pending", "Confirm", "approve"))
+        self.assertNotIn("selected_id", review)
+        unavailable = entry_for("ui-v1:event-unavailable")["fixed_dependencies"]["codex_event"]
+        self.assertEqual(unavailable["observation_error"], "ESP_ERR_TIMEOUT")
+        self.assertEqual(unavailable["event_observation"], "not published")
+        self.assertNotIn("request_id", unavailable)
 
     # self: Catalog and scenario contracts, without loading a native library.
     # Raises AssertionError for a guessed inventory alias or incoherent fixture.
@@ -114,6 +128,7 @@ class EventNativeTests(unittest.TestCase):
         summary = json.loads(lines[-1])
         self.assertEqual(summary["repeated_cases"], len(CASES))
         self.assertEqual(summary["p04_restorations"], len(CASES) * 2)
+        self.assertTrue(summary["unavailable_event_recovery"])
         self.assertEqual(summary["global_monotonic_us"], 1000000)
         self.assertIn("not independently observed", summary["operation_evidence"])
         print(lines[-1], flush=True)
@@ -175,7 +190,17 @@ def run_worker(directory):
         raise AssertionError("PR pending, checks failed and notice rendered indistinguishable native frames")
     if pixel_hashes["atlas-v1:22"] == pixel_hashes["ui-v1:approval-pc"]:
         raise AssertionError("Checks running and approval on PC rendered indistinguishable native frames")
+    if pixel_hashes["ui-v1:review-reply"] == pixel_hashes["atlas-v1:27"]:
+        raise AssertionError("Reply review and choice list rendered indistinguishable native frames")
+    # Exercise direct owner transitions too: a failed read must not retain the
+    # previous event, and its injected failure must retire before the next event.
+    for identity in ("atlas-v1:26", "ui-v1:event-unavailable", "atlas-v1:26", "ui-v1:event-unavailable"):
+        runner.prepare(default_scenario(identity))
+        if runner.capture().metadata["pixel_sha256"] != pixel_hashes[identity]:
+            raise AssertionError(f"Direct event recovery changed {identity}'s completed frame")
+        assert_clock(device)
     summary = {"repeated_cases": len(CASES), "p04_restorations": restores,
+               "unavailable_event_recovery": True,
                "global_monotonic_us": assert_clock(device), "captures": captures,
                "operation_evidence": "Touch admission and external service calls are not independently observed; host guards are source-reviewed"}
     (directory / "result.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")

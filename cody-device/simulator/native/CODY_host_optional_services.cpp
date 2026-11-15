@@ -37,7 +37,8 @@ Page page_for(const char (&target)[48])
     constexpr Entry entries[]{
         {"cody.dashboard.today", Page::Today}, {"cody.dashboard.seven-days", Page::SevenDays},
         {"cody.dashboard.token-history", Page::TokenHistory}, {"cody.dashboard.credits", Page::Credits},
-        {"cody.dashboard.account", Page::Account}, {"cody.dashboard.context", Page::Context}};
+        {"cody.dashboard.account", Page::Account}, {"cody.dashboard.context", Page::Context},
+        {"cody.activity.current-turn", Page::Context}};
     for (const auto &entry : entries)
         if (std::strncmp(target, entry.target, sizeof(target)) == 0) return entry.page;
     return Page::None;

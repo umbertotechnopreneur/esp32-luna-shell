@@ -651,13 +651,19 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   replay. Eleven fixed synthetic Codex event observations cover PR, checks,
   question, choices, queue, sending, delivered, notice and PC approval through
   the canonical host snapshot and isolated original presenter. Event actions and
-  cue playback are not replayed; fixture content is not yet editable. N05 review
-  and event unavailable remain unsupported. P19/P21 maintenance pending and
+  cue playback are not replayed; fixture content is not yet editable. The last
+  validated suite did not cover N05 review or event unavailable. P19/P21 maintenance pending and
   P21 family reset failure use isolated
   read-only presenters. The latter uses synthetic ESP_ERR_TIMEOUT; its original
   "Restart did not occur" caption needs firmware wording review. Visible Back and
   Retry actions are disabled in the fixture. PDF pages reserve three blank
   handwriting lines at 7 mm spacing.
+  Source-only additions awaiting fresh native and visual checks cover N05 reply
+  review, N11 failed event observation, N01 empty/unavailable Activity and
+  C07 current turn. They do not replay replies, Retry, notification paging or
+  live PC updates. Local inbox read failure is shown as `Local notices unavailable`;
+  PC status remains separate, and the normal empty label requires a successful
+  read. Lost32 remains unsupported while dashboard precedence can mask its scene.
   Next prioritize event/question detail and replies, operation, maintenance,
   voice and sleep/wake lifecycles through their actual owners.
   Windows and physical acceptance stay open. General worker/timer precision

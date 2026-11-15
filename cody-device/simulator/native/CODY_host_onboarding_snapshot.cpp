@@ -37,13 +37,18 @@ bool s_wifi_scan_available = false;
 LUNASHELL::CodexWeeklyLimitSnapshot s_studio_weekly{};
 LUNASHELL::CodexAccountSnapshot s_studio_account{};
 bool s_studio_statistics = false;
+// A scenario-owned service read failure, retired on every subsequent publication.
+esp_err_t s_studio_event_read_error = ESP_OK;
+// The N01 fixture projects an unavailable inbox without erasing any host observation.
+bool s_studio_unavailable_inbox = false;
 
 // target: Explicit synthetic dashboard scope requiring a current READY/app lease.
 // Exception: No exceptions; no prefix matches admit an unrelated native page.
 bool studio_counter_target(const char *target)
 {
     static constexpr const char *targets[]{"cody.dashboard.today", "cody.dashboard.seven-days",
-        "cody.dashboard.token-history", "cody.dashboard.credits", "cody.dashboard.account", "cody.dashboard.context"};
+        "cody.dashboard.token-history", "cody.dashboard.credits", "cody.dashboard.account", "cody.dashboard.context",
+        "cody.activity.current-turn"};
     for (const auto *candidate : targets) if (std::strcmp(target, candidate) == 0) return true;
     return false;
 }
@@ -153,8 +158,11 @@ esp_err_t publish_studio_case(const CodyHostStudioCase &request)
     // Host-only staging is a bounded caller-stack copy. Validate the complete
     // event and its native destination before touching the canonical owner.
     LUNASHELL::CodexEventSnapshot staged_event{};
-    if (studio_event && !CODY::host_studio_events::fill(target, now, staged_event))
+    const auto *event_definition = CODY::host_studio_events::definition(target);
+    if (studio_event && event_definition->observation_error == ESP_OK &&
+        !CODY::host_studio_events::fill(target, now, staged_event))
         return ESP_ERR_INVALID_STATE;
+    s_studio_event_read_error = studio_event ? event_definition->observation_error : ESP_OK;
     s_studio_statistics = false;
     s_studio_weekly = {};
     s_studio_account = {};
@@ -163,6 +171,7 @@ esp_err_t publish_studio_case(const CodyHostStudioCase &request)
     s_snapshot.radios.codex_link = {};
     // A preceding event never survives another Studio scenario's publication.
     s_snapshot.codex_event = {};
+    s_studio_unavailable_inbox = std::strcmp(target, "cody.activity.events") == 0;
     s_wifi_scan = {};
     s_wifi_scan_available = false;
     // A static code is readable through the actual host service API only while
@@ -312,7 +321,7 @@ esp_err_t publish_studio_case(const CodyHostStudioCase &request)
         link.app_presence.last_error = ESP_OK;
         link.app_presence.received_at_us = now;
         link.app_presence.sequence = 1;
-        if (studio_event) s_snapshot.codex_event = staged_event;
+        if (studio_event && s_studio_event_read_error == ESP_OK) s_snapshot.codex_event = staged_event;
         if (reset || limits) {
             LUNASHELL::snapshot_detail::mark_sample_success(s_studio_weekly, now);
             s_studio_weekly.reset_unix_seconds = request.weekly_reset_unix_seconds;
@@ -718,8 +727,8 @@ esp_err_t DeviceSnapshotService::method(type &output) const { \
     if (!s_seeded) return ESP_ERR_NOT_FOUND; \
     output = (expression); return ESP_OK; \
 }
-CODY_HOST_SNAPSHOT_READ(readCodexInboxObservation, CodexInboxSnapshot, s_snapshot.codex_inbox)
-CODY_HOST_SNAPSHOT_READ(readCodexEventObservation, CodexEventSnapshot, s_snapshot.codex_event)
+CODY_HOST_SNAPSHOT_READ(readCodexInboxObservation, CodexInboxSnapshot,
+    s_studio_unavailable_inbox ? CodexInboxSnapshot{} : s_snapshot.codex_inbox)
 CODY_HOST_SNAPSHOT_READ(readDisplayFrameObservation, DisplayFrameSnapshot, s_snapshot.ui.rendering)
 CODY_HOST_SNAPSHOT_READ(readPowerState, PowerManagementSnapshot, s_snapshot.power)
 CODY_HOST_SNAPSHOT_READ(readCodyIdleObservation, CodyIdleObservation, s_snapshot.cody_idle)
@@ -727,6 +736,17 @@ CODY_HOST_SNAPSHOT_READ(readCodyEventVisualObservation, CodyEventVisualObservati
 CODY_HOST_SNAPSHOT_READ(readCodyParallaxObservation, CodyParallaxObservation, s_snapshot.cody_parallax)
 CODY_HOST_SNAPSHOT_READ(readCodyCharacterThemeObservation, CodyCharacterThemeObservation, s_snapshot.cody_character_theme)
 #undef CODY_HOST_SNAPSHOT_READ
+
+// output: Receives the canonical host event only after a successful owner read.
+// Exception: Returns the scenario's explicit read error without changing output.
+esp_err_t DeviceSnapshotService::readCodexEventObservation(CodexEventSnapshot &output) const
+{
+    std::lock_guard<std::mutex> lock(s_mutex);
+    if (!s_seeded) return ESP_ERR_NOT_FOUND;
+    if (s_studio_event_read_error != ESP_OK) return s_studio_event_read_error;
+    output = s_snapshot.codex_event;
+    return ESP_OK;
+}
 
 // battery: Receives the aged synthetic battery from the canonical snapshot.
 // Exception: An unseeded owner leaves the destination untouched.

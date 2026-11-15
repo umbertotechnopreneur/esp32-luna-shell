@@ -18,6 +18,7 @@ struct Definition {
     CodexEventState state;
     EventStage stage;
     Route route;
+    esp_err_t observation_error = ESP_OK;
 };
 
 inline constexpr Definition kDefinitions[]{
@@ -27,11 +28,13 @@ inline constexpr Definition kDefinitions[]{
     {"cody.event.check-failures", CodexEventKind::ChecksFailed, CodexEventState::Pending, EventStage::Failures, Route::CheckFailures24},
     {"cody.event.question", CodexEventKind::Question, CodexEventState::Pending, EventStage::Notice, Route::DecisionNotice26},
     {"cody.event.question-choices", CodexEventKind::Question, CodexEventState::Pending, EventStage::Choices, Route::DecisionChoices27},
+    {"cody.event.review-reply", CodexEventKind::Question, CodexEventState::Pending, EventStage::Confirm, Route::DecisionConfirm27},
     {"cody.event.question-queue", CodexEventKind::Question, CodexEventState::Pending, EventStage::Questions, Route::DecisionQueue},
     {"cody.event.sending-reply", CodexEventKind::Question, CodexEventState::Sending, EventStage::Notice, Route::DecisionWaiting},
     {"cody.event.reply-sent", CodexEventKind::Question, CodexEventState::Delivered, EventStage::Notice, Route::ReplySent31},
     {"cody.event.notice", CodexEventKind::Notice, CodexEventState::Pending, EventStage::Notice, Route::CodexNotice},
     {"cody.event.approval-pc", CodexEventKind::ApprovalOnPc, CodexEventState::Pending, EventStage::Notice, Route::ApprovalOnPc},
+    {"cody.event.unavailable", CodexEventKind::None, CodexEventState::Pending, EventStage::Notice, Route::EventUnavailable, ESP_ERR_TIMEOUT},
 };
 
 // target: Complete stable host semantic identity, never a Python enum ordinal.
@@ -68,7 +71,8 @@ inline bool describe(const char *target, EventStage &stage, Route &route)
 inline bool fill(const char *target, int64_t now_us, LUNASHELL::CodexEventSnapshot &event)
 {
     const auto *item = definition(target);
-    if (!item || now_us <= 0 || now_us > std::numeric_limits<int64_t>::max() - 180000000LL) return false;
+    if (!item || item->observation_error != ESP_OK || now_us <= 0 ||
+        now_us > std::numeric_limits<int64_t>::max() - 180000000LL) return false;
     auto &value = event;
     value = {};
     value.health = LUNASHELL::DeviceHealth::Ready;

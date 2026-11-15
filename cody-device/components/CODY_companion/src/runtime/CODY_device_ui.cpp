@@ -331,6 +331,7 @@ struct UiState : CODY::DeviceUiModel {
     CODY::NotificationListPage notifications{};
     uint16_t notification_offset = 0;
     uint16_t notification_pc_requested = UINT16_MAX;
+    esp_err_t local_notifications_error = ESP_OK;
     esp_err_t notification_action_error = ESP_OK;
     ActivityPage activity_page = ActivityPage::Events;
     bool questions_navigation_sound_pending = false;
@@ -971,6 +972,7 @@ void prepare_notification_list(DeviceRuntime &ui)
     page.remote_retained = remote.data_valid || remote.last_success_at_us > 0;
     page.remote_current = remote.data_valid && !remote.data_stale && remote.last_error == ESP_OK;
     page.remote_error = remote.last_error;
+    page.local_error = ui.state.local_notifications_error;
     page.action_error = ui.state.notification_action_error;
     const uint16_t remote_total = page.remote_retained ? remote.total : 0;
     page.total = local.total + remote_total;
@@ -981,6 +983,7 @@ void prepare_notification_list(DeviceRuntime &ui)
     page.offset = ui.state.notification_offset;
     if (page.offset < local.total && page.offset != local.offset) {
         const auto error = CODY::read_notifications(page.offset, local);
+        ui.state.local_notifications_error = page.local_error = error;
         if (error != ESP_OK) {
             ESP_LOGW(kTag, "Local notification page failed (%s)", esp_err_to_name(error));
             return;
@@ -3137,6 +3140,7 @@ esp_err_t update_navigation()
     }
     CODY::set_onboarding_inbox_available(ui.model.inbox.last_success_at_us > 0);
     const auto local_error = CODY::read_notifications(ui.state.notification_offset, ui.state.local_notifications);
+    ui.state.local_notifications_error = local_error;
     if (local_error != ESP_OK && local_error != ESP_ERR_NOT_SUPPORTED)
         ESP_LOGW(kTag, "Local notifications unavailable (%s)", esp_err_to_name(local_error));
     bool changed = false;
@@ -4161,6 +4165,11 @@ bool studio_frame_matches(const FrameView &frame)
             ui.state.screensaver.phase == CODY::ScreensaverPhase::Visible && ui.state.screensaver.frame == 0 &&
             frame.presentation.content.state == &ui.state.view.screensaver && ui.state.view.screensaver.frame == 0;
     if (std::strcmp(target, "cody.codex.connected") == 0) return frame.layer == Layer::Scene;
+    if (std::strcmp(target, "cody.activity.events") == 0)
+        return frame.layer == Layer::Events && ui.state.activity_page == ActivityPage::Events;
+    if (std::strcmp(target, "cody.activity.current-turn") == 0)
+        return frame.layer == Layer::CurrentTurn && ui.state.activity_page == ActivityPage::CurrentTurn &&
+            CODY::current_turn_has_data(ui.model.dashboard.context, esp_timer_get_time());
     WidgetScreen screen{};
     if (studio_dashboard_page(target, screen))
         return frame.layer == Layer::Dashboard && ui.state.widgets.selected_screen == screen &&
@@ -4656,6 +4665,19 @@ esp_err_t process_studio_request(DeviceRuntime &ui)
             stage = "prepare-muse-sample";
             error = prepare_studio_muse(ui);
         }
+        if (error == ESP_OK && std::strcmp(target, "cody.activity.events") == 0) {
+            // These are the actual independent inbox owners; no notice is invented.
+            stage = "read-notification-owners";
+            ui.model.inbox = {};
+            const auto inbox_error = DeviceSnapshotService::instance().readCodexInboxObservation(ui.model.inbox);
+            if (inbox_error != ESP_OK) ui.model.inbox.last_error = inbox_error;
+            const auto local_error = CODY::read_notifications(0, ui.state.local_notifications);
+            ui.state.local_notifications_error = local_error;
+            if (local_error != ESP_OK && local_error != ESP_ERR_NOT_SUPPORTED) error = local_error;
+            ui.state.activity_page = ActivityPage::Events;
+        }
+        if (error == ESP_OK && std::strcmp(target, "cody.activity.current-turn") == 0)
+            ui.state.activity_page = ActivityPage::CurrentTurn;
         WidgetScreen screen{};
         if (error == ESP_OK && studio_dashboard_page(target, screen)) {
             ui.state.activity_page = ActivityPage::Statistics;
@@ -5039,6 +5061,27 @@ esp_err_t validate_studio_request(const CodyHostStudioCase &request)
 CODY_HOST_STUDIO_API size_t cody_host_studio_case_size()
 {
     return sizeof(CodyHostStudioCase);
+}
+
+// output: Receives three bounded captions from the real native presenter.
+// capacity: Complete output size; each caption owns a 64-byte slot.
+// Exception: Rejects invalid capacity and preserves a native text preparation failure.
+CODY_HOST_STUDIO_API esp_err_t cody_host_studio_notification_subtitles(char *output, size_t capacity)
+{
+    if (!output) return ESP_ERR_INVALID_ARG;
+    constexpr size_t kCaptionSize = sizeof(CODY::CodexPanelView::subtitle);
+    if (capacity < 3 * kCaptionSize) return ESP_ERR_INVALID_SIZE;
+    CODY::CodexPanelView view{};
+    CODY::NotificationListPage page{};
+    CODY::SceneContent content{};
+    const esp_err_t outcomes[]{ESP_OK, ESP_ERR_NOT_SUPPORTED, ESP_OK};
+    for (size_t index = 0; index < std::size(outcomes); ++index) {
+        page.local_error = outcomes[index];
+        const auto error = CODY::prepare_codex_events(view, page, 1000000, content);
+        if (error != ESP_OK) return error;
+        std::memcpy(output + index * kCaptionSize, view.subtitle, kCaptionSize);
+    }
+    return ESP_OK;
 }
 
 // request: Fixed-size named case; copied into a process-lifetime mailbox before enqueue.

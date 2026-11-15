@@ -7688,7 +7688,8 @@ static bool studio_dashboard_target(const char *target)
         "cody.diagnostics.overview", "cody.diagnostics.memory", "cody.settings.audio",
         "cody.dashboard.today", "cody.dashboard.seven-days", "cody.dashboard.token-history",
         "cody.dashboard.credits", "cody.dashboard.account", "cody.dashboard.context",
-        "cody.home.muse", "cody.home.screensaver", "cody.dashboard.about"};
+        "cody.home.muse", "cody.home.screensaver", "cody.dashboard.about",
+        "cody.activity.events", "cody.activity.current-turn"};
     for (const auto *candidate : targets) if (std::strcmp(target, candidate) == 0) return true;
     return false;
 }
@@ -7789,8 +7790,15 @@ esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &requ
         const auto &link = s_technical_observation.link;
         if (error == ESP_OK && (!link.data_valid || link.data_stale || link.last_error != ESP_OK ||
                                 link.state != LUNASHELL::CodexLinkState::Connected)) error = ESP_ERR_INVALID_STATE;
-        if (error == ESP_OK) error = LUNASHELL::DeviceSnapshotService::instance().readCodexEventObservation(s_observed_event);
         const auto *expected = CODY::host_studio_events::definition(target);
+        bool expected_read_failure = false;
+        if (error == ESP_OK) {
+            error = LUNASHELL::DeviceSnapshotService::instance().readCodexEventObservation(s_observed_event);
+            expected_read_failure = expected && expected->observation_error != ESP_OK &&
+                error == expected->observation_error;
+            if (error == ESP_OK && expected && expected->observation_error != ESP_OK)
+                error = ESP_ERR_INVALID_STATE;
+        }
         if (error == ESP_OK && (!expected || !s_observed_event.data_valid || s_observed_event.data_stale ||
             s_observed_event.last_error != ESP_OK || s_observed_event.request_id[0] == '\0' ||
             s_observed_event.revision != 1 || std::strcmp(s_observed_event.request_id,
@@ -7799,7 +7807,18 @@ esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &requ
             s_observed_event.kind != expected->kind || s_observed_event.state != expected->state ||
             !studio_event_pending_matches(s_observed_event)))
             error = ESP_ERR_INVALID_STATE;
-        if (error == ESP_OK) {
+        if (expected_read_failure) {
+            // Preserve the real owner read failure and the production unavailable
+            // presenter. No event observation was received or synthesized.
+            s_studio_event_inspection = true;
+            s_presented_event = {};
+            s_event_origin = EventOrigin::Codex;
+            s_event_online = false;
+            s_event_stage = requested_stage;
+            s_event_observation_error = error;
+            if (codex_event_destination() != expected_route) return ESP_ERR_INVALID_STATE;
+            error = render_codex_event(scene);
+        } else if (error == ESP_OK) {
             // From this point even a renderer failure must not admit side effects.
             s_studio_event_inspection = true;
             s_presented_event = s_observed_event;
@@ -7810,6 +7829,11 @@ esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &requ
             s_event_reply_admitted = s_presented_event.state == LUNASHELL::CodexEventState::Sending ||
                                      s_presented_event.state == LUNASHELL::CodexEventState::Received;
             std::memcpy(s_event_selected_id, s_presented_event.selected_id, sizeof(s_event_selected_id));
+            if (requested_stage == EventStage::Confirm) {
+                // The selection belongs to the display's reversible navigation, not
+                // the pending event or the transport owner; no reply is admitted.
+                std::memcpy(s_event_selected_id, s_presented_event.choices[0].id, sizeof(s_event_selected_id));
+            }
             if (codex_event_destination() != expected_route) return ESP_ERR_INVALID_STATE;
             error = render_codex_event(scene);
         }
@@ -7947,9 +7971,19 @@ bool studio_scene_active(const char *target)
         EventStage expected_stage{};
         Route expected_route{};
         const auto *expected = CODY::host_studio_events::definition(target);
+        if (expected && expected->observation_error != ESP_OK) {
+            return CODY::host_studio_events::describe(target, expected_stage, expected_route) &&
+                s_studio_event_inspection && s_event_origin == EventOrigin::Codex && !s_event_online &&
+                s_event_stage == expected_stage && s_route == expected_route &&
+                s_event_observation_error == expected->observation_error &&
+                codex_event_destination() == expected_route && !s_presented_event.data_valid &&
+                s_presented_event.request_id[0] == '\0';
+        }
         return expected && CODY::host_studio_events::describe(target, expected_stage, expected_route) &&
             s_studio_event_inspection && s_event_origin == EventOrigin::Codex && s_event_online &&
             s_event_stage == expected_stage && s_route == expected_route &&
+            (expected_stage != EventStage::Confirm ||
+             std::strcmp(s_event_selected_id, s_presented_event.choices[0].id) == 0) &&
             codex_event_destination() == expected_route && s_presented_event.data_valid &&
             !s_presented_event.data_stale && s_presented_event.last_error == ESP_OK &&
             s_presented_event.kind == expected->kind && s_presented_event.state == expected->state &&

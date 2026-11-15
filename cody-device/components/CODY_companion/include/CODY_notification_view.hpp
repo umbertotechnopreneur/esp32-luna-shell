@@ -49,6 +49,7 @@ struct NotificationListPage {
     bool remote_current = false;
     bool remote_retained = false;
     bool remote_pending = false;
+    esp_err_t local_error = ESP_OK;
     esp_err_t remote_error = ESP_OK;
     esp_err_t action_error = ESP_OK;
 };
