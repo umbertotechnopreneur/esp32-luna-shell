@@ -618,23 +618,30 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   Windows and physical acceptance remain open.
 - [ ] 🟡 **CODY-NEXT-06.12** Studio G: extend remaining families and report actual
   coverage by declared availability. The 80–90 target is not an acquired count.
-  The current host source adds 35 cases to the original 15: Settings children,
-  confirmation-only maintenance views, setup choices/results, five About pages,
-  diagnostics, Device and five additional isolated browser views. S06 offline
-  recovery is explicitly deferred because its native presenter overlaps the
-  character and title. The browser's question page intentionally shows the
-  unsupported-source/events handoff, not synthetic question contents.
-  The source catalog contains 117 entries, including retained families: 50 have
-  executable contracts, 50 remain unsupported and 17 are not applicable to this
-  suite. Two fresh native processes repeat all 50 static cases exactly, with
-  reverse preparation order; 39 declared touch/swipe routes are observed.
-  The reference PDF's 100 local inventory IDs are a separate verified
-  documentary count. Setup exits not yet modeled are explicit limitations.
-  Native audition exposes 19 Codex and seven Pet cues through the real settings,
-  quiet-hours and audio owners in independent processes. Actual per-case host,
-  route, PCM and UI outcomes are recorded in the latest `done.md`; Windows and
-  physical acceptance remain separate. General worker/timer precision stays
-  deferred under the owner's graphics/audio priority.
+  The implementation has 73 executable cases: Settings, confirmation-only views,
+  setup/guide states, Wi-Fi scan/input/progress/failure, Bluetooth instructions,
+  provisioning QR/progress, saved-PC views, Device/About/diagnostics, Audio,
+  isolated Memory, six editable account/statistics pages and six isolated
+  browser views. All use the production C/C++ renderers and real host owners.
+  The source catalog contains 126 entries: 73 executable, 36 unsupported and 17
+  not applicable. Acquired cases map to 67 distinct document-local IDs plus six
+  explicit secondary family states; primary aliases remain unambiguous. The
+  reference PDF's 100 local inventory IDs are a separate verified count.
+  Native checks repeat all 73 static cases in fresh processes and reverse order,
+  observe 42 touch/swipe routes, verify six visible statistics edits and prior-case
+  retirement, and reject 13 native ABI/input errors without changing the frame.
+  Integer arrays, masks, source ages and captions remain explicit scenario inputs.
+  Native audition retains 19 Codex and seven Pet cues in independent processes.
+  Current host, Tk and PDF outcomes are recorded in `done.md`; acquisition,
+  human approval and physical acceptance remain separate.
+  S06 recovery remains deferred for its native title/character overlap.
+  Wi-Fi operation replay, voucher expiry, unavailable microphones/heaps,
+  unmodeled setup exits and isolated Memory navigation have explicit limits.
+  Questions keep their genuine unsupported-source/events handoff. Next prioritize
+  direct Home/screensaver and W10 carousel entry, then Codex-link, event/question,
+  operation, maintenance, voice and sleep/wake lifecycles.
+  Windows and physical acceptance stay open. General worker/timer precision
+  remains deferred under the owner's graphics/audio priority.
 
 | Scenario ID | Sequence | Required result |
 | --- | --- | --- |

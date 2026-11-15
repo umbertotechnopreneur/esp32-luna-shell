@@ -1,76 +1,88 @@
 # Latest validation round
 
-## 2026-11-15 · Cody Studio G on Linux
+## 2026-11-15 · Cody Studio extended native coverage on Linux
 
-Studio now has **50 executable native cases**, adding 35 to the original 15.
-There are 44 full-runtime cases, including one profile-conditional guide, and
-six isolated production browser presenters. Settings children, confirmation-only
-maintenance views, setup choices/results, Device, About, diagnostics and every
-browser scope use the existing C/C++ owners/renderers with synthetic observations.
-The browser fixtures do not establish domain transport or reducer acceptance.
+Studio now has **73 acquired native cases**, adding 23 to the previous 50.
+There are 66 full-runtime cases, including one profile-conditional guide, and
+seven isolated production presenters. New contracts cover Wi-Fi scan/input/
+progress/failure, Bluetooth instructions, provisioning QR/progress, retained-PC
+management, six editable account/statistics pages, Audio and isolated Memory.
+The production C/C++ renderers and native owners remain responsible for every
+device pixel. No radio, credential, account or physical-device operation is
+required by these fixtures.
 
-The shared source catalog contains **117 entries**: 50 executable contracts,
-50 unsupported and 17 not applicable, each absence with its reason. The original
-PDF inventory's **100 distinct document-local IDs** were verified separately;
-that document and the source catalog are different denominators. The current
-atlas contains 50 acquired cases, no failed cases, 50 unsupported and 17 not
-applicable. Acquisition does not imply visual approval or physical acceptance.
+The shared source catalog contains **126 entries**: 73 executable, 36 unsupported
+and 17 not applicable, each absence with its reason. The captures cover **67
+distinct document-local inventory IDs plus six secondary family states**. Primary
+inventory aliases stay unambiguous; secondary states keep qualified source keys
+and an explicit family link through capture, Studio, atlas and PDF. The original
+inventory PDF's 100 local IDs are a separate documentary denominator, and the
+36 unsupported source entries do not imply 36 unique new screen layouts.
 
-The native host input now accepts held movement reports for real swipe replay.
-Declared route gestures use the normal input/display owners, preserving hidden
-control admission and same-frame route identity. Studio also auditions 19 Codex
-and seven Pet sounds through the real firmware PCM/settings/audio owners in a
-separate process. Sounds, volume, civil time and quiet hours come from the
-pending form; audition does not create events/captures or change the interactive
-frame, NVS, scenario, baseline or review. Cancellation and close reap the child.
+Statistics use bounded explicit daily/history arrays, validity masks, source
+ages, plan/credit captions and context values through the canonical host account
+and snapshot owners. Scenario exposes compact JSON integer-array controls;
+invalid lengths, types, booleans, ranges and captions are rejected. The native
+request ABI is version 2 with a checked capacity; frame identity stays atomic.
+The six pages do not establish billing, domain transport or reducer acceptance.
 
 Host validation through `scripts/device.ps1`:
 
-- `generate -Generator cody-simulator-graphics -ToolArguments '--device-runtime'`
-  successfully compiled the Linux native C++ runtime from the current sources.
-- `check -Check cody-studio -ToolArguments '--coverage'`: **33/33**. All 50
-  static cases have exact matching pixels and identities in two fresh native
-  processes, with reverse case order in the second session; **39/39** declared
-  touch/swipe routes have observed destination/receipt evidence. Unsupported
-  variants, source mappings and explicit absence classifications are checked.
-- `check -Check cody-studio -ToolArguments '--audio-cues'`: **39/39**. All 26
-  authored cues completed with native PCM. Checks cover effective volume and
-  zero output, Sounds and quiet-hours suppression, invalid cue/mode rejection,
-  cancellation/reaping and corrupted/missing/transiently absent status files.
-- `check -Check cody-studio -ToolArguments '--host-audio'`: **32/32**. The PC
-  output backend completed the intro cues and a Pet tap. Backend completion is
-  distinct from human listening and physical Cody sound acceptance.
-- The combined `--ui`, `--atlas-ui`, `--audio-cues-ui` suite under Xvfb passed
-  **33/33**, exercising actual Tk/native controls, automatic atlas publication,
-  cue playback/cancellation and unchanged interactive pixels, receipt, NVS,
-  pending inputs and baseline. The focused `--ui` rerun passed **31/31** after
-  retiring the test helper's recursive callback/BooleanVar cycle on its owning
-  thread; the prior Tk finalizer messages are absent. Screenshots at 1440x960
-  and 720x540, including authored audio and Atlas controls, were inspected.
-- `check -Check cody-studio -ToolArguments '--atlas-pdf'`, using an existing
-  interpreter with ReportLab/pypdf, passed **36/36**. PDF images retain exact
-  native RGB pixels; overwrite, unsafe paths, substituted identities/hashes and
-  input mutation are rejected. No packages were installed.
-- The public `cody-studio-atlas --suite all` generation published all 117
-  catalog entries. The public `cody-native-screen-atlas --render` generator
-  exported the **62-page** inventory-linked PDF and every page preview. All
-  final pages were visually inspected: native proportions/content, wrapped
-  metadata, source limits, explicit absences, coverage and corrections register
-  are intact. No annotation films were generated.
-- Scoped `git diff --check` passed; added source contains no developer-machine
-  absolute paths. Existing unrelated local changes were preserved.
+- The default contract check passed **31/31**, including primary/family alias
+  validation, invalid family references, capture identity and stale build guards.
+- The public `cody-simulator-graphics --device-runtime` generator successfully
+  compiled the Linux native C++ runtime from the current sources.
+- The combined `--coverage`, `--statistics`, `--audio-cues` check passed **48/48**.
+  All 73 static cases have identical pixels and scenario identities in two fresh
+  processes, with reverse preparation order in the second; **42/42** declared
+  native touch/swipe paths have observed destination/receipt evidence. Six
+  visible statistics edits restore exact original pixels and preserve unrelated
+  P04/W02/W04 controls. All 13 invalid native ABI/payload requests leave the
+  completed frame and identity unchanged. All 26 firmware cues complete with
+  PCM; volume, mute, quiet hours, invalid cues and cancellation remain covered.
+- The combined `--ui`, `--atlas-ui`, `--audio-cues-ui`, `--statistics-ui` suite
+  under Xvfb passed **35/35**. Actual Tk/native controls exercise JSON-array
+  editing, clear invalid-input rejection, visible keyboard focus, proportional
+  resizing, primary/family identities, automatic atlas publication and isolated
+  cue playback. Interactive pixels/receipt, pending inputs, NVS and explicit
+  baselines remain intact across background work. Wide/small screenshots and
+  the new array/family views were visually inspected; no Tk finalizer errors
+  appeared.
+- `--atlas-pdf` passed **37/37**, using an existing interpreter with ReportLab/
+  pypdf. The fixture includes a real secondary-family capture. Extracted PDF
+  images preserve exact native RGB pixels; unsafe paths, overwrite, altered
+  identities/hashes and input mutation remain rejected. No packages were installed.
+- `--host-audio` passed **33/33**. The selected PC backend completed both intro
+  cues and a Pet tap. This establishes backend completion, separate from human
+  listening and physical Cody speaker acceptance.
+- Public full-catalog atlas generation published **73 captured**, **36 unsupported**,
+  **17 not applicable** and no failed cases. The public PDF generator exported
+  **66 pages** with inventory/family IDs, modes, sources, original errors and
+  explicit limits. Every final page was visually inspected. Corrected S13 prose
+  now recognizes the separate S12 preparation while retaining unverified return
+  navigation. All 73 native pixel/scenario signatures are unchanged by metadata
+  corrections. No annotation films were generated.
+- Scoped `git diff --check` passed. Source/build paths stay repository-relative;
+  generated data stays beneath `artifacts/`. Unrelated local work is preserved.
 
 Current published artifacts:
 
-- `artifacts/simulator/studio/atlas/runs/2a4d1de5e2c24fc2a94b1cf546bc4e43/manifest.json`
-- `artifacts/simulator/studio/atlas/exports/cody-native-atlas-2a4d1de5e2c24fc2a94b1cf546bc4e43-855008fa.pdf`
+- `artifacts/simulator/studio/atlas/runs/3af2ca98786b4724bb344702c013281d/manifest.json`
+- `artifacts/simulator/studio/atlas/exports/cody-native-atlas-3af2ca98786b4724bb344702c013281d-aeaf9a97.pdf`
 
-Remaining coverage includes pairing/operation lifecycles, further counter/account
-and event/question flows, Wi-Fi entry, voice and sleep/wake fixtures. S06 offline
-recovery is explicitly deferred for its native character/title overlap. C06
-retains its genuine unsupported-source/events handoff; S17 and A05 retain their
-declared native layout/initial-viewport limits. Some setup exits are not yet
-modeled. Precise scheduling of unrelated workers/timers remains deferred under
-the owner's graphics/audio priority. Windows, human listening and physical Cody
-acceptance remain open. No firmware build, device contact, flash or Git push was
-performed in this round. Artifacts are retained; cleanup remains manual.
+Remaining work prioritizes native direct-entry contracts for Home/screensaver and
+W10's actual carousel caller, followed by Codex pair/discovery/connected states,
+event/question owners and operation, maintenance, voice and sleep/wake lifecycles.
+W10 reuses About's renderer but cannot count as an A01 alias: its Back must use
+the carousel rather than Settings. S06 remains deferred for its native character/
+title overlap. Wi-Fi operations and local navigation, voucher expiry observations,
+unavailable microphone/heap measurements, Memory input/navigation and some setup
+exits have explicit limits. Memory is presenter-isolated; its Back glyph does not
+prove a functioning runtime path. S17 and A05 retain their declared source layout/
+initial-viewport limitations. Questions retain the genuine unsupported-source/
+events handoff. These acquisitions remain unreviewed until explicit human approval.
+
+Precise scheduling of unrelated workers/timers remains deferred under the owner's
+graphics/audio priority. Windows, human listening and physical acceptance remain
+open. No firmware build/size, device contact, flash or Git push was performed in
+this round. Artifacts are retained; cleanup remains manual.

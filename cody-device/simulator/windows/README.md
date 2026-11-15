@@ -34,7 +34,7 @@ pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArgumen
 pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--pilot'
 pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--phase-e'
 pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--host-audio'
-pwsh -NoProfile -Command '& ./scripts/device.ps1 check -Check cody-studio -ToolArguments @("--coverage","--audio-cues")'
+pwsh -NoProfile -Command '& ./scripts/device.ps1 check -Check cody-studio -ToolArguments @("--coverage","--statistics","--audio-cues")'
 pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioCase P04
 pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioCase S15
 ```
@@ -44,7 +44,7 @@ screenshots and isolated settings/preferences:
 
 ```bash
 xvfb-run -a -s '-screen 0 1920x1200x24' pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--ui'
-xvfb-run -a -s '-screen 0 1920x1200x24' pwsh -NoProfile -Command '& ./scripts/device.ps1 check -Check cody-studio -ToolArguments @("--ui","--atlas-ui","--audio-cues-ui")'
+xvfb-run -a -s '-screen 0 1920x1200x24' pwsh -NoProfile -Command '& ./scripts/device.ps1 check -Check cody-studio -ToolArguments @("--ui","--atlas-ui","--audio-cues-ui","--statistics-ui")'
 ```
 
 This suite checks direct preparation of all ten cases, editing at input bounds
@@ -77,9 +77,9 @@ collapse on smaller windows. Source actions resolve the current definition in
 the checkout and report missing or ambiguous matches. Routes show declared
 origins, destinations, events, conditions and source evidence; opening a
 destination and replaying a route are distinct actions. The Linux native
-coverage check observes 39 declared touch/swipe contracts: 20 Settings and
-confirmation-return routes, nine About routes and ten adjacent guide transitions
-S17–S22. These describe the declared model, not a complete navigation extraction.
+coverage check observes 42 declared touch/swipe contracts: 20 Settings and
+confirmation-return routes, nine About routes, ten adjacent guide transitions
+S17–S22 and three Bluetooth/saved-PC returns. These describe the declared model, not a complete navigation extraction.
 S19 requires the compiled wake-word profile. QR pages first receive a central
 tap to reveal controls and retire that intermediate frame, before the guide
 arrow or About swipe. The destination frame and route receipt retire together;
@@ -133,6 +133,29 @@ families and historical identities, not only unique active device screens.
 Offline recovery is deferred because its current native presenter overlaps the
 character and title. Project QR and guide captions retain their authored initial
 viewport and any source layout limitations; acquisition alone is not approval.
+
+Statistics now includes Today, Last seven days, Token history, Credits, Account
+and Context with explicit typed source observations. Validity masks distinguish
+missing buckets from measured zero, and source age follows the native lease and
+aging rules. Eight daily samples and 96 chronological quarter-hour samples are
+editable as JSON integer arrays in Scenario. Array capacities, integer ranges
+and printable captions are validated before the native request; no truncation
+or padding repairs an invalid input. Voucher expiry dates remain unavailable.
+
+Wi-Fi and pairing views use fixed synthetic scan, credential-entry, progress,
+QR and saved-PC fixtures. Opening them starts no radio or credential operation.
+Their declared input and route limits remain attached to each capture. Audio
+uses the actual host-profile availability and errors; unavailable microphones
+or playback observations are not replaced with PC measurements. Memory uses
+the original isolated C++ diagnostic presenter, with unavailable heap data and
+a graphical Back control whose input/navigation is not replayed.
+
+An inventory family can refer to several distinct source states. Its primary
+ID remains an unambiguous direct-entry alias; secondary members retain their
+qualified source key and show the same document ID with `(family)`. For example,
+`S08` opens Networks, while `ui-v1:wifi-scan-unavailable` opens its unavailable
+scan member. Both keep their distinct capture/scenario identities and the
+explicit family link in the atlas and PDF.
 
 ### Generate and export an atlas
 
@@ -232,6 +255,10 @@ The `--audio-cues` extension checks all 26 authored cues through native PCM,
 including Sounds, quiet hours, volume and cancellation. `--audio-cues-ui`
 exercises the real Tk audition controls in a fresh native process and verifies
 that the interactive frame, settings, pending form and baseline are retained.
+The `--statistics` extension checks visible data edits on all six statistics
+pages, prior-case retirement and invalid native request rejection with an
+unchanged completed frame. `--statistics-ui` exercises JSON array editing and
+family identity in the real Tk/native window.
 The `--phase-e` extension checks source-frame samples, controlled display-worker
 replay, owner-dispatched settings and guide routes, atomic receipts, invalid
 inputs, logical orientation, a pending external contact and live firmware PCM

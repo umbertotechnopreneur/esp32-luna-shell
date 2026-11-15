@@ -3445,7 +3445,7 @@
         "Direct preparation uses the production C/C++ owner and renderer; service/action lifecycle and physical acceptance are separate",
         "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
         "No real network provisioning, account request or paired-device operation is performed",
-        "The directly prepared native QR has no simulated caller; its Back enters the Bluetooth-instructions state, which has no separate executable Studio identity in this batch"
+        "The directly prepared QR has no replayed caller journey; Back targets Bluetooth instructions, whose standalone preparation is S12; this capture does not establish that return transition"
       ],
       "controls": [],
       "suite": "extension",
@@ -5642,7 +5642,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Network setup",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -5739,7 +5739,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Network setup",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -5783,7 +5783,8 @@
         "Direct preparation uses the production C/C++ owner and renderer; this static sample does not execute the corresponding service operation",
         "Native capture fixtures retain owner defaults beyond explicit common and page inputs; Sounds and Counter mode are off",
         "No real network scan, credential write, provisioning, account request or paired-device operation is performed",
-        "This S08 family member shows the actual scan-unavailable failure presentation; it is not an empty successful scan"
+        "This S08 family member shows the actual scan-unavailable failure presentation; it is not an empty successful scan",
+        "Back chrome is initially faded; scan, retry and local Wi-Fi navigation are not replayed by this direct static fixture"
       ],
       "controls": [],
       "suite": "extension",
@@ -5811,7 +5812,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Network setup",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -5915,7 +5916,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Network setup",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -6014,7 +6015,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Network setup",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -6114,7 +6115,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Network setup",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -6218,7 +6219,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Network setup",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -6302,7 +6303,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Connections",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -6395,7 +6396,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Connections",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -6488,7 +6489,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Connections",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -6569,7 +6570,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Connections",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -6651,7 +6652,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Network setup",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -6735,7 +6736,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Network setup",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -6811,7 +6812,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Network setup",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -6887,7 +6888,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Network setup",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -6963,7 +6964,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Counters",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -7093,7 +7094,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Counters",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -7223,7 +7224,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Counters",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -7344,7 +7345,7 @@
         },
         "application": "Existing native settings owners in the isolated simulator NVS store",
         "codex_link": "Canonical synthetic READY app lease, exact native owner-scoped identifiers",
-        "history_interval": "Native default one-hour view; the last four of 96 chronological UTC-quarter slots are valid"
+        "history_interval": "Native default five-hour view; the latest four of 96 chronological UTC-quarter slots are valid"
       }
     },
     {
@@ -7356,7 +7357,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Counters",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -7502,7 +7503,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Counters",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -7641,7 +7642,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Counters",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -7794,7 +7795,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Audio",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -7865,7 +7866,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Diagnostics",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux static native frame acquired and repeatable; route evidence is separate; human approval and physical acceptance pending",
       "variants": [
         "default"
       ],
