@@ -17,6 +17,11 @@ from cody_studio_runner import load_capture
 
 ARTIFACTS = (ROOT / "artifacts").resolve()
 EXPORTS = ARTIFACTS / "simulator/studio/atlas/exports"
+NOTE_LINE_SPACING = 7 * 72 / 25.4
+NOTE_LINE_BASE = 48
+NOTE_LINE_HEIGHTS = tuple(NOTE_LINE_BASE + index * NOTE_LINE_SPACING for index in range(3))
+# Leave a full writing row above the highest rule and a gap before page content.
+CONTENT_BOTTOM_MARGIN = NOTE_LINE_HEIGHTS[-1] + NOTE_LINE_SPACING + 12
 
 
 # value: Arbitrary catalog metadata to display as escaped, printable PDF prose.
@@ -61,6 +66,10 @@ def export_records(manifest_path):
 # document: Active page geometry and page count from the document owner.
 def decorate_page(surface, document):
     surface.saveState()
+    surface.setStrokeColorRGB(.73, .72, .75)
+    surface.setLineWidth(.45)
+    for height in NOTE_LINE_HEIGHTS:
+        surface.line(34, height, document.pagesize[0] - 34, height)
     surface.setFillColorRGB(.13, .12, .16)
     surface.setFont("Helvetica-Bold", 9)
     surface.drawString(34, document.pagesize[1] - 29, "CODY / STUDIO NATIVE ATLAS")
@@ -172,6 +181,7 @@ def pdf_story(manifest, records, catalog):
     story += [PageBreak(), Paragraph("Corrections register", styles["AtlasTitle"])]
     register = Table([[body(f"{date.today().isoformat()}<br/><b>Generated snapshot</b>"),
                        body("Native acquisitions and absences reflect the selected immutable run. "
+                            "Three blank handwriting lines spaced 7 mm apart are reserved at the bottom of every page. "
                             "Original inventory IDs and revision are retained. "
                             f"Affected cases: {', '.join(pdf_text(inventory_label(case)) for case, _, _ in records)}.")]],
                      colWidths=[130, 397], hAlign="LEFT")
@@ -198,7 +208,7 @@ def export_atlas(manifest_path=None, output_path=None):
     destination.parent.mkdir(parents=True, exist_ok=True)
     temporary = destination.with_name(f".{destination.stem}-pending-{uuid4().hex}.pdf")
     document = SimpleDocTemplate(str(temporary), pagesize=A4, rightMargin=34, leftMargin=34,
-                                 topMargin=54, bottomMargin=40, title="Cody Studio native screen atlas",
+                                 topMargin=54, bottomMargin=CONTENT_BOTTOM_MARGIN, title="Cody Studio native screen atlas",
                                  author="Cody Studio")
     document.build(pdf_story(manifest, records, load_catalog()),
                    onFirstPage=decorate_page, onLaterPages=decorate_page)

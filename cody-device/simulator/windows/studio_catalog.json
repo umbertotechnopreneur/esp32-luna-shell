@@ -5370,7 +5370,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Codex",
-      "verification": "Default unavailable presenter variant has Linux repeatability evidence; populated variant implemented with host capture and visual review pending; physical acceptance pending",
+      "verification": "Default unavailable and populated read-only variants have Linux native capture, repeatability and visual review evidence; physical acceptance pending",
       "variants": [
         "default",
         "populated"
@@ -8123,7 +8123,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Connections",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux direct native capture, repeated pixels and visual review verified; static inspection only; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -8224,7 +8224,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Connections",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux direct native capture, repeated pixels and visual review verified; static inspection only; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -8319,7 +8319,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Connections",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux direct native capture, repeated pixels and visual review verified; static inspection only; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -8414,7 +8414,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Home and idle",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux direct native capture, repeated pixels and visual review verified; static inspection only; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -8489,7 +8489,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Home and idle",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux direct native capture, repeated pixels and visual review verified; static inspection only; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -8567,7 +8567,7 @@
       "availability": "runtime-full",
       "rendering_mode": "runtime-full",
       "group": "Counters",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux direct native capture, repeated pixels and visual review verified; static inspection only; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -8644,7 +8644,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Connections",
-      "verification": "Implemented direct native contract; host capture, repeatability and visual review pending; physical acceptance pending",
+      "verification": "Linux direct native capture, repeated pixels and visual review verified; static inspection only; physical acceptance pending",
       "variants": [
         "default"
       ],

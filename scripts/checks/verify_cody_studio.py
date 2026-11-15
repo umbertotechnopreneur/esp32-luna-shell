@@ -120,7 +120,7 @@ def assert_pilot_record(record, inventory_id, scenario=None):
             raise AssertionError(f"{inventory_id} completed-frame {name} disagrees with its prepared case")
     if type(receipt.get("revision")) is not int or receipt["revision"] <= 0:
         raise AssertionError(f"{inventory_id} has no completed-frame revision")
-    if receipt.get("abi") != 2 or type(receipt["abi"]) is not int:
+    if receipt.get("abi") != 3 or type(receipt["abi"]) is not int:
         raise AssertionError(f"{inventory_id} fresh capture did not use the current native receipt ABI")
     if metadata.get("fixed_dependencies") != studio_runner.fixed_dependencies(entry, scenario):
         raise AssertionError(f"{inventory_id} omitted or changed its declared fixed native inputs")

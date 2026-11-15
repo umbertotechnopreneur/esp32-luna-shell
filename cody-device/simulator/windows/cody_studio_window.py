@@ -214,7 +214,14 @@ class StudioWindow:
     # Returns the section body, without a decorative enclosing container.
     def section(self, parent, name, opened):
         heading = action(parent, name, lambda: self.toggle(name))
-        heading.configure(font=('TkDefaultFont', 16, 'bold'))
+        heading.configure(font=('TkDefaultFont', 16, 'bold'), justify='left', wraplength=240)
+        # event: Actual available heading width after a column or window resize.
+        # Exceptions: Tk configuration errors propagate through the UI callback.
+        def fit_heading(event):
+            width = max(100, event.width - 24)
+            if int(heading.cget('wraplength')) != width:
+                heading.configure(wraplength=width)
+        heading.bind('<Configure>', fit_heading)
         heading.pack(fill='x', pady=(12, 3))
         body = tk.Frame(parent, bg=BG)
         settings = self.preferences.get('expanders', {})
@@ -255,7 +262,7 @@ class StudioWindow:
             heading.pack_forget()
             body.pack_forget()
             heading.configure(font=('TkDefaultFont', 11 if compact else 16, 'bold'),
-                              wraplength=max(100, width // 3 - 18) if compact else 0)
+                              wraplength=max(100, width // 3 - 18 if compact else width - 24))
             if compact:
                 heading.pack(side='left', fill='both', expand=True, pady=(6, 3))
             else:
@@ -1034,6 +1041,8 @@ class StudioWindow:
     def change_variant(self, event=None):
         previous, selected = self.scenario['variant'], self.variant.get()
         self.variant.set(previous)
+        if selected == previous:
+            return
         if self.busy:
             self.status.set('Wait for the active native preparation before changing variant.')
             return

@@ -48,6 +48,50 @@ class AtlasPdfTests(unittest.TestCase):
         cls.manifest = load_atlas(job.result)
         cls.unsupported = unsupported
 
+    # self: Active PDF acceptance case, without generating another document.
+    # reader: The complete published PDF, including cover, overflow and register pages.
+    # Raises AssertionError for missing/extra rules, cramped writing rows or content in the reserved band.
+    def assert_handwriting_space(self, reader):
+        from pypdf.generic import ContentStream
+
+        for number, page in enumerate(reader.pages, start=1):
+            with self.subTest(notes_page=number):
+                width = float(page.mediabox.width)
+                segments, rules, start = [], [], None
+                for operands, operator in ContentStream(page.get_contents(), reader).operations:
+                    if operator == b"n":
+                        segments, start = [], None
+                    elif operator == b"m":
+                        start = tuple(map(float, operands[:2]))
+                    elif operator == b"l" and start is not None:
+                        end = tuple(map(float, operands[:2]))
+                        segments.append((start, end))
+                        start = end
+                    elif operator in (b"S", b"s"):
+                        for first, last in segments:
+                            if (abs(first[1] - last[1]) < .02 and 35 < first[1] < 115 and
+                                    abs(last[0] - first[0]) > width * .8):
+                                rules.append((first, last))
+                        segments, start = [], None
+                    elif operator in (b"f", b"f*", b"B", b"B*", b"b", b"b*"):
+                        segments, start = [], None
+                self.assertEqual(len(rules), 3, "Every PDF page needs three blank handwriting lines")
+                heights = sorted(first[1] for first, _ in rules)
+                for first, last in rules:
+                    self.assertAlmostEqual(first[0], 34, delta=.02)
+                    self.assertAlmostEqual(last[0], width - 34, delta=.02)
+                for lower, upper in zip(heights, heights[1:]):
+                    self.assertAlmostEqual((upper - lower) * 25.4 / 72, 7, delta=.02)
+                self.assertGreater(heights[0], 40, "Writing space must stay above the existing footer")
+                positions = []
+                page.extract_text(visitor_text=lambda text, current, matrix, font, size: positions.append(
+                    (text, current[1] * matrix[4] + current[3] * matrix[5] + current[5])))
+                writing_top = heights[-1] + 7 * 72 / 25.4
+                for text, baseline in positions:
+                    if text.strip():
+                        self.assertFalse(heights[0] - 1 <= baseline <= writing_top,
+                                         "Printed content overlaps the blank handwriting space")
+
     # self: Active PDF acceptance case; no native session is loaded in this process.
     # Raises PDF, image, text or Poppler failures; retained previews permit visual review.
     def test_pdf_keeps_native_pixels_and_inventory_identity(self):
@@ -68,6 +112,8 @@ class AtlasPdfTests(unittest.TestCase):
         self.assertIn("".join(self.unsupported["reason"].split()), "".join(text.split()))
         self.assertIn("INCOMPLETE", text)
         self.assertIn("Corrections register", text)
+        self.assertIn("Three blank handwriting lines spaced 7 mm apart", text.replace("\n", " "))
+        self.assert_handwriting_space(reader)
         expected_images = []
         for case in self.manifest["cases"]:
             if case["acquisition"] != "captured":

@@ -345,6 +345,12 @@ def ui_suite(base_class):
             self.assertEqual(form["common"]["observations"]["battery"]["level_percent"], 47)
             prompt_path = ("services", "domain", "questions", 0, "prompt")
             self.assertIn(prompt_path, window.case_fields)
+            window.case_fields[prompt_path][0].set("Review this pending question?")
+            pending = window.form()
+            window.variant_control.event_generate("<<ComboboxSelected>>")
+            self.root.update()
+            self.assertEqual(window.form(), pending, "Reselecting the active variant discarded pending edits")
+            form = pending
             populated = self.apply_form()
             assert_questions(populated, form)
             self.assertIs(window.baseline, baseline)
@@ -366,6 +372,13 @@ def ui_suite(base_class):
             self.assertEqual(restored.metadata["variant"], "default")
             self.assertIs(window.baseline, baseline)
             self.assertEqual((baseline.image_path.read_bytes(), baseline.metadata_path.read_bytes()), retained)
+            self.root.geometry("900x660")
+            self.root.update()
+            for heading, _, _, _ in window.sections.values():
+                if heading.winfo_ismapped():
+                    self.assertGreater(int(heading.cget("wraplength")), 0)
+                    self.assertLessEqual(int(heading.cget("wraplength")), max(100, heading.winfo_width() - 24))
+            self.reveal_widget(window.sections["Review notes"][0], window.inspector_canvas)
             self.screenshot("studio-questions-unavailable.png")
 
     return unittest.TestSuite([InspectionUiTests("test_question_variant_selection_preserves_common_inputs_and_baseline")])
