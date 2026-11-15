@@ -138,7 +138,7 @@ their exact filenames in 01 while retaining the ownership boundaries below.
 | CODY-NEXT-03 | Codex adapter and complete broker registry | 02, 14 | 🟡 Multi-turn sync and exact question correlation wired · live hook acceptance pending |
 | CODY-NEXT-04 | Durable question and answer lifecycle | 02, 03 | 🟡 Durable question association and answer projection wired · live acceptance pending |
 | CODY-NEXT-05 | Device domain store, synchronization and recovery | 02, 03, 04, 14 | 🟡 Canonical pending-question query and pairing-bound recovery wired · acceptance pending |
-| CODY-NEXT-06 | Deterministic scenario driver and inspection tools | 01, 02; integrate after 05 | 🟡 Studio A-D and expanded E have Linux host evidence · remaining routes/automation pending |
+| CODY-NEXT-06 | Deterministic scenario driver and inspection tools | 01, 02; integrate after 05 | 🟡 Studio A-F and extended G implemented · measured coverage and remaining acceptance below |
 | CODY-NEXT-07 | Domain-to-Muse direction and pose transitions | 05, 06 | 🟡 Native pose showcase wired · domain direction pending |
 | CODY-NEXT-08 | Muse acting, particles and audio policy | 07 | 🟡 320-pixel Muse smooth on the device · measured cadence pending |
 | CODY-NEXT-09 | Separate mascot/UI routes and reusable screens | 00, 05, 07 | 🟡 Native Codex browser and Questions wired · Home gestures and physical acceptance pending |
@@ -493,14 +493,15 @@ estimates exist, while actual stack/heap measurements remain pending phase 11.
 
 **Outcome:** repeatable domain and animation inputs without depending on live work.
 
-**Implemented Studio slices (A-D and extended E):** the source integrates a catalog projection from
+**Implemented Studio slices (A-F and extended G):** the source integrates a catalog projection from
 `docs/cody/screen-catalog.md` plus the executable `studio_catalog.json` overlay,
 a strict scenario contract, shared native runner and immutable capture/review
 artifacts. P04 maps explicitly to `ui-v1:display` and `cody.settings.display`.
 The original inventory is now identified: **Cody screen map and static
 inventory**, 14 November 2026, baseline `e971b313` plus local changes, with
-document SHA-256 in the machine catalog. Its 100 IDs and 214 declared links
-are distinct from acquired native coverage and the source catalog denominator.
+document SHA-256 in the machine catalog. The PDF inventory section's 100 IDs
+are now documentarily verified; its declared links remain a document model,
+distinct from acquired native coverage and the source catalog denominator.
 The Linux native host build and the contract, ten-case pilot and Tk/native
 suites pass; current counts and commands are recorded in `done.md`. The pilot
 includes fresh-process exact pixels and out-of-order shared-session replay.
@@ -539,8 +540,8 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   Do not invent flags in advance or execute a suite without its required authorization.
 - [ ] 🟡 **CODY-NEXT-06.06** Studio A: consolidate executable catalog contracts,
   inventory-to-source mappings, availability and strict portable scenarios.
-  The original inventory is identified by date, baseline and SHA-256. Ten pilot
-  identities have explicit mappings; audit the remaining families before
+  The original inventory is identified by date, baseline and SHA-256. Pilot and
+  extended identities have explicit mappings; audit the remaining families before
   claiming inventory-wide coverage.
 - [x] 🟢 **CODY-NEXT-06.07** Studio B: direct native P04, owner-applied inputs,
   atomic completed-frame identity, shared runner, preserved baselines,
@@ -615,8 +616,25 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   pending form/baseline, and visible 180-pixel native frames with Atlas open at
   720x540. PDF image pixels are unchanged and rendered pages were inspected.
   Windows and physical acceptance remain open.
-- [ ] ⚪ **CODY-NEXT-06.12** Studio G: extend remaining families and report actual
+- [ ] 🟡 **CODY-NEXT-06.12** Studio G: extend remaining families and report actual
   coverage by declared availability. The 80–90 target is not an acquired count.
+  The current host source adds 35 cases to the original 15: Settings children,
+  confirmation-only maintenance views, setup choices/results, five About pages,
+  diagnostics, Device and five additional isolated browser views. S06 offline
+  recovery is explicitly deferred because its native presenter overlaps the
+  character and title. The browser's question page intentionally shows the
+  unsupported-source/events handoff, not synthetic question contents.
+  The source catalog contains 117 entries, including retained families: 50 have
+  executable contracts, 50 remain unsupported and 17 are not applicable to this
+  suite. Two fresh native processes repeat all 50 static cases exactly, with
+  reverse preparation order; 39 declared touch/swipe routes are observed.
+  The reference PDF's 100 local inventory IDs are a separate verified
+  documentary count. Setup exits not yet modeled are explicit limitations.
+  Native audition exposes 19 Codex and seven Pet cues through the real settings,
+  quiet-hours and audio owners in independent processes. Actual per-case host,
+  route, PCM and UI outcomes are recorded in the latest `done.md`; Windows and
+  physical acceptance remain separate. General worker/timer precision stays
+  deferred under the owner's graphics/audio priority.
 
 | Scenario ID | Sequence | Required result |
 | --- | --- | --- |

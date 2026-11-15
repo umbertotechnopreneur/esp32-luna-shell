@@ -4,51 +4,33 @@ This file tracks open implementation and acceptance. See [planned-todo.md](plann
 
 ## Current owner queue
 
-0. Complete the device-code simulator and native screen atlas: link the
-   unchanged display/onboarding owners and their host service adapters, then
-   integrate the unchanged audio owner with platform PCM output and settings
-   policy. Replace Python-drawn device pages only after their native routes and
-   touch behavior work. Capture all active screens from the native runtime and
-   generate the complete PDF. The native Linux host library builds successfully;
-   remaining routes, full audio coverage and physical-device acceptance are outstanding.
-   Continue this same work under `CODY-NEXT-06`: Studio A-D integrates strict
-   catalog/scenario contracts, direct native preparation, completed-frame
-   identity, saved scenarios, comparison and ten pilot cases. The Linux native
-   build, 32-test pilot suite and 31-test real Tk/native UI suite pass. All ten
-   have identical pixels across fresh processes and out-of-order shared-session
-   preparation. Baseline/review/scenario persistence, capture history, visible
-   keyboard focus/scrolling, expander restoration and wide/small window geometry
-   have host evidence. Availability and loaded-capture review filters, baseline
-   restoration and unavailable baseline retention have host evidence. A separate
-   automatic capture preserves interactive pixels, receipt, sensors, NVS and
-   scenario. Physical acceptance remains pending.
-   Snapshot integrity, build-profile closure, maintenance-script contracts and
-   portable Cody runtime checks pass after validator/fixture alignment.
-   Phase C has Linux host acceptance: S01, S02, S17, P01, P04,
-   P12 (quiet-hours editor), W02, W04, S15 (provisioning error) and C04 (tool
-   calls). The original inventory is now identified by date/baseline/hash in
-   the machine catalog. Nine cases use the full runtime; C04 uses the production
-   C++ browser presenter and typed synthetic queries, without domain transport/
-   reducer acceptance. S15 preserves its transient timeout cause. Phase E now
-   also has Linux host evidence for isolated S01/S02 display-worker replay,
-   live boot replay with firmware PCM, P01 ↔ P04 and ten adjacent guide gestures
-   S17–S22 (29/29 phase-E checks). S19 is conditional on wake-word support.
-   Captures retain navigation history, and direct/route frames are not assumed
-   to have the same animated state. Remaining routes, general worker scheduling,
-   Windows and physical acceptance remain open. Phase F now integrates isolated
-   suite generation, per-case progress/errors, cancellation/reaping, atomic
-   last-valid publication and opt-in validated-build watching. Publication
-   verifies the exact selection plus build/catalog/scenario dependencies.
-   Studio preserves the interactive owner, NVS, pending form and explicit
-   baseline; thumbnails and differences update after publication. PDF export
-   retains native pixels, inventory revision/IDs, source functions and absence
-   reasons. Linux atlas contracts, native suites, PDF integrity/visual checks
-   and the 32-check Tk suite pass, including automatic generation and a visible
-   native frame at 720x540 with Atlas open.
-   Next, extend actual coverage in phase G. The shared source catalog contains
-   108 entries, including retained families; the earlier 100 was an unverified
-   owner estimate. Prioritize audio playback and visual fidelity. General
-   worker/timer precision can remain deferred.
+0. Complete the device-code simulator and native screen atlas under
+   `CODY-NEXT-06`, keeping one Studio product and the production C/C++ renderers,
+   display/input owners and host service adapters. Python owns orchestration,
+   scenarios, controls and inspection. A-F have Linux host evidence for direct
+   entry, atomic frame identity, saved scenarios, comparison, immutable baselines,
+   ten pilot cases, timeline/route inspection, firmware PCM and isolated atlas
+   generation with inventory-linked PDF export. Automatic jobs preserve the
+   interactive pixels, receipt, settings, pending form, scenario and baseline.
+   Phase G extends the same implementation to 50 executable cases: 44 full
+   runtime cases including one profile-conditional guide, and six isolated
+   production browser presenters. The 117-entry source catalog also declares
+   50 unsupported and 17 not-applicable entries with specific reasons. Its
+   denominator differs from the original PDF's 100 verified document-local IDs.
+   Settings children, confirmation-only views, connection/setup states, Device,
+   About, diagnostics and all six browser scopes have direct-entry contracts.
+   No restart/reset, account request or physical-device operation is required.
+   S06 offline recovery is explicitly deferred for a native title/character
+   overlap; questions retain their genuine unsupported-source/events handoff.
+   Linux coverage repeats all 50 static cases and observes 39 declared replay
+   routes. Audio audition offers 26 firmware cues in separate processes,
+   respecting Sounds, volume and quiet hours without changing the interactive
+   capture or review. Prioritize faithful
+   graphics and audible playback; exact scheduling of unrelated workers remains
+   deferred. Native, audio, Tk and PDF checks pass, and all 62 PDF pages were
+   visually inspected; see `done.md` for current scope. Extend additional
+   families where their real owners can be prepared safely.
+   Windows, human listening and physical Cody acceptance remain separate gates.
 
 ## First-run tour
 
@@ -88,7 +70,7 @@ Work is tracked on `feat/cody-vNext`. Keep the status below aligned with the [ph
 | CODY-NEXT-03 | Broker restores stable records and history under a new epoch and serves bounded state-v1 pages. Complete question correlation and executed acceptance. |
 | CODY-NEXT-04 | Broker preserves exact question, answer and confirmation evidence. Signed CCP1 owns delivery. Complete native turn correlation, state-v1 question publication and restart/race acceptance. |
 | CODY-NEXT-05 | DeviceSnapshotService serves generation-bound queries and the paired device restores counts, a bookmark and unresolved references. Verify storage and recovery. |
-| CODY-NEXT-06 | Studio A-D, expanded E and F have Linux host evidence: native pilot/guide cases, live firmware PCM, isolated atlas jobs/build watcher and inventory-linked PDF. The 32-check Tk suite verifies session/baseline preservation and small-window frame visibility. Extend measured coverage in G; remaining routes, general worker scheduling, Windows and physical acceptance remain pending. |
+| CODY-NEXT-06 | Studio A-F and expanded G integrate 50 repeatable native cases, 39 observed replay routes, 26 firmware cue auditions, isolated atlas jobs/build watcher and inventory-linked PDF. See done.md for current host outcomes. Extend unsupported families; Windows, human listening and physical acceptance remain pending. General worker/timer precision is deferred. |
 | CODY-NEXT-07 | Native CODY2D floppy-to-Muse showcase changes pose every ten visible seconds. Complete domain-driven direction and physical acceptance. |
 | CODY-NEXT-09 | Native Codex browser exposes Chats, Turns, Tool calls, Active calls, Events and Statistics. Finish Home/Tools gestures, two-dot chrome and hardware acceptance. |
 

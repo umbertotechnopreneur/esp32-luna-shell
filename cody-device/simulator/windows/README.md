@@ -34,6 +34,7 @@ pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArgumen
 pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--pilot'
 pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--phase-e'
 pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--host-audio'
+pwsh -NoProfile -Command '& ./scripts/device.ps1 check -Check cody-studio -ToolArguments @("--coverage","--audio-cues")'
 pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioCase P04
 pwsh -NoProfile -File ./scripts/device.ps1 simulator -StudioCase S15
 ```
@@ -43,7 +44,7 @@ screenshots and isolated settings/preferences:
 
 ```bash
 xvfb-run -a -s '-screen 0 1920x1200x24' pwsh -NoProfile -File ./scripts/device.ps1 check -Check cody-studio -ToolArguments '--ui'
-xvfb-run -a -s '-screen 0 1920x1200x24' pwsh -NoProfile -Command '& ./scripts/device.ps1 check -Check cody-studio -ToolArguments @("--ui","--atlas-ui")'
+xvfb-run -a -s '-screen 0 1920x1200x24' pwsh -NoProfile -Command '& ./scripts/device.ps1 check -Check cody-studio -ToolArguments @("--ui","--atlas-ui","--audio-cues-ui")'
 ```
 
 This suite checks direct preparation of all ten cases, editing at input bounds
@@ -75,12 +76,14 @@ Expanders persist independently of native state; Catalog and Inspector can
 collapse on smaller windows. Source actions resolve the current definition in
 the checkout and report missing or ambiguous matches. Routes show declared
 origins, destinations, events, conditions and source evidence; opening a
-destination and replaying a route are distinct actions. P01 Settings → P04
-Display and its return, and adjacent manual guide pages S17–S22, use the native
-touch owner. S19 requires the compiled wake-word profile. Leaving the project
-QR page first taps the page to reveal its controls, retires that intermediate
-frame and then taps the arrow. The destination frame and route receipt retire
-together; other declared paths remain source analysis.
+destination and replaying a route are distinct actions. The Linux native
+coverage check observes 39 declared touch/swipe contracts: 20 Settings and
+confirmation-return routes, nine About routes and ten adjacent guide transitions
+S17–S22. These describe the declared model, not a complete navigation extraction.
+S19 requires the compiled wake-word profile. QR pages first receive a central
+tap to reveal controls and retire that intermediate frame, before the guide
+arrow or About swipe. The destination frame and route receipt retire together;
+other declared paths remain source analysis.
 
 Animation provides play, pause, step, speed and keyframe seek for S01 Branding
 and S02 Birth. Source sampling uses frame boundaries from the compiled native
@@ -102,8 +105,34 @@ To listen, open S01 or S02, expand Animation, enable Sounds and choose a volume
 in Scenario, then press Boot replay. Turn Sounds off before Apply and capture
 or before using the capture timeline.
 Static and isolated captures do not open the host audio device or emit sound.
+**Audition cue** selects one of 26 authored firmware sounds (19 Codex and seven
+Pet cues), using the current unsaved Sounds, volume and civil-clock/quiet-hours
+inputs. It starts an independent native process with its own settings owner and
+a naturally advancing audio clock. Its display remains parked so no unrelated
+boot or navigation cue enters the audition. Stop cue and closing Studio reap
+that child. Actual admission, suppression, completion and original errors are
+shown as text. Audition does not create a capture, synthesize an event or prove
+that a route triggered its sound; the interactive frame, NVS, pending form,
+baseline and review remain unchanged. To hear a cue, enable Sounds, select the
+volume and press Audition cue without applying the static capture form.
+The normal firmware output mixer uses 22050 Hz; authored clips keep their source
+formats and pass through the same native conversion as device playback.
 Up to 40 recent thumbnails are displayed; capture artifacts remain available.
 All device pixels come from native C/C++.
+
+The extended native contracts cover Settings pages and children, quiet-hours
+summary/editor, confirmation pages, first-run/connection choices, five About
+pages, diagnostics, the Device counter and all six Codex browser destinations.
+Only confirmation views are prepared; no restart or reset is executed. Browser
+pages use the production presenter and explicitly synthetic typed query owner;
+Pending questions currently renders its genuine unsupported-source/events
+handoff, not invented question content or reply acceptance. Remaining pages
+retain specific owner/dependency reasons. Retired, retained and planned entries
+are classified separately as not applicable. Source-catalog counts include
+families and historical identities, not only unique active device screens.
+Offline recovery is deferred because its current native presenter overlaps the
+character and title. Project QR and guide captions retain their authored initial
+viewport and any source layout limitations; acquisition alone is not approval.
 
 ### Generate and export an atlas
 
@@ -184,8 +213,9 @@ gravity observation. No arbitrary delay or post-capture route query assigns
 identity. General worker replay remains deferred under `CODY-NEXT-06`. The inventory is **Cody
 screen map and static inventory**, 14 November 2026, baseline `e971b313` plus
 local changes; its SHA-256 and repository-relative artifact location are in
-`studio_catalog.json`. The initially reported 100 entries remain an unverified
-owner estimate. Declared links describe the document model, independently of native acquisition coverage. No physical acceptance
+`studio_catalog.json`. Its inventory section contains 100 document-local IDs,
+verified separately from the wider source catalog and native acquisition coverage.
+Declared links describe the document model. No physical acceptance
 is claimed.
 
 The default suite checks contracts without loading the native library. Its
@@ -198,12 +228,17 @@ invalid inputs and stale build provenance, preserves baseline bytes and writes
 a labelled contact sheet only when every case succeeds. Declared routes are
 not thereby reproduced. C04's ordinary user-facing entry remains unconfirmed;
 S15 scripts a transient provisioning failure without sending a real request.
+The `--audio-cues` extension checks all 26 authored cues through native PCM,
+including Sounds, quiet hours, volume and cancellation. `--audio-cues-ui`
+exercises the real Tk audition controls in a fresh native process and verifies
+that the interactive frame, settings, pending form and baseline are retained.
 The `--phase-e` extension checks source-frame samples, controlled display-worker
 replay, owner-dispatched settings and guide routes, atomic receipts, invalid
 inputs, logical orientation, a pending external contact and live firmware PCM
 with Sounds on and off. It does not claim that every concurrent touch
 interleaving or every asynchronous worker was observed. `--host-audio` sends
-the two intro cues to the selected PC output and may make audible sound.
+the two intro cues and one authored Pet tap cue to the selected PC output and
+may make audible sound.
 Generated artifacts are retained. Cleanup remains manual and requires an
 explicit request.
 
