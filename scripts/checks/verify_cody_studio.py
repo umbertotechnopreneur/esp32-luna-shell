@@ -2841,6 +2841,9 @@ def main(argv=None):
     if arguments.coverage:
         import cody_studio_coverage_checks
         suite.addTests(loader.loadTestsFromModule(cody_studio_coverage_checks))
+    if arguments.coverage or arguments.inspection:
+        import cody_studio_maintenance_checks
+        suite.addTests(loader.loadTestsFromModule(cody_studio_maintenance_checks))
     if arguments.audio_cues:
         import cody_studio_audio_checks
         suite.addTests(loader.loadTestsFromModule(cody_studio_audio_checks))

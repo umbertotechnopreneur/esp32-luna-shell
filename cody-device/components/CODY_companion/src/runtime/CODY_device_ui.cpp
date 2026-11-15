@@ -4618,9 +4618,12 @@ esp_err_t process_studio_request(DeviceRuntime &ui)
     const bool muse = std::strcmp(target, "cody.home.muse") == 0;
     const bool screensaver = std::strcmp(target, "cody.home.screensaver") == 0;
     const bool connected = std::strcmp(target, "cody.codex.connected") == 0;
+    const bool maintenance = std::strcmp(target, "cody.settings.restart-pending") == 0 ||
+        std::strcmp(target, "cody.settings.reset-pending") == 0 ||
+        std::strcmp(target, "cody.settings.reset-failed") == 0;
     const bool questions = browser_route == CODY::CodexBrowserRoute::PendingQuestions &&
         std::strcmp(request->domain_questions_outcome, "supported") == 0;
-    std::strcpy(s_studio_identity.rendering_mode, browser || memory || screensaver || connected ?
+    std::strcpy(s_studio_identity.rendering_mode, browser || memory || screensaver || connected || maintenance ?
         "presenter-isolated" : "runtime-full");
     FrameView frame{};
     if (error == ESP_OK && branding) {
@@ -4676,7 +4679,7 @@ esp_err_t process_studio_request(DeviceRuntime &ui)
         }
         if (error == ESP_OK) {
             stage = "prepare-view";
-            if (connected) frame.layer = Layer::Scene;
+            if (connected || maintenance) frame.layer = Layer::Scene;
             else error = prepare_current_view(frame, esp_timer_get_time());
             if (error == ESP_OK && memory) prepare_studio_memory(ui, frame);
             if (error == ESP_OK && screensaver) error = prepare_studio_screensaver(ui, frame);

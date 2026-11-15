@@ -8728,6 +8728,210 @@
           "paired_pc_id": "11111111111111111111111111111111"
         }
       }
+    },
+    {
+      "id": "ui-v1:restart-pending",
+      "inventory_id": "P19",
+      "title": "Restart pending",
+      "native_target": "cody.settings.restart-pending",
+      "controller": "prepare_studio_scene / isolated native maintenance presenter",
+      "availability": "presenter-isolated",
+      "rendering_mode": "presenter-isolated",
+      "group": "Preferences",
+      "verification": "Implemented static native presenter contract; host capture and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p19.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The original maintenance presenter is sampled in isolation; no restart, reset, erase, shutdown or service operation is submitted",
+        "This static observation has no retained caller or return journey; progress, failure recovery and physical acceptance are separate",
+        "Native capture retains fixed owner defaults beyond explicit common inputs; Sounds and Counter mode are off"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "maintenance_fixture": "Static native page; no operation is started"
+      }
+    },
+    {
+      "id": "ui-v1:reset-pending",
+      "inventory_id": "P21",
+      "title": "Reset pending",
+      "native_target": "cody.settings.reset-pending",
+      "controller": "prepare_studio_scene / isolated native maintenance presenter",
+      "availability": "presenter-isolated",
+      "rendering_mode": "presenter-isolated",
+      "group": "Preferences",
+      "verification": "Implemented static native presenter contract; host capture and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p21.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The original maintenance presenter is sampled in isolation; no restart, reset, erase, shutdown or service operation is submitted",
+        "This static observation has no retained caller or return journey; progress, failure recovery and physical acceptance are separate",
+        "Native capture retains fixed owner defaults beyond explicit common inputs; Sounds and Counter mode are off"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "maintenance_fixture": "Static native page; no operation is started"
+      }
+    },
+    {
+      "id": "ui-v1:reset-failed",
+      "inventory_id": null,
+      "title": "Reset failed",
+      "native_target": "cody.settings.reset-failed",
+      "controller": "prepare_studio_scene / isolated native maintenance presenter",
+      "availability": "presenter-isolated",
+      "rendering_mode": "presenter-isolated",
+      "group": "Preferences",
+      "verification": "Implemented static native presenter contract; host capture and visual review pending; physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "settings"
+      ],
+      "scenario": "cody-studio-p21-failed.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "UserSettingsService",
+        "Native scene preparation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "The original maintenance presenter is sampled in isolation; no restart, reset, erase, shutdown or service operation is submitted",
+        "This static observation has no retained caller or return journey; progress, failure recovery and physical acceptance are separate",
+        "Native capture retains fixed owner defaults beyond explicit common inputs; Sounds and Counter mode are off",
+        "Failure is a synthetic ESP_ERR_TIMEOUT presentation and does not establish physical reset error handling"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "maintenance_fixture": "Static native page; no operation is started",
+        "maintenance_error": "Synthetic ESP_ERR_TIMEOUT (0x107) in the host owner; no reset is performed"
+      },
+      "inventory_family_id": "P21"
     }
   ]
 }

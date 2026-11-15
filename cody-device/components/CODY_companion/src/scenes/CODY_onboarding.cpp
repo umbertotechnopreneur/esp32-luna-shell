@@ -694,6 +694,10 @@ bool s_birth_intro_scheduled = false;
 uint32_t s_factory_reset_request_id = 0;
 esp_err_t s_factory_reset_error = ESP_OK;
 esp_err_t s_restart_error = ESP_OK;
+#if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
+// Display-owner-only static inspection never admits a maintenance operation.
+bool s_studio_maintenance_inspection = false;
+#endif
 PreferenceId s_requested_preference = PreferenceId::ShakeWake;
 uint32_t s_requested_preference_value = 0;
 // Display-owned capture and retained projections never become settings owners.
@@ -6308,6 +6312,9 @@ void suspend_onboarding_command_hints()
 // No parameters: retire routes and QR state without erasing saved settings or replaying the boot footer.
 void reset_onboarding()
 {
+#if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
+    s_studio_maintenance_inspection = false;
+#endif
     clear_text_entry(s_local_wifi.entry);
     clear_text_entry_view(s_local_wifi.keyboard);
     s_local_wifi.page = LocalWifiPage::None;
@@ -7514,6 +7521,9 @@ static OptionsPage studio_options_page(const char *target)
         {"cody.settings.synth-voice", OptionsPage::SynthVoice},
         {"cody.settings.restart-confirm", OptionsPage::RestartConfirm},
         {"cody.settings.reset-confirm", OptionsPage::ResetConfirm},
+        {"cody.settings.restart-pending", OptionsPage::RestartPending},
+        {"cody.settings.reset-pending", OptionsPage::ResetPending},
+        {"cody.settings.reset-failed", OptionsPage::ResetFailed},
     };
     for (const auto &page : pages) if (std::strcmp(page.target, target) == 0) return page.page;
     return OptionsPage::None;
@@ -7706,8 +7716,8 @@ bool studio_scene_supported(const char *target)
 // Exception: Returns busy ownership, unsupported targets or original source preparation errors.
 esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &request)
 {
-    if (s_command_pending || s_work_busy.load(std::memory_order_acquire) || maintenance_pending())
-        return ESP_ERR_NOT_FINISHED;
+    if (s_command_pending || s_work_busy.load(std::memory_order_acquire) ||
+        (maintenance_pending() && !s_studio_maintenance_inspection)) return ESP_ERR_NOT_FINISHED;
     // Only the static host worker invokes this reset. It has no active radio
     // operation; synthetic failures are observations, not discarded live work.
     reset_onboarding();
@@ -7725,6 +7735,10 @@ esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &requ
     const auto setup_route = studio_setup_route(target);
     const auto link_route = studio_link_route(target);
     if (options_page != OptionsPage::None) {
+        // These are frozen presenter samples, never admitted power operations.
+        s_studio_maintenance_inspection = options_page == OptionsPage::RestartPending ||
+            options_page == OptionsPage::ResetPending || options_page == OptionsPage::ResetFailed;
+        if (options_page == OptionsPage::ResetFailed) s_factory_reset_error = ESP_ERR_TIMEOUT;
         error = show_options_page(scene, options_page);
     } else if (std::strcmp(target, "cody.settings.quiet-edit") == 0) {
         // Initialize the caller and saved projection before opening its edit draft,
@@ -8412,6 +8426,10 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
                             bool scene_presented)
 {
     changed = false;
+#if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
+    // A synthetic frozen maintenance image has no request to poll or complete.
+    if (s_studio_maintenance_inspection) return ESP_OK;
+#endif
     s_startup_avatar_only = false;
     const esp_err_t activity_error = synchronize_screen_activity(inactivity_active_time_us);
     if (activity_error != ESP_OK) {
@@ -9974,6 +9992,10 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
                                   uint16_t rotation_degrees, bool &consumed)
 {
     consumed = false;
+#if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
+    // Static inspection is read-only, even when the renderer shows Retry.
+    if (s_studio_maintenance_inspection) return ESP_ERR_NOT_SUPPORTED;
+#endif
     if (s_local_wifi.page != LocalWifiPage::None) {
         return handle_local_wifi_touch(scene, point, pressed, pressed_edge, rotation_degrees, consumed);
     }

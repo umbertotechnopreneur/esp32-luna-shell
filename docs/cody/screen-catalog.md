@@ -200,6 +200,13 @@ because the current full runtime projects that route as the dashboard. These
 contracts do not imply replay of idle admission, return, authentication or a
 real pairing commit. Capture and physical evidence remain separate.
 
+The maintenance fixtures use the original restart and reset presenters in
+isolated static mode. P19 and P21 represent pending states; the secondary
+P21 family member shows a synthetic ESP_ERR_TIMEOUT failure. Preparation,
+updates and touch never submit a restart, reset or erase operation for these
+fixtures. They have no retained caller or return journey; actual navigation,
+operation recovery and physical-device acceptance remain unverified.
+
 Catalog availability describes the declared rendering path: full runtime,
 isolated presenter, profile conditional, unsupported or not applicable. It is
 separate from acquisition, pixel comparison and human review status. All ten
