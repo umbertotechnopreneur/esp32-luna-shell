@@ -57,6 +57,7 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
             'display-dma' = @{ Category = 'Snapshots, hardware and power'; Emoji = '🖥️'; Description = 'Execute native BSP slot, DMA completion, timeout and quarantine contracts on the host.' }
             'cody-response' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Deterministic touch, motion and expression response contracts.' }
             'cody-runtime' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Native response, demo, statistics and original boot-cue checks.' }
+            'cody-studio' = @{ Category = 'Cody and simulators'; Emoji = '🖥️'; Description = 'Studio contracts and optional native, audio, Tk, isolated atlas and inventory-linked PDF checks.' }
             'cody-usage-alarms' = @{ Category = 'Cody and simulators'; Emoji = '🔔'; Description = 'Host contract for weekly usage thresholds, freshness and acknowledgement.' }
             'cody-voice-ui' = @{ Category = 'Cody and simulators'; Emoji = '🤖'; Description = 'Production recording gestures, native ribbon raster and synthetic preview.' }
             'cody-voice-input' = @{ Category = 'Cody and simulators'; Emoji = '🎵'; Description = 'Production voice owner and authenticated receiver contracts on the host.' }
@@ -92,6 +93,8 @@ function Get-DeviceToolCatalog([ValidateSet('checks','generators')][string]$Grou
             'public-branding' = @{ Category = 'Build, console and repository'; Emoji = '🏷️'; Description = 'Public-release text and branding contracts.' }
         }
         generators = @{
+            'cody-native-screen-atlas' = @{ Category = 'Cody and simulators'; Emoji = '📘'; Description = 'Export a validated Studio atlas with inventory IDs, render modes, source owners and absence reasons.' }
+            'cody-studio-atlas' = @{ Category = 'Cody and simulators'; Emoji = '📚'; Description = 'Regenerate selected Studio suites in isolated native sessions with progress, cancellation and preserved valid results.' }
             'cody-theme' = @{ Category = 'Cody assets'; Emoji = '🎨'; Description = 'Generate immutable RGB565 firmware constants from the semantic JSON palette.' }
             'cody-audio-queue-fixture' = @{ Category = 'Cody and simulators'; Emoji = '🎵'; Description = 'Windows SAPI synthetic speech WAV for the explicit public audio queue pilot; no speaker playback.' }
             'cody-rig' = @{ Category = 'Cody assets'; Emoji = '🤖'; Description = 'Compile a selected skin into immutable named firmware rig tables.' }

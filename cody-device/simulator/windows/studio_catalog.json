@@ -6,7 +6,8 @@
     "revision": "2026-11-14 / working-tree e971b313 + local changes",
     "sha256": "4db789f7facf03efa79f6f0efb97ab7e57412b0b73435e50a6c24e8a803b9c77",
     "reported_entry_count": 100,
-    "mapping_evidence": "100-entry source inventory dated 2026-11-14; IDs are document-local, independent of firmware enum and source catalog identities"
+    "entry_count_status": "owner-estimate-unverified",
+    "mapping_evidence": "Inventory dated 2026-11-14; 100 was an owner estimate, not verified coverage. IDs are document-local, independent of firmware enum and source catalog identities"
   },
   "entries": [
     {

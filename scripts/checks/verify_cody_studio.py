@@ -285,6 +285,7 @@ class CatalogContractTests(unittest.TestCase):
         self.assertEqual(display["id"], "ui-v1:display")
         self.assertEqual(entry_for("ui-v1:display"), display)
         self.assertEqual(display["inventory"]["reported_entry_count"], 100)
+        self.assertEqual(display["inventory"]["entry_count_status"], "owner-estimate-unverified")
         inventory_path = Path(display["inventory"]["document"])
         self.assertFalse(inventory_path.is_absolute())
         self.assertEqual(inventory_path.name, "Cody-screen-inventory.pdf")
@@ -1183,6 +1184,18 @@ class HostAudioOutputTests(unittest.TestCase):
                 process.stdin.close()
 
 
+class AtlasUiWorkerTests(unittest.TestCase):
+    """Give the phase-F Tk workflow its own native library and global owners."""
+
+    # self: Parent test fixture; its native library may already own another UI session.
+    # Raises worker/Tk failures with the original retained child diagnostics.
+    def test_atlas_ui_in_a_fresh_process(self):
+        directory = fixture_directory()
+        process = run_host_worker([sys.executable, "-B", str(Path(__file__).resolve()),
+                                   "--atlas-ui-worker"], directory, "atlas-ui", timeout=180)
+        print(process.stdout, end="", flush=True)
+
+
 class NativeUiTests(unittest.TestCase):
     """Exercise the real Tk product and native owner, without manual dialogs.
 
@@ -1204,6 +1217,9 @@ class NativeUiTests(unittest.TestCase):
         self.preferences_patch = patch.object(cody_studio_window, "STATE_PATH", self.state_path)
         self.preferences_patch.start()
         self.addCleanup(self.preferences_patch.stop)
+        self.atlas_history_patch = patch.object(cody_studio_window, "latest_atlas_path", return_value=None)
+        self.atlas_history_patch.start()
+        self.addCleanup(self.atlas_history_patch.stop)
         self.errors, self.callback_errors = [], []
         self.message_patch = patch.object(cody_studio_window.messagebox, "showerror", side_effect=self.record_error)
         self.message_patch.start()
@@ -1233,6 +1249,7 @@ class NativeUiTests(unittest.TestCase):
             if not self.window.closed:
                 self.window.close()
             self.window.executor.shutdown(wait=True, cancel_futures=True)
+            self.window.atlas_executor.shutdown(wait=True, cancel_futures=True)
             self.window = None
 
     # scenario: Strict complete case used by the actual initial Apply callback.
@@ -1280,6 +1297,17 @@ class NativeUiTests(unittest.TestCase):
             if widget.winfo_class() == "Button" and str(widget.cget("text")) == name:
                 matches.append(widget)
         self.assertEqual(len(matches), 1, f"Expected one actual UI button: {name}")
+        return matches[0]
+
+    # record: Immutable capture whose thumbnail must remain explicitly selectable.
+    # Raises AssertionError for missing/duplicate controls or a wrong acquisition identity.
+    def thumbnail_button(self, record):
+        matches = [control for control, captured in
+                   zip(self.window.thumbnail_controls, self.window.thumbnail_records)
+                   if captured.metadata_path == record.metadata_path]
+        self.assertEqual(len(matches), 1, f"Expected one thumbnail for {record.metadata_path}")
+        identity = record.metadata.get("inventory_id") or record.metadata["id"]
+        self.assertTrue(str(matches[0].cget("text")).startswith(identity + " · "))
         return matches[0]
 
     # No parameters: activate the real Apply button and wait for a new saved native frame.
@@ -1461,6 +1489,7 @@ class NativeUiTests(unittest.TestCase):
     # minimum_height: Smallest readable rendered frame height admitted in host pixels.
     # Raises AssertionError if the displayed image clips or changes native proportions.
     def assert_frame_geometry(self, expected_ratio, minimum_height=2):
+        self.assert_widget_visible(self.window.canvas, self.root)
         self.root.update_idletasks()
         images = [item for item in self.window.canvas.find_all() if self.window.canvas.type(item) == "image"]
         self.assertEqual(len(images), 1)
@@ -1878,7 +1907,7 @@ class NativeUiTests(unittest.TestCase):
         self.assertEqual({record.metadata["inventory_id"] for record in window.records}, set(PILOT_CASES))
 
         # Explicit history selection must inspect the selected capture's complete context.
-        s15_thumbnail = self.button("S15 · acquired")
+        s15_thumbnail = self.thumbnail_button(pilot_records["S15"])
         self.reveal_widget(s15_thumbnail, window.bottom_canvas)
         s15_thumbnail.invoke()
         self.assertEqual(window.current.metadata_path, pilot_records["S15"].metadata_path)
@@ -1890,7 +1919,7 @@ class NativeUiTests(unittest.TestCase):
         self.assertIn(("services", "provisioning", "outcome"), window.case_fields)
         self.assertNotIn(("page", "chat_id"), window.case_fields)
 
-        c04_thumbnail = self.button("C04 · acquired")
+        c04_thumbnail = self.thumbnail_button(pilot_records["C04"])
         self.reveal_widget(c04_thumbnail, window.bottom_canvas)
         c04_thumbnail.invoke()
         self.assertEqual(window.current.metadata_path, pilot_records["C04"].metadata_path)
@@ -2589,16 +2618,24 @@ def main(argv=None):
                         help="Verify the native guide QR reveal and both exits")
     parser.add_argument("--host-audio", action="store_true",
                         help="Play the native startup cues through the selected host audio output")
+    parser.add_argument("--atlas", action="store_true",
+                        help="Verify isolated atlas generation, publication, cancellation and build watching")
+    parser.add_argument("--atlas-pdf", action="store_true",
+                        help="Verify inventory-linked PDF export from validated native atlas results")
+    parser.add_argument("--atlas-ui", action="store_true",
+                        help="Exercise atlas controls in real Tk/native Studio; requires a display")
     parser.add_argument("--pilot-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--phase-e-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--phase-e-contended-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--live-audio-worker", choices=("on", "off"), help=argparse.SUPPRESS)
     parser.add_argument("--guide-worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--atlas-ui-worker", action="store_true", help=argparse.SUPPRESS)
     arguments = parser.parse_args(argv)
     workers = (arguments.pilot_worker, arguments.phase_e_worker, arguments.phase_e_contended_worker,
-               bool(arguments.live_audio_worker), arguments.guide_worker)
+               bool(arguments.live_audio_worker), arguments.guide_worker, arguments.atlas_ui_worker)
     if any(workers):
         if (arguments.native or arguments.ui or arguments.pilot or arguments.phase_e or arguments.live_audio or arguments.guide or arguments.host_audio or
+                arguments.atlas or arguments.atlas_pdf or arguments.atlas_ui or
                 sum(workers) != 1):
             parser.error("Internal workers cannot be combined with suite flags")
         if arguments.pilot_worker:
@@ -2607,6 +2644,10 @@ def main(argv=None):
             return run_live_audio_worker(arguments.live_audio_worker)
         if arguments.guide_worker:
             return run_guide_worker()
+        if arguments.atlas_ui_worker:
+            import cody_studio_atlas_ui_checks
+            result = unittest.TextTestRunner(verbosity=2).run(cody_studio_atlas_ui_checks.suite(NativeUiTests))
+            return 0 if result.wasSuccessful() else 1
         return run_phase_e_worker() if arguments.phase_e_worker else run_phase_e_contended_worker()
     loader = unittest.TestLoader()
     suite = unittest.TestSuite([loader.loadTestsFromTestCase(CatalogContractTests),
@@ -2627,6 +2668,14 @@ def main(argv=None):
         suite.addTests(loader.loadTestsFromTestCase(GuideRouteTests))
     if arguments.host_audio:
         suite.addTests(loader.loadTestsFromTestCase(HostAudioOutputTests))
+    if arguments.atlas:
+        import cody_studio_atlas_checks
+        suite.addTests(loader.loadTestsFromModule(cody_studio_atlas_checks))
+    if arguments.atlas_pdf:
+        import cody_studio_atlas_pdf_checks
+        suite.addTests(loader.loadTestsFromModule(cody_studio_atlas_pdf_checks))
+    if arguments.atlas_ui:
+        suite.addTests(loader.loadTestsFromTestCase(AtlasUiWorkerTests))
     result = unittest.TextTestRunner(verbosity=2).run(suite)
     print("Generated artifacts are retained; cleanup is manual.")
     return 0 if result.wasSuccessful() else 1

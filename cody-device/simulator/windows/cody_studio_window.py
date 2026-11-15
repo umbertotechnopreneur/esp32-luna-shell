@@ -17,7 +17,8 @@ from PIL import Image, ImageTk
 from cody_native_runtime import ROOT
 from cody_semantic_palette import studio_hex
 from cody_studio_catalog import entry_for, load_catalog, resolve_source, routes_for
-from cody_studio_runner import StudioRunner, load_capture
+from cody_studio_atlas import AtlasJob, BuildWatcher, latest_atlas_path, load_atlas, verify_contract_inputs
+from cody_studio_runner import StudioRunner, load_capture, verify_current_build
 from cody_studio_comparison import compare_captures, comparison_image, load_review, preserve_baseline, save_review
 from cody_studio_scenario import default_scenario, load_scenario, save_scenario, validate_scenario
 from cody_studio_timeline import (source_timeline_scenario, timeline_capture, timeline_plan,
@@ -67,6 +68,7 @@ class StudioWindow:
         self.unavailable_baseline = None
         self.records, self.sections, self.photos = [], {}, []
         self.thumbnail_controls = []
+        self.thumbnail_records = []
         self.busy = self.closed = False
         self.focus_reveal_id = None
         self.timeline_timer = None
@@ -81,6 +83,15 @@ class StudioWindow:
         self.live_caption_backup = self.live_title = None
         self.route_records = {}
         self.declared_routes = []
+        self.atlas_job = self.atlas_manifest_path = None
+        self.atlas_watcher = None
+        self.atlas_watch_deadline = 0
+        self.atlas_pending_build = False
+        self.atlas_last_watch_error = None
+        self.atlas_exporting = False
+        self.bottom_content_height = 280
+        self.atlas_results = queue.Queue()
+        self.atlas_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='cody-atlas-export')
         self.results = queue.Queue()
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='cody-studio')
         self.status = tk.StringVar(value='Preparing native Studio case…')
@@ -92,6 +103,7 @@ class StudioWindow:
         root.minsize(720, 540)
         root.protocol('WM_DELETE_WINDOW', self.close)
         self.build()
+        self.restore_atlas()
         self.show_scenario()
         # Descendants include this Toplevel in their normal bindtags, including
         # controls created by later scenario changes. Other windows are untouched.
@@ -168,6 +180,7 @@ class StudioWindow:
             value = {'schema': 'cody.studio.ui.v1',
                      'expanders': {key: data[2] for key, data in self.sections.items()},
                      'left': self.left_visible.get(), 'right': self.right_visible.get(),
+                     'atlas_suite': self.atlas_suite.get(),
                      'baseline': (str(self.baseline.metadata_path.relative_to(ROOT)) if self.baseline
                                   else self.unavailable_baseline)}
             temporary = path.with_suffix('.json.tmp')
@@ -345,7 +358,7 @@ class StudioWindow:
         self.canvas = tk.Canvas(self.center, bg=BG, highlightthickness=0, height=180)
         self.canvas.pack(fill='both', expand=True, pady=8)
         self.canvas.bind('<Configure>', lambda event: self.draw())
-        bottom_host = tk.Frame(self.center, bg=BG)
+        bottom_host = self.bottom_host = tk.Frame(self.center, bg=BG)
         bottom_host.pack(side='bottom', fill='x', before=self.canvas)
         bottom_scroll = tk.Scrollbar(bottom_host, orient='vertical')
         bottom_scroll.pack(side='right', fill='y')
@@ -358,12 +371,16 @@ class StudioWindow:
 
         # event: Actual size after an expander changes; keep content reachable.
         def resize_bottom(event):
-            self.bottom_canvas.configure(scrollregion=self.bottom_canvas.bbox('all'),
-                                         height=min(280, max(36, event.height)))
+            self.bottom_content_height = event.height
+            self.bottom_canvas.configure(scrollregion=self.bottom_canvas.bbox('all'))
+            self.resize_bottom_viewport()
 
         bottom.bind('<Configure>', resize_bottom)
         self.bottom_canvas.bind('<Configure>', lambda event: self.bottom_canvas.itemconfigure(bottom_item, width=event.width))
         self.bottom_canvas.bind('<Configure>', lambda event: self.arrange_bottom(), add='+')
+        self.center.bind('<Configure>', self.resize_bottom_viewport)
+        self.baseline_warning_label.bind('<Configure>', self.resize_bottom_viewport)
+        modes.bind('<Configure>', self.resize_bottom_viewport)
         animation = self.section(bottom, 'Animation', False)
         self.animation_status = tk.StringVar(value='No native source animation selected.')
         caption(animation, textvariable=self.animation_status, wraplength=580).pack(anchor='w')
@@ -421,6 +438,59 @@ class StudioWindow:
         self.route_source_button = action(route_actions, 'Open route source', self.open_route_source)
         self.route_source_button.pack(side='left')
         atlas = self.section(bottom, 'Atlas', True)
+        suite_row = tk.Frame(atlas, bg=BG)
+        suite_row.pack(fill='x')
+        caption(suite_row, 'Suite', 10).pack(side='left')
+        suites = ('Pilot (10)', 'Supported screens', 'Filtered catalog')
+        saved_suite = self.preferences.get('atlas_suite', suites[0])
+        self.atlas_suite = tk.StringVar(value=saved_suite if saved_suite in suites else suites[0])
+        self.atlas_suite_control = ttk.Combobox(suite_row, textvariable=self.atlas_suite, values=suites,
+                                               state='readonly', width=21, style='Studio.TCombobox')
+        self.atlas_suite_control.pack(side='left', padx=6)
+        self.atlas_suite_control.bind('<<ComboboxSelected>>', lambda event: self.persist())
+        atlas_actions = tk.Frame(atlas, bg=BG)
+        atlas_actions.pack(fill='x')
+        self.atlas_generate_button = action(atlas_actions, 'Generate atlas', self.generate_atlas, True)
+        self.atlas_generate_button.pack(side='left', padx=(0, 12))
+        self.atlas_cancel_button = action(atlas_actions, 'Cancel', self.cancel_atlas)
+        self.atlas_cancel_button.configure(state='disabled')
+        self.atlas_cancel_button.pack(side='left', padx=(0, 12))
+        self.atlas_export_button = action(atlas_actions, 'Export PDF…', self.export_atlas)
+        self.atlas_export_button.configure(state='disabled')
+        self.atlas_export_button.pack(side='left')
+        self.atlas_auto = tk.BooleanVar(value=False)
+        self.atlas_watch_control = tk.Checkbutton(atlas, text='Regenerate selected suite after a validated native build',
+                       variable=self.atlas_auto, command=self.change_atlas_watch,
+                       bg=BG, fg=FG, selectcolor=FIELD, activebackground=BG,
+                       activeforeground=ORANGE, highlightcolor=ORANGE, wraplength=500,
+                       justify='left', anchor='w')
+        self.atlas_watch_control.pack(anchor='w', fill='x')
+        self.atlas_status = tk.StringVar(value='No published atlas loaded. Generation uses a separate native process.')
+        atlas_status_label = caption(atlas, textvariable=self.atlas_status, size=10, wraplength=580)
+        atlas_status_label.pack(anchor='w', fill='x', pady=4)
+        self.atlas_case_status = tk.StringVar()
+        atlas_case_label = caption(atlas, textvariable=self.atlas_case_status, size=9, wraplength=580)
+        atlas_case_label.pack(anchor='w', fill='x')
+
+        # event: Actual available width; keep progress and build-watcher captions readable.
+        def resize_atlas(event):
+            width = max(120, event.width - 8)
+            atlas_status_label.configure(wraplength=width)
+            atlas_case_label.configure(wraplength=width)
+            self.atlas_watch_control.configure(wraplength=max(100, width - 28))
+
+        atlas.bind('<Configure>', resize_atlas)
+        atlas_log_host = tk.Frame(atlas, bg=BG)
+        atlas_log_host.pack(fill='x', pady=(3, 6))
+        atlas_log_scroll = tk.Scrollbar(atlas_log_host, orient='vertical')
+        atlas_log_scroll.pack(side='right', fill='y')
+        self.atlas_log = tk.Text(atlas_log_host, height=3, width=40, bg=BG, fg=MUTED,
+                                 relief='flat', bd=0, wrap='word', state='disabled',
+                                 highlightbackground=BG, highlightcolor=ORANGE,
+                                 highlightthickness=1, takefocus=True,
+                                 font=('TkDefaultFont', 9), yscrollcommand=atlas_log_scroll.set)
+        self.atlas_log.pack(side='left', fill='x', expand=True)
+        atlas_log_scroll.configure(command=self.atlas_log.yview)
         self.thumbnails = tk.Frame(atlas, bg=BG)
         self.thumbnails.pack(fill='x')
         action(atlas, 'Open saved capture…', self.open_capture).pack(anchor='w')
@@ -512,6 +582,27 @@ class StudioWindow:
         return tk.Entry(parent, textvariable=variable, bg=FIELD, fg=FG, insertbackground=FG,
                         relief='flat', highlightbackground=FIELD, highlightcolor=ORANGE, highlightthickness=1)
 
+    # event: Optional actual center/chrome geometry change; cached canvas geometry is not used.
+    # Reserves a visible 180-pixel frame plus its 30-pixel caption and vertical margins.
+    # Exceptions: Tk geometry failures propagate rather than leaving an unmapped preview unnoticed.
+    def resize_bottom_viewport(self, event=None):
+        if self.closed or not hasattr(self, 'bottom_canvas'):
+            return
+        chrome_height = 0
+        for widget in self.center.pack_slaves():
+            if widget in (self.canvas, self.bottom_host):
+                continue
+            chrome_height += widget.winfo_reqheight()
+            for option in ('pady', 'ipady'):
+                padding = widget.pack_info().get(option, 0)
+                values = padding if isinstance(padding, (tuple, list)) else str(padding).split()
+                pixels = [widget.winfo_pixels(value) for value in values]
+                chrome_height += sum(pixels) if len(pixels) > 1 else 2 * pixels[0]
+        remaining = self.center.winfo_height() - chrome_height - 210 - 16
+        height = min(280, max(36, self.bottom_content_height), max(36, remaining))
+        if int(self.bottom_canvas.cget('height')) != height:
+            self.bottom_canvas.configure(height=height)
+
     # No parameters: report backend initialization without claiming a cue was heard.
     def refresh_audio_status(self):
         try:
@@ -527,6 +618,220 @@ class StudioWindow:
         except (AttributeError, KeyError, OSError, ValueError, RuntimeError) as error:
             description = f'Audio output: status unavailable ({error})'
         self.audio_status.set(description)
+
+    # No parameters: restore only a validated published atlas without changing native state.
+    # Exceptions: Missing or corrupt evidence remains visible and preserves the current capture.
+    def restore_atlas(self):
+        try:
+            path = latest_atlas_path()
+            if path is not None:
+                self.load_atlas_result(path)
+        except (OSError, ValueError, RuntimeError, KeyError) as error:
+            self.atlas_status.set(f'Published atlas unavailable: {error}')
+
+    # message: One host-only progress or per-case outcome, retained in the scrollable log.
+    # Exceptions: Tk widget failures propagate to the caller.
+    def atlas_log_message(self, message):
+        self.atlas_log.configure(state='normal')
+        self.atlas_log.insert('end', message + '\n')
+        self.atlas_log.see('end')
+        self.atlas_log.configure(state='disabled')
+
+    # No parameters: snapshot the selected suite; catalog filtering never changes native inputs.
+    # Raises ValueError for an empty filtered catalog or an unknown suite selection.
+    def atlas_selection(self):
+        selection = self.atlas_suite.get()
+        if selection == 'Pilot (10)':
+            return None, 'pilot'
+        if selection == 'Supported screens':
+            return None, 'supported'
+        if selection != 'Filtered catalog':
+            raise ValueError(f'Unknown atlas suite: {selection}')
+        identities = [identity for group in self.tree.get_children()
+                      for identity in self.tree.get_children(group)]
+        if not identities:
+            raise ValueError('The filtered catalog contains no screens')
+        return identities, 'all'
+
+    # auto: True only when the user-enabled build watcher requests regeneration.
+    # Exceptions: Admission errors retain the last published suite and its PDF action.
+    def generate_atlas(self, auto=False):
+        if self.closed or self.atlas_job is not None:
+            return
+        try:
+            identities, suite = self.atlas_selection()
+            job = AtlasJob.start(identities=identities, suite=suite, auto=auto)
+        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as error:
+            self.atlas_status.set(f'Atlas generation could not start: {error}')
+            self.atlas_log_message(str(error))
+            return
+        self.atlas_job = job
+        self.atlas_generate_button.configure(state='disabled')
+        self.atlas_cancel_button.configure(state='normal')
+        self.atlas_suite_control.configure(state='disabled')
+        self.atlas_status.set('Generating selected suite in an isolated native process…')
+        self.atlas_case_status.set('Waiting for native preparation. The interactive scenario remains available.')
+        self.atlas_log_message(f"Started {'automatic' if auto else 'manual'} generation · {self.atlas_suite.get()}")
+
+    # No parameters: cancel only this suite process and retain the last published atlas.
+    # Exceptions: Original cancellation failures remain visible in the Atlas log.
+    def cancel_atlas(self):
+        if self.atlas_job is None:
+            return
+        self.atlas_pending_build = False
+        try:
+            self.atlas_job.cancel()
+            self.atlas_cancel_button.configure(state='disabled')
+            self.atlas_status.set('Cancelling atlas generation… Last published atlas retained.')
+        except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+            self.atlas_log_message(f'Cancellation failed: {error}')
+
+    # path: Published immutable suite manifest, validated again before thumbnails are added.
+    # Exceptions: Capture/manifest validation errors leave the current frame and baseline intact.
+    def load_atlas_result(self, path):
+        manifest = load_atlas(path)
+        records = [load_capture(ROOT / case['capture']) for case in manifest['cases']
+                   if case['acquisition'] == 'captured']
+        for record in records:
+            self.add_capture_record(record)
+        self.atlas_manifest_path = Path(path).resolve()
+        self.atlas_export_button.configure(state='disabled' if self.atlas_exporting else 'normal')
+        counts = {}
+        for case in manifest['cases']:
+            state = case['acquisition']
+            counts[state] = counts.get(state, 0) + 1
+        summary = ' · '.join(f'{value} {state}' for state, value in sorted(counts.items()))
+        try:
+            freshness = 'current native build' if manifest['build'] == verify_current_build() else 'previous native build'
+        except (OSError, ValueError, RuntimeError):
+            freshness = 'saved build · current build unavailable'
+        try:
+            verify_contract_inputs(manifest['contract_inputs'])
+        except (OSError, ValueError, RuntimeError):
+            freshness += ' · catalog/scenarios changed or unavailable'
+        self.atlas_status.set(f'Published atlas · {summary} · {freshness}')
+        self.atlas_case_status.set('Choose a thumbnail to inspect it. Baseline and interactive scenario are preserved.')
+        self.refresh_evidence_filter()
+        self.draw()
+
+    # No parameters: start or stop watching the native build inputs, never atlas output files.
+    # Auto mode is deliberately opt-in per window and is not restored after a restart.
+    def change_atlas_watch(self):
+        self.atlas_pending_build = False
+        self.atlas_last_watch_error = None
+        if not self.atlas_auto.get():
+            self.atlas_watcher = None
+            self.atlas_log_message('Automatic regeneration disabled.')
+            return
+        try:
+            self.atlas_watcher = BuildWatcher()
+            self.atlas_watch_deadline = 0
+            self.atlas_log_message('Watching native build provenance. Existing build seeds the watcher.')
+        except (OSError, ValueError, RuntimeError) as error:
+            self.atlas_auto.set(False)
+            self.atlas_watcher = None
+            self.atlas_log_message(f'Build watcher unavailable: {error}')
+
+    # No parameters: collect bounded child progress and publish thumbnails on the Tk thread.
+    # Exceptions: Failures keep the previous atlas, current frame and explicit baseline selected.
+    def poll_atlas(self):
+        job = self.atlas_job
+        if job is not None:
+            try:
+                for event in job.poll():
+                    message = event.get('message')
+                    if event.get('type') == 'case-result':
+                        case = event.get('case')
+                        completed, total = event.get('completed'), event.get('total')
+                        if (not isinstance(case, dict) or type(completed) is not int or type(total) is not int or
+                                not 1 <= completed <= total or not isinstance(case.get('id'), str) or
+                                not case['id'] or case.get('acquisition') not in
+                                ('captured', 'failed', 'unsupported', 'not-applicable') or
+                                (case.get('reason') is not None and not isinstance(case['reason'], str))):
+                            raise ValueError('Invalid atlas case-result progress payload')
+                        identity = case.get('inventory_id') or case.get('id', '?')
+                        message = f"{identity}: {case['acquisition']}"
+                        if case.get('reason'):
+                            message += f" · {case['reason']}"
+                        self.atlas_case_status.set(f"{completed} / {total} cases completed · {message}")
+                    if message:
+                        self.atlas_log_message(str(message))
+                if job.done:
+                    self.atlas_job = None
+                    self.atlas_generate_button.configure(state='normal')
+                    self.atlas_cancel_button.configure(state='disabled')
+                    self.atlas_suite_control.configure(state='readonly')
+                    if job.result is not None:
+                        self.load_atlas_result(job.result)
+                    else:
+                        self.atlas_status.set(f"Atlas not published: {job.error or 'cancelled'} · last published atlas retained")
+            except (OSError, ValueError, RuntimeError, KeyError, subprocess.SubprocessError) as error:
+                try:
+                    job.cancel()
+                except (OSError, RuntimeError, subprocess.SubprocessError) as cancellation_error:
+                    self.atlas_log_message(f'Cancellation failed: {cancellation_error}')
+                self.atlas_job = None
+                self.atlas_generate_button.configure(state='normal')
+                self.atlas_cancel_button.configure(state='disabled')
+                self.atlas_suite_control.configure(state='readonly')
+                self.atlas_status.set(f'Atlas unavailable: {error} · last published atlas retained')
+                self.atlas_log_message(str(error))
+        now = time.monotonic()
+        if self.atlas_watcher is not None and now >= self.atlas_watch_deadline:
+            self.atlas_watch_deadline = now + 1
+            try:
+                if self.atlas_watcher.poll() is not None:
+                    self.atlas_pending_build = True
+                    self.atlas_log_message('Validated new native build detected.')
+                error = self.atlas_watcher.error
+                if error and error != self.atlas_last_watch_error:
+                    self.atlas_log_message(f'Build not eligible for regeneration: {error}')
+                self.atlas_last_watch_error = error
+            except (OSError, ValueError, RuntimeError) as error:
+                if str(error) != self.atlas_last_watch_error:
+                    self.atlas_log_message(f'Build watcher: {error}')
+                self.atlas_last_watch_error = str(error)
+        if self.atlas_pending_build and self.atlas_job is None and self.atlas_auto.get():
+            self.atlas_pending_build = False
+            self.generate_atlas(auto=True)
+        try:
+            path, error = self.atlas_results.get_nowait()
+        except queue.Empty:
+            return
+        self.atlas_exporting = False
+        self.atlas_export_button.configure(state='normal' if self.atlas_manifest_path is not None else 'disabled')
+        if error:
+            self.atlas_status.set(f'PDF export failed: {error} · published atlas retained')
+            self.atlas_log_message(str(error))
+        else:
+            self.atlas_status.set(f'PDF exported · {path.relative_to(ROOT)}')
+            self.atlas_log_message(f'PDF exported · {path.relative_to(ROOT)}')
+
+    # No parameters: export the published suite, using no interactive frame or unsaved scenario.
+    # Exceptions: Destination and PDF failures retain the atlas and existing PDF bytes.
+    def export_atlas(self):
+        if self.atlas_manifest_path is None or self.atlas_exporting:
+            return
+        destination = filedialog.asksaveasfilename(parent=self.root, title='Export Cody Studio atlas PDF',
+                         initialdir=ROOT / 'artifacts/simulator/studio/atlas',
+                         initialfile=f'cody-studio-atlas-{time.time_ns()}.pdf',
+                         defaultextension='.pdf', filetypes=(('PDF documents', '*.pdf'),))
+        if not destination:
+            return
+        source = self.atlas_manifest_path
+        self.atlas_exporting = True
+        self.atlas_export_button.configure(state='disabled')
+        self.atlas_status.set('Exporting published atlas PDF…')
+
+        # No parameters: export on a separate host worker; never call Tk or the native owner.
+        def work():
+            try:
+                from cody_studio_pdf import export_atlas
+                self.atlas_results.put((export_atlas(source, Path(destination)), None))
+            except Exception as error:
+                self.atlas_results.put((None, error))
+
+        self.atlas_executor.submit(work)
 
     # No parameters: allow explicit side-column collapse on small windows.
     def columns(self):
@@ -597,6 +902,12 @@ class StudioWindow:
     # No parameters: refresh evidence filters after a capture, baseline or review changes.
     # Exceptions: Catalog validation errors propagate instead of inventing evidence.
     def refresh_evidence_filter(self):
+        for control, record in zip(self.thumbnail_controls, self.thumbnail_records):
+            try:
+                difference = compare_captures(self.baseline, record).status if self.baseline else 'not compared'
+            except (OSError, ValueError, RuntimeError):
+                difference = 'not comparable'
+            control.configure(text=f"{record.metadata.get('inventory_id') or record.metadata['id']} · {difference}")
         if self.filter.get() in ('Changed', 'Needs review'):
             self.catalog()
 
@@ -1136,6 +1447,7 @@ class StudioWindow:
     def poll(self):
         if self.closed:
             return
+        self.poll_atlas()
         try:
             scenario, record, error, operation = self.results.get_nowait()
         except queue.Empty:
@@ -1214,31 +1526,43 @@ class StudioWindow:
         if self.tree.exists(record.metadata['id']):
             self.tree.selection_set(record.metadata['id'])
         self.describe_entry(entry)
-        is_new = all(item.metadata_path != record.metadata_path for item in self.records)
-        if is_new:
-            self.records.append(record)
+        self.add_capture_record(record)
         self.refresh_evidence_filter()
         self.note.delete('1.0', 'end')
         self.note.insert('1.0', review['note'])
         self.review.set(review['status'])
         self.refresh_section('Review notes', f"Review notes · {review['count']} · {review['status']}")
-        if is_new:
+        self.draw()
+
+    # record: Hash-checked saved capture added to the atlas without selecting it or touching native state.
+    # Exceptions: Image/Tk failures propagate; a duplicate immutable capture is ignored.
+    def add_capture_record(self, record):
+        if all(item.metadata_path != record.metadata_path for item in self.records):
             with Image.open(record.image_path) as image:
                 photo = ImageTk.PhotoImage(image.resize((72, 72), Image.Resampling.NEAREST))
-            self.photos.append(photo)
+            difference = 'not compared'
+            if self.baseline is not None:
+                try:
+                    difference = compare_captures(self.baseline, record).status
+                except (OSError, ValueError, RuntimeError):
+                    difference = 'not comparable'
             control = action(self.thumbnails, f"{record.metadata.get('inventory_id') or record.metadata['id']} · acquired",
                              lambda chosen=record: self.select_capture(chosen))
             control.configure(image=photo, compound='top', font=('TkDefaultFont', 9))
+            control.configure(text=f"{record.metadata.get('inventory_id') or record.metadata['id']} · {difference}")
+            self.records.append(record)
+            self.photos.append(photo)
             self.thumbnail_controls.append(control)
+            self.thumbnail_records.append(record)
             if len(self.thumbnail_controls) > 40:
                 self.thumbnail_controls.pop(0).destroy()
                 self.photos.pop(0)
+                self.thumbnail_records.pop(0)
             for position, thumbnail in enumerate(self.thumbnail_controls):
                 thumbnail.grid(row=position // 4, column=position % 4, sticky='nw', padx=(0, 7))
         screens = len({item.metadata['id'] for item in self.records})
         visible = f' · latest {len(self.thumbnail_controls)} shown' if len(self.records) > 40 else ''
         self.refresh_section('Atlas', f'Atlas · {screens} screens / {len(self.records)} captures{visible}')
-        self.draw()
 
     # No parameters: present proportional native pixels or a compatible comparison.
     def draw(self):
@@ -1504,6 +1828,12 @@ class StudioWindow:
     # No parameters: close only this window and retain generated artifacts.
     def close(self):
         self.pause_timeline()
+        if self.atlas_job is not None:
+            try:
+                self.atlas_job.cancel()
+            except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                self.atlas_log_message(f'Cancellation during close failed: {error}')
+        self.atlas_watcher = None
         self.persist()
         self.closed = True
         self.root.after_cancel(self.poll_id)
@@ -1514,4 +1844,5 @@ class StudioWindow:
         self.root.unbind('<FocusIn>', self.focus_binding)
         self.runner.cancel_worker()
         self.executor.shutdown(wait=False, cancel_futures=True)
+        self.atlas_executor.shutdown(wait=False, cancel_futures=True)
         self.root.destroy()
