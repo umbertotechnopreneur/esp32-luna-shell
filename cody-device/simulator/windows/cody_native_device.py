@@ -29,6 +29,11 @@ class StudioCall(ctypes.Structure):
                 ("outcome", ctypes.c_char * 16)]
 
 
+class StudioQuestion(ctypes.Structure):
+    _fields_ = [("id", ctypes.c_uint64), ("chat_id", ctypes.c_uint64),
+                ("turn_id", ctypes.c_uint64), ("prompt", ctypes.c_char * 129)]
+
+
 class StudioStatistics(ctypes.Structure):
     _fields_ = [("source_age_ms", ctypes.c_uint32), ("daily_tokens", ctypes.c_uint64 * 8),
                 ("daily_valid_mask", ctypes.c_uint32), ("credits_kind", ctypes.c_char * 16),
@@ -55,7 +60,8 @@ class StudioCase(ctypes.Structure):
                 ("domain_turn_id", ctypes.c_uint64), ("domain_generation", ctypes.c_uint32),
                 ("domain_call_count", ctypes.c_uint32), ("domain_chat_title", ctypes.c_char * 129),
                 ("domain_execution", ctypes.c_char * 16), ("domain_calls", StudioCall * 8),
-                ("statistics", StudioStatistics)]
+                ("statistics", StudioStatistics), ("domain_questions_outcome", ctypes.c_char * 16),
+                ("domain_question_count", ctypes.c_uint32), ("domain_questions", StudioQuestion * 3)]
 
 
 class StudioLiveCue(ctypes.Structure):
@@ -266,8 +272,9 @@ class NativeDevice:
     # settings: Explicit synthetic panel settings, applied through their native owners.
     # page: Bounded source-specific data or draft, validated by the shared scenario contract.
     # services: Explicit synthetic service responses; never a real account or network request.
+    # variant: Optional catalog-owned fixture/contract selector, preserving the original default.
     # Raises schema, ABI, provenance, owner preparation, frame or deadline errors.
-    def prepare_studio_case(self, target, scenario_revision, at_ms=0, *, settings=None, page=None, services=None):
+    def prepare_studio_case(self, target, scenario_revision, at_ms=0, *, settings=None, page=None, services=None, variant=None):
         from cody_studio_catalog import load_catalog
         from cody_studio_scenario import default_scenario, validate_scenario
 
@@ -282,7 +289,7 @@ class NativeDevice:
         if len(entries) != 1:
             raise ValueError(f"Unknown or ambiguous native Studio target: {target!r}")
         entry = entries[0]
-        value = default_scenario(entry["id"])
+        value = default_scenario(entry["id"], variant=variant)
         if settings is not None:
             value["common"]["settings"] = deepcopy(settings)
         if page is not None:
@@ -294,8 +301,8 @@ class NativeDevice:
         if settings.get("sounds_enabled", False):
             raise ValueError("Static Studio cannot play sound with a frozen clock; use an isolated live session")
         request = StudioCase()
-        request.abi, request.size = 2, ctypes.sizeof(StudioCase)
-        request.identity.abi = 2
+        request.abi, request.size = 3, ctypes.sizeof(StudioCase)
+        request.identity.abi = 3
         request.identity.target = target.encode("ascii")
         request.identity.scenario_revision = scenario_revision.encode("ascii")
         request.identity.at_ms = at_ms
@@ -350,6 +357,15 @@ class NativeDevice:
                 row.id, row.turn_id = int(call["id"], 16), int(call["turn_id"], 16)
                 for name in ("tool_name", "label", "category", "state", "outcome"):
                     setattr(row, name, call[name].encode("ascii"))
+        if "domain" in services and "questions_outcome" in services["domain"]:
+            domain = services["domain"]
+            request.domain_questions_outcome = domain["questions_outcome"].encode("ascii")
+            request.domain_question_count = len(domain["questions"])
+            for index, item in enumerate(domain["questions"]):
+                row = request.domain_questions[index]
+                for name in ("id", "chat_id", "turn_id"):
+                    setattr(row, name, int(item[name], 16))
+                row.prompt = item["prompt"].encode("ascii")
         if "codex_link" in services:
             request.codex_link_outcome = services["codex_link"]["outcome"].encode("ascii")
         statistics = services.get("statistics", {})

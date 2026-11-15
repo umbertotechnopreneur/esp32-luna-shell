@@ -46,10 +46,22 @@ bool studio_counter_target(const char *target)
     for (const auto *candidate : targets) if (std::strcmp(target, candidate) == 0) return true;
     return false;
 }
+
+// target: Exact pure static link view, never a service action or browser scope.
+// Exception: No exceptions; unknown targets have no synthetic link outcome.
+const char *studio_static_codex_outcome(const char *target)
+{
+    struct Entry { const char *target; const char *outcome; };
+    static constexpr Entry entries[]{
+        {"cody.codex.pair-pc", "pairing"}, {"cody.codex.committed", "committed"},
+        {"cody.codex.discovering", "discovering"}, {"cody.codex.connected", "ready"}};
+    for (const auto &entry : entries) if (std::strcmp(target, entry.target) == 0) return entry.outcome;
+    return nullptr;
+}
 }
 
 namespace CODY::host_onboarding {
-// request: Explicit input for Settings, source animation samples or counter pages.
+// request: Explicit Settings, animation, counter or static Codex-link observation input.
 // Exception: Returns invalid argument or unavailable clock without changing observations.
 esp_err_t validate_studio_case(const CodyHostStudioCase &request)
 {
@@ -64,6 +76,17 @@ esp_err_t validate_studio_case(const CodyHostStudioCase &request)
             request.quiet_start_minute >= 1440 || request.quiet_end_minute >= 1440 ||
             request.quiet_draft_minute >= 1440 || (request.quiet_enabled &&
             request.quiet_start_minute == request.quiet_end_minute)) return ESP_ERR_INVALID_ARG;
+    }
+    const char *static_codex_outcome = studio_static_codex_outcome(identity.target);
+    if (static_codex_outcome) {
+        if (std::strcmp(request.codex_link_outcome, static_codex_outcome) != 0) return ESP_ERR_INVALID_ARG;
+        LUNASHELL::HardwareStatus hardware{};
+        const auto error = LUNASHELL::DeviceSnapshotService::instance().readHardwareStatus(hardware);
+        if (error != ESP_OK) return error;
+        const auto &wifi = hardware.wifi;
+        if (!wifi.data_valid || wifi.data_stale || wifi.last_error != ESP_OK ||
+            !wifi.connection_state_valid || !wifi.connected || !wifi.ip_acquired || wifi.ip_address[0] == '\0')
+            return ESP_ERR_INVALID_ARG;
     }
     const bool statistics = studio_counter_target(identity.target);
     if (statistics) {
@@ -98,7 +121,8 @@ esp_err_t validate_studio_case(const CodyHostStudioCase &request)
             request.short_remaining_basis_points > 10000 || request.short_window_minutes == 0 ||
             request.short_window_minutes > 10080 || request.short_source_age_ms > 60000))
             return ESP_ERR_INVALID_ARG;
-    } else if (!statistics && request.codex_link_outcome[0] != '\0') return ESP_ERR_INVALID_ARG;
+    } else if (!statistics && !static_codex_outcome && request.codex_link_outcome[0] != '\0')
+        return ESP_ERR_INVALID_ARG;
     if (std::strcmp(identity.target, "cody.provisioning.error") == 0 &&
         std::strcmp(request.provisioning_outcome, "timeout") != 0 &&
         std::strcmp(request.provisioning_outcome, "authentication") != 0 &&
@@ -122,6 +146,9 @@ esp_err_t publish_studio_case(const CodyHostStudioCase &request)
     s_wifi_scan = {};
     s_wifi_scan_available = false;
     const char *target = request.identity.target;
+    // A static code is readable through the actual host service API only while
+    // this explicitly selected Pair Codex case owns its canonical observation.
+    configure_studio_codex_pairing_code(std::strcmp(target, "cody.codex.pair-pc") == 0);
     const bool studio_qr = std::strcmp(target, "cody.provisioning.qr") == 0;
     // The QR source is a host adapter projection, not an admitted BLE operation.
     configure_studio_pairing_qr(studio_qr);
@@ -185,6 +212,36 @@ esp_err_t publish_studio_case(const CodyHostStudioCase &request)
         if (link.retained_link_present) {
             std::strcpy(link.device_id, "000000000001");
             std::strcpy(link.paired_pc_id, "11111111111111111111111111111111");
+        }
+    }
+    const char *static_codex_outcome = studio_static_codex_outcome(target);
+    if (static_codex_outcome) {
+        auto &link = s_snapshot.radios.codex_link;
+        LUNASHELL::snapshot_detail::mark_sample_success(link, now);
+        link.attempt_id = 1;
+        link.changed_at_us = now;
+        std::strcpy(link.device_id, "000000000001");
+        const bool pairing = std::strcmp(static_codex_outcome, "pairing") == 0;
+        const bool ready = std::strcmp(static_codex_outcome, "ready") == 0;
+        link.state = pairing ? LUNASHELL::CodexLinkState::Pairing :
+            ready ? LUNASHELL::CodexLinkState::Connected :
+            std::strcmp(static_codex_outcome, "discovering") == 0 ? LUNASHELL::CodexLinkState::Discovering :
+            LUNASHELL::CodexLinkState::Paired;
+        link.pairing_window_active = pairing;
+        link.retained_link_present = !pairing;
+        if (pairing) link.deadline_at_us = now + 180000000LL;
+        else std::strcpy(link.paired_pc_id, "11111111111111111111111111111111");
+        if (ready) {
+            // Explicit synthetic READY/app lease, not a transport acknowledgement
+            // or an inferred selected chat. No ACTIVITY or TECH fact is supplied.
+            link.ready_at_us = now;
+            link.pc_time_state = LUNASHELL::PcTimeSyncState::Applied;
+            std::strcpy(link.peer_ip_address, "192.0.2.1");
+            link.app_presence.state = LUNASHELL::CodexAppPresenceState::Open;
+            link.app_presence.data_valid = true;
+            link.app_presence.last_error = ESP_OK;
+            link.app_presence.received_at_us = now;
+            link.app_presence.sequence = 1;
         }
     }
     // Studio has no saved-credential or live-BLE base inputs. Retire the

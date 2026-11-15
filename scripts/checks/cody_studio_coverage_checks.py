@@ -50,7 +50,7 @@ class CoverageContractTests(unittest.TestCase):
         self.assertEqual(sum(entry.get("suite") == "pilot" for entry in catalog), 10)
         for entry in extension:
             with self.subTest(identity=entry["id"]):
-                scenario = default_scenario(entry["id"])
+                scenario = default_scenario(entry["id"], variant=entry.get("atlas_variant"))
                 self.assertEqual(scenario["context"]["target"], entry["id"])
                 self.assertEqual(scenario["time"]["mode"], "controlled-static")
                 source, line = resolve_source(entry)
@@ -115,7 +115,7 @@ def run_worker(directory, baseline):
     if set(expected) != {entry["id"] for entry in entries}:
         raise AssertionError("Independent native sessions disagree about available cases")
     for entry in reversed(entries):
-        runner.prepare(default_scenario(entry["id"]))
+        runner.prepare(default_scenario(entry["id"], variant=entry.get("atlas_variant")))
         record = runner.capture()
         if record.metadata["id"] != entry["id"]:
             raise AssertionError(f"Wrong completed frame for {entry['id']}")

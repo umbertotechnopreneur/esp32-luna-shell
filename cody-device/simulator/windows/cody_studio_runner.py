@@ -105,6 +105,14 @@ def validate_receipt(receipt, scenario, entry, rendering_mode=None):
             raise ValueError("Native Codex completed-frame receipt has unrelated or missing visible calls")
         if type(receipt.get("call_count")) is not int or receipt["call_count"] != len(visible):
             raise ValueError("Native Codex completed-frame receipt has an inconsistent visible call count")
+        domain = scenario["services"]["domain"]
+        question_ids = [question["id"] for question in domain.get("questions", [])]
+        if domain.get("questions_outcome") == "supported":
+            if (receipt["abi"] < 3 or type(receipt.get("question_count")) is not int or
+                    receipt["question_count"] != len(question_ids) or context.get("question_ids") != question_ids):
+                raise ValueError("Native Codex completed-frame receipt has unrelated or missing visible questions")
+        elif receipt.get("question_count", 0) != 0 or context.get("question_ids", []) != []:
+            raise ValueError("Native Codex completed-frame receipt retained unrelated questions")
     if entry["native_target"] == "cody.provisioning.error":
         if (receipt.get("service_outcome") != scenario["services"]["provisioning"]["outcome"] or
                 type(receipt.get("service_error")) is not int or receipt["service_error"] == 0):
@@ -438,6 +446,7 @@ class StudioRunner:
         self.device.apply_snapshot(deepcopy(value["common"]["observations"]))
         image, identity = self.device.prepare_studio_case(
             entry["native_target"], revision, value["time"]["capture_at_ms"][0],
+            variant=value["variant"],
             settings=deepcopy(value["common"]["settings"]), page=deepcopy(value["page"]),
             services=deepcopy(value["services"]))
         validate_receipt(identity, value, entry)
@@ -470,6 +479,7 @@ class StudioRunner:
         revision = scenario_revision(value)
         self.device.apply_snapshot(deepcopy(value["common"]["observations"]))
         self.device.prepare_studio_case(entry["native_target"], revision, 0,
+                                        variant=value["variant"],
                                         settings=deepcopy(value["common"]["settings"]),
                                         page=deepcopy(value["page"]), services=deepcopy(value["services"]))
         elapsed = 0

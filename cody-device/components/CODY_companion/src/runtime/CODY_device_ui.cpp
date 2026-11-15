@@ -4051,7 +4051,7 @@ bool studio_dashboard_page(const char *target, WidgetScreen &screen)
         {"cody.dashboard.seven-days", WidgetScreen::LastSevenDays},
         {"cody.dashboard.token-history", WidgetScreen::TokenHistory},
         {"cody.dashboard.credits", WidgetScreen::Credits}, {"cody.dashboard.account", WidgetScreen::Account},
-        {"cody.dashboard.context", WidgetScreen::Context},
+        {"cody.dashboard.context", WidgetScreen::Context}, {"cody.dashboard.about", WidgetScreen::About},
     };
     for (const auto &page : pages) if (std::strcmp(target, page.target) == 0) {
         screen = page.screen;
@@ -4101,6 +4101,46 @@ void prepare_studio_memory(DeviceRuntime &ui, FrameView &frame)
     frame.arrows = false;
 }
 
+// ui: Exclusive display owner with a freshly reconstructed native mascot view.
+// Exception: Preserves canonical theme and native composition errors; no custom pose is substituted.
+esp_err_t prepare_studio_muse(DeviceRuntime &ui)
+{
+    ui.state.mascot_home = true;
+    ui.state.boot_section = BootSection::Default;
+    ui.state.about_from_options = false;
+    ui.state.about_from_boot_menu = false;
+    ui.state.activity_page = ActivityPage::Statistics;
+    ui.character.applied_character_theme = UINT8_MAX;
+    synchronize_character_theme(ui);
+    if (ui.character.theme_error != ESP_OK) return ui.character.theme_error;
+    auto &view = ui.character.pixel_demo;
+    view.showcase.reset(0);
+    CODY::SceneContent primed{};
+    const auto error = CODY::prepare_pixel_demo(view, 0, primed);
+    if (error == ESP_OK) ui.state.awake_us = CODY::kPixelDemoWakingUs;
+    return error;
+}
+
+// ui: Display owner retaining the real Muse underlay and canonical saver preference.
+// frame: Receives the production saver grid at its first visible animation frame.
+// Exception: Preserves owner/preference errors and rejects a blocked or unavailable underlay.
+esp_err_t prepare_studio_screensaver(DeviceRuntime &ui, FrameView &frame)
+{
+    if (frame.layer != Layer::Mascot || !ui.state.mascot_home ||
+        ui.character.pixel_demo.elapsed_us < CODY::kPixelDemoWakingUs) return ESP_ERR_INVALID_STATE;
+    // This isolated static sample runs only the original presentation owner with
+    // an explicit local idle history. It never advances workers or the host clock.
+    CODY::ScreensaverModel sample{};
+    CODY::update_screensaver(sample, true, 0, 0);
+    CODY::update_screensaver(sample, true, 0, CODY::kScreensaverDelayUs);
+    if (sample.settings_error != ESP_OK) return sample.settings_error;
+    if (sample.phase != CODY::ScreensaverPhase::Visible || sample.frame != 0) return ESP_ERR_INVALID_STATE;
+    ui.state.screensaver = sample;
+    frame = {};
+    frame.layer = Layer::Screensaver;
+    return CODY::prepare_screensaver(ui.state.screensaver, ui.state.view.screensaver, frame.presentation.content);
+}
+
 // frame: Owner-prepared view about to enter the display transaction.
 // Exception: No exceptions; rejects a different effective layer, page or query scope.
 bool studio_frame_matches(const FrameView &frame)
@@ -4111,9 +4151,20 @@ bool studio_frame_matches(const FrameView &frame)
     if (std::strcmp(target, "cody.boot.birth") == 0) return frame.layer == Layer::Birth &&
         ui.state.birth_frame == s_studio_identity.source_animation_sample_ms / kBirthFrameMs;
     if (!CODY::studio_scene_active(target)) return false;
+    if (std::strcmp(target, "cody.home.muse") == 0)
+        return frame.layer == Layer::Mascot && ui.state.mascot_home &&
+            ui.character.pixel_demo.visible && !ui.character.pixel_demo.manual &&
+            ui.character.pixel_demo.elapsed_us == CODY::kPixelDemoWakingUs;
+    if (std::strcmp(target, "cody.home.screensaver") == 0)
+        return frame.layer == Layer::Screensaver && ui.state.mascot_home &&
+            ui.state.screensaver.phase == CODY::ScreensaverPhase::Visible && ui.state.screensaver.frame == 0 &&
+            frame.presentation.content.state == &ui.state.view.screensaver && ui.state.view.screensaver.frame == 0;
+    if (std::strcmp(target, "cody.codex.connected") == 0) return frame.layer == Layer::Scene;
     WidgetScreen screen{};
     if (studio_dashboard_page(target, screen))
-        return frame.layer == Layer::Dashboard && ui.state.widgets.selected_screen == screen;
+        return frame.layer == Layer::Dashboard && ui.state.widgets.selected_screen == screen &&
+            (screen != WidgetScreen::About || (!ui.state.about_from_options && !ui.state.about_from_boot_menu &&
+                ui.state.info_page == CODY::InfoPage::System));
     if (std::strcmp(target, "cody.settings.audio") == 0)
         return frame.layer == Layer::Audio && ui.state.audio_open;
     if (std::strcmp(target, "cody.diagnostics.memory") == 0)
@@ -4564,7 +4615,13 @@ esp_err_t process_studio_request(DeviceRuntime &ui)
     const bool browser = browser_route != CODY::CodexBrowserRoute::Closed;
     const bool calls = browser_route == CODY::CodexBrowserRoute::Calls || browser_route == CODY::CodexBrowserRoute::ActiveCalls;
     const bool memory = std::strcmp(target, "cody.diagnostics.memory") == 0;
-    std::strcpy(s_studio_identity.rendering_mode, browser || memory ? "presenter-isolated" : "runtime-full");
+    const bool muse = std::strcmp(target, "cody.home.muse") == 0;
+    const bool screensaver = std::strcmp(target, "cody.home.screensaver") == 0;
+    const bool connected = std::strcmp(target, "cody.codex.connected") == 0;
+    const bool questions = browser_route == CODY::CodexBrowserRoute::PendingQuestions &&
+        std::strcmp(request->domain_questions_outcome, "supported") == 0;
+    std::strcpy(s_studio_identity.rendering_mode, browser || memory || screensaver || connected ?
+        "presenter-isolated" : "runtime-full");
     FrameView frame{};
     if (error == ESP_OK && branding) {
         stage = "prepare-branding";
@@ -4590,10 +4647,19 @@ esp_err_t process_studio_request(DeviceRuntime &ui)
             stage = "prepare-browser-scope";
             error = prepare_studio_browser(ui, *request);
         }
+        if (error == ESP_OK && (muse || screensaver)) {
+            stage = "prepare-muse-sample";
+            error = prepare_studio_muse(ui);
+        }
         WidgetScreen screen{};
         if (error == ESP_OK && studio_dashboard_page(target, screen)) {
             ui.state.activity_page = ActivityPage::Statistics;
             CODY::select_widget_screen(ui.state.widgets, screen);
+            if (screen == WidgetScreen::About) {
+                ui.state.about_from_options = false;
+                ui.state.about_from_boot_menu = false;
+                ui.state.info_page = CODY::InfoPage::System;
+            }
         }
         if (error == ESP_OK && std::strcmp(target, "cody.settings.audio") == 0)
             ui.state.audio_open = true;
@@ -4610,8 +4676,10 @@ esp_err_t process_studio_request(DeviceRuntime &ui)
         }
         if (error == ESP_OK) {
             stage = "prepare-view";
-            error = prepare_current_view(frame, esp_timer_get_time());
+            if (connected) frame.layer = Layer::Scene;
+            else error = prepare_current_view(frame, esp_timer_get_time());
             if (error == ESP_OK && memory) prepare_studio_memory(ui, frame);
+            if (error == ESP_OK && screensaver) error = prepare_studio_screensaver(ui, frame);
         }
     }
     if (error == ESP_OK && calls) {
@@ -4628,6 +4696,34 @@ esp_err_t process_studio_request(DeviceRuntime &ui)
             for (uint8_t index = 0; index < page->count; ++index) {
                 if (page->rows[index].turn != ui.state.codex_browser.turn) { error = ESP_ERR_INVALID_STATE; break; }
                 s_studio_identity.call_ids[index] = page->rows[index].id.value;
+            }
+        }
+    }
+    if (error == ESP_OK && questions) {
+        stage = "verify-questions-scope";
+        const auto &observed = ui.state.codex_browser.observation;
+        const auto *page = std::get_if<CODY::Domain::StateQuestionPage>(&observed.page);
+        if (!page || observed.summary.source.value != request->domain_source_id ||
+            page->count != request->domain_question_count || page->count != ui.state.codex_browser.page.count ||
+            page->count > 3) error = ESP_ERR_INVALID_STATE;
+        else {
+            using CODY::Domain::Availability;
+            using CODY::Domain::Freshness;
+            s_studio_identity.question_count = page->count;
+            for (uint8_t index = 0; index < page->count; ++index) {
+                const auto &row = page->rows[index];
+                const auto &expected = request->domain_questions[index];
+                if (row.id.source.value != request->domain_source_id || row.id.value != expected.id ||
+                    row.chat.fact.availability != Availability::Known || row.chat.fact.freshness != Freshness::Current ||
+                    row.chat.value.source.value != request->domain_source_id || row.chat.value.value != expected.chat_id ||
+                    row.turn.fact.availability != Availability::Known || row.turn.fact.freshness != Freshness::Current ||
+                    row.turn.value.source.value != request->domain_source_id || row.turn.value.value != expected.turn_id ||
+                    row.prompt.fact.availability != Availability::Known || row.prompt.fact.freshness != Freshness::Current ||
+                    std::strcmp(row.prompt.value.data(), expected.prompt) != 0) {
+                    error = ESP_ERR_INVALID_STATE;
+                    break;
+                }
+                s_studio_identity.question_ids[index] = row.id.value;
             }
         }
     }
@@ -4892,13 +4988,14 @@ bool studio_ascii(const char (&text)[Size])
 esp_err_t validate_studio_request(const CodyHostStudioCase &request)
 {
     const auto &identity = request.identity;
-    if (request.abi != 2 || request.size != sizeof(CodyHostStudioCase) || identity.abi != 2)
+    if (request.abi != 3 || request.size != sizeof(CodyHostStudioCase) || identity.abi != 3)
         return ESP_ERR_INVALID_SIZE;
     if (!studio_ascii(identity.target) || !studio_ascii(identity.scenario_revision) ||
         !studio_ascii(identity.rendering_mode) || !studio_ascii(identity.service_outcome) ||
         !studio_ascii(request.provisioning_outcome) || !studio_ascii(request.codex_link_outcome) ||
         !studio_ascii(request.domain_chat_title) ||
-        !studio_ascii(request.domain_execution) || std::strlen(identity.scenario_revision) != 64)
+        !studio_ascii(request.domain_execution) || !studio_ascii(request.domain_questions_outcome) ||
+        std::strlen(identity.scenario_revision) != 64)
         return ESP_ERR_INVALID_ARG;
     for (size_t index = 0; index < 64; ++index) {
         const char value = identity.scenario_revision[index];
@@ -4908,8 +5005,9 @@ esp_err_t validate_studio_request(const CodyHostStudioCase &request)
         std::strcmp(identity.target, "cody.boot.birth") != 0 &&
         !CODY::studio_scene_supported(identity.target)) return ESP_ERR_NOT_SUPPORTED;
     if (identity.at_ms != 0 || identity.frame_revision != 0 || identity.rendering_mode[0] != '\0' ||
-        identity.call_count != 0 || identity.service_error != 0 || identity.service_outcome[0] != '\0' ||
+        identity.call_count != 0 || identity.question_count != 0 || identity.service_error != 0 || identity.service_outcome[0] != '\0' ||
         std::any_of(std::begin(identity.call_ids), std::end(identity.call_ids), [](uint64_t id) { return id != 0; }) ||
+        std::any_of(std::begin(identity.question_ids), std::end(identity.question_ids), [](uint64_t id) { return id != 0; }) ||
         request.brightness_percent < 10 || request.brightness_percent > 100 || request.auto_rotate > 1 ||
         (request.orientation_degrees != 0 && request.orientation_degrees != 180) ||
         request.sounds_enabled > 1 || request.playback_volume > 100 ||
@@ -4922,6 +5020,8 @@ esp_err_t validate_studio_request(const CodyHostStudioCase &request)
         if (!studio_ascii(call.tool_name) || !studio_ascii(call.label) || !studio_ascii(call.category) ||
             !studio_ascii(call.state) || !studio_ascii(call.outcome)) return ESP_ERR_INVALID_ARG;
     }
+    for (const auto &question : request.domain_questions)
+        if (!studio_ascii(question.prompt)) return ESP_ERR_INVALID_ARG;
     auto error = CODY::host_onboarding::validate_studio_case(request);
     if (error == ESP_OK) error = CODY::host_studio_domain::validate(request);
     if (error == ESP_OK) error = CODY::host_studio_statistics::validate(request);
@@ -4941,7 +5041,7 @@ CODY_HOST_STUDIO_API size_t cody_host_studio_case_size()
 CODY_HOST_STUDIO_API esp_err_t cody_host_studio_prepare_case(const CodyHostStudioCase *request)
 {
     if (!request) return ESP_ERR_INVALID_ARG;
-    if (request->abi != 2 || request->size != sizeof(CodyHostStudioCase)) return ESP_ERR_INVALID_SIZE;
+    if (request->abi != 3 || request->size != sizeof(CodyHostStudioCase)) return ESP_ERR_INVALID_SIZE;
     auto error = validate_studio_request(*request);
     if (error != ESP_OK) return error;
     // Firmware cue drain uses the monotonic clock. A frozen Studio clock cannot
@@ -4966,6 +5066,11 @@ CODY_HOST_STUDIO_API esp_err_t cody_host_studio_prepare_case(const CodyHostStudi
     // Fixed Studio base dependencies are host-only and applied through their
     // actual owners: standard statistics/browser routing and a known quiet policy.
     if (error == ESP_OK) error = CODY::persist_companion_preference(CODY::PreferenceId::CounterMode, 0);
+    if (error == ESP_OK) error = CODY::persist_companion_preference(CODY::PreferenceId::Screensaver,
+        std::strcmp(value.identity.target, "cody.home.screensaver") == 0 ? 1U : 0U);
+    if (error == ESP_OK && (std::strcmp(value.identity.target, "cody.home.muse") == 0 ||
+        std::strcmp(value.identity.target, "cody.home.screensaver") == 0))
+        error = CODY::persist_companion_preference(CODY::PreferenceId::CharacterTheme, 0);
     if (error == ESP_OK) error = CODY::persist_companion_preference(CODY::PreferenceId::Sounds, value.sounds_enabled);
     // Playback volume is applied in the live child, where an audio codec exists.
     // Static capture deliberately has no output backend to confirm its readback.

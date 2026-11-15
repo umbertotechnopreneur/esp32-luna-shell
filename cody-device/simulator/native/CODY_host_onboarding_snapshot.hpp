@@ -29,4 +29,8 @@ esp_err_t validate_studio_case(const CodyHostStudioCase &request);
 // Exception: Preserves unavailable canonical owner errors; no host hardware or network is read.
 esp_err_t publish_studio_case(const CodyHostStudioCase &request);
 
+// available: Explicit static Studio pairing-code source, independent of any link action.
+// Exception: No exceptions; retiring it prevents the next case from copying a stale code.
+void configure_studio_codex_pairing_code(bool available);
+
 } // namespace CODY::host_onboarding

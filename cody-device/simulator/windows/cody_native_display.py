@@ -25,7 +25,8 @@ class StudioFrameIdentity(ctypes.Structure):
                 ("scenario_revision", ctypes.c_char * 65), ("rendering_mode", ctypes.c_char * 24),
                 ("source_id", ctypes.c_uint64), ("chat_id", ctypes.c_uint64), ("turn_id", ctypes.c_uint64),
                 ("call_ids", ctypes.c_uint64 * 3), ("service_error", ctypes.c_int32),
-                ("service_outcome", ctypes.c_char * 24)]
+                ("service_outcome", ctypes.c_char * 24), ("question_count", ctypes.c_uint32),
+                ("question_ids", ctypes.c_uint64 * 3)]
 
 
 class StudioRouteReceipt(ctypes.Structure):
@@ -47,8 +48,8 @@ def decode_studio_identity(identity):
     target = identity.target.decode("ascii")
     revision = identity.scenario_revision.decode("ascii")
     mode = identity.rendering_mode.decode("ascii")
-    if (identity.abi != 2 or identity.frame_revision == 0 or not target.startswith("cody.") or
-            mode not in ("runtime-full", "presenter-isolated") or identity.call_count > 3 or
+    if (identity.abi != 3 or identity.frame_revision == 0 or not target.startswith("cody.") or
+            mode not in ("runtime-full", "presenter-isolated") or identity.call_count > 3 or identity.question_count > 3 or
             len(revision) != 64 or any(character not in "0123456789abcdef" for character in revision)):
         raise ValueError("Invalid native Studio completed-frame identity")
     return {
@@ -56,10 +57,11 @@ def decode_studio_identity(identity):
         "revision": identity.frame_revision, "frame_revision": identity.frame_revision,
         "width": 466, "height": 466, "rendering_mode": mode,
         "source_animation_sample_ms": identity.source_animation_sample_ms,
-        "call_count": identity.call_count,
+        "call_count": identity.call_count, "question_count": identity.question_count,
         "context": {"source_id": f"{identity.source_id:016x}", "chat_id": f"{identity.chat_id:016x}",
                     "turn_id": f"{identity.turn_id:016x}",
-                    "call_ids": [f"{identity.call_ids[index]:016x}" for index in range(identity.call_count)]},
+                    "call_ids": [f"{identity.call_ids[index]:016x}" for index in range(identity.call_count)],
+                    "question_ids": [f"{identity.question_ids[index]:016x}" for index in range(identity.question_count)]},
         "service_error": identity.service_error, "service_outcome": identity.service_outcome.decode("ascii"),
         "clock_mode": "static-settled", "deterministic": True,
     }
@@ -68,7 +70,7 @@ def decode_studio_identity(identity):
 # No parameters: reads pixels and semantic identity from one native completed-frame lock.
 # Raises native transport, ABI, encoding or identity errors without guessing a route.
 def completed_studio_frame():
-    if ctypes.sizeof(StudioFrameIdentity) != 240:
+    if ctypes.sizeof(StudioFrameIdentity) != 264:
         raise ValueError("Unsupported host Studio frame identity ABI geometry")
     api = load_runtime_library("graphics-device")
     native_size = api.cody_host_studio_frame_identity_size
@@ -90,7 +92,7 @@ def completed_studio_frame():
 # No parameters: atomically copies native destination pixels and observed route evidence.
 # Raises native, ABI, encoding or identity errors without fabricating a transition.
 def completed_studio_route_frame():
-    if ctypes.sizeof(StudioFrameIdentity) != 240:
+    if ctypes.sizeof(StudioFrameIdentity) != 264:
         raise ValueError("Unsupported host Studio frame identity ABI geometry")
     api = load_runtime_library("graphics-device")
     identity_size = api.cody_host_studio_frame_identity_size

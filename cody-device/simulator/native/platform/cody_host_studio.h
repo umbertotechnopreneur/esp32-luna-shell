@@ -7,7 +7,7 @@
 // Host-only static Studio contract. No firmware enum or mutable owner pointer
 // crosses this boundary. Pixels and this identity retire in one display lock.
 struct CodyHostStudioFrameIdentity {
-    uint32_t abi = 2;
+    uint32_t abi = 3;
     uint32_t frame_revision = 0;
     uint32_t at_ms = 0;
     uint32_t source_animation_sample_ms = 0;
@@ -21,8 +21,10 @@ struct CodyHostStudioFrameIdentity {
     uint64_t call_ids[3]{};
     int32_t service_error = 0;
     char service_outcome[24]{};
+    uint32_t question_count = 0;
+    uint64_t question_ids[3]{};
 };
-static_assert(sizeof(CodyHostStudioFrameIdentity) == 240, "Studio frame identity ABI must remain fixed");
+static_assert(sizeof(CodyHostStudioFrameIdentity) == 264, "Studio frame identity ABI must remain fixed");
 
 // Route evidence accompanies the destination pixels under the display lock.
 // Origin identity was read from the last completed frame before the real input.
@@ -74,6 +76,15 @@ struct CodyHostStudioCall {
     char outcome[16]{};
 };
 
+// Explicit pending-question observations, with source-scoped stable parents.
+// The canonical query owns Open state; no reply, ticket or delivery is implied.
+struct CodyHostStudioQuestion {
+    uint64_t id = 0;
+    uint64_t chat_id = 0;
+    uint64_t turn_id = 0;
+    char prompt[129]{};
+};
+
 // Live playback observation uses stable textual cue states, not firmware enum ordinals.
 struct CodyHostStudioLiveCue {
     uint32_t id = 0;
@@ -111,7 +122,7 @@ struct CodyHostStudioStatistics {
 };
 
 struct CodyHostStudioCase {
-    uint32_t abi = 2;
+    uint32_t abi = 3;
     uint32_t size = 0;
     CodyHostStudioFrameIdentity identity{};
     uint32_t brightness_percent = 80;
@@ -142,6 +153,9 @@ struct CodyHostStudioCase {
     char domain_execution[16]{};
     CodyHostStudioCall domain_calls[8]{};
     CodyHostStudioStatistics statistics{};
+    char domain_questions_outcome[16]{};
+    uint32_t domain_question_count = 0;
+    CodyHostStudioQuestion domain_questions[3]{};
 };
 
 #if defined(_WIN32)

@@ -164,8 +164,8 @@ def assert_native_output_capacity_rejection(device):
     size_query = device.api.cody_host_studio_frame_identity_size
     size_query.argtypes, size_query.restype = [], ctypes.c_size_t
     identity_size = ctypes.sizeof(StudioFrameIdentity)
-    if identity_size != 240 or size_query() != identity_size:
-        raise AssertionError("Native output capacity does not match the current 240-byte receipt ABI")
+    if identity_size != 264 or size_query() != identity_size:
+        raise AssertionError("Native output capacity does not match the current 264-byte receipt ABI")
     snapshot = device.api.cody_host_display_studio_snapshot
     snapshot.argtypes = [ctypes.POINTER(ctypes.c_uint16), ctypes.c_size_t,
                          ctypes.POINTER(StudioFrameIdentity), ctypes.c_size_t]
@@ -453,6 +453,59 @@ class CatalogContractTests(unittest.TestCase):
 
 class ScenarioContractTests(unittest.TestCase):
     """Reject ambiguous inputs and preserve portable scenario identity."""
+
+    # self: Existing fixture lookup, including the native bridge's optional keyword.
+    # Raises AssertionError if an omitted or explicit default changes the original scenario.
+    def test_optional_variant_preserves_the_existing_fixture(self):
+        original = default_scenario("P04")
+        self.assertEqual(default_scenario("P04", variant=None), original)
+        self.assertEqual(default_scenario("P04", variant=original["variant"]), original)
+        with self.assertRaisesRegex(ValueError, "variant"):
+            default_scenario("P04", variant="unknown")
+
+    # self: Detached catalog extension exercising a distinct schema without native state.
+    # Raises AssertionError if variant-only fields leak into the default contract or are rejected.
+    def test_selected_variant_owns_its_validation_contract(self):
+        entry = entry_for("P04")
+        original = default_scenario("P04")
+        variant_contract = deepcopy(entry["scenario_contract"])
+        variant_contract["page"]["fixture_flag"] = {"type": "bool"}
+        entry["variants"].append("fixture")
+        entry["variant_contracts"] = {"fixture": variant_contract}
+        value = deepcopy(original)
+        value["variant"] = "fixture"
+        value["page"]["fixture_flag"] = True
+        with patch("cody_studio_scenario.entry_for", return_value=entry):
+            self.assertEqual(validate_scenario(original), original)
+            self.assertEqual(validate_scenario(value), value)
+            value["variant"] = original["variant"]
+            with self.assertRaisesRegex(ValueError, "page requires exactly"):
+                validate_scenario(value)
+        self.assertNotIn("fixture_flag", entry["scenario_contract"]["page"])
+
+    # self: Retained JSON fixtures under artifacts; no native process or library is used.
+    # Raises AssertionError if variant selection loads another fixture or silently relabels it.
+    def test_variant_fixture_selection_checks_its_identity(self):
+        entry = entry_for("P04")
+        original = default_scenario("P04")
+        directory = fixture_directory()
+        entry["scenario"] = "default.json"
+        entry["variants"].append("fixture")
+        entry["variant_scenarios"] = {"fixture": "variant.json"}
+        entry["variant_contracts"] = {"fixture": deepcopy(entry["scenario_contract"])}
+        value = deepcopy(original)
+        value["variant"] = "fixture"
+        value["id"] = "variant-fixture"
+        (directory / "default.json").write_text(json.dumps(original), encoding="utf-8")
+        selected_path = directory / "variant.json"
+        selected_path.write_text(json.dumps(value), encoding="utf-8")
+        with patch("cody_studio_scenario.entry_for", return_value=entry), \
+                patch("cody_studio_scenario.DEFAULT_PATH", directory / "default.json"):
+            self.assertEqual(default_scenario("P04", variant=None), original)
+            self.assertEqual(default_scenario("P04", variant="fixture"), value)
+            selected_path.write_text(json.dumps(original), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "does not match variant"):
+                default_scenario("P04", variant="fixture")
 
     # self: Legacy scenarios stay unchanged; explicit sound settings are validated.
     # Raises AssertionError if a partial or malformed audio policy is admitted.
@@ -1246,6 +1299,18 @@ class StatisticsUiWorkerTests(unittest.TestCase):
         directory = fixture_directory()
         process = run_host_worker([sys.executable, "-B", str(Path(__file__).resolve()),
                                    "--statistics-ui-worker"], directory, "statistics-ui", timeout=180)
+        print(process.stdout, end="", flush=True)
+
+
+class InspectionUiWorkerTests(unittest.TestCase):
+    """Keep populated-question variant UI acceptance in a fresh native lifetime."""
+
+    # self: Parent suite; only the child opens the real Tk/native variant workflow.
+    # Raises original worker errors and retains diagnostics beneath artifacts.
+    def test_inspection_controls_in_a_fresh_process(self):
+        directory = fixture_directory()
+        process = run_host_worker([sys.executable, "-B", str(Path(__file__).resolve()),
+                                   "--inspection-ui-worker"], directory, "inspection-ui", timeout=180)
         print(process.stdout, end="", flush=True)
 
 
@@ -2700,6 +2765,11 @@ def main(argv=None):
     parser.add_argument("--statistics-ui", action="store_true",
                         help="Verify typed statistics arrays and inventory-family identity in real Tk/native Studio")
     parser.add_argument("--statistics-ui-worker", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--inspection", action="store_true",
+                        help="Verify native Home, pairing observations and populated-question variants")
+    parser.add_argument("--inspection-ui", action="store_true",
+                        help="Verify populated-question variant controls in real Tk/native Studio")
+    parser.add_argument("--inspection-ui-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--pilot-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--phase-e-worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--phase-e-contended-worker", action="store_true", help=argparse.SUPPRESS)
@@ -2710,11 +2780,12 @@ def main(argv=None):
     arguments = parser.parse_args(argv)
     workers = (arguments.pilot_worker, arguments.phase_e_worker, arguments.phase_e_contended_worker,
                bool(arguments.live_audio_worker), arguments.guide_worker, arguments.atlas_ui_worker,
-               arguments.audio_cues_ui_worker, arguments.statistics_ui_worker)
+               arguments.audio_cues_ui_worker, arguments.statistics_ui_worker, arguments.inspection_ui_worker)
     if any(workers):
         if (arguments.native or arguments.ui or arguments.pilot or arguments.phase_e or arguments.live_audio or arguments.guide or arguments.host_audio or
                 arguments.atlas or arguments.atlas_pdf or arguments.atlas_ui or
                 arguments.coverage or arguments.audio_cues or arguments.audio_cues_ui or arguments.statistics or arguments.statistics_ui or
+                arguments.inspection or arguments.inspection_ui or
                 sum(workers) != 1):
             parser.error("Internal workers cannot be combined with suite flags")
         if arguments.pilot_worker:
@@ -2730,6 +2801,10 @@ def main(argv=None):
         if arguments.statistics_ui_worker:
             import cody_studio_statistics_checks
             result = unittest.TextTestRunner(verbosity=2).run(cody_studio_statistics_checks.ui_suite(NativeUiTests))
+            return 0 if result.wasSuccessful() else 1
+        if arguments.inspection_ui_worker:
+            import cody_studio_inspection_checks
+            result = unittest.TextTestRunner(verbosity=2).run(cody_studio_inspection_checks.ui_suite(NativeUiTests))
             return 0 if result.wasSuccessful() else 1
         if arguments.audio_cues_ui_worker:
             import cody_studio_audio_checks
@@ -2776,6 +2851,11 @@ def main(argv=None):
         suite.addTests(loader.loadTestsFromModule(cody_studio_statistics_checks))
     if arguments.statistics_ui:
         suite.addTests(loader.loadTestsFromTestCase(StatisticsUiWorkerTests))
+    if arguments.inspection:
+        import cody_studio_inspection_checks
+        suite.addTests(loader.loadTestsFromModule(cody_studio_inspection_checks))
+    if arguments.inspection_ui:
+        suite.addTests(loader.loadTestsFromTestCase(InspectionUiWorkerTests))
     if arguments.host_audio:
         import cody_studio_audio_checks
         suite.addTests(cody_studio_audio_checks.host_suite())

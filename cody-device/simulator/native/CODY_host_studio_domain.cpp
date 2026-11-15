@@ -36,6 +36,22 @@ bool browser_target(const char (&target)[48])
     return false;
 }
 
+// request: The current explicit query fixture, with no implicit question capability.
+// Exception: No exceptions; an empty outcome preserves the original unavailable fixture.
+bool questions_supported(const CodyHostStudioCase &request)
+{
+    return std::strcmp(request.identity.target, "cody.codex.questions") == 0 &&
+        std::strcmp(request.domain_questions_outcome, "supported") == 0;
+}
+
+// question: One unused bounded input record.
+// Exception: No exceptions; rejects hidden question payload outside its declared source.
+bool empty_question(const CodyHostStudioQuestion &question)
+{
+    return question.id == 0 && question.chat_id == 0 && question.turn_id == 0 &&
+        std::all_of(std::begin(question.prompt), std::end(question.prompt), [](char value) { return value == 0; });
+}
+
 // value: Bounded native ABI string, including room for its terminator.
 // empty_allowed: Whether known-empty text is meaningful for this field.
 // Exception: No exceptions; false rejects unterminated or non-ASCII input.
@@ -158,7 +174,16 @@ void qualify(StateQueryResult &result)
     result.attention.calls_complete = true;
     for (uint32_t index = 0; index < input.domain_call_count; ++index)
         if (std::strcmp(input.domain_calls[index].state, "unknown") == 0) result.attention.calls_complete = false;
-    result.attention.questions = Capability::Unsupported;
+    result.attention.questions = questions_supported(input) ? Capability::Supported : Capability::Unsupported;
+    if (questions_supported(input)) {
+        auto &coverage = result.coverage[static_cast<uint8_t>(EntityKind::Question)];
+        coverage.state = CoverageState::Complete;
+        coverage.admitted = input.domain_question_count;
+        coverage.omitted = 0;
+        coverage.omitted_state = Availability::Known;
+        result.attention.pending_questions = input.domain_question_count;
+        result.attention.questions_complete = true;
+    }
 }
 }
 
@@ -166,6 +191,25 @@ void qualify(StateQueryResult &result)
 // Exception: Rejects invalid IDs, fields and enum spellings without publication.
 esp_err_t validate(const CodyHostStudioCase &request)
 {
+    if (!text_valid(request.domain_questions_outcome, true) ||
+        request.domain_question_count > std::size(request.domain_questions)) return ESP_ERR_INVALID_ARG;
+    const bool question_target = std::strcmp(request.identity.target, "cody.codex.questions") == 0;
+    const bool supported = questions_supported(request);
+    if ((!question_target && request.domain_questions_outcome[0] != '\0') ||
+        (question_target && request.domain_questions_outcome[0] != '\0' && !supported &&
+         std::strcmp(request.domain_questions_outcome, "unsupported") != 0) ||
+        (!supported && request.domain_question_count != 0)) return ESP_ERR_INVALID_ARG;
+    for (uint32_t index = 0; index < std::size(request.domain_questions); ++index) {
+        const auto &question = request.domain_questions[index];
+        if (index >= request.domain_question_count) {
+            if (!empty_question(question)) return ESP_ERR_INVALID_ARG;
+            continue;
+        }
+        if (!supported || question.id == 0 || question.chat_id != request.domain_chat_id ||
+            question.turn_id != request.domain_turn_id || !text_valid(question.prompt)) return ESP_ERR_INVALID_ARG;
+        for (uint32_t previous = 0; previous < index; ++previous)
+            if (request.domain_questions[previous].id == question.id) return ESP_ERR_INVALID_ARG;
+    }
     if (!browser_target(request.identity.target)) return ESP_OK;
     if (!request.domain_source_id || !request.domain_chat_id || !request.domain_turn_id ||
         !request.domain_generation || request.domain_call_count > std::size(request.domain_calls) ||
@@ -233,7 +277,7 @@ esp_err_t query(const StateQuery &request, StateQueryResult &result)
     if ((request.chat.valid() && request.chat != chat) || (request.turn.valid() && request.turn != turn)) return ESP_ERR_NOT_FOUND;
     if ((request.kind == StateQueryKind::Chat || request.kind == StateQueryKind::Turns) && request.chat != chat) return ESP_ERR_NOT_FOUND;
     if ((request.kind == StateQueryKind::Turn || request.kind == StateQueryKind::Calls) && request.turn != turn) return ESP_ERR_NOT_FOUND;
-    if (request.kind == StateQueryKind::PendingQuestions) return ESP_ERR_NOT_SUPPORTED;
+    if (request.kind == StateQueryKind::PendingQuestions && !questions_supported(input)) return ESP_ERR_NOT_SUPPORTED;
     if (esp_timer_get_time() < s_owner->published_at_us) return ESP_ERR_INVALID_STATE;
     const auto &cursor = request.cursor;
     if (cursor.generation != 0 && (cursor.generation != s_owner->generation || cursor.source.value != input.domain_source_id ||
@@ -275,6 +319,22 @@ esp_err_t query(const StateQuery &request, StateQueryResult &result)
         execution(input.domain_execution, row.execution.value);
         row.execution.fact = fact(row.execution.value != ExecutionState::Unknown);
         row.outcome.fact = row.reply.fact = fact(false);
+    } else if (request.kind == StateQueryKind::PendingQuestions) {
+        auto &page = result.page.emplace<StateQuestionPage>();
+        page.count = static_cast<uint8_t>(input.domain_question_count);
+        for (uint8_t index = 0; index < page.count; ++index) {
+            const auto &question = input.domain_questions[index];
+            auto &row = page.rows[index];
+            row.id = {{input.domain_source_id}, question.id};
+            row.chat.value = {{input.domain_source_id}, question.chat_id};
+            row.turn.value = {{input.domain_source_id}, question.turn_id};
+            row.chat.fact = row.turn.fact = row.prompt.fact = row.state.fact = fact();
+            row.state.value = QuestionState::Open;
+            std::copy_n(question.prompt, std::strlen(question.prompt) + 1, row.prompt.value.begin());
+            const auto title_size = std::min(std::strlen(input.domain_chat_title), row.chat_title.size() - 1);
+            std::copy_n(input.domain_chat_title, title_size, row.chat_title.begin());
+            row.chat_title[title_size] = '\0';
+        }
     } else if (request.kind == StateQueryKind::Calls || request.kind == StateQueryKind::ActiveCalls) {
         auto &page = result.page.emplace<StateCallPage>();
         uint32_t index = begin;

@@ -1,0 +1,79 @@
+{
+  "schema": "cody.studio.scenario.v1",
+  "id": "c06-questions-populated",
+  "title": "C06 Pending question previews - synthetic controlled sample",
+  "variant": "populated",
+  "seed": 0,
+  "common": {
+    "settings": {
+      "brightness_percent": 80,
+      "auto_rotate": false,
+      "orientation_degrees": 0
+    },
+    "observations": {
+      "battery": {
+        "level_percent": 80
+      },
+      "network": {
+        "connected": false,
+        "ssid": "",
+        "rssi": null
+      },
+      "clock": {
+        "epoch_seconds": 1794704400,
+        "utc_offset_minutes": 420
+      }
+    }
+  },
+  "page": {
+    "source_id": "0000000000000001",
+    "chat_id": "0000000000000001",
+    "turn_id": "0000000000000010"
+  },
+  "context": {
+    "target": "next-v1:106",
+    "selection": null,
+    "caller": "next-v1:101",
+    "return_to": "next-v1:101"
+  },
+  "time": {
+    "mode": "controlled-static",
+    "initial_ms": 0,
+    "advances_ms": [],
+    "capture_at_ms": [
+      0
+    ]
+  },
+  "services": {
+    "domain": {
+      "source_id": "0000000000000001",
+      "generation": 1,
+      "chat_id": "0000000000000001",
+      "turn_id": "0000000000000010",
+      "chat_title": "Synthetic pilot chat",
+      "execution": "running",
+      "calls": [],
+      "questions_outcome": "supported",
+      "questions": [
+        {
+          "id": "0000000000000201",
+          "chat_id": "0000000000000001",
+          "turn_id": "0000000000000010",
+          "prompt": "Review the synthetic change?"
+        },
+        {
+          "id": "0000000000000202",
+          "chat_id": "0000000000000001",
+          "turn_id": "0000000000000010",
+          "prompt": "Continue the synthetic task?"
+        },
+        {
+          "id": "0000000000000203",
+          "chat_id": "0000000000000001",
+          "turn_id": "0000000000000010",
+          "prompt": "Choose the next synthetic step?"
+        }
+      ]
+    }
+  }
+}

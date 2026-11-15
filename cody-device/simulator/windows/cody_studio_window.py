@@ -16,7 +16,7 @@ from PIL import Image, ImageTk
 
 from cody_native_runtime import ROOT
 from cody_semantic_palette import studio_hex
-from cody_studio_catalog import inventory_label, entry_for, load_catalog, resolve_source, routes_for
+from cody_studio_catalog import inventory_label, entry_for, load_catalog, resolve_source, routes_for, scenario_contract_for
 from cody_studio_atlas import AtlasJob, BuildWatcher, latest_atlas_path, load_atlas, verify_contract_inputs
 from cody_studio_runner import StudioRunner, load_capture, verify_current_build
 from cody_studio_comparison import compare_captures, comparison_image, load_review, preserve_baseline, save_review
@@ -534,6 +534,7 @@ class StudioWindow:
         self.variant_control = ttk.Combobox(scenario, textvariable=self.variant, state='readonly',
                                            style='Studio.TCombobox')
         self.variant_control.pack(fill='x')
+        self.variant_control.bind('<<ComboboxSelected>>', self.change_variant)
         self.inputs = {}
         for key, text in (('battery', 'Battery (%)'), ('network', 'Network'), ('ssid', 'Network name'),
                           ('rssi', 'Signal (dBm)'), ('epoch', 'Fixed civil clock · UTC epoch seconds'),
@@ -1028,6 +1029,25 @@ class StudioWindow:
         except (KeyError, OSError, ValueError) as error:
             self.error(error)
 
+    # event: Optional Tk selection event; the selected variant loads its own fixture.
+    # Exceptions: Invalid pending input keeps the existing scenario and completed capture.
+    def change_variant(self, event=None):
+        previous, selected = self.scenario['variant'], self.variant.get()
+        self.variant.set(previous)
+        if self.busy:
+            self.status.set('Wait for the active native preparation before changing variant.')
+            return
+        try:
+            pending = self.form()
+            value = default_scenario(pending['context']['target'], variant=selected)
+            value['common'] = pending['common']
+            self.scenario = validate_scenario(value)
+            self.show_scenario()
+            self.status.set('Variant loaded; Apply prepares and captures it.')
+        except (OSError, ValueError, TypeError) as error:
+            self.variant.set(previous)
+            self.error(error)
+
     # No parameters: load form values without changing native state.
     def show_scenario(self):
         entry = entry_for(self.scenario['context']['target'])
@@ -1056,7 +1076,7 @@ class StudioWindow:
     # Exceptions: Missing animation support remains visibly unavailable.
     def configure_timeline(self, item):
         supported = (item['id'] == self.scenario['context']['target'] and
-                     'sample_at_ms' in item.get('scenario_contract', {}).get('page', {}))
+                     'sample_at_ms' in scenario_contract_for(item, self.scenario['variant'])['page'])
         plan = None
         if supported:
             try:
@@ -1388,7 +1408,7 @@ class StudioWindow:
         # path: Exact schema location, including a bounded array row when present.
         # Returns the catalog's scalar field contract for control choices.
         def field_specification(path):
-            contract = entry['scenario_contract']
+            contract = scenario_contract_for(entry, self.scenario['variant'])
             keys = path[2:] if path[:2] == ('common', 'settings') else path[1:]
             fields = contract['settings'] if path[:2] == ('common', 'settings') else contract[path[0]]
             specification = {'type': 'object', 'fields': fields}
@@ -1427,7 +1447,9 @@ class StudioWindow:
             title = ' · '.join(str(part + 1) if type(part) is int else part.replace('_', ' ').title() for part in path)
             if any(type(part) is int for part in path):
                 index = next(part for part in path if type(part) is int)
-                title = f"Call {index + 1} · {str(path[-1]).replace('_', ' ').title()}"
+                collection = path[path.index(index) - 1]
+                kind = {'questions': 'Question', 'calls': 'Call'}.get(collection, 'Record')
+                title = f"{kind} {index + 1} · {str(path[-1]).replace('_', ' ').title()}"
             title = description.get('label', title)
             if value is None:
                 caption(self.case_fields_host, f'{title}: unavailable', 10, wraplength=275).pack(anchor='w')

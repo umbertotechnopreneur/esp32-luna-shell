@@ -7,7 +7,7 @@ from pathlib import Path
 import re
 
 from cody_native_runtime import ROOT
-from cody_studio_catalog import inventory_label, entry_for
+from cody_studio_catalog import inventory_label, entry_for, scenario_contract_for
 
 SCHEMA = "cody.studio.scenario.v1"
 ARTIFACT_ROOT = (ROOT / "artifacts/simulator").resolve()
@@ -110,6 +110,7 @@ def validate_scenario(scenario):
             raise ValueError("A profile-conditional scenario requires explicit native capability names")
     if scenario["variant"] not in entry["variants"]:
         raise ValueError(f"Unsupported variant for {entry['id']}: {scenario['variant']!r}")
+    contract = scenario_contract_for(entry, scenario["variant"])
     if any(context[key] != contract["context"][key] for key in ("selection", "caller", "return_to")):
         raise ValueError(f"{inventory_label(entry)} requires its declared selection and caller/return context")
     validate_fields(scenario["page"], contract["page"], "page")
@@ -121,6 +122,15 @@ def validate_scenario(scenario):
     if entry["native_target"] in ("cody.codex.hub", "cody.codex.chats", "cody.codex.turns", "cody.codex.calls",
                                  "cody.codex.active", "cody.codex.questions"):
         domain = scenario["services"]["domain"]
+        questions = domain.get("questions", [])
+        if domain.get("questions_outcome") != "supported" and questions:
+            raise ValueError("Unavailable Codex questions cannot carry populated rows")
+        question_ids = set()
+        for question in questions:
+            if (question["id"] in question_ids or question["chat_id"] != domain["chat_id"] or
+                    question["turn_id"] != domain["turn_id"]):
+                raise ValueError("Codex questions require unique IDs and the exact selected chat and turn")
+            question_ids.add(question["id"])
         if any(scenario["page"][key] != domain[key] for key in ("source_id", "chat_id", "turn_id")):
             raise ValueError("Codex query scope must match its source, chat and turn fixture")
         identities = set()
@@ -221,17 +231,27 @@ def load_scenario(path):
 
 
 # identity: Explicit inventory ID or stable source identity; P04 remains the default.
-# Raises its original file/schema error if the checked-in fixture is invalid.
-def default_scenario(identity="P04"):
+# variant: Optional declared variant; None preserves the entry's original fixture.
+# Raises ValueError for unknown variants, unsafe paths or mismatched fixture identities.
+# Raises the original I/O, JSON or schema error if the selected fixture is invalid.
+def default_scenario(identity="P04", *, variant=None):
     entry = entry_for(identity)
     filename = entry.get("scenario")
+    if variant is not None:
+        scenario_contract_for(entry, variant)
+        filename = entry.get("variant_scenarios", {}).get(variant, filename)
     if not isinstance(filename, str):
         raise ValueError(f"No native Studio scenario for {identity!r}")
     directory = DEFAULT_PATH.parent.resolve()
     path = (directory / filename).resolve(strict=True)
     if not path.is_relative_to(directory):
         raise ValueError("Studio scenario fixture escaped the source scenario directory")
-    return load_scenario(path)
+    scenario = load_scenario(path)
+    if scenario["context"]["target"] != entry["id"]:
+        raise ValueError(f"Studio scenario fixture targets a different source: {identity!r}")
+    if variant is not None and scenario["variant"] != variant:
+        raise ValueError(f"Studio scenario fixture does not match variant: {identity!r}/{variant}")
+    return scenario
 
 
 # scenario: Complete validated scenario whose canonical content defines its revision.

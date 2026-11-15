@@ -66,11 +66,15 @@ def selected_entries(identities=None, suite="pilot"):
 # Raises invalid scenario/source paths before any native process is started.
 def contract_inputs(entries):
     paths = {Path(__file__).with_name("studio_catalog.json"),
-             Path(__file__).with_name("cody_studio_catalog.py"), ROOT / "docs/cody/screen-catalog.md"}
+             Path(__file__).with_name("cody_studio_catalog.py"),
+             Path(__file__).with_name("cody_studio_scenario.py"), ROOT / "docs/cody/screen-catalog.md"}
     for entry in entries:
         if entry.get("scenario") is not None:
             default_scenario(entry["id"])
             paths.add(Path(__file__).with_name("scenarios") / entry["scenario"])
+        for variant, filename in entry.get("variant_scenarios", {}).items():
+            default_scenario(entry["id"], variant=variant)
+            paths.add(Path(__file__).with_name("scenarios") / filename)
     result = {}
     for path in paths:
         path = path.resolve(strict=True)
@@ -393,7 +397,7 @@ def run_worker(directory):
                     case.update(acquisition="not-applicable" if entry["availability"] in
                                 ("profile-conditional", "not-applicable") else "unsupported", reason=reason)
                 else:
-                    scenario = default_scenario(entry["id"])
+                    scenario = default_scenario(entry["id"], variant=entry.get("atlas_variant"))
                     if scenario["time"]["mode"] != "controlled-static":
                         raise ValueError("Atlas suites require static native fixtures; nested worker replay is unavailable")
                     case.update(variant=scenario["variant"], scenario_revision=scenario_revision(scenario))

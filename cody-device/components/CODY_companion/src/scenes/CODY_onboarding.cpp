@@ -7555,7 +7555,7 @@ static bool studio_provisioning_target(const char *target)
     return false;
 }
 
-// target: Static retained-link confirmation or lifecycle observation.
+// target: Exact static pairing, retained-link confirmation or lifecycle observation.
 // Exception: Unsupported names return None without requesting a link operation.
 static Route studio_link_route(const char *target)
 {
@@ -7563,9 +7563,48 @@ static Route studio_link_route(const char *target)
     static constexpr NamedRoute routes[]{
         {"cody.codex.retained-pc", Route::CodexReplace}, {"cody.codex.forget-pc", Route::CodexForget},
         {"cody.codex.cleanup", Route::CodexCleanup}, {"cody.codex.forgotten", Route::CodexForgotten},
+        {"cody.codex.pair-pc", Route::ConnectCodex12}, {"cody.codex.committed", Route::SetupComplete13},
+        {"cody.codex.discovering", Route::LookingForPc14}, {"cody.codex.connected", Route::Connected15},
     };
     for (const auto &route : routes) if (std::strcmp(route.target, target) == 0) return route.route;
     return Route::None;
+}
+
+// scene: Display-owner destination whose native link presenter retains its content.
+// route: One exact static pairing, committed, discovery or retained connected route.
+// Exception: Preserves canonical observation/code errors and rejects incoherent service phases.
+static esp_err_t prepare_studio_codex_link(SceneFrame &scene, Route route)
+{
+    LUNASHELL::ConnectivityObservation observation{};
+    auto error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
+    if (error != ESP_OK) return error;
+    const auto &link = observation.radios.codex_link;
+    if (link.last_error != ESP_OK) return link.last_error;
+    if (!link.data_valid || link.data_stale || link.attempt_id == 0 || link.command_pending ||
+        link.pending_pairing_present || link.pairing_repair_required) return ESP_ERR_INVALID_STATE;
+    const bool pairing = route == Route::ConnectCodex12;
+    const bool committed = route == Route::SetupComplete13;
+    const bool discovering = route == Route::LookingForPc14;
+    const bool connected = route == Route::Connected15;
+    if ((!pairing && !committed && !discovering && !connected) ||
+        (pairing && (link.state != CodexState::Pairing || !link.pairing_window_active ||
+            link.retained_link_present || link.deadline_at_us <= esp_timer_get_time())) ||
+        (committed && link.state != CodexState::Paired) ||
+        (discovering && link.state != CodexState::Discovering) ||
+        (connected && !LUNASHELL::codex_presence::ready_current(link, esp_timer_get_time())) ||
+        (!pairing && (!link.retained_link_present || link.pairing_window_active))) return ESP_ERR_INVALID_STATE;
+    s_codex_attempt = link.attempt_id;
+    s_codex_owned = pairing || committed || discovering;
+    s_codex_error_visible = false;
+    s_last_codex_change_us = link.changed_at_us;
+    // Consume the observed discovery phase exactly as update_onboarding does;
+    // this enables its existing pending Muse renderer without starting discovery.
+    s_codex_discovery_presented = discovering;
+    if (pairing) {
+        error = LUNASHELL_codex_link_copy_pairing_code(s_codex_code, sizeof(s_codex_code), s_codex_attempt);
+        if (error != ESP_OK) return error;
+    }
+    return enter_route(route, scene);
 }
 
 // scene: Display-owned setup underlay whose title is owned by the local Wi-Fi content.
@@ -7634,7 +7673,8 @@ static bool studio_dashboard_target(const char *target)
         "cody.info.system", "cody.info.memory", "cody.info.firmware", "cody.info.vibeware", "cody.info.project",
         "cody.diagnostics.overview", "cody.diagnostics.memory", "cody.settings.audio",
         "cody.dashboard.today", "cody.dashboard.seven-days", "cody.dashboard.token-history",
-        "cody.dashboard.credits", "cody.dashboard.account", "cody.dashboard.context"};
+        "cody.dashboard.credits", "cody.dashboard.account", "cody.dashboard.context",
+        "cody.home.muse", "cody.home.screensaver", "cody.dashboard.about"};
     for (const auto *candidate : targets) if (std::strcmp(target, candidate) == 0) return true;
     return false;
 }
@@ -7704,7 +7744,12 @@ esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &requ
         error = enter_route(Route::Invitation05, scene);
         if (error == ESP_OK) error = prepare_studio_local_wifi(scene, target);
     } else if (link_route != Route::None) {
-        if (link_route == Route::CodexReplace || link_route == Route::CodexForget) {
+        if (link_route == Route::ConnectCodex12 || link_route == Route::SetupComplete13 ||
+            link_route == Route::LookingForPc14 || link_route == Route::Connected15) {
+            // These pure observations do not admit Start/Discover/Commit or
+            // pretend a Cancel/Later/Continue journey has been replayed.
+            error = prepare_studio_codex_link(scene, link_route);
+        } else if (link_route == Route::CodexReplace || link_route == Route::CodexForget) {
             // This retained association was opened from Options > Connections.
             // Its eventual Back must retain that controller's real parent too.
             s_connections_from_options = true;

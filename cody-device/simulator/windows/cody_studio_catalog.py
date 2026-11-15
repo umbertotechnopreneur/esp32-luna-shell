@@ -101,7 +101,7 @@ def source_entries(path=None):
 
 
 # No parameters: project source identities plus their explicit executable contracts.
-# Raises OSError, JSON errors or ValueError for unknown/duplicate/invalid extensions or family references.
+# Raises OSError, JSON errors or ValueError for invalid extensions, variants or family references.
 def load_catalog():
     extension = json.loads(EXTENSION.read_text(encoding="utf-8"))
     if extension.get("schema") != "cody.studio.catalog.v1":
@@ -127,6 +127,23 @@ def load_catalog():
         if (contract.get("availability") in RENDERING_MODES and
                 contract.get("rendering_mode") != contract["availability"]):
             raise ValueError(f"Studio rendering mode and availability disagree: {identity}")
+        variant_files = contract.get("variant_scenarios", {})
+        variant_contracts = contract.get("variant_contracts", {})
+        variants = contract.get("variants", [])
+        if (not isinstance(variants, list) or any(not isinstance(variant, str) or
+                not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}", variant) for variant in variants) or
+                len(variants) != len(set(variants))):
+            raise ValueError(f"Invalid or duplicate Studio variants: {identity}")
+        if (not isinstance(variant_files, dict) or not isinstance(variant_contracts, dict) or
+                set(variant_files) != set(variant_contracts)):
+            raise ValueError(f"Studio variant fixtures and contracts disagree: {identity}")
+        for variant, filename in variant_files.items():
+            if (variant == "default" or variant not in variants or not isinstance(filename, str) or
+                    not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]*\.json", filename) or
+                    not isinstance(variant_contracts[variant], dict)):
+                raise ValueError(f"Invalid Studio variant fixture or contract: {identity}/{variant}")
+        if contract.get("atlas_variant") is not None and contract["atlas_variant"] not in variants:
+            raise ValueError(f"Unknown Studio atlas variant: {identity}")
         declared.add(identity)
         inventory_ids.add(inventory_id)
         entries[identity].update(deepcopy(contract))
@@ -137,6 +154,19 @@ def load_catalog():
         if family_id not in inventory_ids:
             raise ValueError(f"Unknown primary inventory family {family_id!r} for {identity}")
     return list(entries.values())
+
+
+# entry: Validated catalog entry retaining its original default schema and explicit variant overrides.
+# variant: Declared scenario variant; changing query availability does not create a new screen identity.
+# Returns a detached strict contract without modifying the default or a historical capture.
+# Raises ValueError for an unknown variant or a destination without an executable contract.
+def scenario_contract_for(entry, variant):
+    if variant not in entry.get("variants", []):
+        raise ValueError(f"Unknown Studio scenario variant: {entry['id']}/{variant}")
+    contract = entry.get("variant_contracts", {}).get(variant, entry.get("scenario_contract"))
+    if not isinstance(contract, dict):
+        raise ValueError(f"Studio scenario contract is unavailable: {entry['id']}/{variant}")
+    return deepcopy(contract)
 
 
 # No parameters: return the selected pilot contracts without a second maintained ID list.

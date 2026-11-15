@@ -161,8 +161,8 @@ def raw_request(target, revision):
     from cody_native_device import StudioCase
 
     request = StudioCase()
-    request.abi, request.size = 2, ctypes.sizeof(StudioCase)
-    request.identity.abi = 2
+    request.abi, request.size = 3, ctypes.sizeof(StudioCase)
+    request.identity.abi = 3
     request.identity.target = target.encode("ascii")
     request.identity.scenario_revision = revision.encode("ascii")
     request.brightness_percent, request.playback_volume = 80, 90
@@ -220,7 +220,7 @@ def rejected_requests(device):
     request.statistics.plan = b"plus"
     requests.append(("wrong history account group", request, 0x102))
     request = raw_request("cody.settings.display", revision)
-    request.abi = 1
+    request.abi = 2
     requests.append(("obsolete request ABI", request, 0x104))
     request = raw_request("cody.settings.display", revision)
     request.size -= 1

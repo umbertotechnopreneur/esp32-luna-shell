@@ -4,8 +4,10 @@
 #include "LUNASHELL_platform.h"
 #include "LUNASHELL_device_snapshot.hpp"
 #include "LUNASHELL_snapshot_internal.hpp"
+#include "CODY_host_onboarding_snapshot.hpp"
 #include "esp_timer.h"
 
+#include <atomic>
 #include <cstring>
 #include <mutex>
 
@@ -14,6 +16,7 @@ std::mutex s_name_mutex;
 LUNASHELL::CodexNameExecutor s_name_executor = nullptr;
 std::mutex s_simulation_mutex;
 int s_simulation_mode = 0;
+std::atomic_bool s_studio_pairing_code{false};
 
 // link: Synthetic commissioning state, synchronously copied into the canonical host snapshot.
 // Exception: Propagates the canonical snapshot publication error.
@@ -24,6 +27,15 @@ esp_err_t publish_simulated_link(const LUNASHELL::CodexLinkSnapshot &link)
             snapshot.radios.codex_link = *static_cast<const LUNASHELL::CodexLinkSnapshot *>(context);
         }, const_cast<LUNASHELL::CodexLinkSnapshot *>(&link),
         LUNASHELL::snapshot_detail::SnapshotPublicationPolicy::Required);
+}
+}
+
+namespace CODY::host_onboarding {
+// available: Explicit static Studio pairing-code source, independent of any link action.
+// Exception: No exceptions; atomic admission never takes the canonical snapshot owner's lock.
+void configure_studio_codex_pairing_code(bool available)
+{
+    s_studio_pairing_code.store(available, std::memory_order_release);
 }
 }
 
@@ -108,12 +120,16 @@ extern "C" esp_err_t LUNASHELL_codex_link_copy_pairing_code(char *buffer, size_t
     if (!buffer || buffer_size == 0) return ESP_ERR_INVALID_ARG;
     buffer[0] = '\0';
     std::lock_guard<std::mutex> lock(s_simulation_mutex);
-    if (s_simulation_mode != 1) return ESP_ERR_NOT_SUPPORTED;
+    if (s_simulation_mode != 1 && !s_studio_pairing_code.load(std::memory_order_acquire))
+        return ESP_ERR_NOT_SUPPORTED;
     LUNASHELL::CodexTechnicalObservation observation{};
     const auto error = LUNASHELL::DeviceSnapshotService::instance().readCodexTechnicalObservation(observation);
     if (error != ESP_OK) return error;
-    if (observation.link.attempt_id != expected_attempt_id ||
+    if (observation.link.last_error != ESP_OK) return observation.link.last_error;
+    if (!observation.link.data_valid || observation.link.data_stale ||
+        observation.link.attempt_id != expected_attempt_id ||
         observation.link.state != LUNASHELL::CodexLinkState::Pairing ||
+        !observation.link.pairing_window_active || observation.link.deadline_at_us <= 0 ||
         esp_timer_get_time() >= observation.link.deadline_at_us) return ESP_ERR_INVALID_STATE;
     static constexpr char code[] = "SIM123";
     if (buffer_size < sizeof(code)) return ESP_ERR_INVALID_SIZE;

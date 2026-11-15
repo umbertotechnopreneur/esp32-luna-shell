@@ -4,7 +4,7 @@
 
 **VibeWare · Cody Companion**
 
-**Author:** Umberto Giacobbi · **Created:** 2026-11-10 · **Updated:** 2026-11-15 · **Revision:** 1.2
+**Author:** Umberto Giacobbi · **Created:** 2026-11-10 · **Updated:** 2026-11-16 · **Revision:** 1.3
 
 This is the `CODY-NEXT-00` source inventory. Retain implementations in place,
 including inactive presenters and versioned assets. This catalog is their reuse
@@ -137,7 +137,7 @@ identify the owning journey; exact current controls remain in navigation.md.
 | next-v1:103 / turns | Exact chat and its turns | Chats or Saved -> Tool calls or PC chat activity; Back -> caller | Source |
 | next-v1:104 / tool-calls | Calls belonging to one exact turn | Turns -> Tool calls; Back -> Turns | Source |
 | next-v1:105 / active-calls | Source active-call page | Codex -> Active calls; Back -> Codex | Source |
-| next-v1:106 / pending-questions | Read-only canonical pending-question previews | Codex -> Questions -> Open events for signed question replies; Back returns to the originating page. | Source |
+| next-v1:106 / pending-questions | Read-only canonical `StateQuestionRow` previews | Codex -> Questions -> Open events for signed replies; unsupported query sources retain the actual events handoff. Back returns to the originating page. | Source; supported and unavailable query outcomes are variants of this same identity |
 | legacy-v1:technical-panels, home-identity, character-direction | `CODY_technical_panels.cpp`, `CODY_home_identity.cpp`, `CODY_character_direction.cpp` | Retained behavior/presenters for selective reuse | S; not an instruction to restore the vector face |
 | reference-v1:muse-wifi-keypad | External Muse settings/keypad sources below | Design reference for network entry | Reference only; current Cody local Wi-Fi pages use a separate native presenter |
 
@@ -184,6 +184,21 @@ The primary member retains the unique `inventory_id` lookup; secondary members
 declare `inventory_family_id` and are selected by their qualified source key.
 This keeps states such as scan failure, pairing progress and completed cleanup
 distinct without inventing new document IDs or merging their native owners.
+
+Variants can retain separate strict scenarios under one source identity. C06's
+original default scenario preserves the unavailable-source/events handoff;
+its populated variant supplies explicit read-only native question rows.
+`variant_scenarios`, `variant_contracts` and `atlas_variant` keep fixture,
+validation and selected automatic capture together. A variant does not add a
+source identity or document-local ID, and a preview does not cover signed replies.
+
+Direct Home and carousel About samples retain their actual display owners.
+The carousel About caller differs from the Settings About caller even when
+they share a presenter. Screensaver inspection samples its production owner
+in isolation; the retained Connected scene also uses isolated presentation
+because the current full runtime projects that route as the dashboard. These
+contracts do not imply replay of idle admission, return, authentication or a
+real pairing commit. Capture and physical evidence remain separate.
 
 Catalog availability describes the declared rendering path: full runtime,
 isolated presenter, profile conditional, unsupported or not applicable. It is
