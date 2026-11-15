@@ -618,16 +618,18 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   Windows and physical acceptance remain open.
 - [ ] 🟡 **CODY-NEXT-06.12** Studio G: extend remaining families and report actual
   coverage by declared availability. The 80–90 target is not an acquired count.
-  The implementation has 73 executable cases: Settings, confirmation-only views,
+  The implementation has 80 executable cases: Settings, confirmation-only views,
   setup/guide states, Wi-Fi scan/input/progress/failure, Bluetooth instructions,
   provisioning QR/progress, saved-PC views, Device/About/diagnostics, Audio,
   isolated Memory, six editable account/statistics pages and six isolated
-  browser views. All use the production C/C++ renderers and real host owners.
-  The source catalog contains 126 entries: 73 executable, 36 unsupported and 17
-  not applicable. Acquired cases map to 67 distinct document-local IDs plus six
+  browser views, direct Home/Muse and carousel About, isolated screensaver and
+  Connected, and four explicit Codex link observations. All use the production
+  C/C++ renderers and real host owners.
+  The source catalog contains 126 entries: 80 executable, 29 unsupported and 17
+  not applicable. Acquired cases map to 74 distinct document-local IDs plus six
   explicit secondary family states; primary aliases remain unambiguous. The
   reference PDF's 100 local inventory IDs are a separate verified count.
-  Native checks repeat all 73 static cases in fresh processes and reverse order,
+  Native checks repeat all 80 selected static cases in fresh processes and reverse order,
   observe 42 touch/swipe routes, verify six visible statistics edits and prior-case
   retirement, and reject 13 native ABI/input errors without changing the frame.
   Integer arrays, masks, source ages and captions remain explicit scenario inputs.
@@ -637,9 +639,18 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   S06 recovery remains deferred for its native title/character overlap.
   Wi-Fi operation replay, voucher expiry, unavailable microphones/heaps,
   unmodeled setup exits and isolated Memory navigation have explicit limits.
-  Questions keep their genuine unsupported-source/events handoff. Next prioritize
-  direct Home/screensaver and W10 carousel entry, then Codex-link, event/question,
-  operation, maintenance, voice and sleep/wake lifecycles.
+  C06 preserves its original unavailable-source/events fixture and adds a
+  separately typed populated variant with canonical read-only question previews.
+  The variant combobox loads complete inputs while preserving pending common
+  settings and the explicit baseline; Atlas selects populated C06 without adding
+  a duplicate source identity. ABI 3 binds question IDs/count to the completed
+  frame and rejects unlinked parents/duplicate IDs before mutation. Pairing code
+  is synthetic and retired with its owning case. Screensaver uses its local
+  production owner sample without advancing the global manual clock; Connected
+  uses a retained isolated scene. None establishes idle or authenticated link
+  replay. PDF pages reserve three blank handwriting lines at 7 mm spacing.
+  Next prioritize event/question detail and replies, operation, maintenance,
+  voice and sleep/wake lifecycles through their actual owners.
   Windows and physical acceptance stay open. General worker/timer precision
   remains deferred under the owner's graphics/audio priority.
 
