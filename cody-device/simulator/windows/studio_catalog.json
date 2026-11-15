@@ -8946,7 +8946,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Notifications",
-      "verification": "Implemented isolated native event presenter; host capture and visual review pending; physical acceptance pending",
+      "verification": "Linux isolated native capture and repeatability verified; visual review complete; Studio UI tested on representative events; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -9029,7 +9029,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Notifications",
-      "verification": "Implemented isolated native event presenter; host capture and visual review pending; physical acceptance pending",
+      "verification": "Linux isolated native capture and repeatability verified; visual review complete; Studio UI tested on representative events; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -9115,7 +9115,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Notifications",
-      "verification": "Implemented isolated native event presenter; host capture and visual review pending; physical acceptance pending",
+      "verification": "Linux isolated native capture and repeatability verified; visual review complete; Studio UI tested on representative events; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -9205,7 +9205,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Notifications",
-      "verification": "Implemented isolated native event presenter; host capture and visual review pending; physical acceptance pending",
+      "verification": "Linux isolated native capture and repeatability verified; visual review complete; Studio UI tested on representative events; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -9294,7 +9294,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Notifications",
-      "verification": "Implemented isolated native event presenter; host capture and visual review pending; physical acceptance pending",
+      "verification": "Linux isolated native capture and repeatability verified; visual review complete; Studio UI tested on representative events; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -9413,7 +9413,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Notifications",
-      "verification": "Implemented isolated native event presenter; host capture and visual review pending; physical acceptance pending",
+      "verification": "Linux isolated native capture and repeatability verified; visual review complete; Studio UI tested on representative events; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -9533,7 +9533,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Notifications",
-      "verification": "Implemented isolated native event presenter; host capture and visual review pending; physical acceptance pending",
+      "verification": "Linux isolated native capture and repeatability verified; visual review complete; Studio UI tested on representative events; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -9648,7 +9648,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Notifications",
-      "verification": "Implemented isolated native event presenter; host capture and visual review pending; physical acceptance pending",
+      "verification": "Linux isolated native capture and repeatability verified; visual review complete; Studio UI tested on representative events; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -9768,7 +9768,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Notifications",
-      "verification": "Implemented isolated native event presenter; host capture and visual review pending; physical acceptance pending",
+      "verification": "Linux isolated native capture and repeatability verified; visual review complete; Studio UI tested on representative events; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -9883,7 +9883,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Notifications",
-      "verification": "Implemented isolated native event presenter; host capture and visual review pending; physical acceptance pending",
+      "verification": "Linux isolated native capture and repeatability verified; visual review complete; Studio UI tested on representative events; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -9966,7 +9966,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Notifications",
-      "verification": "Implemented isolated native event presenter; host capture and visual review pending; physical acceptance pending",
+      "verification": "Linux isolated native capture and repeatability verified; visual review complete; Studio UI tested on representative events; physical acceptance pending",
       "variants": [
         "default"
       ],

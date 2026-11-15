@@ -14,7 +14,7 @@ from PIL import Image, ImageChops
 
 from cody_native_runtime import ROOT
 from cody_studio_atlas import ATLAS_ROOT, AtlasJob, load_atlas
-from cody_studio_catalog import load_catalog, pilot_entries
+from cody_studio_catalog import entry_for, load_catalog, pilot_entries
 from cody_studio_pdf import export_atlas
 from cody_studio_runner import load_capture
 
@@ -32,7 +32,8 @@ class AtlasPdfTests(unittest.TestCase):
         unsupported = next(entry for entry in cls.catalog if entry["availability"] == "unsupported")
         family = next(entry for entry in cls.catalog if entry.get("scenario") and entry.get("inventory_family_id"))
         cls.family = family
-        identities = [entry["id"] for entry in pilot_entries()] + [family["id"], unsupported["id"]]
+        cls.event = entry_for("atlas-v1:24")
+        identities = [entry["id"] for entry in pilot_entries()] + [family["id"], cls.event["id"], unsupported["id"]]
         job = AtlasJob.start(identities)
         deadline = time.monotonic() + 180
         while not job.done and time.monotonic() < deadline:
@@ -101,7 +102,7 @@ class AtlasPdfTests(unittest.TestCase):
         reader = PdfReader(destination)
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
         captured = sum(case["acquisition"] == "captured" for case in self.manifest["cases"])
-        self.assertEqual(captured, len(pilot_entries()) + 1)
+        self.assertEqual(captured, len(pilot_entries()) + 2)
         self.assertIn(f"{captured} acquired native frames / {len(self.manifest['cases'])} selected cases", text)
         self.assertIn(self.family["inventory_family_id"] + " (family)", text)
         self.assertIn(f"catalog contains {len(self.catalog)} entries", text)
@@ -133,6 +134,23 @@ class AtlasPdfTests(unittest.TestCase):
                        if embedded.size == native.size and ImageChops.difference(embedded, native).getbbox() is None]
             self.assertTrue(matches, "Export altered a native device frame")
             remaining.pop(matches[0])
+        event_case = next(case for case in self.manifest["cases"] if case["id"] == self.event["id"])
+        self.assertEqual(event_case["acquisition"], "captured")
+        self.assertEqual(event_case["inventory_id"], "N10")
+        self.assertEqual(event_case["rendering_mode"], "presenter-isolated")
+        event_record = load_capture(ROOT / event_case["capture"])
+        self.assertEqual(event_record.metadata["frame_identity"]["target"], "cody.event.check-failures")
+        event_pages = [page for page in reader.pages if event_case["id"] in (page.extract_text() or "")]
+        self.assertEqual(len(event_pages), 1, "Event source identity must identify one PDF case page")
+        event_text = event_pages[0].extract_text() or ""
+        self.assertIn("N10", event_text)
+        self.assertIn("presenter-isolated", event_text)
+        with Image.open(event_record.image_path) as image:
+            native_event = image.convert("RGB").copy()
+        self.assertTrue(any(embedded.image.size == native_event.size and
+                            ImageChops.difference(embedded.image.convert("RGB"), native_event).getbbox() is None
+                            for embedded in event_pages[0].images),
+                        "The N10 case page must embed its exact native RGB frame")
         poppler = shutil.which("pdftoppm")
         self.assertIsNotNone(poppler, "PDF visual acceptance requires Poppler pdftoppm")
         subprocess.run([poppler, "-r", "90", "-png", str(destination), str(self.directory / "page")],
