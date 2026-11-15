@@ -29,7 +29,10 @@ Linux host validation through `scripts/device.ps1`:
   unavailable-to-valid-event recovery. Native Studio UI checks opened the
   added events and preserved the baseline. N01, C07, N05 and N11 images were
   inspected visually; screenshots are host evidence, not physical acceptance.
-- The atlas PDF test requires a separate rerun using an interpreter with `pypdf`.
+- A separate `--atlas-pdf` rerun with the bundled Python passed 52/52, including
+  native pixels, inventory identity, unchanged captures/baselines and three
+  handwriting lines. Representative pages of the 14-page pilot PDF were
+  inspected visually; this does not establish full-atlas visual acceptance.
   The previously published 94-case PDF remains at
   `artifacts/simulator/studio/atlas/exports/cody-native-atlas-94d596e32f324e0580b39b69610635fd-b989bf94.pdf`;
   it does not include the four new cases. A concurrent local PDF-generator edit

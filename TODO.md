@@ -45,8 +45,8 @@ This file tracks open implementation and acceptance. See [planned-todo.md](plann
    physical Cody acceptance remain separate gates.
    N05 reply review, N11 event read failure, N01 unavailable Activity events
    and C07 current turn were captured and inspected on Linux. They do not replay
-   reply, Retry, populated notification paging or live PC activity. The combined
-   PDF check remains open; see `done.md`. Lost32 remains deferred
+   reply, Retry, populated notification paging or live PC activity. The separate
+   PDF suite passed with bundled Python; see `done.md`. Lost32 remains deferred
    because the current dashboard can mask its connection-lost scene.
 
 ## First-run tour
