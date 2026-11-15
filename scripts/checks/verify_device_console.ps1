@@ -75,6 +75,17 @@ function New-ConsoleFixtureFile([string]$Path, [string]$Contents = 'fixture') {
     Set-Content -LiteralPath $Path -Value $Contents -Encoding utf8
 }
 
+# Path is the fixture-owned directory link entry, never its target.
+# Throws the original OS error when the link entry cannot be unlinked.
+function Remove-ConsoleFixtureLink([string]$Path) {
+    if ([OperatingSystem]::IsWindows()) {
+        [IO.Directory]::Delete($Path)
+    } else {
+        # Unix directory symlinks are unlinked as files, including dangling links.
+        [IO.File]::Delete($Path)
+    }
+}
+
 # Path is the route-selected script, recorded without invocation.
 # Arguments contains literal forwarded tokens, retained in their original order.
 # PythonExecutable is the selected interpreter value, retained for routing assertions.
@@ -90,6 +101,7 @@ function Invoke-HostTool([string]$Path, [string[]]$Arguments, [string]$PythonExe
 
 $fixture = Resolve-ArtifactPath '' ("artifacts/checks/device-console-" + [Guid]::NewGuid().ToString('N'))
 $junction = $null
+$fixtureFailure = $null
 try {
     $null = New-Item -ItemType Directory -Path $fixture
     $ProjectRoot = Join-Path $fixture 'project'
@@ -101,6 +113,7 @@ try {
     New-ConsoleFixtureFile (Join-Path $ProjectRoot 'scripts/generators/generate_example.py') '# host fixture'
     New-ConsoleFixtureFile (Join-Path $ProjectRoot 'scripts/generators/generate_cody_simulator_graphics.py') '# host fixture'
     New-ConsoleFixtureFile (Join-Path $ProjectRoot 'scripts/generators/generate_cody_simulator_audio.py') '# host fixture'
+    New-ConsoleFixtureFile (Join-Path $ProjectRoot 'scripts/generators/generate_cody_theme.py') '# host fixture'
 
     Invoke-ConsoleCheck 'Artifact destinations preserve explicit children and reject escapes' {
         $expected = [IO.Path]::GetFullPath((Join-Path $fixtureArtifacts 'logs/capture.log'))
@@ -148,56 +161,84 @@ try {
         $sentinel = Join-Path $outside 'keep.txt'
         New-ConsoleFixtureFile $sentinel
         $junction = Join-Path $fixtureArtifacts 'linked-output'
-        $null = New-Item -ItemType Junction -Path $junction -Target $outside
+        $linkType = if ([OperatingSystem]::IsWindows()) { 'Junction' } else { 'SymbolicLink' }
+        $null = New-Item -ItemType $linkType -Path $junction -Target $outside
+        $reparseFailure = $null
         try {
             Assert-ConsoleRejection { Resolve-ArtifactPath (Join-Path $junction 'future.log') '' } 'reparse point'
             Assert-ConsoleRejection { Clear-DeviceArtifacts } 'reparse point'
-            Assert-ConsoleCondition (Test-Path -LiteralPath $sentinel) 'Cleanup followed the junction target.'
+            Assert-ConsoleCondition (Test-Path -LiteralPath $sentinel) 'Cleanup followed the fixture link target.'
             Assert-ConsoleCondition (Test-Path -LiteralPath (Join-Path $fixtureArtifacts 'reports/sentinel.txt')) 'Cleanup mutated another tree before its full preflight.'
+        } catch {
+            $reparseFailure = $_
+            throw
         } finally {
-            # Delete only the junction entry; never recurse into its target.
-            [IO.Directory]::Delete($junction)
-            $junction = $null
+            try {
+                Remove-ConsoleFixtureLink $junction
+                $junction = $null
+            } catch {
+                if ($null -eq $reparseFailure) { throw }
+                Write-Warning "Fixture link cleanup failed; preserving the assertion failure: $($_.Exception.Message)" -WarningAction Continue
+            }
         }
     }
 
     Invoke-ConsoleCheck 'Action-specific options reject ignored parameters and conflicting board selection' {
         $contract = Get-DeviceActionParameters
+        $fixturePort = if ($IsLinux) { '/dev/ttyACM99' } else { 'COM99' }
         Assert-DeviceActionParameters 'simulator' @{ Action = 'simulator'; Screen = 'rig'; Rotation = 180 } $contract
         Assert-DeviceActionParameters 'simulator' @{ Action = 'simulator'; Ccp = $true } $contract
-        Assert-DeviceActionParameters 'capture' @{ Action = 'capture'; Port = 'COM99'; DurationSeconds = 1 } $contract
+        Assert-DeviceActionParameters 'capture' @{ Action = 'capture'; Port = $fixturePort; DurationSeconds = 1 } $contract
         Assert-DeviceActionParameters 'build' @{ ActivityClassifier = $true; ActivityCapture = $true } $contract
         Assert-DeviceActionParameters 'codex-audio' @{ EnableAudioQueue = $true; InstallAudioDependencies = $true } $contract
         Assert-ConsoleRejection { Assert-DeviceActionParameters 'flash' @{ EnableAudioQueue = $true } $contract } 'not valid'
-        Assert-ConsoleRejection { Assert-DeviceActionParameters 'codex-audio' @{ Port = 'COM99' } $contract } 'not valid'
+        Assert-ConsoleRejection { Assert-DeviceActionParameters 'codex-audio' @{ Port = $fixturePort } $contract } 'not valid'
         Assert-ConsoleRejection { Assert-DeviceActionParameters 'build' @{ ActivityCapture = $true } $contract } 'requires -ActivityClassifier'
-        Assert-ConsoleRejection { Assert-DeviceActionParameters 'simulator' @{ Port = 'COM99' } $contract } 'not valid'
+        Assert-ConsoleRejection { Assert-DeviceActionParameters 'simulator' @{ Port = $fixturePort } $contract } 'not valid'
         Assert-ConsoleRejection { Assert-DeviceActionParameters 'help' @{ LogPath = 'artifacts/logs/help.log' } $contract } 'not valid'
         Assert-ConsoleRejection { Assert-DeviceActionParameters 'build' @{ BoardConfig = 'board.yaml'; Profile = 'full' } $contract } 'BoardConfig selects'
         Assert-ConsoleRejection { Assert-DeviceActionParameters 'size' @{ DurationSeconds = 1 } $contract } 'not valid'
     }
 
-    Invoke-ConsoleCheck 'Serial selection uses COM identity across input forms and reordered inventories' {
-        $portTen = [pscustomobject]@{ DeviceID = 'COM10'; Status = 'OK' }
-        $portTwo = [pscustomobject]@{ DeviceID = 'COM2'; Status = 'OK' }
-        foreach ($inventory in @(@($portTen, $portTwo), @($portTwo, $portTen))) {
-            foreach ($selection in @('10', 'COM10', ' com10 ')) {
-                $selectedPort = Resolve-SerialPortSelection -Selection $selection -PresentPorts $inventory
-                Assert-ConsoleCondition ($selectedPort -eq 'COM10') 'Serial selection depended on inventory order or input notation.'
+    Invoke-ConsoleCheck 'Serial selection preserves host identities across reordered inventories' {
+        if ($IsLinux) {
+            $identities = @('/dev/ttyACM10', '/dev/ttyUSB2', '/dev/serial/by-id/usb-Cody_fixture-if00')
+            $ports = @($identities | ForEach-Object { [pscustomobject]@{ DeviceID = $_; Status = 'OK' } })
+            $selections = @($identities | ForEach-Object { [pscustomobject]@{ Input = $_; Expected = $_ } })
+        } else {
+            $ports = @([pscustomobject]@{ DeviceID = 'COM10'; Status = 'OK' },
+                       [pscustomobject]@{ DeviceID = 'COM2'; Status = 'OK' })
+            $selections = @('10', 'COM10', ' com10 ' | ForEach-Object {
+                [pscustomobject]@{ Input = $_; Expected = 'COM10' }
+            })
+        }
+        $reordered = @($ports)
+        [array]::Reverse($reordered)
+        foreach ($inventory in @($ports, $reordered)) {
+            foreach ($selection in $selections) {
+                $selectedPort = Resolve-SerialPortSelection -Selection $selection.Input -PresentPorts $inventory
+                Assert-ConsoleCondition ($selectedPort -ceq $selection.Expected) 'Serial selection depended on inventory order or changed its host identity.'
+                Assert-ConsoleCondition ((Normalize-PortName $selection.Input) -ceq $selection.Expected) 'Explicit Port normalization changed its host identity.'
             }
         }
-        Assert-ConsoleCondition ((Normalize-PortName '10') -eq 'COM10') 'Explicit numeric Port was not normalized.'
     }
 
     Invoke-ConsoleCheck 'Serial selection never substitutes a port after cancellation or invalid device state' {
-        $portTen = [pscustomobject]@{ DeviceID = 'COM10'; Status = 'OK' }
-        $unhealthyPort = [pscustomobject]@{ DeviceID = 'COM10'; Status = 'Error' }
-        Assert-ConsoleRejection { Resolve-SerialPortSelection '' @($portTen) } 'cancelled'
-        Assert-ConsoleRejection { Resolve-SerialPortSelection '2' @($portTen) } 'not in the detected list'
-        Assert-ConsoleRejection { Resolve-SerialPortSelection '10' @() } 'not in the detected list'
-        Assert-ConsoleRejection { Resolve-SerialPortSelection '10' @($portTen, $portTen) } 'ambiguous'
-        Assert-ConsoleRejection { Resolve-SerialPortSelection '10' @($unhealthyPort) } "status 'Error'"
-        foreach ($invalidPort in @('0', 'COM0', '-1', 'ttyUSB0')) {
+        $presentIdentity = if ($IsLinux) { '/dev/ttyACM10' } else { 'COM10' }
+        $missingIdentity = if ($IsLinux) { '/dev/ttyUSB2' } else { '2' }
+        $presentPort = [pscustomobject]@{ DeviceID = $presentIdentity; Status = 'OK' }
+        $unhealthyPort = [pscustomobject]@{ DeviceID = $presentIdentity; Status = 'Error' }
+        Assert-ConsoleRejection { Resolve-SerialPortSelection '' @($presentPort) } 'cancelled'
+        Assert-ConsoleRejection { Resolve-SerialPortSelection $missingIdentity @($presentPort) } 'not in the detected list'
+        Assert-ConsoleRejection { Resolve-SerialPortSelection $presentIdentity @() } 'not in the detected list'
+        Assert-ConsoleRejection { Resolve-SerialPortSelection $presentIdentity @($presentPort, $presentPort) } 'ambiguous'
+        Assert-ConsoleRejection { Resolve-SerialPortSelection $presentIdentity @($unhealthyPort) } "status 'Error'"
+        $invalidPorts = if ($IsLinux) {
+            @('10', 'COM10', 'ttyUSB0', '/dev/ttyS0', '/dev/ttyacm0', '/dev/serial/by-id/..', ' /dev/ttyACM10 ')
+        } else {
+            @('0', 'COM0', '-1', 'ttyUSB0', '/dev/ttyACM10')
+        }
+        foreach ($invalidPort in $invalidPorts) {
             Assert-ConsoleRejection { Normalize-PortName $invalidPort } 'Invalid serial port'
         }
     }
@@ -260,28 +301,79 @@ try {
             Screen = 'boot-waking'; Rotation = 180; AtMs = 700; SafeGuide = $true
             OutputPath = $destination; PythonExecutable = 'host-python'
         }
-        Assert-ConsoleCondition ($script:hostCalls.Count -eq 2) 'Preview must prepare native graphics, then capture without audio.'
-        $graphicsCall = $script:hostCalls[0]
-        Assert-ConsoleCondition ($graphicsCall.Path -eq (Join-Path $ProjectRoot 'scripts/generators/generate_cody_simulator_graphics.py')) 'Preview did not prepare the production native graphics owner first.'
+        Assert-ConsoleCondition ($script:hostCalls.Count -eq 3) 'Preview must synchronize the theme, prepare native graphics, then capture without audio.'
+        $themeCall = $script:hostCalls[0]
+        Assert-ConsoleCondition ($themeCall.Path -eq (Join-Path $ProjectRoot 'scripts/generators/generate_cody_theme.py')) 'Preview did not synchronize its source theme first.'
+        Assert-ConsoleCondition ($themeCall.Arguments.Count -eq 0) 'Theme synchronization received preview arguments.'
+        Assert-ConsoleCondition ($themeCall.PythonExecutable -eq 'host-python') 'Theme synchronization lost interpreter selection.'
+        $graphicsCall = $script:hostCalls[1]
+        Assert-ConsoleCondition ($graphicsCall.Path -eq (Join-Path $ProjectRoot 'scripts/generators/generate_cody_simulator_graphics.py')) 'Preview did not prepare the production native graphics owner after theme synchronization.'
         Assert-ConsoleCondition ($graphicsCall.Arguments.Count -eq 0) 'Graphics preparation received capture arguments.'
         Assert-ConsoleCondition ($graphicsCall.PythonExecutable -eq 'host-python') 'Graphics preparation lost the host interpreter selection.'
-        $call = $script:hostCalls[1]
+        $call = $script:hostCalls[2]
         Assert-ConsoleCondition ($call.Path -eq (Join-Path $ProjectRoot 'cody-device/simulator/windows/cody_simulator.py')) 'Preview dispatched an unexpected script.'
         $expected = @('--screen','boot-waking','--rotation','180','--at-ms','700','--safe-guide','--capture',$destination)
         Assert-ConsoleCondition (($call.Arguments -join "`n") -ceq ($expected -join "`n")) 'Preview altered literal argument boundaries.'
         Assert-ConsoleCondition ($call.PythonExecutable -eq 'host-python') 'Preview lost the host interpreter selection.'
     }
 
-    Invoke-ConsoleCheck 'Interactive Cody prepares graphics and audio before the simulator' {
+    Invoke-ConsoleCheck 'Explicit legacy interactive preview prepares theme, graphics and audio' {
         $script:hostCalls.Clear()
         Invoke-DeviceCommand 'simulator' @{ Screen = 'rig'; PythonExecutable = 'host-python' }
-        Assert-ConsoleCondition ($script:hostCalls.Count -eq 3) 'Interactive preview must prepare both native owners before launch.'
-        $expectedPaths = @('scripts/generators/generate_cody_simulator_graphics.py',
+        Assert-ConsoleCondition ($script:hostCalls.Count -eq 4) 'Legacy interactive preview must synchronize the theme and prepare both native owners before launch.'
+        $expectedPaths = @('scripts/generators/generate_cody_theme.py',
+            'scripts/generators/generate_cody_simulator_graphics.py',
             'scripts/generators/generate_cody_simulator_audio.py', 'cody-device/simulator/windows/cody_simulator.py')
         for ($index = 0; $index -lt $expectedPaths.Count; $index += 1) {
             Assert-ConsoleCondition ($script:hostCalls[$index].Path -eq (Join-Path $ProjectRoot $expectedPaths[$index])) 'Interactive native owner preparation order changed.'
             Assert-ConsoleCondition ($script:hostCalls[$index].PythonExecutable -eq 'host-python') 'Interactive route lost interpreter selection.'
         }
+    }
+
+    Invoke-ConsoleCheck 'Default simulator selects the integrated native runtime with explicit scenario arguments' {
+        $defaultScenario = Join-Path $ProjectRoot 'cody-device/simulator/windows/scenarios/cody-native-first-boot.json'
+        $customScenario = Join-Path $fixtureArtifacts 'simulator/native scenario.json'
+        foreach ($options in @(@{ PythonExecutable = 'host-python' },
+                @{ DeviceScenario = $customScenario; PythonExecutable = 'host-python' })) {
+            $script:hostCalls.Clear()
+            Invoke-DeviceCommand 'simulator' $options
+            Assert-ConsoleCondition ($script:hostCalls.Count -eq 3) 'Native simulator must synchronize its theme, prepare device graphics and launch the integrated runtime.'
+            $expectedPaths = @('scripts/generators/generate_cody_theme.py',
+                'scripts/generators/generate_cody_simulator_graphics.py', 'cody-device/simulator/windows/cody_simulator.py')
+            for ($index = 0; $index -lt $expectedPaths.Count; $index += 1) {
+                Assert-ConsoleCondition ($script:hostCalls[$index].Path -eq (Join-Path $ProjectRoot $expectedPaths[$index])) 'Native simulator preparation order changed.'
+                Assert-ConsoleCondition ($script:hostCalls[$index].PythonExecutable -eq 'host-python') 'Native simulator lost interpreter selection.'
+            }
+            Assert-ConsoleCondition ($script:hostCalls[0].Arguments.Count -eq 0) 'Theme synchronization received native scenario arguments.'
+            Assert-ConsoleCondition (($script:hostCalls[1].Arguments -join "`n") -ceq '--device-runtime') 'Native simulator prepared a legacy graphics driver.'
+            $scenario = if ($options.DeviceScenario) { $customScenario } else { $defaultScenario }
+            $expected = @('--device-runtime', '--device-scenario', $scenario)
+            Assert-ConsoleCondition (($script:hostCalls[2].Arguments -join "`n") -ceq ($expected -join "`n")) 'Native simulator altered the explicit scenario arguments.'
+        }
+    }
+
+    Invoke-ConsoleCheck 'Controlled Studio dispatches explicitly without an implicit native build or legacy options' {
+        $script:hostCalls.Clear()
+        $contract = Get-DeviceActionParameters
+        $scenario = Join-Path $fixtureArtifacts 'simulator/Studio scenario.json'
+        $options = @{ StudioCase = 'P04'; StudioScenario = $scenario; StudioCapture = $true; PythonExecutable = 'host-python' }
+        Assert-DeviceActionParameters 'simulator' $options $contract
+        Invoke-DeviceCommand 'simulator' $options
+        Assert-ConsoleCondition ($script:hostCalls.Count -eq 2) 'Controlled Studio must synchronize its theme and dispatch without rebuilding native graphics.'
+        Assert-ConsoleCondition ($script:hostCalls[0].Path -eq (Join-Path $ProjectRoot 'scripts/generators/generate_cody_theme.py')) 'Controlled Studio omitted theme synchronization.'
+        Assert-ConsoleCondition ($script:hostCalls[0].Arguments.Count -eq 0) 'Studio arguments reached theme synchronization.'
+        $call = $script:hostCalls[1]
+        Assert-ConsoleCondition ($call.Path -eq (Join-Path $ProjectRoot 'cody-device/simulator/windows/cody_simulator.py')) 'Controlled Studio dispatched an unexpected script.'
+        Assert-ConsoleCondition ($call.PythonExecutable -eq 'host-python') 'Controlled Studio lost interpreter selection.'
+        $expected = @('--studio-case', 'P04', '--studio-scenario', $scenario, '--studio-capture')
+        Assert-ConsoleCondition (($call.Arguments -join "`n") -ceq ($expected -join "`n")) 'Controlled Studio changed literal scenario arguments.'
+        foreach ($legacyOption in @('Screen', 'AtMs', 'OutputPath', 'Rotation', 'SafeGuide', 'Ccp', 'DeviceRuntime', 'DeviceScenario')) {
+            $invalid = @{ StudioCase = 'P04' }
+            $invalid[$legacyOption] = 'explicit-option'
+            Assert-ConsoleRejection { Assert-DeviceActionParameters 'simulator' $invalid $contract } 'cannot be combined with controlled Studio scenarios'
+        }
+        Assert-ConsoleRejection { Assert-DeviceActionParameters 'simulator' @{ StudioCapture = $true } $contract } 'requires -StudioCase or -StudioScenario'
+        Assert-ConsoleCondition ($script:hostCalls.Count -eq 2) 'Rejected Studio options reached a host tool.'
     }
 
     Invoke-ConsoleCheck 'Boot screenshots dispatch four host captures in fixed stage order' {
@@ -305,9 +397,18 @@ try {
         Invoke-DeviceCommand 'simulator-luna' @{ ToolArguments = @('--screen','home'); PythonExecutable = 'host-python' }
         Invoke-DeviceCommand 'package-simulator' @{}
         Invoke-DeviceCommand 'banner' @{ ToolArguments = @('-?') }
-        Assert-ConsoleCondition ($script:hostCalls.Count -eq 5) 'A host route failed to dispatch through the mocked host owner.'
-        Assert-ConsoleCondition ($script:hostCalls[0].Arguments[1] -eq 'a value') 'Check arguments were split or evaluated.'
-        Assert-ConsoleCondition ($script:hostCalls[1].Arguments[1] -eq 'b value') 'Generator arguments were split or evaluated.'
+        Assert-ConsoleCondition ($script:hostCalls.Count -eq 7) 'A host route omitted a required theme synchronization or mocked host dispatch.'
+        $expectedPaths = @('scripts/generators/generate_cody_theme.py', 'scripts/checks/verify_example.py',
+            'scripts/generators/generate_example.py', 'cody-device/simulator/windows/lunashell_simulator.py',
+            'scripts/generators/generate_cody_theme.py', 'scripts/commands/package-simulator.ps1',
+            'scripts/commands/add-source-banner.ps1')
+        for ($index = 0; $index -lt $expectedPaths.Count; $index += 1) {
+            Assert-ConsoleCondition ($script:hostCalls[$index].Path -eq (Join-Path $ProjectRoot $expectedPaths[$index])) 'Named host routes changed their theme or dispatch order.'
+        }
+        Assert-ConsoleCondition ($script:hostCalls[0].Arguments.Count -eq 0 -and $script:hostCalls[4].Arguments.Count -eq 0) 'Theme synchronization received host action arguments.'
+        Assert-ConsoleCondition ($script:hostCalls[0].PythonExecutable -eq 'host-python') 'Check theme synchronization lost interpreter selection.'
+        Assert-ConsoleCondition (($script:hostCalls[1].Arguments -join "`n") -ceq (@('--literal', 'a value') -join "`n")) 'Check arguments were split or evaluated.'
+        Assert-ConsoleCondition (($script:hostCalls[2].Arguments -join "`n") -ceq (@('--literal', 'b value') -join "`n")) 'Generator arguments were split or evaluated.'
         Assert-ConsoleRejection { Find-DeviceTool 'checks' '../firmware' } 'Unknown or ambiguous'
     }
 
@@ -319,14 +420,22 @@ try {
     }
 
     Write-Host "Device console host checks passed: $script:checkCount. No firmware, simulator or device operation ran."
+} catch {
+    $fixtureFailure = $_
+    throw
 } finally {
     $ProjectRoot = $sourceRoot
-    if ($null -ne $junction -and (Test-Path -LiteralPath $junction)) {
-        [IO.Directory]::Delete($junction)
-    }
-    if (Test-Path -LiteralPath $fixture) {
-        $ownedFixture = Resolve-ArtifactPath $fixture ''
-        Assert-DeviceArtifactTree -Path $ownedFixture
-        Remove-Item -LiteralPath $ownedFixture -Recurse -Force -ErrorAction Stop
+    try {
+        if ($null -ne $junction -and (Test-Path -LiteralPath $junction)) {
+            Remove-ConsoleFixtureLink $junction
+        }
+        if (Test-Path -LiteralPath $fixture) {
+            $ownedFixture = Resolve-ArtifactPath $fixture ''
+            Assert-DeviceArtifactTree -Path $ownedFixture
+            Remove-Item -LiteralPath $ownedFixture -Recurse -Force -ErrorAction Stop
+        }
+    } catch {
+        if ($null -eq $fixtureFailure) { throw }
+        Write-Warning "Fixture cleanup failed; preserving the original check failure: $($_.Exception.Message)" -WarningAction Continue
     }
 }
