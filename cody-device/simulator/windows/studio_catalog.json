@@ -8738,7 +8738,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Preferences",
-      "verification": "Implemented static native presenter contract; host capture and visual review pending; physical acceptance pending",
+      "verification": "Linux isolated native capture, repeated pixels and visual review verified; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -8779,7 +8779,8 @@
       "limitations": [
         "The original maintenance presenter is sampled in isolation; no restart, reset, erase, shutdown or service operation is submitted",
         "This static observation has no retained caller or return journey; progress, failure recovery and physical acceptance are separate",
-        "Native capture retains fixed owner defaults beyond explicit common inputs; Sounds and Counter mode are off"
+        "Native capture retains fixed owner defaults beyond explicit common inputs; Sounds and Counter mode are off",
+        "Touch input is disabled during this read-only inspection"
       ],
       "controls": [],
       "suite": "extension",
@@ -8805,7 +8806,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Preferences",
-      "verification": "Implemented static native presenter contract; host capture and visual review pending; physical acceptance pending",
+      "verification": "Linux isolated native capture, repeated pixels and visual review verified; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -8846,7 +8847,8 @@
       "limitations": [
         "The original maintenance presenter is sampled in isolation; no restart, reset, erase, shutdown or service operation is submitted",
         "This static observation has no retained caller or return journey; progress, failure recovery and physical acceptance are separate",
-        "Native capture retains fixed owner defaults beyond explicit common inputs; Sounds and Counter mode are off"
+        "Native capture retains fixed owner defaults beyond explicit common inputs; Sounds and Counter mode are off",
+        "Touch input is disabled during this read-only inspection"
       ],
       "controls": [],
       "suite": "extension",
@@ -8872,7 +8874,7 @@
       "availability": "presenter-isolated",
       "rendering_mode": "presenter-isolated",
       "group": "Preferences",
-      "verification": "Implemented static native presenter contract; host capture and visual review pending; physical acceptance pending",
+      "verification": "Linux isolated native capture, repeated pixels and visual review verified; physical acceptance pending",
       "variants": [
         "default"
       ],
@@ -8914,7 +8916,9 @@
         "The original maintenance presenter is sampled in isolation; no restart, reset, erase, shutdown or service operation is submitted",
         "This static observation has no retained caller or return journey; progress, failure recovery and physical acceptance are separate",
         "Native capture retains fixed owner defaults beyond explicit common inputs; Sounds and Counter mode are off",
-        "Failure is a synthetic ESP_ERR_TIMEOUT presentation and does not establish physical reset error handling"
+        "Failure is a synthetic ESP_ERR_TIMEOUT presentation and does not establish physical reset error handling",
+        "Visible Back and Retry controls are inactive during this read-only inspection",
+        "The original firmware caption says Restart did not occur; its wording is pending review"
       ],
       "controls": [],
       "suite": "extension",
