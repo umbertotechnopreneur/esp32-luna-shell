@@ -18,12 +18,13 @@ CASES = {
     "ui-v1:restart-pending": ("cody.settings.restart-pending", "P19", None),
     "ui-v1:reset-pending": ("cody.settings.reset-pending", "P21", None),
     "ui-v1:reset-failed": ("cody.settings.reset-failed", None, "P21"),
+    "atlas-v1:39": ("cody.provisioning.debug", None, None),
 }
 ERROR_DESCRIPTION = "Synthetic ESP_ERR_TIMEOUT (0x107) in the host owner; no reset is performed"
 
 
 class MaintenanceContractTests(unittest.TestCase):
-    """The catalog identifies three read-only native maintenance samples."""
+    """The catalog identifies read-only maintenance and Debug samples."""
 
     # self: Named catalog contracts and their bounded static inputs.
     # Raises AssertionError for guessed aliases, non-static inputs or a different failure dependency.
@@ -42,14 +43,39 @@ class MaintenanceContractTests(unittest.TestCase):
                                                    "advances_ms": [], "capture_at_ms": [0]})
                 if family_id:
                     self.assertEqual(entry["fixed_dependencies"]["maintenance_error"], ERROR_DESCRIPTION)
+                if identity == "atlas-v1:39":
+                    self.assertEqual(entry["availability"], "profile-conditional")
+                    self.assertEqual(entry["required_capabilities"], ["debug-provisioning"])
+                    self.assertTrue(scenario["common"]["observations"]["network"]["connected"])
+                    from copy import deepcopy
+                    disconnected = deepcopy(scenario)
+                    disconnected["common"]["observations"]["network"] = {"connected": False, "ssid": "", "rssi": None}
+                    with self.assertRaises(ValueError):
+                        validate_scenario(disconnected)
                 invalid = dict(scenario)
                 invalid["page"] = {"invented_operation": True}
                 with self.assertRaises(ValueError):
                     validate_scenario(invalid)
 
 
+    # self: Debug-only entry against a profile reporting the feature absent.
+    # Raises AssertionError if an unavailable Debug presenter is offered as capturable.
+    def test_debug_provisioning_requires_native_capability(self):
+        from cody_studio_runner import StudioRunner
+
+        class ReleaseDevice:
+            # name: Requested native capability; this fixture has no Debug presenter.
+            # Returns False for every capability, without touching device state.
+            def studio_has_capability(self, name):
+                return False
+
+        available, reason = StudioRunner(ReleaseDevice()).availability(entry_for("atlas-v1:39"))
+        self.assertFalse(available)
+        self.assertIn("debug-provisioning", reason)
+
+
 class MaintenanceNativeTests(unittest.TestCase):
-    """Inspect all three frames in one separately loaded native runtime."""
+    """Inspect the frames in one separately loaded native runtime."""
 
     # self: Suite process retaining diagnostics from its isolated native worker.
     # Raises the original worker or deadline error, without retry or fallback rendering.
@@ -103,6 +129,8 @@ def run_worker(directory):
                           80, True, 1, deterministic_clock=True, audio_mode="silent")
     device.start()
     runner = StudioRunner(device)
+    if not device.studio_has_capability("debug-provisioning"):
+        raise AssertionError("Host native Debug provisioning capability is unavailable")
     display = default_scenario("P04")
     runner.prepare(display)
     display_hash = runner.capture().metadata["pixel_sha256"]

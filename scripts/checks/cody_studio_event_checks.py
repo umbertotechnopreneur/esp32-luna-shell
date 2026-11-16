@@ -27,6 +27,7 @@ CASES = {
     "ui-v1:question-queue": ("cody.event.question-queue", None, "N03"),
     "ui-v1:sending-reply": ("cody.event.sending-reply", "N06", None),
     "ui-v1:notice": ("cody.event.notice", None, None),
+    "ui-v1:reply-ready-detail": ("cody.event.reply-ready", None, None),
     "ui-v1:approval-pc": ("cody.event.approval-pc", "N08", None),
     "ui-v1:event-unavailable": ("cody.event.unavailable", "N11", None),
 }
@@ -73,6 +74,18 @@ class EventContractTests(unittest.TestCase):
         self.assertEqual(unavailable["observation_error"], "ESP_ERR_TIMEOUT")
         self.assertEqual(unavailable["event_observation"], "not published")
         self.assertNotIn("request_id", unavailable)
+
+    # self: The reply-ready fixture is a current shared event detail with its own origin.
+    # Raises AssertionError if the retired ActivityPage reply or a different origin is advertised.
+    def test_reply_ready_uses_current_event_detail_with_its_own_origin(self):
+        entry = entry_for("ui-v1:reply-ready-detail")
+        fixture = entry["fixed_dependencies"]["codex_event"]
+        self.assertEqual((fixture["kind"], fixture["state"], fixture["expected_route"]),
+                         ("ReplyReady", "Pending", "CodexNotice"))
+        self.assertEqual((fixture["origin_title"], fixture["body"]),
+                         ("Studio chat", "A reply is available."))
+        self.assertTrue(any("retired ActivityPage" in text for text in entry["limitations"]))
+        self.assertEqual(entry_for("ui-v1:reply")["availability"], "not-applicable")
 
     # self: Catalog and scenario contracts, without loading a native library.
     # Raises AssertionError for a guessed inventory alias or incoherent fixture.
@@ -188,6 +201,8 @@ def run_worker(directory):
     distinct = ("atlas-v1:21", "atlas-v1:23", "ui-v1:notice")
     if len({pixel_hashes[identity] for identity in distinct}) != len(distinct):
         raise AssertionError("PR pending, checks failed and notice rendered indistinguishable native frames")
+    if pixel_hashes["ui-v1:reply-ready-detail"] == pixel_hashes["ui-v1:notice"]:
+        raise AssertionError("Reply-ready detail and generic notice rendered indistinguishable native frames")
     if pixel_hashes["atlas-v1:22"] == pixel_hashes["ui-v1:approval-pc"]:
         raise AssertionError("Checks running and approval on PC rendered indistinguishable native frames")
     if pixel_hashes["ui-v1:review-reply"] == pixel_hashes["atlas-v1:27"]:

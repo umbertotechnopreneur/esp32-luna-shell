@@ -219,6 +219,8 @@ def validate_scenario(scenario):
         raise ValueError("Current statistics require connected synthetic Wi-Fi and scripted Codex READY; historical states are not supported by this pilot")
     if entry["native_target"].startswith("cody.event.") and not network["connected"]:
         raise ValueError("Codex event inspection requires connected synthetic Wi-Fi and scripted READY")
+    if entry["native_target"] == "cody.provisioning.debug" and not network["connected"]:
+        raise ValueError("Provisioning diagnostics require connected synthetic Wi-Fi")
     clock = observations["clock"]
     exact_fields(clock, {"epoch_seconds", "utc_offset_minutes"}, "clock")
     bounded_int(clock["epoch_seconds"], 1704067200, 4102444799, "clock.epoch_seconds")

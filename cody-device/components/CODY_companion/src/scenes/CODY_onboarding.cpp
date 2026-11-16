@@ -700,6 +700,8 @@ esp_err_t s_restart_error = ESP_OK;
 bool s_studio_maintenance_inspection = false;
 // Static host event presentation never submits reply, dismissal or navigation.
 bool s_studio_event_inspection = false;
+// Debug provisioning inspection is a retained view, never a pairing operation.
+bool s_studio_provisioning_debug_inspection = false;
 #endif
 PreferenceId s_requested_preference = PreferenceId::ShakeWake;
 uint32_t s_requested_preference_value = 0;
@@ -6318,6 +6320,7 @@ void reset_onboarding()
 #if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
     s_studio_maintenance_inspection = false;
     s_studio_event_inspection = false;
+    s_studio_provisioning_debug_inspection = false;
 #endif
     clear_text_entry(s_local_wifi.entry);
     clear_text_entry_view(s_local_wifi.keyboard);
@@ -7735,6 +7738,9 @@ bool studio_scene_supported(const char *target)
         studio_dashboard_target(target) || studio_browser_target(target) || studio_local_wifi_target(target) ||
         studio_provisioning_target(target) || studio_link_route(target) != Route::None ||
         CODY::host_studio_events::is_target(target) ||
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+        std::strcmp(target, "cody.provisioning.debug") == 0 ||
+#endif
         std::strcmp(target, "cody.settings.quiet-edit") == 0 ||
         std::strcmp(target, "cody.provisioning.error") == 0);
 }
@@ -7838,6 +7844,29 @@ esp_err_t prepare_studio_scene(SceneFrame &scene, const CodyHostStudioCase &requ
             error = render_codex_event(scene);
         }
         if (error == ESP_OK && s_route != expected_route) error = ESP_ERR_INVALID_STATE;
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+    } else if (std::strcmp(target, "cody.provisioning.debug") == 0) {
+        // This display-owned sample reads one coherent host observation; it does
+        // not start provisioning, write credentials, or replay pairing handoff.
+        LUNASHELL::ConnectivityObservation observation{};
+        error = LUNASHELL::DeviceSnapshotService::instance().readConnectivityObservation(observation);
+        const auto &wifi = observation.radios.wifi;
+        const auto &ble = observation.radios.ble;
+        const auto &pairing = observation.radios.pairing;
+        const auto &provisioning = observation.radios.provisioning;
+        if (error == ESP_OK && (!wifi.data_valid || wifi.data_stale || wifi.last_error != ESP_OK ||
+                !wifi.connection_state_valid || !wifi.connected || !wifi.ip_acquired ||
+                !ble.data_valid || ble.data_stale || ble.last_error != ESP_OK || !ble.advertising ||
+                !pairing.data_valid || pairing.data_stale || pairing.last_error != ESP_OK ||
+                pairing.state != LUNASHELL::PairingSessionState::Online ||
+                !provisioning.data_valid || provisioning.data_stale || provisioning.last_error != ESP_OK ||
+                provisioning.running || provisioning.state != LUNASHELL::ProvisioningState::Stopped))
+            error = ESP_ERR_INVALID_STATE;
+        if (error == ESP_OK) {
+            s_studio_provisioning_debug_inspection = true;
+            error = enter_pairing_debug(observation, scene);
+        }
+#endif
     } else if (studio_local_wifi_target(target)) {
         s_home_wifi_flow = true;
         s_home_wifi_intro = false;
@@ -7992,6 +8021,11 @@ bool studio_scene_active(const char *target)
             s_presented_event.last_success_at_us == esp_timer_get_time() &&
             studio_event_pending_matches(s_presented_event);
     }
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+    if (std::strcmp(target, "cody.provisioning.debug") == 0)
+        return s_studio_provisioning_debug_inspection && s_route == Route::DebugText &&
+            s_view.line_count == kPairingDebugLineCount;
+#endif
     if (std::strcmp(target, "cody.provisioning.error") == 0) return s_route == Route::Failed08;
     if (studio_dashboard_target(target)) return onboarding_dashboard_active();
     if (studio_local_wifi_target(target)) {
@@ -8540,7 +8574,8 @@ esp_err_t update_onboarding(SceneFrame &scene, const SceneFrame &completed_scene
     changed = false;
 #if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
     // A synthetic frozen maintenance image has no request to poll or complete.
-    if (s_studio_maintenance_inspection || s_studio_event_inspection) return ESP_OK;
+    if (s_studio_maintenance_inspection || s_studio_event_inspection ||
+        s_studio_provisioning_debug_inspection) return ESP_OK;
 #endif
     s_startup_avatar_only = false;
     const esp_err_t activity_error = synchronize_screen_activity(inactivity_active_time_us);
@@ -10106,7 +10141,8 @@ esp_err_t handle_onboarding_touch(SceneFrame &scene, CODY2D::Point point,
     consumed = false;
 #if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
     // Static inspection is read-only, even when the renderer shows Retry.
-    if (s_studio_maintenance_inspection || s_studio_event_inspection) return ESP_ERR_NOT_SUPPORTED;
+    if (s_studio_maintenance_inspection || s_studio_event_inspection ||
+        s_studio_provisioning_debug_inspection) return ESP_ERR_NOT_SUPPORTED;
 #endif
     if (s_local_wifi.page != LocalWifiPage::None) {
         return handle_local_wifi_touch(scene, point, pressed, pressed_edge, rotation_degrees, consumed);

@@ -33,6 +33,7 @@ def ui_suite(base_class):
             cases = (("atlas-v1:21", "cody.event.pr-pending", "studio-event-pr-pending.png"),
                      ("atlas-v1:24", "cody.event.check-failures", "studio-event-check-failures.png"),
                      ("ui-v1:review-reply", "cody.event.review-reply", "studio-event-review-reply.png"),
+                     ("ui-v1:reply-ready-detail", "cody.event.reply-ready", "studio-event-reply-ready.png"),
                      ("ui-v1:event-unavailable", "cody.event.unavailable", "studio-event-unavailable.png"))
             for identity, target, screenshot in cases:
                 with self.subTest(identity=identity):

@@ -85,7 +85,8 @@ esp_err_t validate_studio_case(const CodyHostStudioCase &request)
     }
     const char *static_codex_outcome = studio_static_codex_outcome(identity.target);
     const bool studio_event = CODY::host_studio_events::is_target(identity.target);
-    if (studio_event) {
+    const bool studio_provisioning_debug = std::strcmp(identity.target, "cody.provisioning.debug") == 0;
+    if (studio_event || studio_provisioning_debug) {
         LUNASHELL::HardwareStatus hardware{};
         const auto error = LUNASHELL::DeviceSnapshotService::instance().readHardwareStatus(hardware);
         if (error != ESP_OK) return error;
@@ -278,11 +279,26 @@ esp_err_t publish_studio_case(const CodyHostStudioCase &request)
     s_snapshot.radios.wifi.credentials_configured = false;
     s_snapshot.radios.ble = {};
     if (std::strcmp(target, "cody.setup.wifi-guide") == 0 ||
-        std::strcmp(target, "cody.setup.bluetooth-instructions") == 0) {
+        std::strcmp(target, "cody.setup.bluetooth-instructions") == 0 ||
+        std::strcmp(target, "cody.provisioning.debug") == 0) {
         auto &ble = s_snapshot.radios.ble;
         LUNASHELL::snapshot_detail::mark_sample_success(ble, now);
         std::memcpy(ble.device_name, "AiGadget-000001", sizeof("AiGadget-000001"));
-        // Name availability does not imply provisioning, advertising or a link.
+        // Name availability alone does not imply provisioning or a live link.
+        // The Debug diagnostics sample explicitly supplies the completed host
+        // handoff states its production presenter describes, with no radio work.
+        if (std::strcmp(target, "cody.provisioning.debug") == 0) {
+            ble.advertising = true;
+            s_snapshot.radios.wifi.credentials_configured = true;
+            auto &pairing = s_snapshot.radios.pairing;
+            LUNASHELL::snapshot_detail::mark_sample_success(pairing, now);
+            pairing.state = LUNASHELL::PairingSessionState::Online;
+            pairing.attempt_id = 1;
+            pairing.changed_at_us = now;
+            auto &provisioning = s_snapshot.radios.provisioning;
+            LUNASHELL::snapshot_detail::mark_sample_success(provisioning, now);
+            provisioning.state = LUNASHELL::ProvisioningState::Stopped;
+        }
     }
     if (std::strcmp(target, "cody.wifi.connecting") == 0 ||
         std::strcmp(target, "cody.wifi.connection-error") == 0) {

@@ -131,7 +131,9 @@ identify the owning journey; exact current controls remain in navigation.md.
 | ui-v1:diagnostics, memory-detail | `CODY_debug_views.cpp`, UI diagnostics layer | Debug/Release entry -> overview -> retained route | Active source |
 | ui-v1:audio | `CODY_audio_view.cpp`, UI audio layer | Options Audio levels -> retained Options caller; canonical microphone/playback observations | Active source; unavailable channel levels remain unavailable rather than synthetic microphone measurements |
 | ui-v1:screensaver | `CODY_screensaver.cpp` | Enabled idle policy -> first-touch dismissal | Active source, setting initially disabled |
-| ui-v1:activity-events, current-turn, reply, statistics | CP; UI `ActivityPage` | Activity navigation -> event/detail/statistics | Active source, canonical selected-chat projection only |
+| ui-v1:activity-events, current-turn, statistics | CP; UI `ActivityPage` | Activity navigation -> event/detail/statistics | Active source, canonical selected-chat projection only |
+| ui-v1:reply | CP; former ActivityPage reply view | Former Activity navigation | Retired; current ActivityPage no longer has a reply view |
+| ui-v1:reply-ready-detail | ON; shared Codex event detail presenter | Reply-ready notification -> shared detail | Active reply-ready detail; separate from the retired ActivityPage reply view |
 | next-v1:101 / codex | Native Codex browser hub | Options -> Chats, Active calls, Questions, Events, Statistics or Saved when its bookmarked chat is available | Source |
 | next-v1:102 / chats | Canonical chat page | Codex -> selected chat / Turns; Back -> Codex | Source |
 | next-v1:103 / turns | Exact chat and its turns | Chats or Saved -> Tool calls or PC chat activity; Back -> caller | Source |
@@ -211,9 +213,11 @@ Studio event fixtures publish a bounded synthetic event and READY observation
 through the host snapshot owner, then prepare the original Codex presenter on
 the display owner. Static inspection blocks actions and updates; it does not
 replay authenticated transport, a reply, an inbox journey or event audio.
-Question choice and review are distinct states; the latter is not covered by
-the current choice fixture. Declared source-family links do not create new
-inventory IDs. Acquisition and physical evidence remain separate.
+Question choice and review have separate static fixtures. The reply-ready
+fixture uses the current shared notification detail with a synthetic chat
+origin; it does not restore the retired ActivityPage reply view. Declared
+source-family links do not create new inventory IDs. Acquisition and physical
+evidence remain separate.
 
 Catalog availability describes the declared rendering path: full runtime,
 isolated presenter, profile conditional, unsupported or not applicable. It is

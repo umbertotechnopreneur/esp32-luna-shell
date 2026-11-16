@@ -33,6 +33,7 @@ inline constexpr Definition kDefinitions[]{
     {"cody.event.sending-reply", CodexEventKind::Question, CodexEventState::Sending, EventStage::Notice, Route::DecisionWaiting},
     {"cody.event.reply-sent", CodexEventKind::Question, CodexEventState::Delivered, EventStage::Notice, Route::ReplySent31},
     {"cody.event.notice", CodexEventKind::Notice, CodexEventState::Pending, EventStage::Notice, Route::CodexNotice},
+    {"cody.event.reply-ready", CodexEventKind::ReplyReady, CodexEventState::Pending, EventStage::Notice, Route::CodexNotice},
     {"cody.event.approval-pc", CodexEventKind::ApprovalOnPc, CodexEventState::Pending, EventStage::Notice, Route::ApprovalOnPc},
     {"cody.event.unavailable", CodexEventKind::None, CodexEventState::Pending, EventStage::Notice, Route::EventUnavailable, ESP_ERR_TIMEOUT},
 };
@@ -97,6 +98,8 @@ inline bool fill(const char *target, int64_t now_us, LUNASHELL::CodexEventSnapsh
         title = "Checks failed"; body = "Some checks need attention."; break;
     case CodexEventKind::Notice:
         title = "Codex notice"; body = "A new update is available."; break;
+    case CodexEventKind::ReplyReady:
+        title = "Reply ready"; body = "A reply is available."; break;
     case CodexEventKind::ApprovalOnPc:
         title = "Approval on PC"; body = "Review this request on your PC."; break;
     default: break;

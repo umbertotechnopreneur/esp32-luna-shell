@@ -4628,13 +4628,14 @@ esp_err_t process_studio_request(DeviceRuntime &ui)
     const bool muse = std::strcmp(target, "cody.home.muse") == 0;
     const bool screensaver = std::strcmp(target, "cody.home.screensaver") == 0;
     const bool connected = std::strcmp(target, "cody.codex.connected") == 0;
+    const bool debug_provisioning = std::strcmp(target, "cody.provisioning.debug") == 0;
     const bool event = CODY::host_studio_events::is_target(target);
     const bool maintenance = std::strcmp(target, "cody.settings.restart-pending") == 0 ||
         std::strcmp(target, "cody.settings.reset-pending") == 0 ||
         std::strcmp(target, "cody.settings.reset-failed") == 0;
     const bool questions = browser_route == CODY::CodexBrowserRoute::PendingQuestions &&
         std::strcmp(request->domain_questions_outcome, "supported") == 0;
-    std::strcpy(s_studio_identity.rendering_mode, browser || memory || screensaver || connected || maintenance || event ?
+    std::strcpy(s_studio_identity.rendering_mode, browser || memory || screensaver || connected || maintenance || event || debug_provisioning ?
         "presenter-isolated" : "runtime-full");
     FrameView frame{};
     if (error == ESP_OK && branding) {
@@ -5275,6 +5276,14 @@ CODY_HOST_STUDIO_API esp_err_t cody_host_studio_replay_worker(const CodyHostStud
 CODY_HOST_STUDIO_API esp_err_t cody_host_studio_has_capability(const char *name, uint8_t *available)
 {
     if (!name || !available) return ESP_ERR_INVALID_ARG;
+    if (std::strcmp(name, "debug-provisioning") == 0) {
+#if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+        *available = 1;
+#else
+        *available = 0;
+#endif
+        return ESP_OK;
+    }
     if (std::strcmp(name, "wake-word") != 0) return ESP_ERR_NOT_SUPPORTED;
 #if CONFIG_LUNASHELL_BUILD_ENABLE_WAKE_WORD
     *available = 1;
