@@ -19,11 +19,12 @@ from cody_semantic_palette import studio_hex
 from cody_studio_catalog import inventory_label, entry_for, load_catalog, resolve_source, routes_for, scenario_contract_for
 from cody_studio_atlas import AtlasJob, BuildWatcher, latest_atlas_path, load_atlas, verify_contract_inputs
 from cody_studio_runner import StudioRunner, load_capture, verify_current_build
-from cody_studio_comparison import compare_captures, comparison_image, load_review, preserve_baseline, save_review
+from cody_studio_comparison import compare_captures, load_review, preserve_baseline, save_review
 from cody_studio_scenario import default_scenario, load_scenario, save_scenario, validate_scenario
 from cody_studio_timeline import (source_timeline_scenario, timeline_capture, timeline_plan,
                                   worker_timeline_scenario)
-from runtime_paths import resolve_runtime_output
+from cody_studio_preferences import ATLAS_SUITES, PreferenceStore
+from cody_studio_results import CaptureResultController
 
 BG, FG, MUTED = (studio_hex('host_ui', key) for key in ('background', 'text', 'muted'))
 FIELD, ORANGE = studio_hex('host_ui', 'field'), studio_hex('setup_warning')
@@ -63,7 +64,8 @@ class StudioWindow:
     def __init__(self, root, device, scenario):
         self.root, self.scenario = root, deepcopy(scenario)
         self.runner = StudioRunner(device)
-        self.current = self.baseline = None
+        self.capture_results = CaptureResultController()
+        self.baseline = None
         self.baseline_error = None
         self.unavailable_baseline = None
         self.records, self.sections, self.photos = [], {}, []
@@ -96,6 +98,8 @@ class StudioWindow:
         self.results = queue.Queue()
         self.executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix='cody-studio')
         self.status = tk.StringVar(value='Preparing native Studio case…')
+        self.preferences_warning = tk.StringVar()
+        self.preference_store = PreferenceStore(STATE_PATH)
         self.preferences = self.read_preferences()
         self.restore_baseline()
         root.title('Cody Studio — SIMULATED')
@@ -111,6 +115,13 @@ class StudioWindow:
         self.focus_binding = root.bind('<FocusIn>', self.queue_focus_reveal, add='+')
         self.poll_id = root.after(40, self.poll)
         self.initial_apply_id = root.after_idle(self.apply)
+
+    @property
+    # No parameters: expose only the last completely adopted capture to window actions.
+    # Exceptions: None; pending evidence is retained by the result controller separately.
+    def current(self):
+        presentation = self.capture_results.current
+        return presentation.record if presentation is not None else None
 
     # event: Focus transition in this window's normal Toplevel bindtag.
     # Coalesces ancestor/child events and reveals only fields inside our scroll areas.
@@ -159,36 +170,38 @@ class StudioWindow:
         desired_top = max(bounds[1], min(desired_top, max(bounds[1], bounds[3] - height)))
         viewport.yview_moveto((desired_top - bounds[1]) / (bounds[3] - bounds[1]))
 
-    # No parameters: restore host visibility preferences, with visible parse errors.
+    # No parameters: load host preferences; failed reads allow session-only defaults.
+    # Exceptions: Original storage/schema errors are retained by the owner and displayed.
     def read_preferences(self):
         try:
-            path = resolve_runtime_output(STATE_PATH)
-            value = json.loads(path.read_text(encoding='utf-8'))
-            if not isinstance(value, dict) or value.get('schema') != 'cody.studio.ui.v1':
-                raise ValueError('Unsupported Studio UI preferences')
-            return value
-        except FileNotFoundError:
-            return {}
-        except (OSError, ValueError) as error:
-            self.status.set(f'UI preferences unavailable: {error}')
+            return self.preference_store.load()
+        except (OSError, ValueError, RuntimeError) as error:
+            self.show_preferences_error(error)
             return {}
 
-    # No parameters: persist only UI preferences, never captures or baselines.
+    # error: Original preference failure, independent of transient capture/job status.
+    # Raises tk.TclError if the host warning cannot be updated; never clears the write block.
+    def show_preferences_error(self, error):
+        self.preferences_warning.set(
+            f'UI preferences not saved: {error}. Close Studio, repair or move '
+            f'{self.preference_store.path}, then reopen. Session changes are temporary.')
+        if hasattr(self, 'preferences_warning_label'):
+            self.preferences_warning_label.pack(side='bottom', fill='x', padx=24, pady=4,
+                                                before=self.status_label)
+
+    # No parameters: save host preferences only when their storage owner admits writes.
+    # Exceptions: Original read/write/schema errors stay visible; close remains available.
     def persist(self):
         try:
-            path = resolve_runtime_output(STATE_PATH)
-            path.parent.mkdir(parents=True, exist_ok=True)
             value = {'schema': 'cody.studio.ui.v1',
                      'expanders': {key: data[2] for key, data in self.sections.items()},
                      'left': self.left_visible.get(), 'right': self.right_visible.get(),
                      'atlas_suite': self.atlas_suite.get(),
                      'baseline': (str(self.baseline.metadata_path.relative_to(ROOT)) if self.baseline
                                   else self.unavailable_baseline)}
-            temporary = path.with_suffix('.json.tmp')
-            temporary.write_text(json.dumps(value, indent=2) + '\n', encoding='utf-8')
-            temporary.replace(path)
-        except (OSError, ValueError) as error:
-            self.status.set(f'UI preferences not saved: {error}')
+            self.preference_store.save(value)
+        except (OSError, ValueError, RuntimeError) as error:
+            self.show_preferences_error(error)
 
     # No parameters: restore only an explicitly preserved baseline from artifacts.
     # Exceptions: Corrupt or missing evidence is reported and never substituted.
@@ -270,7 +283,8 @@ class StudioWindow:
                 if opened:
                     body.pack(fill='x', padx=(20, 0))
 
-    # No parameters: construct the approved host composition with visible focus.
+    # No parameters: construct the host composition and a separate persistent storage warning.
+    # Raises tk.TclError for invalid widget configuration; device pixels are unchanged.
     def build(self):
         style = ttk.Style(self.root)
         style.theme_use('clam')
@@ -464,7 +478,7 @@ class StudioWindow:
         suite_row = tk.Frame(atlas, bg=BG)
         suite_row.pack(fill='x')
         caption(suite_row, 'Suite', 10).pack(side='left')
-        suites = ('Pilot (10)', 'Supported screens', 'Filtered catalog')
+        suites = ATLAS_SUITES
         saved_suite = self.preferences.get('atlas_suite', suites[0])
         self.atlas_suite = tk.StringVar(value=saved_suite if saved_suite in suites else suites[0])
         self.atlas_suite_control = ttk.Combobox(suite_row, textvariable=self.atlas_suite, values=suites,
@@ -597,6 +611,14 @@ class StudioWindow:
         self.status_label = caption(self.root, textvariable=self.status, size=10, wraplength=1300)
         self.status_label.pack(side='bottom', fill='x', padx=24, pady=10, before=work)
         self.status_label.bind('<Configure>', lambda event: self.status_label.configure(wraplength=max(120, event.width)))
+        self.preferences_warning_label = caption(self.root, textvariable=self.preferences_warning,
+                                                 size=10, wraplength=1300)
+        self.preferences_warning_label.configure(fg=ORANGE)
+        # event: Host warning bounds; wrap its full original error without clipping it.
+        self.preferences_warning_label.bind('<Configure>', lambda event:
+            self.preferences_warning_label.configure(wraplength=max(120, event.width)))
+        if self.preference_store.error is not None:
+            self.show_preferences_error(self.preference_store.error)
         self.columns()
         self.tree.selection_set(self.scenario['context']['target'])
 
@@ -866,6 +888,7 @@ class StudioWindow:
     # args: Ignored Tk trace metadata.
     # Maintained source identities remain visible when their contracts are unsupported.
     def catalog(self, *args):
+        entries = load_catalog()
         selected = self.tree.selection()
         self.tree.delete(*self.tree.get_children())
         groups = {}
@@ -876,7 +899,7 @@ class StudioWindow:
                               'Profile conditional': 'profile-conditional', 'Unsupported': 'unsupported',
                               'Not applicable': 'not-applicable'}
         failures = []
-        for item in load_catalog():
+        for item in entries:
             try:
                 supported, reason = self.runner.availability(item)
             except (OSError, ValueError, RuntimeError) as error:
@@ -924,7 +947,7 @@ class StudioWindow:
             self.baseline_warning_label.pack_forget()
 
     # No parameters: refresh evidence filters after a capture, baseline or review changes.
-    # Exceptions: Catalog validation errors propagate instead of inventing evidence.
+    # Exceptions: Unavailable catalog evidence is reported without losing the prior view.
     def refresh_evidence_filter(self):
         for control, record in zip(self.thumbnail_controls, self.thumbnail_records):
             try:
@@ -933,7 +956,10 @@ class StudioWindow:
                 difference = 'not comparable'
             control.configure(text=f"{inventory_label(record.metadata)} · {difference}")
         if self.filter.get() in ('Changed', 'Needs review'):
-            self.catalog()
+            try:
+                self.catalog()
+            except (OSError, ValueError, RuntimeError, KeyError, TypeError) as error:
+                self.catalog_message.set(f'Catalog refresh failed: {error}')
 
     # No parameters: the requested comparison mode makes its controls visible.
     # Exceptions: Persistence failures are reported by persist().
@@ -954,15 +980,16 @@ class StudioWindow:
         self.describe_entry(item)
 
     # item: Source-qualified catalog entry whose declared routes are inspected.
+    # routes: Optional routes already validated with a staged capture presentation.
     # Exceptions: Tk errors propagate without changing the selected native frame.
-    def describe_entry(self, item):
+    def describe_entry(self, item, routes=None):
+        routes = routes_for(item['id']) if routes is None else routes
         try:
             available, reason = self.runner.availability(item)
             capability = reason if item['availability'] == 'profile-conditional' else ''
         except (OSError, ValueError, RuntimeError) as error:
             available, capability = False, f'Native capability unavailable: {error}'
         self.detail.set(f"{item['id']}\n{item['availability']}\n{capability}\n{item.get('verification', item.get('reason', ''))}")
-        routes = routes_for(item['id'])
         incoming = sum(route['destination'] == item['id'] for route in routes)
         outgoing = sum(route['origin'] == item['id'] for route in routes)
         self.refresh_section('Routes', f'Routes · {incoming} in / {outgoing} out')
@@ -1057,9 +1084,10 @@ class StudioWindow:
             self.variant.set(previous)
             self.error(error)
 
-    # No parameters: load form values without changing native state.
-    def show_scenario(self):
-        entry = entry_for(self.scenario['context']['target'])
+    # entry: Optional staged catalog entry; omitted for explicit scenario edits.
+    # Exceptions: Catalog/schema/Tk errors propagate without changing native state.
+    def show_scenario(self, entry=None):
+        entry = entry_for(self.scenario['context']['target']) if entry is None else entry
         self.scenario_title.set(f"{inventory_label(entry)} · {entry['title']} inputs")
         self.variant_control.configure(values=entry['variants'])
         self.variant.set(self.scenario['variant'])
@@ -1554,12 +1582,25 @@ class StudioWindow:
 
         self.executor.submit(work)
 
-    # No parameters: adopt worker results only on the Tk thread.
+    # No parameters: refresh jobs and adopt results only on the Tk thread.
+    # Exceptions: Evidence failures remain visible and never retire the next poll.
     def poll(self):
         if self.closed:
             return
-        self.poll_atlas()
-        self.poll_cue_audition()
+        try:
+            self.poll_atlas()
+            self.poll_cue_audition()
+            self.poll_capture_result()
+        except (OSError, ValueError, RuntimeError, KeyError, TypeError, tk.TclError) as error:
+            self.pause_timeline()
+            self.error(error)
+        finally:
+            if not self.closed:
+                self.poll_id = self.root.after(40, self.poll)
+
+    # No parameters: consume one completed native operation, leaving later results queued.
+    # Exceptions: Preparation/adoption failures propagate to the recoverable poll boundary.
+    def poll_capture_result(self):
         try:
             scenario, record, error, operation = self.results.get_nowait()
         except queue.Empty:
@@ -1571,11 +1612,13 @@ class StudioWindow:
                 self.pause_timeline()
                 self.error(error)
             else:
+                presentation = self.prepare_presentation(record)
+                record = presentation.record
+                photos = self.prepare_capture_photos(presentation)
                 if operation['kind'] == 'route':
-                    self.route_records[operation['route_id']] = dict(record.metadata)
                     self.scenario = deepcopy(record.metadata['scenario'])
-                    self.show_scenario()
-                self.set_current(record)
+                    self.show_scenario(presentation.entry)
+                self.set_current(record, presentation, photos)
                 if operation['kind'] == 'route':
                     self.status.set(f"Observed route {operation['route_id']} · native capture {record.metadata['capture_id']}")
                 elif operation['kind'] == 'timeline':
@@ -1616,19 +1659,35 @@ class StudioWindow:
                         self.timeline_position = record.metadata['requested_at_ms']
                         self.animation_keyframe.set(str(self.timeline_position))
                     self.status.set(f'Acquired · native completed frame · {record.metadata_path.name} · physical acceptance pending')
-        self.poll_id = self.root.after(40, self.poll)
 
-    # record: A verified immutable capture record; never automatically becomes baseline.
-    def set_current(self, record):
+    # record: Candidate saved capture; pending form and selected baseline stay unchanged.
+    # Exceptions: Original evidence errors propagate before any selected result changes.
+    def prepare_presentation(self, record):
+        return self.capture_results.prepare(record, self.baseline, self.mode.get(), self.opacity.get())
+
+    # presentation: Validated evidence whose Tk resources must exist before inputs or selection change.
+    # Exceptions: Allocation/image/Tk failures propagate without mutating the current view.
+    def prepare_capture_photos(self, presentation):
+        frame_photo = self.prepare_frame_photo(presentation)
+        thumbnail_photo = None
+        if all(item.metadata_path != presentation.record.metadata_path for item in self.records):
+            thumbnail_photo = ImageTk.PhotoImage(presentation.image.resize((72, 72), Image.Resampling.NEAREST))
+        return frame_photo, thumbnail_photo
+
+    # record: Candidate immutable capture; never automatically becomes the baseline.
+    # presentation: Optional fully staged evidence from the result or history controller.
+    # photos: Optional frame and thumbnail Tk resources staged before scenario controls change.
+    # Exceptions: I/O/schema failures precede adoption; Tk errors retain their original cause.
+    def set_current(self, record, presentation=None, photos=None):
+        presentation = self.prepare_presentation(record) if presentation is None else presentation
+        record, review, entry = presentation.record, presentation.review, presentation.entry
+        frame_photo, thumbnail_photo = self.prepare_capture_photos(presentation) if photos is None else photos
         self.live_image = None
-        review = load_review(record)
-        self.current = record
         route_evidence = record.metadata.get('route')
         if isinstance(route_evidence, dict):
             route_id = route_evidence.get('receipt', {}).get('route_id')
             if route_id:
                 self.route_records[route_id] = dict(record.metadata)
-        entry = entry_for(record.metadata['id'])
         self.frame_title.set(f"{inventory_label(entry)} — {entry['title']}")
         sample = record.metadata['frame_identity'].get('source_animation_sample_ms', 0)
         timing = f" · source animation {sample} ms" if sample else ''
@@ -1637,20 +1696,26 @@ class StudioWindow:
         self.frame_subtitle.set(f"Native C/C++ · {record.metadata['rendering_mode']} · t={record.metadata['at_ms']}{timing} · 466 × 466")
         if self.tree.exists(record.metadata['id']):
             self.tree.selection_set(record.metadata['id'])
-        self.describe_entry(entry)
-        self.add_capture_record(record)
+        self.describe_entry(entry, presentation.routes)
+        self.add_capture_record(record, presentation.image, thumbnail_photo)
         self.refresh_evidence_filter()
         self.note.delete('1.0', 'end')
         self.note.insert('1.0', review['note'])
         self.review.set(review['status'])
         self.refresh_section('Review notes', f"Review notes · {review['count']} · {review['status']}")
-        self.draw()
+        self.draw(presentation, frame_photo)
+        self.capture_results.commit(presentation)
 
     # record: Hash-checked saved capture added to the atlas without selecting it or touching native state.
+    # image: Optional verified native pixels already staged for a result adoption.
+    # photo: Optional Tk thumbnail already allocated before selection changes.
     # Exceptions: Image/Tk failures propagate; a duplicate immutable capture is ignored.
-    def add_capture_record(self, record):
+    def add_capture_record(self, record, image=None, photo=None):
         if all(item.metadata_path != record.metadata_path for item in self.records):
-            with Image.open(record.image_path) as image:
+            if photo is None:
+                if image is None:
+                    with Image.open(record.image_path) as source:
+                        image = source.copy()
                 photo = ImageTk.PhotoImage(image.resize((72, 72), Image.Resampling.NEAREST))
             difference = 'not compared'
             if self.baseline is not None:
@@ -1676,29 +1741,45 @@ class StudioWindow:
         visible = f' · latest {len(self.thumbnail_controls)} shown' if len(self.records) > 40 else ''
         self.refresh_section('Atlas', f'Atlas · {screens} screens / {len(self.records)} captures{visible}')
 
-    # No parameters: present proportional native pixels or a compatible comparison.
-    def draw(self):
-        for mode, control in self.mode_controls:
-            control.configure(fg=ORANGE if self.mode.get() == mode else FG)
+    # presentation: Validated capture or comparison to scale without changing any widget.
+    # Exceptions: Allocation/image/Tk failures propagate before selection or canvas mutations.
+    def prepare_frame_photo(self, presentation):
+        frame, result = presentation.display_image, presentation.comparison
+        width, height = max(1, self.canvas.winfo_width()), max(1, self.canvas.winfo_height())
+        unavailable = self.mode.get() != 'current' and (result is None or not result.compatible)
+        header_height = 60 if unavailable else 30
+        usable_height = max(1, height - header_height)
+        factor = min(width / frame.width, usable_height / frame.height)
+        size = max(1, round(frame.width * factor)), max(1, round(frame.height * factor))
+        return ImageTk.PhotoImage(frame.resize(size, Image.Resampling.NEAREST)), width, height, header_height
+
+    # presentation: Optional staged capture; supplied results propagate adoption failures.
+    # frame_photo: Optional Tk image and geometry allocated before selection changes.
+    # Exceptions: Standalone redraws report errors; staged adoption preserves the original exception.
+    def draw(self, presentation=None, frame_photo=None):
+        adopting = presentation is not None
         if self.live_image is not None:
             frame = self.live_image
             width, height = max(1, self.canvas.winfo_width()), max(1, self.canvas.winfo_height())
             factor = min(width / frame.width, max(1, height - 30) / frame.height)
             size = max(1, round(frame.width * factor)), max(1, round(frame.height * factor))
             self.frame_photo = ImageTk.PhotoImage(frame.resize(size, Image.Resampling.NEAREST))
+            for mode, control in self.mode_controls:
+                control.configure(fg=ORANGE if self.mode.get() == mode else FG)
             self.canvas.delete('all')
             self.canvas.create_text(width // 2, 4, text='BOOT REPLAY · NOT A CAPTURE', fill=ORANGE, anchor='n')
             self.canvas.create_image(width // 2, 30 + max(1, height - 30) // 2, image=self.frame_photo)
             return
-        if self.current is None:
+        if self.current is None and presentation is None:
+            for mode, control in self.mode_controls:
+                control.configure(fg=ORANGE if self.mode.get() == mode else FG)
             return
         try:
-            result = compare_captures(self.baseline, self.current) if self.baseline else None
-            if result is None or not result.compatible or self.mode.get() == 'current':
-                with Image.open(self.current.image_path) as image:
-                    frame = image.copy()
-            else:
-                frame = comparison_image(self.baseline, self.current, self.mode.get(), self.opacity.get())
+            presentation = self.prepare_presentation(self.current) if presentation is None else presentation
+            result, review = presentation.comparison, presentation.review
+            photo, width, height, header_height = frame_photo or self.prepare_frame_photo(presentation)
+            for mode, control in self.mode_controls:
+                control.configure(fg=ORANGE if self.mode.get() == mode else FG)
             if result is None:
                 summary = 'Not comparable · choose a baseline'
             elif not result.compatible:
@@ -1706,17 +1787,12 @@ class StudioWindow:
             else:
                 summary = ('Unchanged' if result.changed_pixels == 0 else 'Modified') + f' · {result.changed_pixels} changed pixels'
             self.compare_status.set(summary + '\nAcquisition and human review are separate states.')
-            review = load_review(self.current)
             difference = result.status if result else 'not-comparable'
             self.evidence_status.set(f"Acquisition: captured\nDifference: {difference}\nReview: {review['status']}")
             self.refresh_section('Changes', 'Changes · ' + (str(result.changed_pixels) + ' pixels' if result and result.compatible else 'not compared'))
-            width, height = max(1, self.canvas.winfo_width()), max(1, self.canvas.winfo_height())
             unavailable = self.mode.get() != 'current' and (result is None or not result.compatible)
-            header_height = 60 if unavailable else 30
             usable_height = max(1, height - header_height)
-            factor = min(width / frame.width, usable_height / frame.height)
-            size = max(1, round(frame.width * factor)), max(1, round(frame.height * factor))
-            self.frame_photo = ImageTk.PhotoImage(frame.resize(size, Image.Resampling.NEAREST))
+            self.frame_photo = photo
             self.canvas.delete('all')
             if self.mode.get() == 'side-by-side' and result and result.compatible:
                 self.canvas.create_text(width * .25, 10, text='BEFORE · saved baseline', fill=ORANGE, anchor='n')
@@ -1728,6 +1804,8 @@ class StudioWindow:
                                         fill=ORANGE, anchor='n', width=max(1, width - 16))
             self.canvas.create_image(width // 2, header_height + usable_height // 2, image=self.frame_photo)
         except (OSError, ValueError, RuntimeError) as error:
+            if adopting:
+                raise
             self.error(error)
 
     # No parameters: explicit preservation never overwrites a previously saved baseline.
@@ -1793,20 +1871,21 @@ class StudioWindow:
         if self.busy:
             self.status.set('Wait for the active preparation before selecting a saved capture.')
             return
-        load_review(record)
+        presentation = self.prepare_presentation(record)
+        record = presentation.record
+        photos = self.prepare_capture_photos(presentation)
         self.scenario = deepcopy(record.metadata['scenario'])
-        self.show_scenario()
+        self.show_scenario(presentation.entry)
         timeline = record.metadata.get('timeline')
         if isinstance(timeline, dict):
             self.timeline_scenario = deepcopy(timeline['base_scenario'])
-            self.configure_timeline(entry_for(record.metadata['id']))
+            self.configure_timeline(presentation.entry)
         if record.metadata.get('worker'):
             self.timeline_position = record.metadata['requested_at_ms']
             self.animation_keyframe.set(str(self.timeline_position))
-        self.set_current(record)
+        self.set_current(record, presentation, photos)
         if self.tree.exists(record.metadata['id']):
             self.tree.selection_set(record.metadata['id'])
-        self.describe_entry(entry_for(record.metadata['id']))
 
     # No parameters: save a scenario for replay, leaving application to Apply.
     def save_scenario(self):

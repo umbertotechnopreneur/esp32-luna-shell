@@ -12,7 +12,6 @@ import tkinter as tk
 from PIL import Image, ImageTk
 
 from cody_native_capture import capture_completed_frame
-from cody_native_atlas_capture import AtlasCaptureSession
 from cody_native_display import NativeDisplayError
 from cody_native_snapshot_editor import SnapshotEditor
 from cody_native_runtime import ROOT
@@ -40,11 +39,9 @@ def run_native_window(device, studio_scenario=None):
     root = tk.Tk()
     root.title("Cody Studio — SIMULATED")
     menu = tk.Menu(root)
-    atlas = AtlasCaptureSession()
     simulator_menu = tk.Menu(menu, tearoff=False)
     simulator_menu.add_command(label="Open controlled P04 Studio…", command=open_controlled_studio)
     simulator_menu.add_command(label="Edit simulated snapshot…", command=lambda: SnapshotEditor(root, device))
-    simulator_menu.add_command(label="Capture labelled atlas frame…", command=lambda: atlas.capture(root, device))
     menu.add_cascade(label="Simulator", menu=simulator_menu)
     display_menu = tk.Menu(menu, tearoff=False)
     display_mode = tk.StringVar(value="fit")

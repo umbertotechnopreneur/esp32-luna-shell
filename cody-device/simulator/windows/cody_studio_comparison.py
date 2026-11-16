@@ -3,6 +3,7 @@
 from copy import deepcopy
 from dataclasses import dataclass
 import json
+import os
 import time
 from uuid import uuid4
 
@@ -146,11 +147,17 @@ def save_review(record, note, status="annotated"):
     previous = review_events(record)
     sequence = max((event["sequence"] for event in previous), default=0) + 1
     path = directory / f"review-{uuid4().hex}.json"
-    with path.open("x", encoding="utf-8") as output:
+    # A failed or interrupted write must never become a discoverable review.
+    # Keep the unpublished temporary artifact for inspection on I/O failure.
+    temporary = path.with_suffix(".tmp")
+    with temporary.open("x", encoding="utf-8") as output:
         json.dump({"schema": "cody.studio.review.v1", "capture_id": record.metadata["capture_id"],
                    "pixel_sha256": record.metadata["pixel_sha256"], "status": status, "note": note,
                    "created_at_ns": time.time_ns(), "sequence": sequence}, output, indent=2)
         output.write("\n")
+        output.flush()
+        os.fsync(output.fileno())
+    temporary.replace(path)
     return path
 
 

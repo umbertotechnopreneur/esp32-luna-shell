@@ -2837,6 +2837,8 @@ def main(argv=None):
                                loader.loadTestsFromTestCase(ScenarioContractTests),
                                loader.loadTestsFromTestCase(ComparisonContractTests),
                                loader.loadTestsFromTestCase(BuildProvenanceContractTests)])
+    import cody_studio_preferences_checks
+    suite.addTests(loader.loadTestsFromModule(cody_studio_preferences_checks))
     if arguments.native:
         suite.addTests(loader.loadTestsFromTestCase(NativeWorkerTests))
     if arguments.ui:
