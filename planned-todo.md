@@ -618,20 +618,20 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   Windows and physical acceptance remain open.
 - [ ] 🟡 **CODY-NEXT-06.12** Studio G: extend remaining families and report actual
   coverage by declared availability. Report actual acquisition separately from the 80–90 target.
-  The implementation has 98 executable cases: Settings, confirmation-only views,
+  The implementation has 104 executable cases: Settings, confirmation-only views,
   setup/guide states, Wi-Fi scan/input/progress/failure, Bluetooth instructions,
   provisioning QR/progress, saved-PC views, Device/About/diagnostics, Audio,
   isolated Memory, six editable account/statistics pages and six isolated
   browser views, direct Home/Muse and carousel About, isolated screensaver and
   Connected, and four explicit Codex link observations. All use the production
   C/C++ renderers and real host owners.
-  The source catalog contains 127 entries: 98 executable, 12 unsupported and 17
-  not applicable. Acquired cases map to 87 distinct document-local IDs plus ten
-  explicit secondary family states and one unmapped event source; primary aliases remain unambiguous. The
+  The source catalog contains 130 entries: 104 executable, eight unsupported and 18
+  not applicable. Acquired cases map to 90 distinct document-local IDs plus eleven
+  explicit secondary family states and three unmapped sources; primary aliases remain unambiguous. The
   reference PDF's 100 local inventory IDs are a separate verified count.
-  Native checks repeat all 98 selected static cases in fresh processes and reverse order,
-  observe 42 touch/swipe routes, verify six visible statistics edits and prior-case
-  retirement, and reject 13 native ABI/input errors without changing the frame.
+  The previous 98-case suite repeated cases in fresh processes and reverse order,
+  observed 42 touch/swipe routes, verified six visible statistics edits and prior-case
+  retirement, and rejected 13 native ABI/input errors without changing the frame.
   Integer arrays, masks, source ages and captions remain explicit scenario inputs.
   Native audition retains 19 Codex and seven Pet cues in independent processes.
   Current host, Tk and PDF outcomes are recorded in `done.md`; acquisition,
@@ -648,11 +648,11 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   is synthetic and retired with its owning case. Screensaver uses its local
   production owner sample without advancing the global manual clock; Connected
   uses a retained isolated scene. None establishes idle or authenticated link
-  replay. Eleven fixed synthetic Codex event observations cover PR, checks,
-  question, choices, queue, sending, delivered, notice and PC approval through
-  the canonical host snapshot and isolated original presenter. Event actions and
-  cue playback are not replayed; fixture content is not yet editable. The last
-  validated suite did not cover N05 review or event unavailable. P19/P21 maintenance pending and
+  replay. Fifteen fixed synthetic Codex event observations cover PR, checks,
+  question, choices, queue, review, sending, delivered, notices and PC approval
+  through the canonical host snapshot and isolated original presenter. Event
+  actions and cue playback are not replayed; fixture content is not yet editable.
+  P19/P21 maintenance pending and
   P21 family reset failure use isolated
   read-only presenters. The latter uses synthetic ESP_ERR_TIMEOUT; its original
   "Restart did not occur" caption needs firmware wording review. Visible Back and
@@ -664,11 +664,10 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   PC status remains separate, and the normal empty label requires a successful
   read. Lost32 remains unsupported while dashboard precedence can mask its scene.
   A compact PDF uses three frames per page with brief adjacent references and no
-  text appendices; immutable capture evidence remains in the manifest. New
-  reply-ready detail and profile-conditional Debug provisioning fixtures await
-  host build and validation; the retired Activity reply ID is not reused.
-  Checks-passed and three voice phases also have static synthetic presenter
-  fixtures awaiting host validation; audio input and transport are not replayed.
+  text appendices; immutable capture evidence remains in the manifest. The
+  reply-ready detail, checks-passed, profile-conditional Debug provisioning and
+  three static voice fixtures have Linux capture and focused checks. The retired
+  Activity reply ID is not reused; audio input and transport are not replayed.
   Next prioritize event/question detail and replies, operation, maintenance,
   voice and sleep/wake lifecycles through their actual owners.
   Windows and physical acceptance stay open. General worker/timer precision

@@ -10,17 +10,16 @@ This file tracks open implementation and acceptance. See [planned-todo.md](plann
    controls, orchestration and inspection. A-F have Linux host evidence for
    direct entry, atomic frame identity, comparison, immutable baselines, timeline
    inspection, firmware PCM, isolated atlas jobs and inventory-linked PDF export.
-   Phase G now implements 98 executable source identities: 73 full-runtime cases
-   including one profile-conditional guide, and 25 isolated presenters.
-   The 127-entry source catalog also declares 12 unsupported and 17 not applicable
-   entries. Acquired cases map to 87 distinct document-local IDs plus ten explicit
-   secondary family states; one event source has no verified inventory ID. The original PDF's 100 local IDs are a separate count.
+   Phase G now captures 104 source identities: 73 full-runtime cases and 31
+   isolated presenters. The 130-entry source catalog also declares eight
+   unsupported and 18 not applicable entries. Acquisitions map to 90 distinct
+   document-local IDs, eleven secondary family states and three unmapped sources. The original PDF's 100 local IDs are a separate count.
    Direct Home/Muse, isolated screensaver, carousel About and four Codex-link
    observations extend Settings, guide, Wi-Fi, saved-PC, statistics and browsers.
    C06 keeps its original unavailable fixture and adds populated read-only native
    question previews under the same source identity. Variant selection preserves
    pending common inputs, the completed capture and the explicit baseline.
-   Thirteen Codex event states use typed fixed synthetic inputs through
+   Fifteen Codex event states use typed fixed synthetic inputs through
    DeviceSnapshotService and the isolated native presenter; actions and event
    audio are not replayed. Their texts and choices are fixed, not UI-editable.
    P19/P21 pending and P21 reset failure use isolated, read-only maintenance
@@ -28,7 +27,7 @@ This file tracks open implementation and acceptance. See [planned-todo.md](plann
    failure caption says "Restart did not occur" and needs firmware wording review.
    Synthetic pairing codes retire with their owning case. No real radio,
    credential write, account request or physical-device operation is used.
-   Native checks repeat all 98 selected cases in reverse order and observe 42
+   A prior 98-case suite repeated cases in reverse order and observed 42
    declared replay routes. ABI 3 binds question scope/IDs/count to the same frame;
    invalid question parents/duplicates preserve existing pixels and identity.
    Audio audition retains 26 firmware cues with Sounds, volume and quiet hours
@@ -49,11 +48,10 @@ This file tracks open implementation and acceptance. See [planned-todo.md](plann
    PDF suite passed with bundled Python; see `done.md`. Lost32 remains deferred
    because the current dashboard can mask its connection-lost scene.
    A compact three-frame PDF removes text appendices and retains handwriting space.
-   Reply-ready detail and Debug provisioning inspection are implemented in source;
-   their native build, captures and acceptance remain pending. The retired
-   ActivityPage reply identity is not reused for the new detail.
-   Checks-passed and three static voice presenters are also added in source;
-   audio capture, touch blocking and transport remain unverified at runtime.
+   Reply-ready detail, checks-passed, Debug provisioning and three static voice
+   presenters have Linux captures and focused host checks. They do not replay
+   audio capture, event actions or transport; touch and device acceptance remain
+   open. The retired ActivityPage reply identity is not reused.
 
 ## First-run tour
 
@@ -93,7 +91,7 @@ Work is tracked on `feat/cody-vNext`. Keep the status below aligned with the [ph
 | CODY-NEXT-03 | Broker restores stable records and history under a new epoch and serves bounded state-v1 pages. Complete question correlation and executed acceptance. |
 | CODY-NEXT-04 | Broker preserves exact question, answer and confirmation evidence. Signed CCP1 owns delivery. Complete native turn correlation, state-v1 question publication and restart/race acceptance. |
 | CODY-NEXT-05 | DeviceSnapshotService serves generation-bound queries and the paired device restores counts, a bookmark and unresolved references. Verify storage and recovery. |
-| CODY-NEXT-06 | Studio A-F and expanded G integrate 98 repeatable native source cases, 42 observed replay routes, populated read-only question previews, editable statistics, 26 firmware cue auditions and isolated atlas/PDF generation with handwriting space. See done.md for current acceptance. Extend unsupported lifecycles; Windows, human listening and physical acceptance remain pending. General worker/timer precision stays deferred. |
+| CODY-NEXT-06 | Studio A-F and expanded G integrate 104 acquired native source cases, 42 observed replay routes, populated read-only question previews, editable statistics, 26 firmware cue auditions and isolated atlas/PDF generation with handwriting space. See done.md for current acceptance. Extend unsupported lifecycles; Windows, human listening and physical acceptance remain pending. General worker/timer precision stays deferred. |
 | CODY-NEXT-07 | Native CODY2D floppy-to-Muse showcase changes pose every ten visible seconds. Complete domain-driven direction and physical acceptance. |
 | CODY-NEXT-09 | Native Codex browser exposes Chats, Turns, Tool calls, Active calls, Events and Statistics. Finish Home/Tools gestures, two-dot chrome and hardware acceptance. |
 
