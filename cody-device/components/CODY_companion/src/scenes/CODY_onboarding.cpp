@@ -3054,7 +3054,7 @@ esp_err_t enter_pairing_debug(const LUNASHELL::ConnectivityObservation &observat
     }
     if (error == ESP_OK) {
         error = format_debug_line(s_view.debug_text[5], kDebugLineBytes,
-            "6. BLE restarted as `%s`", ble.device_name);
+            "6. BLE ready: `%s`", ble.device_name);
     }
     for (uint8_t index = 0; error == ESP_OK && index < s_view.line_count; ++index) {
         error = prepare_debug_caption(s_view.debug_text[index],
@@ -7692,7 +7692,11 @@ static bool studio_dashboard_target(const char *target)
         "cody.dashboard.today", "cody.dashboard.seven-days", "cody.dashboard.token-history",
         "cody.dashboard.credits", "cody.dashboard.account", "cody.dashboard.context",
         "cody.home.muse", "cody.home.screensaver", "cody.dashboard.about",
-        "cody.activity.events", "cody.activity.current-turn"};
+        "cody.activity.events", "cody.activity.current-turn",
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+        "cody.voice.preparing", "cody.voice.listening", "cody.voice.sending",
+#endif
+    };
     for (const auto *candidate : targets) if (std::strcmp(target, candidate) == 0) return true;
     return false;
 }

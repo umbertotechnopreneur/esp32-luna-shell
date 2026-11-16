@@ -1,5 +1,6 @@
 """Read-only native voice presenter and host session isolation contracts."""
 
+import ctypes
 import json
 from pathlib import Path
 import subprocess
@@ -63,6 +64,7 @@ class VoiceNativeTests(unittest.TestCase):
         summary = json.loads(result.stdout.splitlines()[-1])
         self.assertEqual(summary["repeated_cases"], sorted(CASES))
         self.assertEqual(summary["p04_restorations"], 6)
+        self.assertTrue(summary["microphone_isolation_and_restore"])
         self.assertIn("not independently observed", summary["operation_evidence"])
 
 
@@ -84,6 +86,35 @@ def run_worker(directory):
     display = default_scenario("P04")
     runner.prepare(display)
     original = runner.capture().metadata["pixel_sha256"]
+    seed = device.api.cody_host_studio_test_microphone_seed
+    seed.argtypes, seed.restype = [ctypes.c_uint32], ctypes.c_int
+    probe = device.api.cody_host_studio_test_microphone_read
+    probe.argtypes = [ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint32),
+                      ctypes.POINTER(ctypes.c_uint8), ctypes.POINTER(ctypes.c_int32),
+                      ctypes.POINTER(ctypes.c_uint8)]
+    probe.restype = ctypes.c_int
+    listening = default_scenario("V02")
+    isolated_hashes = []
+    for level in (100, 30000):
+        if seed(level) != 0:
+            raise AssertionError("Synthetic microphone seeding failed")
+        runner.prepare(listening)
+        stored, projected = ctypes.c_uint32(), ctypes.c_uint32()
+        valid, error, playback = ctypes.c_uint8(), ctypes.c_int32(), ctypes.c_uint8()
+        if probe(ctypes.byref(stored), ctypes.byref(projected), ctypes.byref(valid),
+                 ctypes.byref(error), ctypes.byref(playback)) != 0:
+            raise AssertionError("Synthetic microphone inspection failed")
+        if (stored.value != level or valid.value != 0 or error.value != 0x106 or playback.value != 1):
+            raise AssertionError("Voice projection did not isolate the microphone while preserving playback")
+        isolated_hashes.append(runner.capture().metadata["pixel_sha256"])
+    if isolated_hashes[0] != isolated_hashes[1]:
+        raise AssertionError("Voice pixels depended on a prior microphone observation")
+    runner.prepare(display)
+    if probe(ctypes.byref(stored), ctypes.byref(projected), ctypes.byref(valid),
+             ctypes.byref(error), ctypes.byref(playback)) != 0:
+        raise AssertionError("Microphone restoration inspection failed")
+    if (stored.value, projected.value, valid.value, error.value, playback.value) != (30000, 30000, 1, 0, 1):
+        raise AssertionError("Leaving Voice did not restore the previous host microphone observation")
     captures = {}
     restores = 0
     for identity, target in CASES.items():
@@ -110,6 +141,7 @@ def run_worker(directory):
     if len(set(captures.values())) != len(CASES):
         raise AssertionError("Distinct voice phases rendered identical frames")
     print(json.dumps({"repeated_cases": sorted(CASES), "p04_restorations": restores,
+                      "microphone_isolation_and_restore": True,
                       "operation_evidence": "Touch and service calls are not independently observed; host guards are source-reviewed"}), flush=True)
     return 0
 

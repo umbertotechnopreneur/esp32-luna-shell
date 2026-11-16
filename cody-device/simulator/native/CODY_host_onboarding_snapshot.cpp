@@ -480,6 +480,51 @@ CODY_HOST_SENSOR_API esp_err_t cody_host_studio_seed_voice_stopped()
         return ESP_ERR_INVALID_STATE;
     return ESP_OK;
 }
+// level: Bounded synthetic PCM mean used only by an isolated host regression worker.
+// Exception: Rejects active AFE, nonstatic clocks and invalid levels before mutating the host owner.
+CODY_HOST_SENSOR_API esp_err_t cody_host_studio_test_microphone_seed(uint32_t level)
+{
+    if (level > 32767) return ESP_ERR_INVALID_ARG;
+    if (cody_host_manual_time_us.load(std::memory_order_acquire) != 1000000 ||
+        LUNASHELL_voice_afe_running() || LUNASHELL_voice_afe_capture_active()) return ESP_ERR_INVALID_STATE;
+    std::lock_guard<std::mutex> lock(s_mutex);
+    if (!s_seeded) return ESP_ERR_NOT_FOUND;
+    auto &audio = s_snapshot.audio;
+    LUNASHELL::snapshot_detail::mark_sample_success(audio.microphone, esp_timer_get_time());
+    audio.channel_count = 1;
+    audio.sample_rate_hz = 16000;
+    audio.channel_mean_level[0] = audio.microphone_mean_level = level;
+    audio.channel_peak_level[0] = audio.microphone_peak_level = level;
+    ++s_snapshot.sequence;
+    return ESP_OK;
+}
+
+// stored: Receives the synthetic owner level, never a pointer into the snapshot.
+// projected: Receives the level on the canonical motion projection.
+// valid: Receives whether its microphone is current and valid.
+// error: Receives the projection's original microphone error.
+// playback_preserved: Receives whether key playback facts match the host owner.
+// Exception: Rejects null outputs and preserves the original observation error.
+CODY_HOST_SENSOR_API esp_err_t cody_host_studio_test_microphone_read(
+    uint32_t *stored, uint32_t *projected, uint8_t *valid, int32_t *error, uint8_t *playback_preserved)
+{
+    if (!stored || !projected || !valid || !error || !playback_preserved) return ESP_ERR_INVALID_ARG;
+    LUNASHELL::MotionPowerObservation motion{};
+    const auto result = LUNASHELL::DeviceSnapshotService::instance().readMotionPowerObservation(motion);
+    if (result != ESP_OK) return result;
+    std::lock_guard<std::mutex> lock(s_mutex);
+    if (!s_seeded) return ESP_ERR_NOT_FOUND;
+    const auto &raw = s_snapshot.audio;
+    *stored = raw.channel_mean_level[0];
+    *projected = motion.audio.channel_mean_level[0];
+    *valid = motion.audio.microphone.data_valid && !motion.audio.microphone.data_stale;
+    *error = motion.audio.microphone.last_error;
+    *playback_preserved = motion.audio.playback.state == raw.playback.state &&
+        motion.audio.playback.last_error == raw.playback.last_error &&
+        motion.audio.playback.cue_id == raw.playback.cue_id &&
+        motion.audio.playback.volume_percent == raw.playback.volume_percent;
+    return ESP_OK;
+}
 #endif
 
 // percent: Explicit scenario battery level; this is not a PC or physical Cody reading.
@@ -720,7 +765,13 @@ esp_err_t DeviceSnapshotService::readMotionPowerObservation(MotionPowerObservati
     copy.imu = s_snapshot.imu;
     copy.clock = s_snapshot.clock;
     copy.audio = s_snapshot.audio;
-    copy.voice = s_snapshot.voice;
+    copy.voice = s_studio_voice_active ? s_studio_voice : s_snapshot.voice;
+    if (s_studio_voice_active) {
+        // This fixture explicitly has no microphone: preserve the canonical
+        // host sample and unrelated playback, but never publish it as current.
+        copy.audio.microphone = {};
+        copy.audio.microphone.last_error = ESP_ERR_NOT_SUPPORTED;
+    }
     copy.character_interaction = s_snapshot.character_interaction;
     copy.character_touch = s_snapshot.character_touch;
     copy.storage_available = s_snapshot.storage.mounted && !s_snapshot.storage.poisoned &&

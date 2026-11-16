@@ -191,6 +191,17 @@ CODY_HOST_STUDIO_API size_t cody_host_studio_case_size();
 // capacity: Complete destination capacity, at least 192 bytes.
 // Exception: Preserves native presenter errors and rejects invalid output capacity.
 CODY_HOST_STUDIO_API esp_err_t cody_host_studio_notification_subtitles(char *output, size_t capacity);
+// level: Bounded synthetic PCM level for an isolated deterministic host test.
+// Exception: Rejects invalid levels, active AFE and nonstatic clocks.
+CODY_HOST_STUDIO_API esp_err_t cody_host_studio_test_microphone_seed(uint32_t level);
+// stored: Receives the owner's synthetic microphone level.
+// projected: Receives the microphone level in the current motion projection.
+// valid: Receives the current projection's microphone-valid flag.
+// error: Receives the current projection's microphone error.
+// playback_preserved: Receives whether playback facts are unchanged by projection.
+// Exception: Rejects missing outputs and preserves original snapshot errors.
+CODY_HOST_STUDIO_API esp_err_t cody_host_studio_test_microphone_read(
+    uint32_t *stored, uint32_t *projected, uint8_t *valid, int32_t *error, uint8_t *playback_preserved);
 // Start an isolated live-clock boot animation from a prepared source frame.
 CODY_HOST_STUDIO_API esp_err_t cody_host_studio_start_live(uint32_t sounds_enabled, uint32_t playback_volume);
 CODY_HOST_STUDIO_API esp_err_t cody_host_studio_live_status(CodyHostStudioLiveStatus *status, size_t capacity);
