@@ -24,6 +24,7 @@ struct Definition {
 inline constexpr Definition kDefinitions[]{
     {"cody.event.pr-pending", CodexEventKind::PrPending, CodexEventState::Pending, EventStage::Notice, Route::PrPending21},
     {"cody.event.checks-running", CodexEventKind::ChecksRunning, CodexEventState::Pending, EventStage::Notice, Route::ChecksRunning22},
+    {"cody.event.checks-passed", CodexEventKind::ChecksPassed, CodexEventState::Pending, EventStage::Notice, Route::ChecksRunning22},
     {"cody.event.checks-failed", CodexEventKind::ChecksFailed, CodexEventState::Pending, EventStage::Notice, Route::ChecksFailed23},
     {"cody.event.check-failures", CodexEventKind::ChecksFailed, CodexEventState::Pending, EventStage::Failures, Route::CheckFailures24},
     {"cody.event.question", CodexEventKind::Question, CodexEventState::Pending, EventStage::Notice, Route::DecisionNotice26},
@@ -94,6 +95,8 @@ inline bool fill(const char *target, int64_t now_us, LUNASHELL::CodexEventSnapsh
         title = "PR pending"; body = "A pull request awaits review."; break;
     case CodexEventKind::ChecksRunning:
         title = "Checks running"; body = "Checks are still running."; break;
+    case CodexEventKind::ChecksPassed:
+        title = "Checks passed"; body = "All checks passed."; break;
     case CodexEventKind::ChecksFailed:
         title = "Checks failed"; body = "Some checks need attention."; break;
     case CodexEventKind::Notice:
@@ -109,9 +112,10 @@ inline bool fill(const char *target, int64_t now_us, LUNASHELL::CodexEventSnapsh
     // A short synthetic origin and omitted optional status let meaningful progress
     // and PC-action instructions remain within the original five-line viewport.
     std::strcpy(value.origin_title, "Studio chat");
-    if (item->kind == CodexEventKind::ChecksRunning || item->kind == CodexEventKind::ChecksFailed) {
+    if (item->kind == CodexEventKind::ChecksRunning || item->kind == CodexEventKind::ChecksFailed ||
+        item->kind == CodexEventKind::ChecksPassed) {
         value.progress_valid = true;
-        value.passed = 1;
+        value.passed = item->kind == CodexEventKind::ChecksPassed ? 3 : 1;
         value.total = 3;
     }
     if (item->kind == CodexEventKind::ChecksFailed) {

@@ -18,6 +18,7 @@ OUTPUT = ROOT / "artifacts/simulator/studio/event-checks"
 CASES = {
     "atlas-v1:21": ("cody.event.pr-pending", "N09", None),
     "atlas-v1:22": ("cody.event.checks-running", None, "N09"),
+    "ui-v1:checks-passed": ("cody.event.checks-passed", None, "N09"),
     "atlas-v1:23": ("cody.event.checks-failed", None, "N09"),
     "atlas-v1:24": ("cody.event.check-failures", "N10", None),
     "atlas-v1:26": ("cody.event.question", "N03", None),
@@ -46,6 +47,14 @@ class EventContractTests(unittest.TestCase):
             self.assertEqual(fixture["passed"], 1)
             self.assertEqual(len(fixture["failed_checks"]), 2)
             self.assertEqual(fixture["passed"] + len(fixture["failed_checks"]), fixture["total"])
+
+    # self: A completed check observation remains a state of the N09 family.
+    # Raises AssertionError for invented inventory IDs or inconsistent progress.
+    def test_passed_checks_use_complete_synthetic_progress(self):
+        entry = entry_for("ui-v1:checks-passed")
+        fixture = entry["fixed_dependencies"]["codex_event"]
+        self.assertEqual((entry["inventory_id"], entry["inventory_family_id"]), (None, "N09"))
+        self.assertEqual((fixture["kind"], fixture["passed"], fixture["total"]), ("ChecksPassed", 3, 3))
 
     # self: Question notice, queue and delivery fixtures with distinct pending counts.
     # Raises AssertionError if a delivered or in-flight request is offered as a pending row.
@@ -203,6 +212,8 @@ def run_worker(directory):
         raise AssertionError("PR pending, checks failed and notice rendered indistinguishable native frames")
     if pixel_hashes["ui-v1:reply-ready-detail"] == pixel_hashes["ui-v1:notice"]:
         raise AssertionError("Reply-ready detail and generic notice rendered indistinguishable native frames")
+    if pixel_hashes["atlas-v1:22"] == pixel_hashes["ui-v1:checks-passed"]:
+        raise AssertionError("Checks running and passed rendered indistinguishable native frames")
     if pixel_hashes["atlas-v1:22"] == pixel_hashes["ui-v1:approval-pc"]:
         raise AssertionError("Checks running and approval on PC rendered indistinguishable native frames")
     if pixel_hashes["ui-v1:review-reply"] == pixel_hashes["atlas-v1:27"]:

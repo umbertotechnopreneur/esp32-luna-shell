@@ -447,6 +447,25 @@ struct StudioMailbox {
 // while that worker is waiting or about to wait. The library must stay loaded.
 StudioMailbox *const s_studio = new (std::nothrow) StudioMailbox{};
 CodyHostStudioFrameIdentity s_studio_identity{};
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+// phase: Receives the exact static voice case selected by the host identity.
+// Returns false without mutation for nonvoice destinations.
+bool studio_voice_phase(LUNASHELL::VoiceInputPhase &phase)
+{
+    struct Entry { const char *target; LUNASHELL::VoiceInputPhase phase; };
+    static constexpr Entry entries[]{
+        {"cody.voice.preparing", LUNASHELL::VoiceInputPhase::Preparing},
+        {"cody.voice.listening", LUNASHELL::VoiceInputPhase::Listening},
+        {"cody.voice.sending", LUNASHELL::VoiceInputPhase::Sending}};
+    for (const auto &entry : entries) {
+        if (std::strcmp(s_studio_identity.target, entry.target) == 0) {
+            phase = entry.phase;
+            return true;
+        }
+    }
+    return false;
+}
+#endif
 // Only the display owner mutates this session. It can never be reset within a
 // running process: callers must start a fresh process to seek backwards.
 struct StudioWorkerSession {
@@ -2347,6 +2366,10 @@ esp_err_t activate(Target target)
     }
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     else if (layer == Layer::Voice) {
+#if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
+        LUNASHELL::VoiceInputPhase studio_phase{};
+        if (studio_voice_phase(studio_phase)) return ESP_ERR_NOT_SUPPORTED;
+#endif
         bool accepted = false;
         const auto phase = ui.model.voice.input.phase;
         const bool send = target == Target::FirstAction && phase == VoicePhase::Listening;
@@ -2434,6 +2457,14 @@ esp_err_t sample_touch()
         return ESP_OK;
     }
     if (read != ESP_OK) return read;
+#if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM) && CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    // Drain static-inspection touches without admitting navigation or services.
+    LUNASHELL::VoiceInputPhase studio_phase{};
+    if (studio_voice_phase(studio_phase)) {
+        ui.state.pressed = false;
+        return ESP_OK;
+    }
+#endif
     const bool was_pressed = ui.state.pressed;
     const bool pressed_edge = sample.pressed && !was_pressed;
     ui.state.pressed = sample.pressed;
@@ -3768,6 +3799,10 @@ esp_err_t update_and_draw(int64_t now_us)
 #if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
     if (error == ESP_OK && frame.layer == Layer::Voice) {
         ui.state.presented_voice_session = ui.model.voice.input.started_at_us;
+#if defined(CODY_HOST_REAL_AUDIO) && !defined(ESP_PLATFORM)
+        LUNASHELL::VoiceInputPhase studio_phase{};
+        if (studio_voice_phase(studio_phase)) return ESP_OK;
+#endif
         if (ui.model.voice.input.phase == VoicePhase::Preparing && ui.model.voice.input.destination_title[0] != '\0') {
             bool accepted = false;
             error = LUNASHELL::beginVoiceInputCountdown(ui.state.presented_voice_session, accepted);
@@ -4156,6 +4191,13 @@ bool studio_frame_matches(const FrameView &frame)
     if (std::strcmp(target, "cody.boot.birth") == 0) return frame.layer == Layer::Birth &&
         ui.state.birth_frame == s_studio_identity.source_animation_sample_ms / kBirthFrameMs;
     if (!CODY::studio_scene_active(target)) return false;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    LUNASHELL::VoiceInputPhase studio_phase{};
+    if (studio_voice_phase(studio_phase))
+        return frame.layer == Layer::Voice && ui.model.voice.data_valid && !ui.model.voice.data_stale &&
+            ui.model.voice.last_error == ESP_OK && ui.model.voice.input.phase == studio_phase &&
+            ui.model.voice.input.started_at_us == esp_timer_get_time();
+#endif
     if (std::strcmp(target, "cody.home.muse") == 0)
         return frame.layer == Layer::Mascot && ui.state.mascot_home &&
             ui.character.pixel_demo.visible && !ui.character.pixel_demo.manual &&
@@ -4618,6 +4660,15 @@ esp_err_t process_studio_request(DeviceRuntime &ui)
     const char *stage = "read-motion";
     auto error = DeviceSnapshotService::instance().readMotionPowerObservation(ui.model.motion);
     s_studio_identity = request->identity;
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
+    ui.model.voice = {};
+    LUNASHELL::VoiceInputPhase studio_phase{};
+    const bool studio_voice = studio_voice_phase(studio_phase);
+    if (error == ESP_OK && studio_voice)
+        error = DeviceSnapshotService::instance().readVoiceObservation(ui.model.voice);
+#else
+    constexpr bool studio_voice = false;
+#endif
     const char *target = s_studio_identity.target;
     const bool branding = std::strcmp(target, "cody.boot.branding") == 0;
     const bool birth = std::strcmp(target, "cody.boot.birth") == 0;
@@ -4635,7 +4686,7 @@ esp_err_t process_studio_request(DeviceRuntime &ui)
         std::strcmp(target, "cody.settings.reset-failed") == 0;
     const bool questions = browser_route == CODY::CodexBrowserRoute::PendingQuestions &&
         std::strcmp(request->domain_questions_outcome, "supported") == 0;
-    std::strcpy(s_studio_identity.rendering_mode, browser || memory || screensaver || connected || maintenance || event || debug_provisioning ?
+    std::strcpy(s_studio_identity.rendering_mode, browser || memory || screensaver || connected || maintenance || event || debug_provisioning || studio_voice ?
         "presenter-isolated" : "runtime-full");
     FrameView frame{};
     if (error == ESP_OK && branding) {
@@ -5278,6 +5329,14 @@ CODY_HOST_STUDIO_API esp_err_t cody_host_studio_has_capability(const char *name,
     if (!name || !available) return ESP_ERR_INVALID_ARG;
     if (std::strcmp(name, "debug-provisioning") == 0) {
 #if CONFIG_LUNASHELL_BUILD_MODE_DEBUG
+        *available = 1;
+#else
+        *available = 0;
+#endif
+        return ESP_OK;
+    }
+    if (std::strcmp(name, "voice-input") == 0) {
+#if CONFIG_LUNASHELL_BUILD_ENABLE_VOICE_INPUT
         *available = 1;
 #else
         *available = 0;

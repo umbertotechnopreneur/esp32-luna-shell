@@ -119,6 +119,8 @@ identify the owning journey; exact current controls remain in navigation.md.
 | ui-v1:reset-confirm, reset-pending, reset-failed | ON reset pages | Explicit confirmation -> reset owner or visible error | Active source |
 | ui-v1:retained-pc, forget-pc, pairing-cleanup, pairing-forgotten | ON `CodexReplace/Forget/Cleanup/Forgotten` | Connections -> Keep/replace/forget; Back retains caller | Active source |
 | ui-v1:question-queue, review-reply, sending-reply, notice, approval-pc, event-unavailable | ON event routes | Inbox/reply lifecycle -> previous route | Active source; native approvals advisory only |
+| ui-v1:checks-passed | ON; shared Codex event detail presenter | Completed checks observation -> shared detail | Active checks-passed detail; secondary state of the N09 checks family |
+| ui-v1:voice-listening | UI `Layer::Voice`, DV `prepare_device_voice` | Recording session -> Send or Cancel | Active voice-input profile; distinct inventory state within capture family |
 | widget-v1:Device=0 | DV; `WidgetScreen` | Statistics carousel/Options -> caller; network/battery/followed chat, Record voice | Active source |
 | widget-v1:Reset=1 | `CODY_reset_countdown*.cpp` | Carousel -> neighbor; canonical allowance/clock | Active source |
 | widget-v1:Limits=2, Today=3, LastSevenDays=4 | `CODY_account_dashboard.cpp` | Carousel -> neighbor; account/usage | Active source |

@@ -41,6 +41,25 @@ bool s_studio_statistics = false;
 esp_err_t s_studio_event_read_error = ESP_OK;
 // The N01 fixture projects an unavailable inbox without erasing any host observation.
 bool s_studio_unavailable_inbox = false;
+// Static voice projections are host-owned and never overwrite live observations.
+LUNASHELL::VoiceSnapshot s_studio_voice{};
+bool s_studio_voice_active = false;
+
+// target: Named static native voice presenter destination.
+// phase: Receives the declared phase only when the target is recognized.
+// Returns false without mutating phase for unsupported destinations.
+bool studio_voice_target(const char *target, LUNASHELL::VoiceInputPhase &phase)
+{
+    struct Entry { const char *target; LUNASHELL::VoiceInputPhase phase; };
+    static constexpr Entry entries[]{
+        {"cody.voice.preparing", LUNASHELL::VoiceInputPhase::Preparing},
+        {"cody.voice.listening", LUNASHELL::VoiceInputPhase::Listening},
+        {"cody.voice.sending", LUNASHELL::VoiceInputPhase::Sending}};
+    for (const auto &entry : entries) {
+        if (std::strcmp(target, entry.target) == 0) { phase = entry.phase; return true; }
+    }
+    return false;
+}
 
 // target: Explicit synthetic dashboard scope requiring a current READY/app lease.
 // Exception: No exceptions; no prefix matches admit an unrelated native page.
@@ -173,6 +192,24 @@ esp_err_t publish_studio_case(const CodyHostStudioCase &request)
     // A preceding event never survives another Studio scenario's publication.
     s_snapshot.codex_event = {};
     s_studio_unavailable_inbox = std::strcmp(target, "cody.activity.events") == 0;
+    s_studio_voice = {};
+    LUNASHELL::VoiceInputPhase studio_voice_phase{};
+    s_studio_voice_active = studio_voice_target(target, studio_voice_phase);
+    if (s_studio_voice_active) {
+        // The scenario is an observation, not microphone or transport activity.
+        LUNASHELL::snapshot_detail::mark_sample_success(s_studio_voice, now);
+        s_studio_voice.state = LUNASHELL::VoiceState::Listening;
+        auto &input = s_studio_voice.input;
+        input.phase = studio_voice_phase;
+        input.trigger = LUNASHELL::VoiceInputTrigger::DeviceButton;
+        input.started_at_us = input.changed_at_us = now;
+        if (studio_voice_phase != LUNASHELL::VoiceInputPhase::Preparing) {
+            std::memcpy(input.destination_title, "Synthetic chat", sizeof("Synthetic chat"));
+            input.capturing_started_at_us = now;
+        }
+        if (studio_voice_phase == LUNASHELL::VoiceInputPhase::Sending)
+            input.captured_samples = 16000;
+    }
     s_wifi_scan = {};
     s_wifi_scan_available = false;
     // A static code is readable through the actual host service API only while
@@ -710,7 +747,7 @@ esp_err_t DeviceSnapshotService::readVoiceObservation(VoiceSnapshot &voice) cons
 {
     std::lock_guard<std::mutex> lock(s_mutex);
     if (!s_seeded) return ESP_ERR_NOT_FOUND;
-    auto copy = s_snapshot.voice;
+    auto copy = s_studio_voice_active ? s_studio_voice : s_snapshot.voice;
     if (copy.state == VoiceState::Listening) age_measured_sample(copy, esp_timer_get_time(), 1000000);
     voice = copy;
     return ESP_OK;

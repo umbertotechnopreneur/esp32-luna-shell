@@ -3603,6 +3603,219 @@
       ]
     },
     {
+      "id": "atlas-v1:28",
+      "inventory_id": "V01",
+      "title": "Voice preparing",
+      "native_target": "cody.voice.preparing",
+      "controller": "prepare_device_voice / isolated native display owner",
+      "availability": "profile-conditional",
+      "rendering_mode": "presenter-isolated",
+      "group": "Setup and guidance",
+      "verification": "Source implementation; native capture and physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion-voice"
+      ],
+      "features": [
+        "native-display",
+        "settings",
+        "voice-input"
+      ],
+      "scenario": "cody-studio-voice-preparing.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_device_view.cpp",
+      "symbol": "prepare_device_voice",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "Native voice presenter"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Production voice presenter receives a fixed synthetic voice observation; no recording or delivery is performed",
+        "Audio capture, waveform dynamics and live service lifecycle are not replayed",
+        "Touch input and voice-service actions are disabled during static inspection; physical acceptance remains separate"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "voice_phase": "preparing",
+        "microphone": "Unavailable host observation; no real PCM captured"
+      },
+      "required_capabilities": [
+        "voice-input"
+      ]
+    },
+    {
+      "id": "ui-v1:voice-listening",
+      "inventory_id": "V02",
+      "title": "Voice listening",
+      "native_target": "cody.voice.listening",
+      "controller": "prepare_device_voice / isolated native display owner",
+      "availability": "profile-conditional",
+      "rendering_mode": "presenter-isolated",
+      "group": "Setup and guidance",
+      "verification": "Source implementation; native capture and physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion-voice"
+      ],
+      "features": [
+        "native-display",
+        "settings",
+        "voice-input"
+      ],
+      "scenario": "cody-studio-voice-listening.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_device_view.cpp",
+      "symbol": "prepare_device_voice",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "Native voice presenter"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Production voice presenter receives a fixed synthetic voice observation; no recording or delivery is performed",
+        "Audio capture, waveform dynamics and live service lifecycle are not replayed",
+        "Touch input and voice-service actions are disabled during static inspection; physical acceptance remains separate"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "voice_phase": "listening",
+        "microphone": "Unavailable host observation; no real PCM captured"
+      },
+      "required_capabilities": [
+        "voice-input"
+      ]
+    },
+    {
+      "id": "atlas-v1:29",
+      "inventory_id": "V03",
+      "title": "Voice sending",
+      "native_target": "cody.voice.sending",
+      "controller": "prepare_device_voice / isolated native display owner",
+      "availability": "profile-conditional",
+      "rendering_mode": "presenter-isolated",
+      "group": "Setup and guidance",
+      "verification": "Source implementation; native capture and physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion-voice"
+      ],
+      "features": [
+        "native-display",
+        "settings",
+        "voice-input"
+      ],
+      "scenario": "cody-studio-voice-sending.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_device_view.cpp",
+      "symbol": "prepare_device_voice",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "Native voice presenter"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Production voice presenter receives a fixed synthetic voice observation; no recording or delivery is performed",
+        "Audio capture, waveform dynamics and live service lifecycle are not replayed",
+        "Touch input and voice-service actions are disabled during static inspection; physical acceptance remains separate"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "voice_phase": "sending",
+        "microphone": "Unavailable host observation; no real PCM captured"
+      },
+      "required_capabilities": [
+        "voice-input"
+      ]
+    },
+    {
       "id": "atlas-v1:40",
       "inventory_id": "S23",
       "title": "Connect Codex choice",
@@ -9172,6 +9385,93 @@
           "status": "",
           "link": "Synthetic READY / retained association / current app open",
           "passed": 1,
+          "total": 3
+        }
+      },
+      "inventory_family_id": "N09"
+    },
+    {
+      "id": "ui-v1:checks-passed",
+      "inventory_id": null,
+      "title": "Checks passed",
+      "native_target": "cody.event.checks-passed",
+      "controller": "prepare_studio_scene / isolated native event presenter",
+      "availability": "presenter-isolated",
+      "rendering_mode": "presenter-isolated",
+      "group": "Notifications",
+      "verification": "Source implementation; native capture, visual review and physical acceptance pending",
+      "variants": [
+        "default"
+      ],
+      "profiles": [
+        "cody-companion"
+      ],
+      "features": [
+        "native-display",
+        "codex"
+      ],
+      "scenario": "cody-studio-event-checks-passed.json",
+      "capture_at_ms": [
+        0
+      ],
+      "scenario_contract": {
+        "context": {
+          "selection": null,
+          "caller": null,
+          "return_to": null
+        },
+        "settings": {},
+        "page": {},
+        "services": {}
+      },
+      "source": "cody-device/components/CODY_companion/src/scenes/CODY_onboarding.cpp",
+      "symbol": "prepare_studio_scene",
+      "dependencies": [
+        "DeviceSnapshotService",
+        "display-owner",
+        "Native event presentation",
+        "Synthetic host Codex event and READY observation"
+      ],
+      "time_control": "Controlled settled static sample at t=0; direct preparation does not replay asynchronous operations",
+      "geometry_control": "Native logical raster before panel rotation; manual orientation 0/180 only. Auto-rotate preference is editable with synthetic gravity explicitly unavailable",
+      "routes": [],
+      "hard_to_reach": true,
+      "transient_error": false,
+      "limitations": [
+        "Production C/C++ event presentation with an isolated synthetic event and READY observation",
+        "Static inspection does not replay navigation, authenticated transport, replies or device approval",
+        "Touch and event actions are disabled; no real account, network or device operation is submitted",
+        "Synthetic Wi-Fi must remain connected; physical-device acceptance is separate",
+        "Checks-passed is a synthetic completed-check observation; no CI or transport request is performed"
+      ],
+      "controls": [],
+      "suite": "extension",
+      "fixed_dependencies": {
+        "counter_mode": false,
+        "sounds_enabled": false,
+        "quiet_hours": {
+          "source": "fixed",
+          "enabled": false,
+          "start_minute": 1320,
+          "end_minute": 420
+        },
+        "application": "Existing native settings owners in the isolated simulator NVS store",
+        "codex_event": {
+          "source": "CODY::host_studio_events::fill; DeviceSnapshotService synthetic observation",
+          "request_id": "11111111111111111111111111111111",
+          "revision": 1,
+          "lifetime_us": 180000000,
+          "kind": "ChecksPassed",
+          "state": "Pending",
+          "stage": "Notice",
+          "expected_route": "ChecksRunning22",
+          "context": "Synthetic Studio",
+          "title": "Checks passed",
+          "body": "All checks passed.",
+          "origin_title": "Studio chat",
+          "status": "",
+          "link": "Synthetic READY / retained association / current app open",
+          "passed": 3,
           "total": 3
         }
       },
