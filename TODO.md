@@ -48,6 +48,10 @@ This file tracks open implementation and acceptance. See [planned-todo.md](plann
    reply, Retry, populated notification paging or live PC activity. The separate
    PDF suite passed with bundled Python; see `done.md`. Lost32 remains deferred
    because the current dashboard can mask its connection-lost scene.
+   A compact five-frame PDF removes text appendices and retains handwriting space.
+   Reply-ready detail and Debug provisioning inspection are implemented in source;
+   their native build, captures and acceptance remain pending. The retired
+   ActivityPage reply identity is not reused for the new detail.
 
 ## First-run tour
 

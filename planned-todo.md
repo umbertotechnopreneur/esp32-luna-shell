@@ -663,6 +663,10 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   live PC updates. Local inbox read failure is shown as `Local notices unavailable`;
   PC status remains separate, and the normal empty label requires a successful
   read. Lost32 remains unsupported while dashboard precedence can mask its scene.
+  A compact PDF uses five frames per page with brief adjacent references and no
+  text appendices; immutable capture evidence remains in the manifest. New
+  reply-ready detail and profile-conditional Debug provisioning fixtures await
+  host build and validation; the retired Activity reply ID is not reused.
   Next prioritize event/question detail and replies, operation, maintenance,
   voice and sleep/wake lifecycles through their actual owners.
   Windows and physical acceptance stay open. General worker/timer precision
