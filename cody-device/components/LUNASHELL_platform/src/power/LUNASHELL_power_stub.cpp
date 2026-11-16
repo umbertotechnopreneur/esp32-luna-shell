@@ -44,6 +44,13 @@ extern "C" esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
     return ESP_ERR_NOT_SUPPORTED;
 }
 
+// No parameters: this profile has no display transition admission owner.
+// Exception: Always returns ESP_ERR_NOT_SUPPORTED.
+extern "C" esp_err_t LUNASHELL_power_manager_complete_display_startup(void)
+{
+    return ESP_ERR_NOT_SUPPORTED;
+}
+
 // request: Excluded profile cannot dispatch physical BOOT holds.
 // Exception: Always returns ESP_ERR_NOT_SUPPORTED.
 extern "C" esp_err_t LUNASHELL_power_manager_register_boot_options(void (*request)(void))

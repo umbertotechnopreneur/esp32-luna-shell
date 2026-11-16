@@ -1220,60 +1220,77 @@ def test_diagnostic_reuse_requires_successful_commits() -> None:
     )
 
 
-# No parameters: inspect optional look-save ownership without running firmware or NVS.
-# Raises AssertionError or a source-read error when a required boundary regresses.
-# No parameters: inspect the actual look-save worker, footer and retry admission.
-# Raises AssertionError when ownership, error preservation or confirmation gates regress.
-def verify_cody_look_source_contract() -> None:
+# No parameters: inspect current preference ownership without running firmware or NVS.
+# Raises AssertionError or a source-read error when write/readback or publication boundaries regress.
+def verify_cody_preference_source_contract() -> None:
     component = ROOT / "cody-device/components" / "CODY_companion"
     onboarding = (component / "src/scenes/CODY_onboarding.cpp").read_text(encoding="utf-8")
-    look = (component / "src/scenes/CODY_look_screen.cpp").read_text(encoding="utf-8")
-    jelly = (component / "src/rendering/CODY_jelly.cpp").read_text(encoding="utf-8")
-    reports = (ROOT / "cody-device/components/LUNASHELL_platform/src/snapshot/LUNASHELL_snapshot_reports.cpp").read_text(encoding="utf-8")
-    header = (ROOT / "cody-device/components/LUNASHELL_platform/include/LUNASHELL_device_snapshot.hpp").read_text(encoding="utf-8")
+    settings = (component / "src/runtime/CODY_settings.cpp").read_text(encoding="utf-8")
 
-    require_contains(onboarding, 'static constexpr char title[] = "No connection";', "offline title lifetime")
-    require("persist_jelly_skin(" not in look, "reusable look view performs blocking persistence")
     touch = function_text(onboarding, "esp_err_t handle_onboarding_touch(", "onboarding touch")
-    require("persist_jelly_skin(" not in touch, "touch path waits for NVS")
-    require_contains(touch, "enqueue_look_save(scene, result.save_id)", "touch save admission")
+    dispatch = function_text(onboarding, "esp_err_t activate_options_action(", "Options action dispatch")
+    enqueue = function_text(onboarding, "esp_err_t enqueue_preference(", "preference admission")
+    for source, body in (("touch", touch), ("Options action dispatch", dispatch), ("preference admission", enqueue)):
+        require("persist_companion_preference(" not in body, f"{source} waits for persistence")
+        require("UserSettingsService" not in body, f"{source} accesses the settings store")
+    require_contains(enqueue, "s_work_busy.load(std::memory_order_acquire)", "single preference mailbox")
+    require_contains(enqueue, "s_command.generation = s_generation;", "preference route identity")
+    require_order(enqueue, "s_command.preference_value = value;",
+                  "s_work_busy.store(true, std::memory_order_release);", "preference mailbox publication")
+    require_order(enqueue, "s_work_busy.store(true, std::memory_order_release);",
+                  "notify_action_worker()", "preference worker admission")
+
+    notify = function_text(onboarding, "BaseType_t notify_action_worker(", "ordinary action wake")
+    require_order(notify, "s_action_queued.store(true, std::memory_order_release);",
+                  "xTaskNotifyGive(s_worker)", "one-shot action admission before wake")
+    require_contains(notify, "if (notified != pdPASS) s_action_queued.store(false, std::memory_order_release);",
+                     "failed wake revokes action admission")
+    wake = function_text(onboarding, "void wake_settings_worker(", "settings lifecycle wake")
+    require("s_action_queued" not in wake and "complete_action(" not in wake,
+            "settings lifecycle wake admits or executes an ordinary action")
+    worker = function_text(onboarding, "void action_worker(", "shared settings worker")
+    require_contains(worker, "if (s_action_queued.exchange(false, std::memory_order_acq_rel)) complete_action();",
+                     "ordinary actions are consumed exactly once independently of lifecycle wakes")
+
     execute = function_text(onboarding, "void execute_command(", "action worker")
-    require_contains(execute, "persist_jelly_skin(command.look_save.requested_id)", "worker persistence")
-    require_contains(execute, "reportCharacterLookSave(completed)", "terminal write publication")
-    require("select_jelly_skin(" not in execute, "worker mutates display-owned selection")
+    save = function_text(execute, "if (command.work == Work::SavePreference)", "preference worker branch")
+    require_order(save, "command.generation != s_presentation_generation.load(std::memory_order_acquire)",
+                  "persist_companion_preference(command.preference, command.preference_value)",
+                  "retired preference command rejection")
+    require_contains(save, "result.error = persist_companion_preference(command.preference, command.preference_value);",
+                     "original preference owner result")
+    require_order(save, "result.error = persist_companion_preference(",
+                  "result.preference_changed = result.error == ESP_OK && changed;", "success-only confirmation")
 
-    persist = function_text(jelly, "esp_err_t persist_jelly_skin(", "look persistence")
-    require("s_selected_skin.store" not in persist, "persistence changes renderer selection before completion")
     update = function_text(onboarding, "esp_err_t update_onboarding(", "onboarding update")
-    require_order(update, "result.command.work == Work::SaveLook", "s_route == Route::None", "retired-view completion")
-    require_contains(update, "return result.publication_error;", "failed publication remains fatal")
-    require_contains(update, "result.command.generation == s_generation", "stale view rejection")
-    require_contains(update, "complete_look_save(", "optional save error presentation")
+    require_contains(update, "result.command.generation == s_generation", "stale preference receipt rejection")
+    require_contains(update, "s_preference_error = result.error;", "original preference error presentation")
+    require_contains(update, "result.command.work == Work::SavePreference && result.preference_changed",
+                     "confirmed changed preference feedback")
 
-    require_contains(header, "CharacterLookSaveSnapshot character_look_save;", "canonical operation result")
-    reporter = function_text(reports, "esp_err_t DeviceSnapshotService::reportCharacterLookSave(", "look reporter")
-    require_contains(reporter, "snapshot.character_look_save = operation;", "original result preservation")
-    require_contains(reporter, "previous.request_id != operation.request_id", "completion identity")
-    require_contains(reporter, "operation.error", "real write error")
-    require_contains(look, "LookSaveCompletion result{save_error, ESP_OK};", "separate operation/presentation errors")
-    require_contains(look, "request_id != s_view.pending_request_id", "late UI completion rejection")
-    require_contains(look, "destination = s_view.navigation.caller;", "caller-based Back")
-    require_contains(look, "destination = s_view.navigation.done;", "independent Done destination")
-    completion = function_text(look, "LookSaveCompletion complete_look_save(", "look completion")
-    require_contains(completion, '"Error: 0x%x"', "original save error presentation")
-    require_contains(completion, "prepare_done_control(s_view.status_text, false)", "failed save disables OK")
-    require_contains(look, 'prepare_done_control("Saving...", false)', "pending save disables OK")
-    look_touch = function_text(look, "esp_err_t handle_look_touch(", "look retry admission")
-    require_contains(look_touch, "result.save_id = item.id;", "explicit row tap retries a failed save")
-    require_contains(look_touch, "s_view.choice_confirmed = true;", "current selection requires explicit confirmation")
-    require_contains(look_touch, "s_view.pending_request_id != 0", "busy look ignores a second request")
+    write = function_text(settings, "esp_err_t save_preference_uint32(", "preference write/readback")
+    require_order(write, "store.setUInt32(key, value)", "store.getUInt32(key, &stored)", "persisted value readback")
+    require_contains(write, "error == ESP_OK && stored != value", "preference readback mismatch")
+    require_contains(write, "error = ESP_ERR_INVALID_RESPONSE;", "original invalid readback outcome")
+    for name, reporter in (
+        ("persist_idle_policy", "reportCodyIdleObservation"),
+        ("persist_event_cody", "reportCodyEventVisualObservation"),
+        ("persist_parallax_policy", "reportCodyParallaxObservation"),
+        ("persist_character_theme", "reportCodyCharacterThemeObservation"),
+    ):
+        body = function_text(settings, f"esp_err_t {name}(", name)
+        require_contains(body, "std::lock_guard<std::mutex> guard(s_preferences_mutex);", name)
+        require_order(body, "save_preference_uint32(", reporter, f"{name} publishes only after write/readback")
+        require_contains(body, "observation.valid = error == ESP_OK;", f"{name} canonical validity")
+        require_contains(body, "observation.last_error = error;", f"{name} original storage failure")
+        require_contains(body, "return error != ESP_OK ? error : publication;", f"{name} preserves partial failure")
 
 
 # No parameters: run only through the explicitly authorized public check command.
 # Raises the original contract failure; does not access physical hardware.
 def main() -> int:
     verify_source_contract()
-    verify_cody_look_source_contract()
+    verify_cody_preference_source_contract()
     test_transaction_visibility()
     test_ttl_expiry()
     test_ttl_tracks_full_snapshot_cadence()
@@ -1286,7 +1303,7 @@ def main() -> int:
         "snapshot integrity verification: PASS "
         "(transaction visibility, cadence-aware completion TTL, recovery, one-shot Diagnostic reuse, "
         "success-only metadata caches, dynamic telemetry, stream quiescence, "
-        "heap-hook safety, optional look-save source ownership)"
+        "heap-hook safety, preference worker and readback publication ownership)"
     )
     return 0
 

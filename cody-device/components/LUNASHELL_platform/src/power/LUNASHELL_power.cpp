@@ -110,6 +110,9 @@ TaskHandle_t s_task;
 LUNASHELL::InputSnapshot s_inputs;
 std::atomic_bool s_initialized{false};
 std::atomic<LUNASHELL_display_lifecycle_callback_t> s_display_lifecycle_callback{nullptr};
+// Registration precedes the power task; the startup owner opens admission only
+// after the display consumer has acknowledged its complete Ready frame.
+std::atomic_bool s_display_lifecycle_ready{false};
 std::atomic<void (*)(void)> s_boot_options_request{nullptr};
 std::atomic<void (*)(void)> s_boot_home_request{nullptr};
 using ShutdownPrepare = esp_err_t (*)(void);
@@ -679,7 +682,10 @@ esp_err_t queue_maintenance(MaintenanceCommand command, MaintenanceOrigin origin
             return error;
         }
     }
-    const int64_t execute_at_us = esp_timer_get_time() + 500000;
+    // A local restart leaves a bounded window for Cody's existing farewell gesture.
+    const int64_t presentation_us = command == MaintenanceCommand::Restart && origin == MaintenanceOrigin::Local
+        ? 1500000 : 500000;
+    const int64_t execute_at_us = esp_timer_get_time() + presentation_us;
     portENTER_CRITICAL(&s_shutdown_admission_mux);
     if (request_id != nullptr) {
         local_request_id = s_local_factory_reset.request_id + 1;
@@ -1913,6 +1919,19 @@ void reset_codex_offline_grace()
     s_last_manual_activity_at_us = esp_timer_get_time();
 }
 
+// No parameters: profiles without a standalone display retain their existing admission.
+// Exception: Rejects startup intents before any audio, brightness or power-state mutation.
+esp_err_t admit_display_transition()
+{
+    if (s_display_lifecycle_callback.load(std::memory_order_acquire) != nullptr &&
+        !s_display_lifecycle_ready.load(std::memory_order_acquire)) {
+        ESP_LOGW(kTag, "Power transition rejected: display startup incomplete (%s)",
+                 esp_err_to_name(ESP_ERR_NOT_FINISHED));
+        return ESP_ERR_NOT_FINISHED;
+    }
+    return ESP_OK;
+}
+
 // Coordinate UI quiescence and every hardware resource as one transaction.
 // standby: Target standby or active state for all mandatory resources.
 // reason: Real user/activity event that caused this transition.
@@ -1922,6 +1941,8 @@ esp_err_t set_standby(
     LUNASHELL::DeviceStateReason reason
 )
 {
+    const auto admission_error = admit_display_transition();
+    if (admission_error != ESP_OK) return admission_error;
     if (s_state != LUNASHELL::DeviceOperatingState::Active &&
         s_state != LUNASHELL::DeviceOperatingState::Standby) {
         ESP_LOGE(
@@ -3654,6 +3675,19 @@ extern "C" esp_err_t LUNASHELL_power_manager_register_display_lifecycle(
     return ESP_OK;
 }
 
+// No parameters: the startup owner calls once after the complete Ready frame succeeds.
+// Exception: Rejects a missing display owner or a power service that has not started.
+extern "C" esp_err_t LUNASHELL_power_manager_complete_display_startup(void)
+{
+    if (!s_initialized.load(std::memory_order_acquire) ||
+        s_display_lifecycle_callback.load(std::memory_order_acquire) == nullptr) {
+        ESP_LOGE(kTag, "Display startup admission rejected (%s)", esp_err_to_name(ESP_ERR_INVALID_STATE));
+        return ESP_ERR_INVALID_STATE;
+    }
+    s_display_lifecycle_ready.store(true, std::memory_order_release);
+    return ESP_OK;
+}
+
 // request: Single display owner that queues Options without taking the power lock.
 // Exception: Rejects null, duplicate or late registration.
 extern "C" esp_err_t LUNASHELL_power_manager_register_boot_options(void (*request)(void))
@@ -4285,6 +4319,8 @@ extern "C" esp_err_t LUNASHELL_power_enter_light_sleep(uint64_t wake_after_us)
              esp_err_to_name(ESP_ERR_NOT_SUPPORTED));
     return ESP_ERR_NOT_SUPPORTED;
 #endif
+    const auto admission_error = admit_display_transition();
+    if (admission_error != ESP_OK) return admission_error;
     esp_err_t result = configure_wakeup(wake_after_us);
     if (result != ESP_OK) {
         return result;

@@ -1,37 +1,51 @@
 # Latest validation round
 
-## 2026-11-16 · Cody Studio native atlas
+## 2026-11-16 · Persistence, recovery and maintainability
 
-The latest isolated native atlas captured **104 of 104 selected cases**: 73
-full-runtime and 31 isolated presenters. The 125-entry source catalog also
-contains eight unsupported and 13 not-applicable entries. Acquisitions map to
-90 inventory-local IDs, eleven secondary family states and three source
-identities without an inventory mapping.
+Widget settings now preserve read/validation failures and refuse replacement
+until the file is repaired and reloaded. Studio review writes are atomic;
+capture-result preparation is separate from Tk, and recoverable load/image
+failures retain the prior capture while polling continues. General artifact
+cleanup preserves scenarios, baselines, notes and their referenced files.
+
+Interactive Studio releases the build writer after preparation while retaining
+its session and output reservations. Native builds publish from staging and
+load verified immutable library copies. Storage formatting uses a bounded,
+fallible snapshot projection; storage freshness is shared with speech and
+diagnostics. The unbuilt companion runtime and obsolete manual atlas writer
+were removed without changing the production renderers.
 
 Linux host validation through `scripts/device.ps1`:
 
-- The native graphics/runtime build succeeded after correcting the Debug BLE
-  caption and isolating the synthetic voice microphone projection.
-- `--native --inspection --events-ui` passed **65/65**. Voice frames repeated
-  and restored P04; two different previous synthetic microphone levels did
-  not change the Listening frame, and the original observation was restored.
-  Debug provisioning, 15 Codex event observations and P04 also repeated. Native
-  Studio opened the event views. Touch and external service calls remain
-  source-reviewed rather than independently observed.
-- `--atlas-pdf` passed **52/52**, including native image pixels, inventory
-  identities, preserved baselines and three handwriting lines on every page.
-- The supported atlas acquired 104 cases without failures. The compact PDF in
-  `docs/cody/cody-native-screen-atlas.pdf` has 35 A4 pages with three frames per
-  page, short adjacent references and no text appendices. All pages were
-  inspected visually; source screenshots remain synthetic host evidence.
-- The earlier 98-case coverage check also compared independent native sessions
-  in reverse order and observed 42 declared routes. That broader reverse-order
-  check has not been repeated for all 104 cases.
+- Native graphics/runtime build succeeded.
+- `check -Check cody-studio -ToolArguments @('--native','--ui')`: **48 tests
+  passed**, including independent P04 captures, actual Tk editing, comparison,
+  baseline preservation, saved notes, reopening, focus, resize and pilot views.
+- `check -Check cody-studio-recovery`: **10 tests passed**, including failed
+  capture/catalog/review reads, image allocation and atomic review writes.
+- `check -Check cody-runtime-publication`: **12 mocked tests passed**, covering
+  verified immutable loading, publication failures, races and MSVC output paths.
+- `check -Check cody-widget-settings`: shared .NET Debug build succeeded with
+  no warnings/errors; **166 checks passed**, including invalid settings, I/O
+  errors, symlinks, retained bytes and explicit reload after repair.
+- `check -Check device-console`: **19 checks passed**. The separate
+  `device-concurrency` check passed with real child dispatchers and a fake
+  simulator process: concurrent generation, conflicting outputs, cleanup
+  rejection and release on exit.
+- `check -Check cody-runtime -ToolArguments '--storage'`: the compiled production
+  freshness helper passed boundary, reversed-clock and error-preservation cases.
+- Project-owned changes passed `git diff --check`. The newly committed upstream
+  vendor sources retain their existing whitespace warnings unchanged.
 
-Remaining work includes editable event fixtures, actual reply and Retry,
-populated notification lists/paging, physical voice/audio and sleep/wake.
-Lost32 remains unsupported because the dashboard can mask its scene. S06
-character/title overlap and the reset failure wording remain open. No firmware
-build or flash, physical-device operation, human audio acceptance or push was
-performed; Windows and device acceptance remain separate. Generated artifacts
-are retained; cleanup is manual.
+The owner authorized committing all remaining local source/documentation changes;
+those pre-existing edits are not all covered by this focused validation. No full
+firmware build, flash, physical operation, Windows UI/build, human audio acceptance
+or push was performed. Storage lock failure and SD formatting still require target
+acceptance. Wide Tk screenshots exceeded the virtual display, so they do not
+establish complete visual acceptance of the inspector or preference warning.
+The existing atlas PDF was not regenerated in this round.
+
+Generated artifacts remain under `artifacts/`; cleanup is manual. Immutable
+runtime copies are deduplicated but retained; remove unused generations only
+after closing simulator processes. Remaining work stays in `TODO.md` and the
+existing `CLARITY` entries in `planned-todo.md`.

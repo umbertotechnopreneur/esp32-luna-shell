@@ -539,15 +539,21 @@ class InteractionStore:
     # clock: Monotonic source for current-process deadlines and terminal retention.
     # storage: Optional atomic authenticated checkpoint provided by the exclusive broker.
     # owner_id: Retained PC identity binding the private question ledger.
+    # notification_storage: Independent authenticated unread-notification checkpoint.
     # Raises RegistryStorageError if a configured ledger cannot be safely opened.
     def __init__(self, clock=time.monotonic, *, storage: RegistryStorage | None = None,
-                 owner_id: str | None = None) -> None:
+                 owner_id: str | None = None, notification_storage: RegistryStorage | None = None) -> None:
         self._clock = clock
         self._condition = threading.Condition(threading.RLock())
         self._tickets: dict[str, Ticket] = {}
         self._storage = storage
         self._owner_id = owner_id
         self._storage_failure: RegistryStorageError | None = None
+        self._notification_storage = notification_storage
+        self._notification_failure: RegistryStorageError | None = None
+        self._selected_notices: dict[tuple[str, str], str] = {}
+        if notification_storage is not None and (not isinstance(owner_id, str) or IDENTITY.fullmatch(owner_id) is None):
+            raise RegistryStorageError("Notification ledger requires a retained PC identity")
         if storage is not None:
             if not isinstance(owner_id, str) or IDENTITY.fullmatch(owner_id) is None:
                 raise RegistryStorageError("Question ledger requires a retained PC identity")
@@ -556,6 +562,12 @@ class InteractionStore:
                 self._save(self._tickets)
             else:
                 self._restore(document)
+        if notification_storage is not None:
+            document = notification_storage.load()
+            if document is None:
+                self._save_notifications(self._tickets)
+            else:
+                self._restore_notifications(document)
 
     # tickets: Complete candidate ticket set. Only questions are durable.
     # Raises RegistryStorageError if the authenticated commit does not complete.
@@ -707,6 +719,80 @@ class InteractionStore:
             self._save(tickets)
         self._tickets = tickets
 
+    # tickets: Complete candidate registry; only unread informational metadata is durable here.
+    # Raises RegistryStorageError before publishing a notification mutation that was not retained.
+    def _save_notifications(self, tickets: dict[str, Ticket]) -> None:
+        if self._notification_storage is None:
+            return
+        if self._notification_failure is not None:
+            raise self._notification_failure
+        rows = [{"request_id": item.request_id, "device_id": item.device_id,
+                 "association": item.association_id, "payload": encode_payload(item.payload),
+                 "source": item.source, "published": item.published,
+                 "native_session": item.native_session, "capability_digest": item.capability_digest}
+                for item in tickets.values() if item.payload.kind != EventKind.QUESTION and item.state == "pending"]
+        origins = [{"request_id": item.request_id, "title": item.payload.origin_title}
+                   for item in tickets.values() if item.payload.kind == EventKind.QUESTION and item.payload.origin_title]
+        try:
+            self._notification_storage.save({"version": 1, "owner": self._owner_id,
+                                             "notifications": rows, "question_origins": origins})
+        except RegistryStorageError as error:
+            self._notification_failure = error
+            raise
+
+    # document: Exact authenticated unread metadata; speech and old monotonic deadlines are never restored.
+    # Raises RegistryStorageError for invalid, duplicate, foreign or over-capacity records.
+    def _restore_notifications(self, document: dict[str, Any]) -> None:
+        try:
+            if (set(document) != {"version", "owner", "notifications", "question_origins"} or type(document["version"]) is not int
+                    or document["version"] != 1 or document["owner"] != self._owner_id
+                    or not isinstance(document["notifications"], list)
+                    or len(document["notifications"]) + len(self._tickets) > MAX_TICKETS
+                    or not isinstance(document["question_origins"], list)
+                    or len(document["question_origins"]) > MAX_TICKETS):
+                raise ValueError("Invalid notification ledger version, owner or bounds")
+            now = self._clock()
+            notices = {}
+            for row in document["notifications"]:
+                expected = {"request_id", "device_id", "association", "payload", "source", "published",
+                            "native_session", "capability_digest"}
+                if (not isinstance(row, dict) or set(row) != expected
+                        or any(not isinstance(row[name], str) for name in expected - {"published"})
+                        or type(row["published"]) is not bool
+                        or IDENTITY.fullmatch(row["request_id"]) is None or row["request_id"] == ZERO_TICKET
+                        or row["request_id"] in self._tickets or row["request_id"] in notices
+                        or DEVICE_ID.fullmatch(row["device_id"]) is None
+                        or CAPABILITY.fullmatch(row["association"]) is None
+                        or CAPABILITY.fullmatch(row["capability_digest"]) is None
+                        or row["source"] not in {"LAN", "SIMULATED"}):
+                    raise ValueError("Invalid notification checkpoint identity or fields")
+                if row["native_session"]:
+                    require_id(row["native_session"], "notification native_session")
+                payload = decode_payload(row["payload"])
+                if payload.kind == EventKind.QUESTION or encode_payload(payload) != row["payload"]:
+                    raise ValueError("Invalid notification checkpoint payload")
+                notices[row["request_id"]] = Ticket(
+                    row["request_id"], "", row["device_id"], payload, row["source"], now, now,
+                    association_id=row["association"], native_session=row["native_session"],
+                    published=row["published"], capability_digest=row["capability_digest"], state_restored=True)
+            origins = {}
+            for row in document["question_origins"]:
+                if (not isinstance(row, dict) or set(row) != {"request_id", "title"}
+                        or not isinstance(row["request_id"], str) or IDENTITY.fullmatch(row["request_id"]) is None
+                        or row["request_id"] == ZERO_TICKET or row["request_id"] in origins):
+                    raise ValueError("Invalid question origin metadata")
+                title = bounded_text(row["title"], "question origin", 255)
+                origins[row["request_id"]] = title
+        except ValueError as error:
+            raise RegistryStorageError(f"Notification ledger validation failed: {error}") from error
+        self._tickets.update(notices)
+        for request_id, title in origins.items():
+            ticket = self._tickets.get(request_id)
+            # Metadata can lag an independently committed question deletion after
+            # a process interruption; it never revives or rebinds that question.
+            if ticket is not None and ticket.payload.kind == EventKind.QUESTION:
+                ticket.payload = replace(ticket.payload, origin_title=title)
+
     # changes: Whole replacements/deletions prepared under the condition lock.
     # Raises RegistryStorageError before publishing an uncommitted durable mutation.
     def _commit(self, changes: dict[str, Ticket | None]) -> None:
@@ -714,12 +800,18 @@ class InteractionStore:
             return
         staged = self._tickets.copy()
         durable = False
+        notification_durable = False
         for identity, candidate in changes.items():
             prior = staged.get(identity)
             if candidate == prior:
                 continue
             ticket = candidate if candidate is not None else prior
             durable |= ticket is not None and ticket.payload.kind == EventKind.QUESTION
+            notification_durable |= ticket is not None and ticket.payload.kind != EventKind.QUESTION
+            if ticket is not None and ticket.payload.kind == EventKind.QUESTION:
+                previous_origin = prior.payload.origin_title if prior is not None else ""
+                next_origin = candidate.payload.origin_title if candidate is not None else ""
+                notification_durable |= previous_origin != next_origin
             if candidate is None:
                 staged.pop(identity, None)
             else:
@@ -732,7 +824,13 @@ class InteractionStore:
                 staged[identity] = candidate
         if durable:
             self._save(staged)
+        if notification_durable:
+            self._save_notifications(staged)
         self._tickets = staged
+        self._selected_notices = {key: identity for key, identity in self._selected_notices.items()
+                                  if identity in staged and staged[identity].state == "pending"
+                                  and staged[identity].payload.kind != EventKind.QUESTION
+                                  and (staged[identity].device_id, staged[identity].association_id) == key}
         self._condition.notify_all()
 
     # No parameters: expire delivery tickets without resolving their semantic questions.
@@ -741,7 +839,12 @@ class InteractionStore:
         now = self._clock()
         changes: dict[str, Ticket | None] = {}
         for identity, ticket in self._tickets.items():
-            if ticket.state not in CLOSED_TICKETS and now >= ticket.expires_at:
+            if (ticket.payload.kind != EventKind.QUESTION and ticket.reply_speech
+                    and ticket.reply_deadline > 0 and now >= ticket.reply_deadline):
+                changes[identity] = replace(ticket, reply_speech=(), reply_deadline=0.0,
+                    payload=replace(ticket.payload, status="Voice delivery expired"))
+            if (ticket.payload.kind == EventKind.QUESTION and ticket.state not in CLOSED_TICKETS
+                    and now >= ticket.expires_at):
                 changes[identity] = replace(ticket, state="expired", terminal_at=now,
                                             reply_speech=(), reply_deadline=0.0)
                 continue
@@ -770,7 +873,7 @@ class InteractionStore:
     # source: LAN or SIMULATED source label derived from the authenticated target observation.
     # ttl_seconds: Bounded complete request/recipient-acknowledgement lifetime.
     # association_id: Internal digest binding this ticket to the active association, never a wire identity.
-    # native_session: Genuine hook identity retiring notices at lifecycle or resumed-activity boundaries.
+    # native_session: Genuine origin identity; resumed activity never deletes unread notices.
     # Raises ValueError if the target/content/TTL is invalid or a bounded queue is occupied.
     def enqueue(self, device_id: str, payload: EventPayload, source: str, ttl_seconds: int = 180,
                 association_id: str = "", native_session: str = "", reply_speech: str = "") -> dict[str, Any]:
@@ -788,8 +891,9 @@ class InteractionStore:
             raise ValueError("Reply speech requires a bounded native reply and active association")
         segments = split_reply_speech(reply_speech) if reply_speech else ()
         question = payload.kind == EventKind.QUESTION
-        if question and self._storage is not None and (not association_id or source == "UNOBSERVED"):
-            raise ValueError("Durable question requires a confirmed active association")
+        durable_store = self._storage if question else self._notification_storage
+        if durable_store is not None and (not association_id or source == "UNOBSERVED"):
+            raise ValueError("Durable interaction requires a confirmed active association")
         if question and (payload.selected_id or payload.pending_question_count or payload.pending_questions):
             raise ValueError("Question admission requires the original unanswered payload")
         encoded = encode_payload(payload)
@@ -799,17 +903,9 @@ class InteractionStore:
         with self._condition:
             self._expire()
             if len(self._tickets) >= MAX_TICKETS:
-                raise ValueError("CCP request registry is full; wait for terminal records to expire")
+                raise ValueError("CCP request registry is full; read or dismiss retained notifications and close settled questions")
             changes: dict[str, Ticket | None] = {}
             now = self._clock()
-            if not question:
-                for item in self._tickets.values():
-                    if (item.device_id == device_id and item.state not in CLOSED_TICKETS
-                            and item.payload.kind != EventKind.QUESTION
-                            and ((native_session and item.native_session == native_session and item.payload.kind == payload.kind)
-                                 or (not native_session and not item.native_session))):
-                        changes[item.request_id] = replace(item, state="cancelled", terminal_at=now,
-                                                           reply_speech=(), reply_deadline=0.0)
             # Every unsettled question may resolve while Cody is offline.
             # Keep enough room to publish all terminal states before removing them.
             if question and association_id and sum(
@@ -822,7 +918,7 @@ class InteractionStore:
             while question and question_id == request_id:
                 question_id = self._new_id()
             capability = secrets.token_hex(32)
-            durable = question and self._storage is not None
+            durable = durable_store is not None
             ticket = Ticket(
                 request_id, "" if durable else capability, device_id, payload, source, now, now + ttl_seconds,
                 association_id=association_id, native_session=native_session,
@@ -857,6 +953,7 @@ class InteractionStore:
     # A socket error is ambiguous, so a subsequent valid acknowledgement is accepted.
     def mark_reply_speech_sent(self, device_id: str, association_id: str, request_id: str, index: int) -> None:
         with self._condition:
+            self._expire()
             ticket = self._tickets.get(request_id)
             if (ticket is None or ticket.device_id != device_id or ticket.state != "pending" or
                     not ticket.published or ticket.reply_segment != index or
@@ -876,6 +973,7 @@ class InteractionStore:
             ticket = self._tickets.get(request_id)
             if (ticket is None or ticket.device_id != device_id or ticket.state != "pending" or
                     not ticket.published or ticket.payload.kind != EventKind.REPLY_READY or
+                    not ticket.reply_speech or
                     not hmac.compare_digest(ticket.association_id, association_id)):
                 return  # A dismissed, expired or superseded notice cannot advance anything.
             if index == ticket.reply_segment - 1:
@@ -921,6 +1019,19 @@ class InteractionStore:
                     raise ValueError("Codex hook question already belongs to a different invocation")
                 return
             self._commit({request_id: replace(ticket, chat_id=chat_id, turn_id=turn_id)})
+
+    # request_id: Exact ticket correlated by the native tool hook.
+    # title: Actual admitted originating chat title; an empty source never erases a known title.
+    # Raises ValueError for an unknown or uncorrelated question, or invalid display text.
+    def set_question_origin(self, request_id: str, title: str) -> None:
+        bounded_text(title, "origin title", 255, True)
+        if not title:
+            return
+        with self._condition:
+            ticket = self._tickets.get(request_id)
+            if ticket is None or ticket.payload.kind != EventKind.QUESTION or not ticket.chat_id:
+                raise ValueError("Origin title requires a correlated native question")
+            self._commit({request_id: replace(ticket, payload=replace(ticket.payload, origin_title=title))})
 
     # No parameters: exact turn identities pinned by retained semantic questions.
     def associated_question_turns(self) -> frozenset[tuple[str, str]]:
@@ -1013,6 +1124,9 @@ class InteractionStore:
         result: dict[str, Any] = {"request_id": ticket.request_id, "state": ticket.state,
                                   "source": ticket.source, "kind": ticket.payload.kind.name.lower(),
                                   "expires_in_seconds": max(0, math.ceil(ticket.expires_at - self._clock()))}
+        if ticket.payload.kind != EventKind.QUESTION:
+            result["retained_until_read"] = ticket.state == "pending"
+            result["expires_in_seconds"] = None
         if ticket.payload.kind == EventKind.QUESTION:
             if ticket.state == "delivered":
                 delivery = "recipient_confirmed"
@@ -1148,24 +1262,23 @@ class InteractionStore:
             return replace(ticket, active_on_device=False)
         return replace(ticket, state="cancelled", terminal_at=now, reply_speech=(), reply_deadline=0.0)
 
-    # self: Automatic-notice owner; retiring a hook context never affects caller-owned questions.
-    # session_id: Genuine native session, or None to retire all native notices.
-    # kind: Optional informational kind; resumed activity must not retire reply-ready notices.
+    # self: Automatic-notice owner; lifecycle changes stop speech without deleting unread events.
+    # session_id: Genuine native session, or None for all native notice origins.
+    # kind: Optional informational kind whose current context changed.
+    # Raises RegistryStorageError if updated advisory status cannot be retained.
     def retire_native(self, session_id: str | None, kind: EventKind | None = None) -> None:
         with self._condition:
             self._expire()
+            changes = {}
             for ticket in self._tickets.values():
                 if (ticket.payload.kind != EventKind.QUESTION and ticket.native_session
                         and (session_id is None or ticket.native_session == session_id)
                         and (kind is None or ticket.payload.kind == kind)
                         and ticket.state not in CLOSED_TICKETS):
-                    ticket.state, ticket.terminal_at = "cancelled", self._clock()
-                    ticket.reply_speech, ticket.reply_deadline = (), 0.0
-                    if ticket.payload.kind == EventKind.APPROVAL_ON_PC:
-                        chat = hashlib.sha256(ticket.native_session.encode("ascii")).hexdigest()[:12]
-                        print(f"CCP approval notice: state=retired reason=native_lifecycle chat={chat}",
-                              file=sys.stderr, flush=True)
-                    self._condition.notify_all()
+                    status = "No longer pending on PC" if ticket.payload.kind == EventKind.APPROVAL_ON_PC else "Earlier reply"
+                    changes[ticket.request_id] = replace(ticket, payload=replace(ticket.payload, status=status),
+                                                         reply_speech=(), reply_deadline=0.0)
+            self._commit(changes)
 
     # self: Owner recording authenticated device retirement separately from recipient delivery.
     # device_id: Active peer identity authenticated by the UDP responder.
@@ -1208,36 +1321,82 @@ class InteractionStore:
                     or not hmac.compare_digest(association_id, ticket.association_id)):
                 raise ValueError("Informational dismissal has no published notice in this association")
             if ticket.state == "pending":
-                ticket.state, ticket.terminal_at = "cancelled", self._clock()
-                ticket.reply_speech, ticket.reply_deadline = (), 0.0
-                self._condition.notify_all()
+                self._commit({ticket.request_id: replace(ticket, state="cancelled", terminal_at=self._clock(),
+                                                        reply_speech=(), reply_deadline=0.0)})
+            if self._selected_notices.get((device_id, association_id)) == request_id:
+                self._selected_notices.pop((device_id, association_id), None)
 
     # self: Publisher choosing a complete request snapshot without changing caller ownership.
+    # device_id: Exact retained Cody recipient.
+    # association_id: Digest of the confirmed active pairing.
+    # current_id: Question reported by the authenticated peer.
+    # current_state: Authenticated lifecycle of that question.
+    # selection_id: Explicit signed queue selection, or all zeroes.
+    # Returns whether the same selection precedence as snapshot may choose a PC alert.
+    def should_defer_pc_alert(self, device_id: str, association_id: str,
+                              current_id: str, current_state: str, selection_id: str) -> bool:
+        with self._condition:
+            relevant = [item for item in self._tickets.values()
+                        if item.device_id == device_id and
+                        hmac.compare_digest(item.association_id, association_id)]
+            current = next((item for item in relevant if item.request_id == current_id), None)
+            if current_state in OPEN_DEVICE_STATES and (current is None or not current.published or
+                    current.payload.kind != EventKind.QUESTION or current.state == "unavailable"):
+                return False
+            questions = [item for item in relevant if item.payload.kind == EventKind.QUESTION and item.state not in CLOSED_TICKETS]
+            if any(item.payload.kind == EventKind.QUESTION and item.active_on_device and item.published and
+                   item.state in TERMINAL_STATES and not item.device_terminal_state for item in relevant):
+                return False
+            notices = [item for item in relevant if item.payload.kind != EventKind.QUESTION and item.state == "pending"]
+            if (selection_id != ZERO_TICKET and (current_state == "none" or
+                    (current is not None and current.state == "pending" and not current.selected_id))):
+                target = next((item for item in questions + notices if item.request_id == selection_id and
+                               item.state == "pending" and not item.selected_id), None)
+                if target is not None:
+                    return target.payload.pc_severity is not None
+            if current_state in {"sending", "received"} and current in questions:
+                return False
+            retained_id = self._selected_notices.get((device_id, association_id))
+            retained = next((item for item in notices if item.request_id == retained_id), None)
+            if retained is not None:
+                return retained.payload.pc_severity is not None
+            if current in questions or questions:
+                return False
+            now = self._clock()
+            if any(item.payload.kind == EventKind.QUESTION and item.active_on_device and
+                   item.state in TERMINAL_STATES and item.terminal_at is not None and
+                   now - item.terminal_at < TERMINAL_DISPLAY_SECONDS for item in relevant):
+                return False
+            return bool(notices and notices[-1].payload.pc_severity is not None)
+
     # device_id: Authenticated active Cody peer.
     # association_id: Current active-key digest.
     # offset: Requested first row, clamped if the queue has shrunk.
-    # dismiss: Exact previously published ready reply, or the all-zero no-op.
+    # dismiss: Exact previously published informational event, or the all-zero no-op.
     # Raises ValueError for a foreign dismissal. Returns a bounded binary summary.
-    def inbox_page(self, device_id: str, association_id: str, offset: int, dismiss: str) -> str:
+    # supports_pc_alert: Current nonce has explicitly authenticated typed PC alerts.
+    def inbox_page(self, device_id: str, association_id: str, offset: int, dismiss: str,
+                   supports_pc_alert: bool = False) -> str:
         with self._condition:
             self._expire()
             if dismiss != "0" * 32:
                 ticket = self._tickets.get(dismiss)
                 if ticket is not None:
-                    if ticket.payload.kind != EventKind.REPLY_READY:
-                        raise ValueError("Only ready replies can be dismissed through Events")
+                    if ticket.payload.kind == EventKind.QUESTION:
+                        raise ValueError("Questions cannot be dismissed through Notifications")
                     self.acknowledge_notice(device_id, dismiss, association_id)
             questions = []
-            replies = []
+            notices = []
             for ticket in self._tickets.values():
                 if (ticket.device_id != device_id or ticket.state != "pending"
-                        or not hmac.compare_digest(ticket.association_id, association_id)):
+                        or not hmac.compare_digest(ticket.association_id, association_id)
+                        or (ticket.payload.pc_severity is not None and not supports_pc_alert)):
                     continue
                 if ticket.payload.kind == EventKind.QUESTION:
                     questions.append(ticket)
-                elif ticket.payload.kind == EventKind.REPLY_READY:
-                    replies.append(ticket)
-            tickets = questions + replies
+                else:
+                    notices.append(ticket)
+            tickets = questions + list(reversed(notices))
             total = len(tickets)
             start = min(offset, max(0, total - INBOX_PAGE_SIZE))
             page = tickets[start:start + INBOX_PAGE_SIZE]
@@ -1245,19 +1404,24 @@ class InteractionStore:
             for ticket in page:
                 payload = ticket.payload
                 question = payload.kind == EventKind.QUESTION
-                title = payload.context if question else payload.body
-                if not title or (not question and title == "Open Codex to read the reply"):
-                    title = "Chat title unavailable"
+                title = payload.origin_title or "Chat title unavailable"
+                if len(title) > 63:
+                    title = title[:60] + "..."
                 preview = payload.body if question else ""
-                title_bytes, preview_bytes = title.encode("ascii"), preview.encode("ascii")
+                label_bytes, title_bytes, preview_bytes = payload.title.encode("ascii"), title.encode("ascii"), preview.encode("ascii")
+                if payload.kind == EventKind.APPROVAL_ON_PC and payload.status == "No longer pending on PC":
+                    label_bytes = b"Earlier approval"
                 encoded.append(int(payload.kind))
                 encoded.extend(bytes.fromhex(ticket.request_id))
+                encoded.append(len(label_bytes))
+                encoded.extend(label_bytes)
                 encoded.append(len(title_bytes))
                 encoded.extend(title_bytes)
                 encoded.append(len(preview_bytes))
                 encoded.extend(preview_bytes)
-                if not question:
-                    ticket.published = True
+            changes = {ticket.request_id: replace(ticket, published=True) for ticket in page
+                       if ticket.payload.kind != EventKind.QUESTION and not ticket.published}
+            self._commit(changes)
             return encoded.hex()
 
     # device_id: Authenticated active Cody peer.
@@ -1265,11 +1429,13 @@ class InteractionStore:
     # current_id: Question identity reported by the authenticated device, or all zeros for absence.
     # current_state: Actual device state; an unknown open question is retired before publishing a successor.
     # selection_request_id: Explicit signed queue navigation; zero means retain current ownership.
+    # supports_pc_alert: Current nonce has authenticated support for schema 6.
     # Returns request identity, lifecycle state, remaining TTL and immutable encoded payload.
     # Raises ValueError for an incoherent device observation.
     def snapshot(self, device_id: str, association_id: str = "",
                  current_id: str = "0" * 32, current_state: str = "none",
-                 selection_request_id: str = "0" * 32) -> tuple[str, str, str, str]:
+                 selection_request_id: str = "0" * 32,
+                 supports_pc_alert: bool = False) -> tuple[str, str, str, str]:
         if (IDENTITY.fullmatch(current_id) is None or current_state not in DEVICE_STATES
                 or (current_id == "0" * 32) != (current_state == "none")):
             raise ValueError("Device question observation is incoherent")
@@ -1279,6 +1445,9 @@ class InteractionStore:
         with self._condition:
             self._expire()
             now = self._clock()
+            for key in tuple(self._selected_notices):
+                if key[0] == device_id and key[1] != association_id:
+                    self._selected_notices.pop(key)
             changes: dict[str, Ticket | None] = {}
             relevant: dict[str, Ticket] = {}
             for item in self._tickets.values():
@@ -1332,20 +1501,33 @@ class InteractionStore:
                       and item.active_on_device and item.state in TERMINAL_STATES and item.terminal_at is not None
                       and now - item.terminal_at < TERMINAL_DISPLAY_SECONDS]
             notices = [item for item in relevant.values() if item.payload.kind != EventKind.QUESTION
-                       and item.state == "pending"]
+                       and item.state == "pending" and (supports_pc_alert or item.payload.pc_severity is None)]
             target = None
             if selection_request_id != ZERO_TICKET:
                 if current_state == "none" or (current is not None and current.state == "pending" and not current.selected_id):
-                    target = next((item for item in questions if item.request_id == selection_request_id
+                    target = next((item for item in questions + notices if item.request_id == selection_request_id
                                    and item.state == "pending" and not item.selected_id), None)
                 if target is None:
-                    print("CCP interactions: requested pending question is no longer selectable", file=sys.stderr)
+                    print("CCP interactions: requested notification is no longer selectable", file=sys.stderr)
+                elif target.payload.kind != EventKind.QUESTION:
+                    self._selected_notices[(device_id, association_id)] = target.request_id
+                    for item in questions:
+                        if item.active_on_device:
+                            changes[item.request_id] = replace(item, active_on_device=False)
+                else:
+                    self._selected_notices.pop((device_id, association_id), None)
+            retained_notice_id = self._selected_notices.get((device_id, association_id))
+            retained_notice = next((item for item in notices if item.request_id == retained_notice_id), None)
+            if retained_notice_id and retained_notice is None:
+                self._selected_notices.pop((device_id, association_id), None)
             # A terminal question remains ahead of its successor until Cody
             # actually closes the retained presentation.
             active_current = current if current in questions else None
             ticket = (closing[0] if closing else target if target is not None else
+                      active_current if current_state in {"sending", "received"} else
+                      retained_notice if retained_notice is not None else
                       active_current if active_current is not None else questions[0] if questions else
-                      recent[-1] if recent else notices[0] if notices else None)
+                      recent[-1] if recent else notices[-1] if notices else None)
             if ticket is None:
                 self._commit(changes)
                 return ZERO_TICKET, "none", "0", "-"
@@ -1367,7 +1549,8 @@ class InteractionStore:
             changes[ticket.request_id] = ticket
             # Persist original ticket ownership before publishing the offer.
             self._commit(changes)
-            ttl = max(0, min(MAX_TTL_SECONDS, math.ceil(ticket.expires_at - now)))
+            ttl = (max(0, min(MAX_TTL_SECONDS, math.ceil(ticket.expires_at - now)))
+                   if ticket.payload.kind == EventKind.QUESTION else MAX_TTL_SECONDS)
             return ticket.request_id, ticket.state, str(ttl), encode_payload(payload)
 
 
@@ -1380,6 +1563,8 @@ def tool_catalog() -> list[dict[str, Any]]:
         "context": {"type": "string", "maxLength": 24, "pattern": "^[ -~]*$",
                     "description": "Caller-declared label only; never an authenticated chat identity or focus claim."},
         "title": text24, "body": text63,
+        "origin_title": {"type": "string", "minLength": 1, "maxLength": 255, "pattern": "^[ -~]+$",
+                         "description": "Known originating chat title, never a project label or opaque ID; omit when unavailable."},
         "ttl_seconds": {"type": "integer", "minimum": 15, "maximum": 180, "default": 180},
         "include_simulator": {"type": "boolean", "default": False,
                               "description": "Enable only for an explicitly requested SIMULATED Cody Studio target."},

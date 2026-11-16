@@ -1141,10 +1141,11 @@ cloud, hardware and voice work is not automatically activated or marked complete
   headers still duplicate first-glyph/offset/capacity/centering math. Share only
   that calculation; retain text, viewport and pausable clocks with each owner.
 - [ ] **CLARITY-03 - Replace narrow uses of full snapshots.**
-  Replace snapshot() by-value reads with bounded, fallible projections,
-  starting with storage formatting. Budget the nested stack before removing the
-  API. Keep the v1 scene-font reader until its assets migrate and continue
-  rejecting invalid calibration records.
+  Replace remaining snapshot() by-value reads with bounded, fallible projections.
+  Storage formatting now uses a bounded storage read; accept its lock/error
+  behavior on target. Budget the nested stack before removing the API. Keep
+  the v1 scene-font reader until its assets migrate and continue rejecting
+  invalid calibration records.
 - [ ] **OTA-01 - Upload, boot selection and rollback.**
   Implement authenticated Wi-Fi upload, boot selection and rollback on boards
   with two supported OTA slots. Define shared storage policy and observe

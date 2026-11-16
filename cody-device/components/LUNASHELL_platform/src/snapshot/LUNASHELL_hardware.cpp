@@ -4640,7 +4640,8 @@ extern "C" esp_err_t LUNASHELL_display_set_rotation_degrees(uint32_t degrees)
 #endif
 }
 
-// Restore both saved values exactly; invalid persisted data requires an explicit reset.
+// Restore saved values exactly; initialize absent auto-rotation as disabled.
+// Invalid persisted data requires an explicit reset.
 extern "C" esp_err_t LUNASHELL_display_apply_saved_auto_rotation(void)
 {
 #if !CONFIG_LUNASHELL_BUILD_ENABLE_DISPLAY
@@ -4661,11 +4662,7 @@ extern "C" esp_err_t LUNASHELL_display_apply_saved_auto_rotation(void)
         settings,
         kAutoRotationSetting,
         "Cardinal display auto-rotation",
-#if CONFIG_LUNASHELL_CODY_START_AUTO_ROTATION
-        true,
-#else
         false,
-#endif
         &enabled
     );
     if (error != ESP_OK) {

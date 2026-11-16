@@ -24,7 +24,8 @@ constexpr unsigned kDepthLimit = 16, kNodeLimit = 512;
 constexpr int64_t kRefreshUs = 12LL * 60 * 60 * 1000000;
 constexpr int64_t kRetryUs = 5LL * 60 * 1000000;
 constexpr TickType_t kPrerequisiteRetry = pdMS_TO_TICKS(10000U);
-static_assert(kOpenRouterCodexModels.size() <= UINT16_MAX, "Configured catalog exceeds index capacity");
+static_assert(!kOpenRouterCodexModels.empty() && kOpenRouterCodexModels.size() <= UINT16_MAX,
+    "Configured catalog must fit a nonempty index");
 static_assert(sizeof(OpenRouterModelQuote) <= 208, "Catalog entry exceeds its memory budget");
 
 SemaphoreHandle_t s_mutex;
@@ -33,6 +34,8 @@ OpenRouterModelQuote *s_live = s_buffers[0];
 OpenRouterModelQuote *s_stage = s_buffers[1];
 OpenRouterCatalogStatus s_status;
 char *s_body;
+// Only the catalog worker accesses this cursor between refresh cycles.
+size_t s_first_model;
 
 // object, name, value: Read an explicitly present nonnegative JSON price.
 // Exception: Missing, invalid and non-finite strings remain unavailable.
@@ -237,10 +240,11 @@ esp_err_t refresh(bool &deferred)
     OpenRouterCatalogStage failed_stage = OpenRouterCatalogStage::Response;
     bool changed = false;
     bool transport_reported = false;
-    for (size_t i = 0; i < kOpenRouterCodexModels.size(); ++i) {
+    for (size_t offset = 0; offset < kOpenRouterCodexModels.size(); ++offset) {
         OpenRouterCatalogStage prerequisite_stage;
         const auto ready = prerequisites(prerequisite_stage);
         if (ready != ESP_OK) { deferred = true; aggregate = ready; stage = prerequisite_stage; break; }
+        const size_t i = (s_first_model + offset) % kOpenRouterCodexModels.size();
         auto &quote = s_stage[i];
         const int64_t now = esp_timer_get_time();
         const int64_t successful_at = quote.last_error == ESP_ERR_NOT_FOUND ?
@@ -252,6 +256,13 @@ esp_err_t refresh(bool &deferred)
         if (result != ESP_OK && result != ESP_ERR_NOT_FOUND && aggregate == ESP_OK) {
             aggregate = result;
             failed_stage = quote.http_status ? OpenRouterCatalogStage::Response : OpenRouterCatalogStage::Https;
+        }
+        // Without an HTTP response the transport may be shared. Avoid repeating
+        // TLS pressure immediately; leave other quotes for a later bounded retry.
+        if (result != ESP_OK && quote.http_status == 0) {
+            // A repeated transport failure must not starve later model identities.
+            s_first_model = (i + 1U) % kOpenRouterCodexModels.size();
+            break;
         }
     }
     if (xSemaphoreTake(s_mutex, pdMS_TO_TICKS(100)) != pdTRUE) return ESP_ERR_TIMEOUT;

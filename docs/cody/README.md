@@ -15,6 +15,8 @@ Cody is a little companion for your desk and your work with Codex. It brings a p
 - [Cody's expressions](personality-icons.md): how visual cues help Cody communicate.
 - [Behind the experience](runtime.md): what is in the source, what is planned and where to find the code.
 - [Screen layout](layout.md), [design system](design-system.md) and [screen catalog](screen-catalog.md): design contracts and screen identities for contributors.
+- [Studio native atlas standard](native-atlas-standard.md): screen layout, evidence and reusable annotation films.
+- [Printable annotation films](annotation-overlays.md): the Treeview, Table and Text standards for document-aligned, mirrored films, generated on request.
 
 Prefer pictures? Explore the [navigation atlas](cody-navigation-atlas-v1.pdf), [connection atlas](cody-ccp-connection-atlas-v1.pdf), [pairing quickstart](cody-ccp-pairing-quickstart-a5-v1.pdf), [planning atlas](cody-planning-atlas-v1.pdf) and [navigation map](device-navigation-map-a4.pdf). The Italian strategy documents are historical, not proof of current features.
 

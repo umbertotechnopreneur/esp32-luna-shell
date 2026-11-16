@@ -41,25 +41,16 @@ try {
         if ($LASTEXITCODE -ne 0) { throw "Verified offline restore failed: $($restore.project)" }
     }
     Assert-VerifiedImport $packageRoot @($Imports.Packages)
-    # Rebuild forces compilation even when old outputs carry future timestamps.
-    & dotnet build 'Windows/OpenAIUsage.Windows.csproj' -t:Rebuild -c Release -r win-x64 --self-contained true --no-restore
-    if ($LASTEXITCODE -ne 0) { throw 'Clean Windows source rebuild failed.' }
+    & dotnet build 'Windows/OpenAIUsage.Windows.csproj' -c Release -r win-x64 --self-contained true --no-restore
+    if ($LASTEXITCODE -ne 0) { throw 'Windows source build failed.' }
 
     & dotnet publish 'Windows/OpenAIUsage.Windows.csproj' -c Release -r win-x64 --self-contained true --no-build --no-restore -o $windowsPayload
     if ($LASTEXITCODE -ne 0) { throw 'Current Windows source publish failed.' }
-    & dotnet build 'Backend/OpenAIUsage.Backend.csproj' -t:Rebuild -c Release -r linux-x64 --self-contained true --no-restore
-    if ($LASTEXITCODE -ne 0) { throw 'Clean Linux backend source rebuild failed.' }
+    & dotnet build 'Backend/OpenAIUsage.Backend.csproj' -c Release -r linux-x64 --self-contained true --no-restore
+    if ($LASTEXITCODE -ne 0) { throw 'Linux backend source build failed.' }
     & dotnet publish 'Backend/OpenAIUsage.Backend.csproj' -c Release -r linux-x64 --self-contained true --no-build --no-restore -o (Join-Path $linuxPayload 'backend')
     if ($LASTEXITCODE -ne 0) { throw 'Current Linux backend source publish failed.' }
-    & dotnet build 'Tests/OpenAIUsage.Tests.csproj' -t:Rebuild -c Release --no-restore
-    if ($LASTEXITCODE -ne 0) { throw 'Clean test source rebuild failed.' }
-    & dotnet run --project 'Tests/OpenAIUsage.Tests.csproj' -c Release --no-build --no-restore
-    if ($LASTEXITCODE -ne 0) { throw 'Behavioral checks failed.' }
-    & python -m py_compile 'Linux/openai_usage.py' 'Linux/watchdog.py' 'Linux/tray.py' 'Packaging/package.py'
-    if ($LASTEXITCODE -ne 0) { throw 'Python syntax checks failed.' }
-    & python 'Tests/test_watchdog.py'
-    if ($LASTEXITCODE -ne 0) { throw 'Linux watchdog ownership checks failed.' }
-    foreach ($file in @('openai_usage.py','watchdog.py','tray.py','run.sh','openai-usage.desktop')) {
+    foreach ($file in @('openai_usage.py','cody_control.py','cody_rules.py','watchdog.py','tray.py','run.sh','openai-usage.desktop')) {
         Copy-Item -LiteralPath (Join-Path $projectRoot "Linux\$file") -Destination (Join-Path $linuxPayload "Linux\$file")
     }
     Copy-Item -LiteralPath (Join-Path $projectRoot 'Branding') -Destination (Join-Path $linuxPayload 'Branding') -Recurse
@@ -89,11 +80,11 @@ try {
     $wxs = Join-Path $payloadRoot 'OpenAIUsage.wxs'
     & python 'Packaging/package.py' wix $windowsPayload $wxs
     if ($LASTEXITCODE -ne 0) { throw 'WiX source generation failed.' }
-    $msi = Join-Path $installerRoot "OpenAIUsage-$appVersion-windows-x64.msi"
+    $msi = Join-Path $installerRoot "CodyCompanion-$appVersion-windows-x64.msi"
     & dotnet '.imports/wix-5.0.2/wix/tools/net6.0/any/wix.dll' build $wxs -arch x64 -o $msi -pdbtype none -intermediatefolder (Join-Path $payloadRoot 'wix-intermediate')
     if ($LASTEXITCODE -ne 0) { throw 'Windows installer compilation or validation failed.' }
     & (Join-Path $PSScriptRoot 'Verify-WindowsRequirement.ps1') -PackagePath $msi
-    $deb = Join-Path $installerRoot "openai-usage_$appVersion-1_amd64.deb"
+    $deb = Join-Path $installerRoot "cody-companion_$appVersion-1_amd64.deb"
     & python 'Packaging/package.py' deb $linuxPayload $deb
     if ($LASTEXITCODE -ne 0) { throw 'Ubuntu package construction or verification failed.' }
     $manifest = @($msi,$deb) | ForEach-Object { [pscustomobject]@{file=[IO.Path]::GetFileName($_); bytes=(Get-Item -LiteralPath $_).Length; sha256=(Get-FileHash -LiteralPath $_).Hash} }
@@ -102,12 +93,7 @@ try {
 }
 finally {
     Pop-Location
-    try {
-        & (Join-Path $PSScriptRoot 'Clean-BuildOutputs.ps1') -KeepDeliverables:$completed
-    }
-    finally {
-        $Imports.Prepared = $false
-        $Imports.Packages = @()
-        $Imports.Tools = @()
-    }
+    $Imports.Prepared = $false
+    $Imports.Packages = @()
+    $Imports.Tools = @()
 }

@@ -28,6 +28,9 @@
 #include "CODY_technical_panels.hpp"
 #include "CODY_activity_identity.hpp"
 #include "CODY_command_hints.hpp"
+#include "CODY_boot_menu.hpp"
+#include "CODY_indexed_image.hpp"
+#include "CODY_parallax.hpp"
 #include "LUNASHELL_snapshot_aging.hpp"
 #include "scene_data.hpp"
 #include "home_dashboard_fonts.hpp"
@@ -67,6 +70,57 @@ void require(bool condition, const char *message)
         std::fprintf(stderr, "FAIL: %s\n", message);
         ++failures;
     }
+}
+
+// No parameters: validate prepared palette reuse, placement, clipping, byte order and source bounds.
+// Exception: Records contract failures through the existing fixture rather than touching device owners.
+void check_indexed_image_contract()
+{
+    constexpr size_t palette_bytes = 512;
+    std::array<uint8_t, palette_bytes + 16> asset{};
+    asset[2] = 0xf8; // Palette entry 1 is native RGB565 red.
+    asset[3] = 0x00;
+    asset[4] = 0x07; // Palette entry 2 is native RGB565 green.
+    asset[5] = 0xe0;
+    asset[palette_bytes + 5] = 1;
+    asset[palette_bytes + 6] = 2;
+    asset[palette_bytes + 9] = 2;
+    asset[palette_bytes + 10] = 1;
+    std::array<uint16_t, 6> pixels{};
+    pixels.fill(0x1234);
+    const CODY2D::Surface strip{pixels.data(), 2, 2, 3,
+        static_cast<uint32_t>(pixels.size()), CODY2D::Rgb565ByteOrder::ByteSwapped};
+    CODY::IndexedImage image{};
+    require(CODY::prepare_indexed_image(image, asset.data(), asset.data() + asset.size(), 4, 4,
+        strip.byte_order) == ESP_OK, "indexed image prepares immutable source for destination byte order");
+    constexpr CODY2D::Rect placement{20, 30, 4, 4};
+    require(CODY::draw_indexed_image_rows(image, placement, strip, 31, 21) == ESP_OK &&
+        pixels[0] == 0x00f8 && pixels[1] == 0xe007 &&
+        pixels[3] == 0xe007 && pixels[4] == 0x00f8 && pixels[2] == 0x1234 && pixels[5] == 0x1234,
+        "indexed image decodes a placed offset tile in requested byte order and preserves padding");
+    const auto retained_palette = image.palette;
+    require(CODY::prepare_indexed_image(image, asset.data(), asset.data() + asset.size(), 4, 4,
+        strip.byte_order) == ESP_OK && image.palette == retained_palette,
+        "indexed image reuses the prepared palette for subsequent tiles");
+    auto native_strip = strip;
+    native_strip.byte_order = CODY2D::Rgb565ByteOrder::Native;
+    const auto before_order_error = pixels;
+    require(CODY::draw_indexed_image_rows(image, placement, native_strip, 31, 21) == ESP_ERR_INVALID_SIZE &&
+        pixels == before_order_error, "indexed image rejects a mismatched destination order without writing");
+    require(CODY::prepare_indexed_image(image, asset.data(), asset.data() + asset.size(), 4, 4,
+        native_strip.byte_order) == ESP_OK &&
+        CODY::draw_indexed_image_rows(image, placement, native_strip, 31, 21) == ESP_OK &&
+        pixels[0] == 0xf800 && pixels[1] == 0x07e0 && pixels[3] == 0x07e0 && pixels[4] == 0xf800,
+        "indexed image explicitly rebinds the palette for native output");
+    pixels.fill(0x1234);
+    require(CODY::draw_indexed_image_rows(image, placement, native_strip, 33, 23) == ESP_OK &&
+        pixels[0] == 0 && std::all_of(pixels.begin() + 1, pixels.end(), [](uint16_t pixel) { return pixel == 0x1234; }),
+        "indexed image clips to its placement and preserves pixels outside the image");
+    const auto before_resource_error = pixels;
+    require(CODY::prepare_indexed_image(image, asset.data(), asset.data() + asset.size() - 1, 4, 4,
+        native_strip.byte_order) == ESP_ERR_INVALID_SIZE &&
+        CODY::draw_indexed_image_rows(image, placement, native_strip, 31, 21) == ESP_ERR_INVALID_STATE &&
+        pixels == before_resource_error, "indexed image rejects a truncated resource without retaining its old binding");
 }
 
 // Exercise the real integer alpha compositor, invalid geometry and stride guards.
@@ -2359,6 +2413,90 @@ void check_home_command_and_token_contract()
         std::strcmp(identity.tokens, "Tokens: UNAVAILABLE") == 0,
         "another revision cannot lend Home numeric tokens");
 }
+// Exercise held tilt, unchanged sample timestamps, rotation and unavailable IMU input.
+void check_parallax_contract()
+{
+    LUNASHELL::ImuSnapshot imu{};
+    imu.health = LUNASHELL::DeviceHealth::Ready;
+    imu.data_valid = true;
+    imu.data_stale = false;
+    imu.last_error = ESP_OK;
+    imu.last_success_at_us = 1000000;
+    imu.acceleration_mps2[1] = -9.80665f;
+    CODY::ParallaxState state{};
+    require(CODY::update_parallax(state, imu, ESP_OK, 0, true, CODY::ParallaxLevel::High, 1000000) &&
+        state.x == 6 && state.y == 0, "current gravity tilt produces the bounded High parallax");
+    require(!CODY::update_parallax(state, imu, ESP_OK, 0, true, CODY::ParallaxLevel::High, 1100000) &&
+        state.x == 6 && state.y == 0, "reusing the same IMU timestamp does not jitter or redraw");
+    bool remained_stable = true;
+    for (int i = 1; i <= 20; ++i) {
+        imu.last_success_at_us = 1000000 + i * 100000;
+        CODY::update_parallax(state, imu, ESP_OK, 0, true, CODY::ParallaxLevel::High, imu.last_success_at_us);
+        remained_stable = remained_stable && state.x == 6 && state.y == 0;
+    }
+    require(remained_stable, "held tilt remains visible instead of decaying into the baseline");
+    const int64_t now = imu.last_success_at_us;
+    require(CODY::update_parallax(state, imu, ESP_OK, 90, true, CODY::ParallaxLevel::High, now) &&
+        state.x == 0 && state.y == -6, "90-degree orientation rotates the retained tilt");
+    require(CODY::update_parallax(state, imu, ESP_OK, 180, true, CODY::ParallaxLevel::High, now) &&
+        state.x == -6 && state.y == 0, "180-degree orientation rotates the retained tilt");
+    require(CODY::update_parallax(state, imu, ESP_OK, 270, true, CODY::ParallaxLevel::High, now) &&
+        state.x == 0 && state.y == 6, "270-degree orientation rotates the retained tilt");
+    require(CODY::update_parallax(state, imu, ESP_OK, 0, true, CODY::ParallaxLevel::Off, now) &&
+        state.x == 0 && state.y == 0 && !state.primed, "Off clears the effect and its filter");
+    require(CODY::update_parallax(state, imu, ESP_OK, 0, true, CODY::ParallaxLevel::Medium, now) &&
+        state.x == 4, "Medium produces its smaller independent bound");
+    imu.data_stale = true;
+    require(CODY::update_parallax(state, imu, ESP_OK, 0, true, CODY::ParallaxLevel::Medium, now) &&
+        state.x == 0 && !state.primed, "stale IMU data clears rather than inventing parallax");
+    imu.data_stale = false;
+    require(!CODY::update_parallax(state, imu, ESP_OK, 0, true, CODY::ParallaxLevel::Medium,
+        now + 500001) && state.x == 0 && !state.primed, "an expired timestamp cannot drive parallax");
+    require(!CODY::update_parallax(state, imu, ESP_ERR_INVALID_STATE, 0, true,
+        CODY::ParallaxLevel::Medium, now) && state.x == 0, "snapshot failures leave parallax off");
+}
+
+// Check actual radial control geometry, complete artwork touch targets and strip rendering.
+void check_boot_menu_contract()
+{
+    CODY::BootMenuView view{};
+    CODY::SceneContent content{};
+    require(CODY::prepare_boot_menu(view, CODY::SceneData::body_font, true, true, true, content) == ESP_OK,
+        "boot menu prepares four enabled artwork controls");
+    for (size_t i = 0; i < view.rows.size(); ++i) {
+        const auto &row = view.rows[i];
+        const auto expected = static_cast<CODY::BootMenuAction>(i + 1U);
+        require(CODY::boot_menu_action_at(view, row.icon_center) == expected,
+            "each icon center activates its matching action");
+        require(row.caption.valid && row.caption.bounds.y >= row.icon_center.y + 32 + 3,
+            "each caption stays below the largest parallax-displaced artwork");
+        for (const int dx : {-39, 39}) for (const int dy : {-35, 35}) {
+            const CODY2D::Point corner{static_cast<int16_t>(row.icon_center.x + dx),
+                static_cast<int16_t>(row.icon_center.y + dy)};
+            require(CODY::boot_menu_action_at(view, corner) == expected,
+                "every extreme displaced icon corner remains inside its touch target");
+        }
+    }
+    constexpr uint16_t size = 466;
+    std::vector<uint16_t> full(size * size, 0), tiled(size * size, 0);
+    view.artwork_x = 6;
+    view.artwork_y = 3;
+    view.animation_phase = true;
+    const CODY2D::Surface frame{full.data(), size, size, size, static_cast<uint32_t>(full.size())};
+    require(CODY::draw_boot_menu_rows(&view, frame, 0, 0) == ESP_OK,
+        "animated and displaced artwork draws successfully");
+    for (uint16_t y = 0; y < size; y += 17) {
+        const uint16_t height = std::min<uint16_t>(17, size - y);
+        const CODY2D::Surface tile{tiled.data() + y * size, size, height, size,
+            static_cast<uint32_t>(tiled.size() - y * size)};
+        require(CODY::draw_boot_menu_rows(&view, tile, y, 0) == ESP_OK,
+            "boot menu draws every partial display strip");
+    }
+    require(full == tiled, "enlarged artwork is identical in full and strip rendering");
+    require(CODY::prepare_boot_menu(view, CODY::SceneData::body_font, false, true, true, content) == ESP_OK &&
+        CODY::boot_menu_action_at(view, view.rows[1].icon_center) == CODY::BootMenuAction::None,
+        "an unavailable Events action stays disabled even when its icon is visible");
+}
 }  // namespace
 
 // No parameters: host-only portable contracts never touch a driver or serial port.
@@ -2370,6 +2508,7 @@ int main()
         require(CODY::selected_jelly_raster_kernel() == expected_default,
                 "initial backend selects SIMD where compiled and portable scalar on the host");
         check_fill_contract();
+        check_indexed_image_contract();
         check_coverage_rectangle_contract();
         check_coverage_concave_tiles_contract();
         check_rig_contract();
@@ -2392,6 +2531,8 @@ int main()
         check_technical_panel_owner_contract();
         check_cost_badge_contract();
         check_home_command_and_token_contract();
+        check_parallax_contract();
+        check_boot_menu_contract();
         verify_home_dashboard_contract(CODY::HomeFonts::value_font,
             CODY::SceneData::body_font, CODY::HomeFonts::small_font);
         check_native_usage_projection();

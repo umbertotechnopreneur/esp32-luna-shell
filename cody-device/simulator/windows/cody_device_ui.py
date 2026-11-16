@@ -52,7 +52,7 @@ OPTIONS_ROW_WIDTH = 280
 OPTIONS_ROW_HEIGHT = 72
 SETTINGS_ROW_STEP = 58
 SETTINGS_ROW_HEIGHT = 56
-OPTIONS_PAGE_COUNT = 4
+OPTIONS_PAGE_COUNT = 3
 QUICK_GUIDE = (
     ("Buttons", ACCENT, (
         ("HOLD BOOT 2S", "Settings / tap: Menu"), ("POWER", "Standby or wake"), ("HOLD PWR 3S", "Power off"),
@@ -437,7 +437,7 @@ def boot_menu_art(index, enabled):
                                  green.point(lambda value: (value >> 2) * 255 // 63),
                                  blue.point(lambda value: (value >> 3) * 255 // 31))).convert("RGBA")
     color.putalpha(alpha)
-    return color.resize((24, 24), Image.Resampling.NEAREST)
+    return color.resize((16, 16), Image.Resampling.NEAREST).resize((64, 64), Image.Resampling.NEAREST)
 
 
 @lru_cache(maxsize=1)
@@ -808,7 +808,7 @@ class DeviceStudioWindow:
     def restore_preview_defaults(self):
         self.rotation = 0
         self.device_rotation = 0
-        self.auto_rotate = True
+        self.auto_rotate = False
         self.history_window = 1
         self.brightness = 80
         self.shake_to_wake = False
@@ -1090,7 +1090,7 @@ class DeviceStudioWindow:
     def move_quick_guide(self, step):
         page = self.quick_guide_page + step
         if page < 0:
-            self.show_options_page(2)
+            self.show_options_page(1)
         elif page < len(QUICK_GUIDE):
             self.quick_guide_page = page
             self.touch = None
@@ -1167,7 +1167,7 @@ class DeviceStudioWindow:
                     self.open(self.quick_menu_origin_route)
                     self.open_quick_menu()
                     return
-                self.show_options_page(2)
+                self.show_options_page(1)
                 return
             if self.info.move(step):
                 self.touch = None
@@ -1222,7 +1222,7 @@ class DeviceStudioWindow:
             elif self.route == "idle_display":
                 self.open("more_behavior")
             elif self.route == "personalization":
-                self.show_options_page(1)
+                self.show_options_page(0)
             elif self.route == "character_themes":
                 self.open("personalization")
             elif self.route == "quiet_hours":
@@ -1596,12 +1596,12 @@ class DeviceStudioWindow:
         draw.text((233, 34), time.strftime("%H:%M", wall), font=font(15),
                   fill=(*FOREGROUND, 255), anchor="mt")
         # The loopback has no measured RSSI, BLE telemetry or physical battery.
-        setup_icon(draw, "wifi", (110, 65), 20, (*MUTED, 255))
-        setup_icon(draw, "bluetooth", (161, 40), 18, (*MUTED, 255))
-        draw.rounded_rectangle((335, 57, 358, 72), radius=2, outline=(*MUTED, 255), width=2)
-        draw.rectangle((359, 61, 361, 68), fill=(*MUTED, 255))
+        setup_icon(draw, "wifi", (110, 69), 20, (*MUTED, 255))
+        setup_icon(draw, "bluetooth", (161, 44), 18, (*MUTED, 255))
+        draw.rounded_rectangle((335, 61, 358, 76), radius=2, outline=(*MUTED, 255), width=2)
+        draw.rectangle((359, 65, 361, 72), fill=(*MUTED, 255))
         if self.show_battery_percentage:
-            draw.text((364, 63), "N/A", font=font(10), fill=(*MUTED, 255))
+            draw.text((364, 67), "N/A", font=font(10), fill=(*MUTED, 255))
         layer.putalpha(layer.getchannel("A").point(lambda alpha: round(alpha * opacity)))
         image.paste(layer, (0, 0), layer)
 
@@ -1920,16 +1920,18 @@ class DeviceStudioWindow:
                                        "behavior", "more_behavior", "behavior_more", "quiet_hours", "quiet_editor",
                                        "synth_voice", "alarms", "idle_display", "third_party", "model_prices", "personalization",
                                        "character_themes")
-        rows = (("Settings", self.options if admitted else None, (153, 110, 313, 174)),
-                ("Events", None, (74, 190, 225, 254)),
-                ("Counters", self.open_quick_counters if admitted and counter_route else None, (241, 190, 392, 254)),
-                ("About", self.open_quick_about if admitted and counter_route else None, (153, 280, 313, 344)))
+        rows = (("Settings", self.options if admitted else None, (153, 103, 313, 200)),
+                ("Events", None, (74, 200, 225, 297)),
+                ("Counters", self.open_quick_counters if admitted and counter_route else None, (241, 200, 392, 297)),
+                ("About", self.open_quick_about if admitted and counter_route else None, (153, 297, 313, 394)))
         for index, (caption, action, bounds) in enumerate(rows):
             x0, y0, x1, y1 = bounds
             icon = boot_menu_art(index, action is not None)
-            image.paste(icon, ((x0 + x1) // 2 - 12 + self.parallax_offset[0],
-                               y0 + 2 + self.parallax_offset[1]), icon)
-            draw.text(((x0 + x1) // 2, y0 + 45), caption, font=font(20),
+            icon_y_offset = max(-3, min(3, self.parallax_offset[1]))
+            drift = 1 if (index + (int(now / 1.2) & 1)) % 2 == 0 else -1
+            image.paste(icon, ((x0 + x1) // 2 - 32 + self.parallax_offset[0] + drift,
+                               y0 + 3 + icon_y_offset), icon)
+            draw.text(((x0 + x1) // 2, y0 + 84), caption, font=font(20),
                       fill=FOREGROUND if action else MUTED, anchor="mm")
             if action is not None:
                 self.targets[caption] = (bounds, action)
@@ -2011,19 +2013,15 @@ class DeviceStudioWindow:
     # now: Monotonic frame time for the retained page.
     # Exception: Original drawing and font errors propagate to the preview owner.
     def draw_options(self, image, draw, now):
-        self.screen_title(draw, ("TOOLS", "PREFERENCES", "DEVICE", "DEVICE")[self.options_page], OPTIONS_TITLE_TOP)
+        self.screen_title(draw, "Settings", OPTIONS_TITLE_TOP)
         if self.options_page == 0:
             rows = (
                 ("Connections", self.open_connections),
-                ("Codex stats", self.open_statistics),
-            )
-        elif self.options_page == 1:
-            rows = (
                 ("Display", lambda: self.open("display")),
                 ("Behavior", lambda: self.open("behavior")),
                 ("Cody", lambda: self.open("personalization")),
             )
-        elif self.options_page == 2:
+        elif self.options_page == 1:
             rows = (
                 ("Restart device", lambda: self.open("restart")),
                 ("Factory reset", lambda: self.open("factory_reset")),
@@ -2033,7 +2031,7 @@ class DeviceStudioWindow:
         else:
             rows = (("Third party", lambda: self.open("third_party")),
                     ("Model prices", self.open_model_prices))
-        icons = (("link", "motion"), ("phone", "motion", "account"),
+        icons = (("link", "phone", "motion", "account"),
                  ("retry", "offline", "phone", "link"), ("account", "statistics"))[self.options_page]
         colors = (studio_rgb("codex_connection"), studio_rgb("device_ui", "guide_offline"),
                   studio_rgb("setup_warning"), studio_rgb("codex_connection"))
@@ -2061,7 +2059,7 @@ class DeviceStudioWindow:
             setup_icon(draw, "check", (111, 351), 24, WIFI_CONNECTION_COLOR)
             draw.text((141, 351), "OK", font=font(20), fill=FOREGROUND, anchor="lm")
             draw.line((141, 364, 373, 364), fill=studio_rgb("device_ui", "row_separator"), width=2)
-            self.targets["OK"] = ((93, 336, 373, 366), lambda: self.show_options_page(2))
+            self.targets["OK"] = ((93, 336, 373, 366), lambda: self.show_options_page(1))
 
     # self: Studio preview routing cancellation or confirmed restart to its owner.
     # image: Logical framebuffer receiving the gradient footer.
@@ -2208,23 +2206,10 @@ class DeviceStudioWindow:
         return capacity, used, compaction
 
     @staticmethod
-    # snapshot: Current loopback observation for the device-visible Counter pages.
-    # Exception: Invalid source projection attributes remain visible to the caller.
+    # snapshot: Current loopback observation; availability does not change page identity.
+    # Exception: None; each page projects its own actual unavailable state.
     def available_counter_pages(snapshot):
-        capacity, _, compaction = DeviceStudioWindow.context_observation(snapshot)
-        technical = snapshot.technical if snapshot.technical_valid else None
-        receipt_age = snapshot.technical_age_ms
-        model_current = bool(technical and snapshot.state is LinkState.CONNECTED and snapshot.chat and
-            technical.chat == snapshot.chat and technical.model and technical.model_age_ms is not None and
-            receipt_age is not None and 0 <= technical.model_age_ms and 0 <= receipt_age and
-            technical.model_age_ms + receipt_age < 120000)
-        # Studio does not publish an account allowance; never invent a reset page.
-        pages = []
-        if capacity is not None or compaction is not None:
-            pages.append(1)
-        if model_current:
-            pages.append(2)
-        return tuple(pages)
+        return (0, 1, 2)
 
     # self: Studio owns the latest data-qualified navigation list.
     # snapshot: Current loopback telemetry. Account observations are not implemented in Studio.
@@ -2334,7 +2319,12 @@ class DeviceStudioWindow:
             self.draw_device_summary(draw, snapshot, now, show_options=False)
             return
         technical = snapshot.technical if snapshot.technical_valid else None
-        model = technical.model if technical else ""
+        receipt_age = snapshot.technical_age_ms
+        model_current = bool(technical and snapshot.state is LinkState.CONNECTED and snapshot.chat and
+            technical.chat == snapshot.chat and technical.model and technical.model_age_ms is not None and
+            receipt_age is not None and 0 <= technical.model_age_ms and 0 <= receipt_age and
+            technical.model_age_ms + receipt_age < 120000)
+        model = technical.model if model_current else ""
         model_art = {"gpt-6.1-terra": "terra", "gpt-6.1-sol": "sol", "gpt-6-sol": "sol",
                      "gpt-6-luna": "luna", "gpt-6-astra": "astra"}.get(model)
         if self.counter_page == 2 and model_art:
@@ -2343,21 +2333,26 @@ class DeviceStudioWindow:
             except OSError:
                 art = None
             if art is not None:
-                image.paste(art, (113, 115), art)
-        self.screen_title(draw, "Context" if self.counter_page == 1 else model, 82)
-        if self.counter_page == 1:
+                art = art.resize((112, 112), Image.Resampling.NEAREST)
+                image.paste(art, (177, 270), art)
+        self.screen_title(draw, "Codex reset" if self.counter_page == 0 else
+                          "Context" if self.counter_page == 1 else model or "Model", 82)
+        if self.counter_page == 0:
+            setup_icon(draw, "clock", (CENTER, 210), 58, SETUP_AMBER)
+            label(draw, "Codex usage unavailable", 263, 19, SETUP_AMBER)
+        elif self.counter_page == 1:
             self.draw_context(draw, snapshot, now)
         else:
-            cost_current = (technical.cost_age_ms is not None and technical.cost_valid_for_ms is not None and
+            cost_current = (model_current and technical.cost_age_ms is not None and technical.cost_valid_for_ms is not None and
                 snapshot.technical_age_ms is not None and 0 <= technical.cost_age_ms and
                 0 <= snapshot.technical_age_ms and
                 technical.cost_age_ms + snapshot.technical_age_ms < technical.cost_valid_for_ms)
             band = technical.cost_band.value if cost_current else "unknown"
-            label(draw, "Current model", 155, 20)
+            label(draw, "Current model" if model_current else "Model unavailable", 155, 20)
             label(draw, {"economy": "Economy", "balanced": "Balanced", "expensive": "Expensive"}.get(
-                band, "Price unavailable"), 228, 21, ACCENT)
-            label(draw, "Standard reference", 274, 16, MUTED)
-            label(draw, "SIMULATED", 344, 14, MUTED)
+                band, "Price unavailable"), 202, 21, ACCENT)
+            label(draw, "Standard reference", 234, 16, MUTED)
+        label(draw, "SIMULATED", 405, 14, MUTED)
         if len(self.counter_pages) > 1:
             page_marks(draw, self.counter_pages.index(self.counter_page), len(self.counter_pages), 435, compact=True)
 
@@ -2803,7 +2798,7 @@ class DeviceStudioWindow:
                 page_marks(draw, 2, 3)
                 self.draw_option_rows(draw, (
                     ("Auto time  " + ("On" if self.auto_time else "Off"), self.change_auto_time, "clock", SETUP_AMBER),
-                    ("Sync time  SIMULATED / unavailable", self.request_simulated_time_sync, "clock", SETUP_AMBER),
+                    ("Sync time  SIMULATED / unavailable", self.request_simulated_time_sync, "retry", SETUP_AMBER),
                 ))
                 if self.simulated_time_notice:
                     label(draw, self.simulated_time_notice, 318, 15, MUTED)
@@ -2865,8 +2860,18 @@ class DeviceStudioWindow:
                             198 + row * 60, "statistics", SETUP_ACCENT, 141, self.targets)
                     page_marks(draw, self.model_prices_page, (len(models) + 2) // 3, 400, compact=True)
                 else:
+                    model = self.model_price_selected.removeprefix("openai/")
+                    name = {"gpt-6.1-terra": "terra", "gpt-6.1-sol": "sol", "gpt-6-sol": "sol",
+                            "gpt-6-luna": "luna", "gpt-6-astra": "astra"}.get(model)
+                    if name:
+                        try:
+                            art = model_background(name).resize((64, 64), Image.Resampling.NEAREST)
+                        except OSError:
+                            art = None
+                        if art is not None:
+                            image.paste(art, (304, 350), art)
                     label(draw, self.model_price_selected.removeprefix("openai/"), 204, 18, SETUP_ACCENT)
-                    for index, caption in enumerate(("Input: N/A", "Output: N/A", "Cache: N/A", "Context: N/A")):
+                    for index, caption in enumerate(("I/O range: N/A", "Input: N/A", "Output: N/A", "Cache: N/A", "Context: N/A")):
                         label(draw, caption, 234 + index * 28, 18, MUTED)
             elif self.route == "personalization":
                 self.screen_title(draw, "Personalization", OPTIONS_TITLE_TOP)

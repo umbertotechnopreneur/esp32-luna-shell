@@ -18,7 +18,6 @@
     <ApplicationIcon>../Branding/app-icon.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="../../Shared/WidgetAbout.cs" Link="WidgetAbout.cs" />
     <Content Remove="mockup-*.png" />
     <Content Include="../Branding/app-icon.ico" Link="Branding/app-icon.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../Branding/app-icon-512.png" Link="Branding/app-icon-512.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />

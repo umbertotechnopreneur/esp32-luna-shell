@@ -53,15 +53,93 @@ This file tracks open implementation and acceptance. See [planned-todo.md](plann
    audio capture, event actions or transport; touch and device acceptance remain
    open.
 
+1. The reported black screen remains unresolved, including the later report that
+   the device did not wake after Power. The report preceded the latest flash;
+   recurrence on that firmware is unknown. The earlier flashed ELF, binary,
+   map and configuration are retained under `artifacts/crash-reference-last-flash-20261113/`.
+   The owner declined further device reads after the initial capture; do not
+   infer a cause or claim a fix from the later flash.
+2. Startup Connecting/Reconnecting is integrated in source: a single 30-second
+   deadline, real Wi-Fi/retained PC phases, early authenticated READY, animated
+   Cody and Use offline. No additional device reads are currently authorized.
+3. Integrate the authorized Notifications and Activity refactor while preserving
+   Counter and Cody modes: compact icon-and-label activity, one complete event
+   detail, recoverable unread notices, exact originating chat and stable offline
+   screens. Character reactions point to the retained event. Review source
+   integration, then separately authorize builds and focused acceptance; do not
+   infer physical behavior from this implementation.
+
+## Simulator maintainability and acceptance
+
+- Accept nondefault variant selection through the runner, dynamic forms and
+  atlas selection before adding more variant fixtures; retain pending inputs
+  and the explicit baseline across selection changes.
+- Visually accept the persistent Studio preference warning in the real window,
+  including narrow layouts and simultaneous baseline/capture status messages.
+  Preference preservation and mocked-window save/close checks pass; see `done.md`.
+- Extract job controllers from `cody_studio_window.py`; preference ownership
+  and capture-result preparation are now separate. Recoverable result I/O and
+  image-allocation failures preserve the prior capture and polling continues.
+  Keep Tk operations on the main thread and native rendering unchanged.
+- Measure repeated capture validation during evidence filtering before changing
+  its per-refresh data reuse. Verify the Windows settings-error warning and
+  native-library publication on Windows; Linux/shared-code checks are separate.
+
+## Notifications and Activity acceptance
+
+- Verify that questions keep their existing reply, acknowledgement and terminal
+  lifecycle, while every informational kind remains recoverable until explicit
+  authenticated read dismissal. Check newer notices, source changes, queue
+  capacity, restarts, expiry and interrupted or lost acknowledgements.
+- Check complete origin/body/project/status separation with missing and 255-byte
+  origin titles, speech failure and different chats with identical captions.
+  Exercise every detail page, Back without reading, read retry and offline
+  controls. PC approval notices must never answer a native permission request.
+- Check compact `...` activity/list labels, all event glyphs, three-row list
+  gestures, empty/error/saved states and all rotations. Unavailable data must
+  leave the selected page stable. Check deferred character cues, exact-event
+  tap targets and unread recovery after the cue ends or is interrupted.
+- Exercise the merged local and remote list across paging boundaries. Local
+  messages must remain readable without a PC; verify exact-ID read state,
+  32-record overflow, dropped counts and the explicit local-history reset at
+  restart. These RAM semantics must not retire remote broker-owned unread items.
+- Native regression fixture changes are source-only until separately authorized
+  execution. Build, simulator and physical acceptance remain pending.
+
+## Direct WhatsApp notifications
+
+- The opt-in [experimental protocol owner](cody-device/experimental/whatsapp/README.md)
+  is connected in source to the Connections QR page, live message banner and an
+  original two-note cue. It attempts to resume a registered session after Wi-Fi
+  and valid time are available. The four partition tables reserve a previously
+  unallocated 56 KiB gap without moving existing partitions. Build integration,
+  memory headroom, QR scanning, message delivery, reconnect, cue sound, NVS
+  capacity, key protection and recovery after interrupted writes or power loss
+  remain unverified. The upstream project recommends a much larger NVS store.
+- The generic device service retains the latest 32 local notification records in RAM,
+  with exact IDs, read state, coherent paging and an overflow counter. Reading
+  history does not replay the cue or touch credentials. WhatsApp publishes the
+  semantic `Message` type and its source label; the shared type selects the icon.
+  History lasts for the current boot. Notifications and its shared detail now
+  project local and remote sources with independent identities; offline
+  access, paging, exact-ID read confirmation and sound have static source
+  review only and have not been tested on a device. The current list puts local
+  history before the broker's ordering; read local records remain in that section.
+
 ## First-run tour
 
-- With separate authorization, build and verify the first-boot melody, normal
+- Build and physically verify the revised Welcome, connection choices, offline
+  path, Wi-Fi result, guide, Codex choice, completion and character-led error
+  views, including touch, resume, retries, QR and rendering performance. A
+  serial capture of the previously installed firmware showed the first-boot
+  Wi-Fi route and repeated microphone-gain contention, but no panic or watchdog;
+  the reported apparent freeze remains unresolved until reproduced on device.
+- With separate authorization, verify the built first-boot melody, normal
   restart ding, sound-off and quiet-hours suppression, interrupted playback,
   birth replay and one-shot persistence/readback failure. Measure flash and
   audio/memory headroom; the first-boot melody is 4.6 seconds at 16 kHz mono.
-- Complete separately authorized source builds and size checks for the added
-  indexed artwork. Verify first-run and returning-device migration, page resume,
-  skip and storage failures, button instructions in both voice configurations,
+- Verify the indexed artwork's physical legibility, first-run page navigation and
+  skip, button instructions in both voice configurations,
   Sofia availability, QR scanning, and navigation on the physical device.
 - The Sofia screen explains availability; an interactive recognition exercise
   and explicit voice-preference choice are not yet implemented in the tour.
@@ -103,10 +181,18 @@ Verify the VibeWare-to-Muse handoff, wake/idle motion, tap reaction, rotation an
 
 ## Creamwork 3 audio menu
 
-- Add native CODY2D Audio with playback volume, Mic 1/2 meters, shared mic gain, Close and Power off. Keep the unavailable Synth Voice separate and preserve Home navigation, logical rotation, circular fit and bounded updates.
-- Apply supported volume and codec dB steps through audio/capture owners. Confirm applied values, surface failures and respect Sounds, quiet hours and active playback. Preserve choices through codec reconfiguration. Share gain policy between AFE and diagnostic capture and persist through the settings owner without defaulting failed reads/writes.
-- Use canonical per-channel mean/peak, timestamps, validity and errors from DeviceSnapshotService. Reuse AFE levels or request level-only acquisition. Exclude duplicate capture and spectrum processing. Two inputs show independent meters, one shows Mic 2 unavailable, and zero disables gain and shows both unavailable. Keep acquisition with its owner and keep stale, missing and failed observations explicit.
-- Close restores the prior route and releases only this menu's acquisition request. Confirm Power off with the existing UI pattern and queue the power owner's transaction, preserving farewell, resource drain and visible errors.
+- The native Audio screen, playback volume, two microphone projections, shared
+  gain controls and Close are implemented in source. They use snapshot data and
+  owner-mediated requests; physical behavior and all failure cases remain open.
+- Add Power off within Audio with confirmation and the power owner's transaction,
+  preserving farewell, resource drain and visible errors. Keep Synth Voice separate.
+- Verify applied volume and codec gain, persistence and failures across codec
+  reconfiguration, active playback and capture. Verify AFE and diagnostic gain
+  policy, acquisition ownership, stale/error states and independent zero/one/two
+  input behavior, including release of this menu's request on Close. Confirm
+  unavailable inputs disable the relevant controls, Close restores the prior
+  route, and navigation, rotation, circular fit and bounded updates remain correct.
+  Respect Sounds and quiet hours; never default failed setting reads or writes.
 
 ### Pending validation gates
 
@@ -123,7 +209,8 @@ After integration and static review, obtain fresh authorization per exact comman
 - Verify weekly alarm thresholds, frame acknowledgement, sound policy, pairing
   changes and reset behavior. A same-PC account change with the same reset cannot
   be distinguished until an authoritative account identity is available.
-- Complete direct device refresh of the public OpenRouter reference catalog.
+- Direct device refresh of the public OpenRouter reference catalog is implemented
+  in source; verify live refresh, retry, freshness, errors and TLS resource use.
   OpenRouter prices are indicative and distinct from official OpenAI prices and
   Codex credits; retain source time, freshness and errors and do not infer fields.
 - Check Options cards, Behavior rows, saved-PC icon actions and full SSIDs at every rotation, including missing, stale and unsupported network names. Check Connections action admission, passive Wi-Fi animation and provisioning at all rotations, with a 32-byte SSID or lost IP.
@@ -203,7 +290,10 @@ Verify statistics pages appear only with available data and retain Device when n
 - Verify the terminal/disconnected plug for Codex absence and NoWifi/red crossed glyph for Wi-Fi loss. Exercise reconnect and unavailable data without stale artwork or repeated sounds.
 - Check all three measured RSSI levels on the full snapshot cadence, plus unavailable, stale and failed reads. Connectivity validity stays independent of RSSI and reconnect errors.
 - Listen for all four Wi-Fi/Codex transitions on the speaker. Check overlap, volume, Sounds, quiet hours, busy admission, navigation and standby cancellation.
-- Final compilation, size, host contracts and board checks await authorization. Review compiled frames and stack headroom after Wi-Fi/status schema growth. The new bitmap and three PCM clips add 130,432 source payload bytes before descriptors/alignment, with existing bitmap planes and stack allocations retained.
+- Review compiled frames and measure
+  stack headroom after Wi-Fi/status schema growth. The new bitmap and three PCM
+  clips add 130,432 source payload bytes before descriptors/alignment, with
+  existing bitmap planes and stack allocations retained.
 
 ## Standby wake on the SD-equipped prototype
 

@@ -39,8 +39,8 @@ CCP1|FIND|device=<12hex>|pc=<32hex>|nonce=<32hex>|activity=5|events=3|current=<3
 HMAC input: find-events-activity-speech-v1|<device>|<pc>|<nonce>|<current>|<state>|<event_select>|<speech>|<speech_ack>
 ```
 
-`event_select` is all zeroes unless explicitly selecting another pending question.
-Selection is allowed only from `state=pending`; it neither changes the followed
+`event_select` is all zeroes unless explicitly opening a pending Notifications row.
+Selection is allowed from `state=none` or an unanswered `state=pending`; it neither changes the followed
 chat nor answers a question. A sending/received reply and an unacknowledged
 terminal result retain ownership. Multiple independently owned questions may
 queue, with at most two pending summaries displayed at once. Questions take
@@ -58,10 +58,10 @@ TECH remains `technical-v2`. EVENT, REPLY, REPLYACK and EVENTACK retain the
 `event`, `reply`, `reply-ack` and `event-ack` domains and envelope field order
 documented below; only the negotiated FIND domain changes.
 
-EVENT binary **schema 2** starts with `u8 version=2`. Its ordered fields through
+EVENT binary **schema 4** starts with `u8 version=4`. Its ordered fields through
 `total` are specified under Event transport below. Current limits and queue fields:
 
-| Field | Current schema 2 contract |
+| Field | Current schema 4 contract |
 | --- | --- |
 | kind | Existing IDs unchanged: 1 Notice, 2 Question, 3 ApprovalOnPc, 4 PrPending, 5 ChecksRunning, 6 ChecksFailed, 7 ChecksPassed; appended 8 ReplyReady |
 | context / title / body | Length-prefixed printable ASCII: 0..24 / 1..24 / 1..63 bytes; ApprovalOnPc body alone allows 1..255 |
@@ -70,16 +70,50 @@ EVENT binary **schema 2** starts with `u8 version=2`. Its ordered fields through
 | pending_question_count | Appended after `total`: u8, 0..128 outstanding questions; zero for nonquestions |
 | pending_entry_count | Next u8, 0..2 and no greater than the question count; zero for nonquestions |
 | pending entries | Each has length-prefixed nonzero 32-lowercase-hex request ID, context 0..24 and title 1..24 ASCII bytes; IDs are unique |
+| origin_title | After pending entries: length-prefixed 0..255 printable ASCII bytes from the admitted origin; never inferred from project context |
+| status | Next: length-prefixed 0..63 printable ASCII bytes for advisory/source status, separate from origin and immutable event content |
 
-Schema 2 admits at most **1,536 binary bytes / 3,072 lowercase hexadecimal
-characters**. Datagram caps are **EVENT 4,096**, **ACTIVITY 2,048**, **TECH 1,024**
+Schema 4 admits at most **1,728 binary bytes / 3,456 lowercase hexadecimal
+characters**. Datagram caps are **EVENT 4,096**, **ACTIVITY and INBOX 2,048**, **TECH 1,024**
 and **512 bytes for other packets**. There is no fragmentation or silent text
-truncation; schema 1, unknown kinds and contradictory/trailing fields are rejected.
+truncation; older wire schemas, unknown kinds and contradictory/trailing fields are rejected.
+
+### Typed PC alert capability
+
+Only a PC `Notice` with an explicit severity uses EVENT schema 6. Its bytes are
+the schema 4 fields with version byte 6 and one appended severity byte: 1
+information, 2 warning, 3 critical. Unknown values and severity on any other kind
+are invalid. Monitor rules supply their configured level; OS app notifications
+with no explicit level default to information. Ordinary notices and other events
+retain their established schemas.
+
+After COMMITTED, the device advertises `PCALERTCAP` with fields `device`, `pc`,
+`nonce`, `cap=1`, `proof`; HMAC input is `pc-alert-cap-v1|<device>|<pc>|<nonce>|1`.
+The broker verifies the active key, fresh committed peer, endpoint and exact
+heartbeat nonce. A previous nonce never authorizes schema 6. Before the
+advertisement, typed alerts are filtered from EVENT and INBOX without degradation;
+they remain in the authenticated notification checkpoint.
+
+When a typed PC alert may be selected, the broker waits up to 1.6 seconds for
+capability before publishing the nonce's single EVENT. Authenticated capability
+permits schema 6; at timeout, the EVENT uses only legacy-compatible tickets.
+Higher-priority questions and explicit selections of ordinary events are sent
+without waiting. Capability after fallback never creates a second EVENT.
+
+After valid capability the broker sends signed `PCALERTACK` with fields `device`, `pc`,
+`nonce`, `status`, `proof`; its HMAC input is
+`pc-alert-ack-v1|<device>|<pc>|<nonce>|<status>`. Status `sent` means the v6
+datagram was handed to the socket, `ordinary` refers to the first ordinary EVENT,
+and `none` means no event is selected. It never attests device display. A
+duplicate capability receives the same ACK without replaying an EVENT. Firmware
+must tolerate UDP reordering and must reject stale-nonce packets. The broker
+filters unsupported typed alerts from the queue without blocking other tickets.
 
 `ReplyReady=8` is native-lifecycle-only: the first genuine accepted chat `Stop`
 may enqueue it once per turn; public notification tools cannot manufacture it.
-Its title is `Chat waiting`, and its body is the complete current native chat title
-when it fits 63 ASCII bytes, otherwise `Open the other chat in Codex`. The existing
+Its title is `Chat waiting`; `origin_title` retains the complete current native
+chat title up to 255 ASCII bytes. Its compact body retains the title only when
+it fits 63 bytes, otherwise `Open Codex to read the reply`. The existing
 title owner performs one exact read-only index lookup for an eligible physical
 recipient, with session/turn/checkout revalidation and no focus change. This
 event carries no choices or check progress and never implies task
@@ -92,13 +126,13 @@ turn and one uniquely identified `agentMessage` with `phase=final_answer`;
 titles, commentary, other turns and ambiguous results are never substituted.
 The broker does not start an App Server for this lookup. An unavailable owner,
 unsupported API, invalid content or excessive size produces the visible notice
-`Voice unavailable; open Codex`. Newlines and tabs become spaces, unsupported
+`Voice unavailable; open Codex` in `status`, preserving the originating chat. Newlines and tabs become spaces, unsupported
 controls are rejected, and the complete response is divided on UTF-8 boundaries
 into at most 64 segments of at most 400 bytes, without truncation. Reply text is
 held only in memory and is discarded on opt-out, expiry or broker restart.
 
-An opted-in ReplyReady carrying text uses EVENT binary schema 3. The normal
-schema 2 fields are followed by big-endian u16 segment index, total and plaintext
+An opted-in ReplyReady carrying text uses EVENT binary schema 5. The normal
+schema 4 fields are followed by big-endian u16 segment index, total and plaintext
 byte count, a random 12-byte IV, ciphertext and 16-byte AES-256-GCM tag. Index is
 zero-based and the count is 1..64. The AES key is HMAC-SHA256 of the active link
 key over ASCII `cody-reply-speech-v1|<device>`; AAD is ASCII
@@ -117,8 +151,8 @@ that exact PermissionRequest session/turn and revalidates it after source IO.
 Unavailable, unsupported, failed or expired title metadata is explicitly displayed
 as `Chat title unavailable`; IDs and another selected chat never substitute it.
 The firmware and native Studio projection reserve 256 body bytes, while every
-other event kind retains its 63-byte body limit. The length prefix, schema 2,
-HMAC domains and datagram caps are unchanged; update plugin and firmware together.
+other event kind retains its 63-byte body limit. Origin metadata is separate in
+schema 4; HMAC domains and datagram caps remain unchanged. Update plugin and firmware together.
 
 The approval view shows `On your PC:`, `Approval needed`, only the real chat title
 in a cyan horizontal marquee, one computer illustration and one
@@ -497,18 +531,24 @@ is the SHA-256 of the followed session ID; zeroes denote no followed prompt.
 After the normal active COMMITTED exchange an inbox-capable device may request
 `INBOXCAP` with ordered fields `device,pc,nonce,offset,dismiss,proof`. Its HMAC
 domain is `inbox-cap-v1`. Offset is a decimal first row from 0 through 127.
-Dismiss is a previously published ready-reply ID or 32 zero digits. The broker
+Dismiss is a previously published informational event ID or 32 zero digits; it cannot dismiss a question. The broker
 validates the active association and socket endpoint and returns `INBOX`
 with ordered fields `device,pc,nonce,requested,dismiss,data,proof` and domain
 `inbox-v1`. The authenticated echo confirms any admitted read dismissal.
 The data is lowercase hex over three bytes for total, actual offset and count,
 followed by up to three rows. Each row contains its kind byte, 16-byte request
-ID, byte-counted printable title and byte-counted question preview. Titles and
-previews admit up to 63 bytes. Ready replies have an empty preview. Open questions
-precede ready replies. Inbox pages never acknowledge or select a question.
+ID, byte-counted event label (1..24), originating-chat caption (1..63) and
+question preview (0..63). Long chat captions end with an explicit `...`; the
+complete admitted origin remains in the shared EVENT detail. Missing origins
+say `Chat title unavailable`; project context never substitutes for a chat.
+All kinds 1..8 are supported. Nonquestions have an empty preview. Open questions
+precede newest-first informational notifications. Inbox pages never answer or select a question.
 An explicit `event_select` may use a zero current ID while the device has no
-current question; a live or closing question retains the original transaction
-ownership. Existing EVENT and REPLY acknowledgement formats are unchanged.
+current question; an explicit handoff can leave an unanswered pending question
+retained while inspecting another notification. Sending/received questions and
+unacknowledged terminal results retain ownership. Selection failure is admitted
+only against the exact FIND nonce that carried the requested selection; an older
+in-flight reply cannot cancel newer navigation. EVENT/REPLY acknowledgement formats are unchanged.
 
 The current FIND nonce admits at most one ACTIVITY snapshot; old polls, duplicate
 replies and altered metadata are rejected. Printable ASCII text is hex encoded:
@@ -733,12 +773,12 @@ retirement before new publication. Frame/canonical publication failure repeats
 retirement. An unknown ticket needs no EVENTACK; this cannot reconstruct answers
 or extend deadlines.
 
-`data` is lowercase hexadecimal bytes. Schema 2 contains these fields in order,
+`data` is lowercase hexadecimal bytes. Schema 4 contains these fields in order,
 followed by the queue fields specified above:
 
 | Field | Format and limit |
 | --- | --- |
-| version | u8, value 2 |
+| version | u8, value 4 |
 | kind | u8: 1 notice, 2 question, 3 approval_on_pc, 4 pr_pending, 5 checks_running, 6 checks_failed, 7 checks_passed, 8 reply_ready |
 | context | u8 length + 0..24 printable ASCII bytes |
 | title | u8 length + 1..24 printable ASCII bytes |
@@ -799,10 +839,21 @@ Poll waits at most 15 s without retaining other MCP-operation locks. Volatile
 results/deadlines have a bounded cache; broker restart does not replay requests
 or answers. Cody Studio uses the same wire with explicit SIMULATED opt-in.
 
-A new informational notice retires previous notices for the device, so an old
-failed PR cannot return after a newer notice expires. Open questions keep priority.
+Informational notifications remain unread and recoverable until an explicit
+read dismissal. New notices, display timeouts, resumed activity and native chat
+closure do not delete them. The bounded queue rejects new admissions when full
+instead of evicting unread records. Questions keep priority unless the user
+explicitly opens another retained notification. Advisory approval context becomes
+`No longer pending on PC` and its list label becomes `Earlier approval` after
+native work resumes; it never grants a PC permission.
 Each ticket is bound to the active-key digest; pairing changes retire it even if
-the next operation is REPLY. Native notices end with their authentic hook context.
+the next operation is REPLY. A separate authenticated `codex-notifications.v1`
+checkpoint retains unread metadata and known correlated question origins across
+broker restart; private question ledger schema and acknowledgement semantics
+remain unchanged. Volatile reply speech never enters either checkpoint and
+expires independently at its original one-hour delivery deadline. Device reconnect
+retains last-observed rows as stale read-only context for the same pairing;
+committed pairing replacement or Forget clears that context.
 TTL also covers received: absent recipient confirmation means no delivered state
 or answer exposed as a usable decision.
 
@@ -898,10 +949,12 @@ run through the settings executor outside the CCP state mutex.
 
 ### Device-initiated time synchronization
 
-After a fresh READY/COMMITTED exchange, physical Cody can request the paired
-PC's current UTC time once on a new connection (`auto`) or after the explicit
-**Sync time** action (`manual`). This is separate from the durable CLOCK
-preference commands and never grants another PC access to the device.
+After a fresh READY/COMMITTED exchange, the retained explicit PC-time API can
+request the paired PC's current UTC time (`manual`). Current Cody does not
+request PC time automatically on connection: its **Sync time** action uses NTP
+over Wi-Fi. The wire also accepts `auto` from an older compatible peer. This is
+separate from the durable CLOCK preference commands and never grants another PC
+access to the device.
 
 ```text
 CCP1|TIMEREQ|device=<12hex>|pc=<32hex>|nonce=<32hex>|id=<32hex>|mode=<auto|manual>|proof=<64hex>

@@ -38,6 +38,9 @@ Physical verification of these changes is tracked in the root `TODO.md`.
 
 ## Rotation and redraw
 
+Automatic rotation defaults to off for a new settings store. A previously
+saved choice is restored, and users can enable automatic rotation in settings.
+
 `LUNASHELL_display_set_rotation_degrees()` applies and persists exactly
 0/90/180/270 while auto-rotation is disabled, including without IMU. Panel and
 touch change atomically. Persistence failure rolls the panel back and publishes

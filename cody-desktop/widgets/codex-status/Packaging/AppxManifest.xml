@@ -1,18 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <Package xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
          xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+         xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
          xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
          xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
          xmlns:virtualization="http://schemas.microsoft.com/appx/manifest/virtualization/windows10"
-         IgnorableNamespaces="uap desktop rescap virtualization">
-  <Identity Name="VibeWare.OpenAIUsage" Publisher="CN=VibeWare" Version="0.0.0.0" ProcessorArchitecture="x64" />
+         IgnorableNamespaces="uap uap3 desktop rescap virtualization">
+  <Identity Name="VibeWare.CodyCompanion" Publisher="CN=VibeWare" Version="0.0.0.0" ProcessorArchitecture="x64" />
   <Properties>
     <DisplayName>OpenAI Usage</DisplayName>
     <PublisherDisplayName>VibeWare</PublisherDisplayName>
     <Logo>Branding\msix-logo-50.png</Logo>
     <virtualization:FileSystemWriteVirtualization>
       <virtualization:ExcludedDirectories>
-        <virtualization:ExcludedDirectory>$(KnownFolder:LocalAppData)\OpenAIUsage</virtualization:ExcludedDirectory>
+        <virtualization:ExcludedDirectory>$(KnownFolder:LocalAppData)\CodyCompanion</virtualization:ExcludedDirectory>
       </virtualization:ExcludedDirectories>
     </virtualization:FileSystemWriteVirtualization>
   </Properties>
@@ -29,12 +30,13 @@
                           BackgroundColor="transparent" />
       <Extensions>
         <desktop:Extension Category="windows.startupTask" Executable="OpenAIUsage.Windows.exe" EntryPoint="Windows.FullTrustApplication">
-          <desktop:StartupTask TaskId="OpenAIUsageStartup" Enabled="false" DisplayName="OpenAI Usage" />
+          <desktop:StartupTask TaskId="CodyCompanionStartup" Enabled="false" DisplayName="Cody Companion" />
         </desktop:Extension>
       </Extensions>
     </Application>
   </Applications>
   <Capabilities>
+    <uap3:Capability Name="userNotificationListener" />
     <rescap:Capability Name="runFullTrust" />
     <rescap:Capability Name="unvirtualizedResources" />
   </Capabilities>

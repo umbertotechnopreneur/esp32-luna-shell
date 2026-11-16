@@ -473,7 +473,7 @@ class ActivityStore:
                       f"compactseq={session.compact_sequence:016x}", file=sys.stderr, flush=True)
             # Event acceptance performs no source IO. The delivery owner may
             # refresh this exact completion through the title owner.
-            notice_title = displayable_notice_title(session.chat_title, time.monotonic(), 63)
+            notice_title = displayable_notice_title(session.chat_title, time.monotonic(), TITLE_MAX_BYTES)
             return HookObservation(name, session_id, session.turn_id, session.project,
                                    session_id == self._followed_session_id, session.phase,
                                    reply_ready, notice_title, resumed_after_stop,
@@ -527,13 +527,7 @@ class ActivityStore:
 
             session.chat_title = source_title
             self._observe_registry_title(session.session_id, source_title)
-            maximum_bytes = TITLE_MAX_BYTES if approval else 63
-            if (reply_ready and source_title.state == TitleState.CURRENT
-                    and len(source_title.title) > maximum_bytes):
-                print("CCP reply title unavailable: complete native title exceeds the 63-byte notice field",
-                      file=sys.stderr, flush=True)
-
-            title = displayable_notice_title(source_title, time.monotonic(), maximum_bytes)
+            title = displayable_notice_title(source_title, time.monotonic(), TITLE_MAX_BYTES)
             return replace(observation, title=title)
 
     # self: Canonical lifecycle owner retaining per-device notice admission until the next turn.

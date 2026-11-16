@@ -1949,6 +1949,43 @@ def verify_source_contracts() -> None:
         "esp_err_t set_standby(",
         "standby transition",
     )
+    startup_admission = function_text(
+        power, "esp_err_t admit_display_transition(", "display startup admission"
+    )
+    require_contains(power, "std::atomic_bool s_display_lifecycle_ready{false};",
+                     "display lifecycle starts closed")
+    for fragment in (
+        "s_display_lifecycle_callback.load(std::memory_order_acquire) != nullptr",
+        "!s_display_lifecycle_ready.load(std::memory_order_acquire)",
+        "return ESP_ERR_NOT_FINISHED;",
+    ):
+        require_contains(startup_admission, fragment, "side-effect-free startup rejection")
+    admission_at = standby_transition.find("admit_display_transition()")
+    require(
+        0 <= admission_at < standby_transition.find("if (s_state !=")
+        < standby_transition.find("pauseVoiceInput()")
+        < standby_transition.find("s_state = LUNASHELL::DeviceOperatingState::EnteringStandby;"),
+        "startup admission must precede even no-op wake, voice suspension and state mutation",
+    )
+    light_sleep = function_text(
+        power, 'extern "C" esp_err_t LUNASHELL_power_enter_light_sleep(', "explicit Light-sleep admission"
+    )
+    require(
+        0 <= light_sleep.find("admit_display_transition()") < light_sleep.find("configure_wakeup("),
+        "explicit Light-sleep must reject incomplete display startup before hardware changes",
+    )
+    startup_complete = function_text(
+        power, 'extern "C" esp_err_t LUNASHELL_power_manager_complete_display_startup(',
+        "display startup completion",
+    )
+    require_contains(startup_complete, "s_display_lifecycle_ready.store(true, std::memory_order_release);",
+                     "successful display startup publication")
+    headless = read(ROOT / "cody-device/main/main_headless.cpp")
+    require(
+        0 <= headless.find("ESP_ERROR_CHECK(CODY_companion_boot_completed());")
+        < headless.find("ESP_ERROR_CHECK(LUNASHELL_power_manager_complete_display_startup());"),
+        "display transition admission must follow acknowledged Cody Ready, never the first boot frame",
+    )
     for fragment in (
         "suspend_standby_resources(false)",
         "recover_standby_sequence(",

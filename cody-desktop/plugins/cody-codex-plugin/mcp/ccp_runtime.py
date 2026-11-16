@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import hmac
 import http.client
+import dataclasses
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -28,6 +29,7 @@ import secrets
 import sys
 import threading
 import time
+import tempfile
 from typing import Any
 
 import ccp_server as ccp
@@ -39,6 +41,7 @@ from ccp_security import RejectionReporter, configure_runtime_logging
 from ccp_presence import AppState
 from ccp_source import current_source
 from ccp_state_storage import RegistryStorage
+import cody_system_monitor as host_monitor
 from ccp_windows import (CONTROL_PORT, configure_exclusive_socket, control_key_path,
                          control_port_available, launch_runtime, runtime_directory)
 
@@ -323,6 +326,8 @@ def dispatch(server: ControlServer, operation: str, payload: dict[str, Any]) -> 
         return {"status": "stopping"}
     if operation == "bridge/status":
         return bridge_status(server)
+    if operation.startswith("monitor/"):
+        return monitor_control(server, operation, payload)
     if operation == "animation/request":
         if set(payload) != {"scene", "op"}:
             raise ValueError("Animation requires exactly scene and op")
@@ -398,14 +403,29 @@ def run_broker() -> int:
         control_key = bytes.fromhex(server.secret)
         registry_storage = RegistryStorage(private_dir / "codex-registry.v1", control_key)
         question_storage = RegistryStorage(private_dir / "codex-questions.v1", control_key, purpose="questions")
+        notification_storage = RegistryStorage(private_dir / "codex-notifications.v1", control_key, purpose="notifications")
         server.service = ccp.CcpService(pricing, subscriptions=subscriptions, registry_storage=registry_storage,
-                                        question_storage=question_storage)
+                                        question_storage=question_storage, notification_storage=notification_storage)
         server.lease_lock = threading.Lock()
         server.tool_lock = threading.Lock()
         server.last_hook = time.monotonic()
         server.last_transport_activity = server.last_hook
         server.persistent = False
         server.stopping = False
+        server.monitor_lock = threading.RLock()
+        server.monitor_service = None
+        server.monitor_stopping = False
+        server.monitor_device = ""
+        server.monitor_rules = ()
+        server.monitor_samples = []
+        server.monitor_issues = []
+        server.monitor_last_delivery_error = None
+        server.monitor_config_error = None
+        try:
+            monitor_restore(server)
+        except (OSError, ValueError, TypeError, KeyError) as error:
+            server.monitor_config_error = str(error)
+            print(f"Host monitor settings unavailable: {error}", file=sys.stderr, flush=True)
         server.timeout = 1.0
         try:
             # Pricing is optional metadata. Its real error remains in PriceCache and the log;
@@ -426,7 +446,11 @@ def run_broker() -> int:
                         break
         finally:
             try:
-                server.service.close()
+                try:
+                    if server.monitor_service is not None:
+                        server.monitor_service.stop()
+                finally:
+                    server.service.close()
             finally:
                 try:
                     pricing.close()
@@ -453,6 +477,8 @@ def bridge_status(server: ControlServer) -> dict[str, Any]:
 # payload: Explicit target and settings forwarded to the existing validated owner.
 # Raises ValueError, RuntimeError or OSError for rejected or failed operations.
 def device_control(server: ControlServer, operation: str, payload: dict[str, Any]) -> Any:
+    if operation == "device/notify-system":
+        return notify_system(server, payload)
     tools = {"device/discover": "ccp_discover_devices", "device/pair": "ccp_pair_device",
              "device/read-name": "ccp_read_name", "device/set-name": "ccp_set_name",
              "device/read-clock": "ccp_read_clock", "device/configure-clock": "ccp_configure_clock",
@@ -477,6 +503,200 @@ def device_control(server: ControlServer, operation: str, payload: dict[str, Any
     return result.get("structuredContent", result)
 
 
+# server: Authenticated local control owner with the only access to the event queue.
+# payload: Exact physical device ID, allowlisted event category and optional explicit severity.
+# Returns the admission identity and state only; a queued event is not display acknowledgement.
+# Raises ValueError when the category or physical destination is unsupported or unavailable.
+def notify_system(server: ControlServer, payload: dict[str, Any]) -> dict[str, Any]:
+    if set(payload) not in ({"device_id", "event"}, {"device_id", "event", "severity"}) or not isinstance(payload["event"], str):
+        raise ValueError("System notification requires device_id and an event category")
+    # The OS notification source has no severity setting; its documented default is informational.
+    severity = payload.get("severity", "information")
+    if not isinstance(severity, str) or severity not in ccp.interactions.PC_ALERT_SEVERITIES:
+        raise ValueError("System notification severity must be information, warning or critical")
+    # EVENT is authenticated but its generic payload is readable on the network.
+    # Fixed strings prevent caller-provided app titles, device names or message bodies leaking.
+    categories = {
+        "notification": ("PC notification", "A PC notification arrived"),
+        "memory": ("Memory alert", "A memory rule was triggered"),
+        "disk": ("Disk alert", "A disk rule was triggered"),
+        "cpu": ("CPU alert", "A CPU rule was triggered"),
+        "battery": ("Battery alert", "A battery rule was triggered"),
+        "temperature": ("Temperature alert", "A temperature rule was triggered"),
+        "usb_connected": ("USB connected", "A USB device was connected"),
+        "usb_disconnected": ("USB disconnected", "A USB device was disconnected"),
+        "network_disconnected": ("Network disconnected", "The PC network disconnected"),
+        "network_connected": ("Network connected", "The PC network connected"),
+    }
+    category = categories.get(payload["event"])
+    if category is None:
+        raise ValueError("Unknown system notification category")
+    target = next((item for item in server.service.state.public_status()
+                   if item["device_id"] == payload["device_id"]), None)
+    if target is None or target.get("source") != "LAN":
+        raise ValueError("System notifications require the selected physical Cody on LAN")
+    title, body = category
+    admitted = server.service.enqueue_interaction({"device_id": payload["device_id"],
+        "kind": "notice", "context": "PC", "title": title, "body": body,
+        "origin_title": "Computer", "severity": severity}, False)
+    return {"request_id": admitted["request_id"], "state": admitted["state"], "source": admitted["source"],
+            "pc_alert_capability": server.service.responder.pc_alert_capability(payload["device_id"])}
+
+
+# rows: JSON rule objects with every defined field present.
+# Raises ValueError or TypeError for malformed or duplicate rules.
+def monitor_parse_rules(rows: Any) -> tuple[host_monitor.AlertRule, ...]:
+    if not isinstance(rows, list):
+        raise ValueError("Monitor rules must be an array")
+    fields = {field.name for field in dataclasses.fields(host_monitor.AlertRule)}
+    rules = []
+    for row in rows:
+        if not isinstance(row, dict) or set(row) != fields:
+            raise ValueError("Monitor rule fields are invalid")
+        rules.append(host_monitor.AlertRule(**{**row, "condition": host_monitor.Condition(row["condition"]),
+                                             "severity": host_monitor.Severity(row["severity"])}))
+    engine = host_monitor.RuleEngine()
+    engine.set_rules(rules)
+    for rule in rules:
+        if not (rule.metric_id.startswith(("memory.", "disk.", "cpu.", "battery.", "temperature.")) or
+                rule.metric_id in {"network.interface.connected", "usb.connections.count", "usb.disconnections.count"}):
+            raise ValueError("This metric cannot currently be delivered to Cody")
+    return tuple(rules)
+
+
+# server: Broker owner receiving the persisted configuration.
+# Raises OSError or ValueError rather than replacing invalid saved settings.
+def monitor_restore(server: ControlServer) -> None:
+    path = runtime_directory() / "host-monitor.json"
+    try:
+        raw = path.read_bytes()
+    except FileNotFoundError:
+        return
+    if len(raw) > MAX_REQUEST_BYTES:
+        raise ValueError("Host monitor settings exceed the allowed size")
+    document = json.loads(raw, object_pairs_hook=ccp.unique_state_object)
+    if not isinstance(document, dict) or set(document) != {"version", "device_id", "rules"} or document["version"] != 1:
+        raise ValueError("Invalid host monitor settings")
+    device = document["device_id"]
+    if not isinstance(device, str) or ccp.HEX_PATTERNS["device"].fullmatch(device) is None:
+        raise ValueError("Invalid host monitor device identity")
+    rules = monitor_parse_rules(document["rules"])
+    # Publish only the fully validated configuration; partial restore is not usable.
+    server.monitor_device = device
+    server.monitor_rules = rules
+
+
+# server: Broker owner serializing the explicit configuration change.
+# device_id: User-selected physical Cody identity.
+# rules: Validated complete rule set.
+# Raises OSError or ValueError if the configuration cannot be retained atomically.
+def monitor_store(server: ControlServer, device_id: str, rules: tuple[host_monitor.AlertRule, ...]) -> None:
+    document = json.dumps({"version": 1, "device_id": device_id, "rules": [dataclasses.asdict(r) for r in rules]},
+                          separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    if len(document) > MAX_REQUEST_BYTES:
+        raise ValueError("Host monitor settings exceed the allowed size")
+    path = runtime_directory() / "host-monitor.json"
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile("wb", dir=path.parent, prefix=".host-monitor-", delete=False) as output:
+            temporary = output.name
+            output.write(document)
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+        temporary = None
+    finally:
+        if temporary is not None:
+            try:
+                os.unlink(temporary)
+            except OSError as error:
+                print(f"Host monitor temporary settings cleanup failed: {error}", file=sys.stderr, flush=True)
+
+
+# server: Broker owning the monitor, device and shared connection.
+# operation: Explicit monitor configuration, lifecycle or status operation.
+# payload: Strict operation-specific user settings.
+# Raises OSError, ValueError or RuntimeError on invalid settings and failures.
+def monitor_control(server: ControlServer, operation: str, payload: dict[str, Any]) -> dict[str, Any]:
+    if operation == "monitor/configure":
+        if set(payload) != {"device_id", "rules"}:
+            raise ValueError("Monitor configuration requires device_id and rules")
+        device = payload["device_id"]
+        if not isinstance(device, str) or ccp.HEX_PATTERNS["device"].fullmatch(device) is None:
+            raise ValueError("Choose an explicit physical Cody identity")
+        target = next((item for item in server.service.state.public_status() if item["device_id"] == device), None)
+        if target is None or target.get("source") != "LAN" or not target.get("retained_pairing"):
+            raise ValueError("Select a paired physical Cody")
+        rules = monitor_parse_rules(payload["rules"])
+        with server.monitor_lock:
+            if server.monitor_service is not None and server.monitor_device != device:
+                raise ValueError("Stop monitoring before changing the selected Cody")
+            monitor_store(server, device, rules)
+            server.monitor_device, server.monitor_rules = device, rules
+            server.monitor_config_error = None
+            if server.monitor_service is not None:
+                server.monitor_service.set_rules(rules)
+    elif payload:
+        raise ValueError("This monitor operation requires an empty object")
+    if operation == "monitor/start":
+        with server.monitor_lock:
+            if server.monitor_config_error is not None:
+                raise ValueError("Host monitor settings could not be restored; save a valid configuration first")
+            if not server.monitor_device:
+                raise ValueError("Configure a physical Cody and rules before starting")
+            if server.monitor_stopping:
+                raise RuntimeError("Host monitor is still stopping")
+            if server.monitor_service is not None and not server.monitor_service.running:
+                server.monitor_service = None
+            if server.monitor_service is None:
+                # Callback owns no retry; queue admission is not display confirmation.
+                def on_alert(alert: host_monitor.AlertNotification) -> None:
+                    try:
+                        with server.monitor_lock:
+                            device_id = server.monitor_device
+                        notify_system(server, {"device_id": device_id, "event": host_monitor.cody_event_for_alert(alert),
+                                               "severity": alert.severity.value})
+                    except (OSError, RuntimeError, ValueError) as error:
+                        with server.monitor_lock:
+                            server.monitor_last_delivery_error = str(error)
+                def on_issues(issues: tuple[host_monitor.AcquisitionIssue, ...]) -> None:
+                    with server.monitor_lock:
+                        server.monitor_issues = [dataclasses.asdict(issue) for issue in issues]
+                def on_samples(samples: tuple[host_monitor.MetricSample, ...]) -> None:
+                    with server.monitor_lock:
+                        server.monitor_samples = [{"id": s.id, "label": s.label, "value": s.value, "unit": s.unit,
+                                                   "observed_at": s.observed_at.isoformat()} for s in samples]
+                service = host_monitor.MonitorService(on_alert, on_issues, on_samples=on_samples)
+                service.set_rules(server.monitor_rules)
+                service.start()
+                server.monitor_service = service
+            with server.lease_lock:
+                server.persistent = True
+    elif operation == "monitor/stop":
+        with server.monitor_lock:
+            if server.monitor_stopping:
+                raise RuntimeError("Host monitor is already stopping")
+            service = server.monitor_service
+            server.monitor_stopping = service is not None
+        if service is not None:
+            try:
+                service.stop()
+            finally:
+                with server.monitor_lock:
+                    server.monitor_stopping = False
+                    if not service.running:
+                        server.monitor_service = None
+                        server.monitor_samples = []
+    elif operation not in {"monitor/status", "monitor/configure"}:
+        raise ValueError("Unknown host monitor operation")
+    with server.monitor_lock:
+        return {"running": server.monitor_service is not None and server.monitor_service.running, "device_id": server.monitor_device,
+                "rules": [dataclasses.asdict(r) for r in server.monitor_rules], "samples": server.monitor_samples,
+                "issues": server.monitor_issues, "last_delivery_error": server.monitor_last_delivery_error,
+                "config_error": server.monitor_config_error,
+                "pc_alert_capability": server.service.responder.pc_alert_capability(server.monitor_device)}
+
+
 # operation: Fixed documented local operation chosen by the control-panel user.
 # Reads at most one bounded JSON object from stdin; secrets never appear in argv.
 # Returns one JSON envelope and a nonzero exit code for every rejected/failed operation.
@@ -490,7 +710,8 @@ def run_control(operation: str) -> int:
             raise ValueError("Companion control input must be an object")
         allowed = {"bridge/status", "bridge/start", "bridge/stop",
                    "device/discover", "device/pair", "device/read-name", "device/set-name",
-                   "device/read-clock", "device/configure-clock", "device/normal"}
+                   "device/read-clock", "device/configure-clock", "device/normal", "device/notify-system",
+                   "monitor/status", "monitor/configure", "monitor/start", "monitor/stop"}
         if operation not in allowed:
             raise ValueError("Unknown companion control operation")
         if operation == "bridge/status" and control_port_available():

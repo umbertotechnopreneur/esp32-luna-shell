@@ -331,6 +331,10 @@ Cody's interactive window releases the build writer after preparation, allowing
 new native builds while it remains open. Its session and output paths stay
 reserved; cleanup requires closing the window. Other operations retain the
 writer lock. Cleanup bounds targets and rejects reparse points.
+Loaded native builds use verified immutable copies under
+`artifacts/simulator/runtime-libraries/`, deduplicated by driver and library hash.
+These copies survive rebuilds and manual general cleanup; remove unused
+generations explicitly after closing all simulator processes.
 
 Tool discovery exposes public `verify_*` and `generate_*` entrypoints plus the
 explicitly registered standalone tools. Import-only helpers are not commands.

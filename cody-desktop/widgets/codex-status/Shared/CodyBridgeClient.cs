@@ -52,7 +52,8 @@ public static class CodyBridgeClient
             throw new IOException("Choose the installed Cody service launcher before connecting.");
         if (operation is not ("bridge/status" or "bridge/start" or "bridge/stop" or
             "device/discover" or "device/pair" or "device/read-name" or "device/set-name" or
-            "device/read-clock" or "device/configure-clock" or "device/normal"))
+            "device/read-clock" or "device/configure-clock" or "device/normal" or "device/notify-system" or
+            "monitor/status" or "monitor/configure" or "monitor/start" or "monitor/stop"))
             throw new ArgumentException("Unsupported Cody control operation.");
         var request = JsonSerializer.Serialize(arguments, JsonOptions.Compact);
         if (Encoding.UTF8.GetByteCount(request) > 16384)

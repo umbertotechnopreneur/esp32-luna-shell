@@ -16,7 +16,7 @@ KILL_SIGNAL = getattr(signal, "SIGKILL", 9)
 
 
 def state_dir():
-    return Path(os.environ.get("XDG_STATE_HOME", str(Path.home()/".local/state")))/"openai-usage"
+    return Path(os.environ.get("XDG_STATE_HOME", str(Path.home()/".local/state")))/"cody-companion"
 
 
 def record(kind, message, memory=None):

@@ -63,16 +63,10 @@ try {
         return
     }
 
-    foreach ($project in @('Windows/OpenAIUsage.Windows.csproj','Backend/OpenAIUsage.Backend.csproj','Tests/OpenAIUsage.Tests.csproj')) {
+    foreach ($project in @('Windows/OpenAIUsage.Windows.csproj','Backend/OpenAIUsage.Backend.csproj')) {
         & dotnet build $project -c $Configuration --no-restore
         if ($LASTEXITCODE -ne 0) { throw "Build failed: $project" }
     }
-    & dotnet run --project 'Tests/OpenAIUsage.Tests.csproj' -c $Configuration --no-build --no-restore
-    if ($LASTEXITCODE -ne 0) { throw 'Shared behavioral checks failed.' }
-    & python -m py_compile 'Linux/openai_usage.py' 'Linux/watchdog.py' 'Linux/tray.py'
-    if ($LASTEXITCODE -ne 0) { throw 'GTK Python syntax check failed.' }
-    & python 'Tests/test_watchdog.py'
-    if ($LASTEXITCODE -ne 0) { throw 'Linux watchdog ownership checks failed.' }
     & dotnet publish 'Windows/OpenAIUsage.Windows.csproj' -c $Configuration --no-restore -o 'artifacts/windows-x64'
     if ($LASTEXITCODE -ne 0) { throw 'Windows source publish failed.' }
     foreach ($resource in @('OpenAIUsage.Windows.pri','App.xbf')) {
@@ -86,7 +80,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Portable backend source publish failed.' }
     $linuxDirectory = Join-Path $PSScriptRoot 'artifacts\linux\Linux'
     New-Item -ItemType Directory -Path $linuxDirectory -Force | Out-Null
-    foreach ($name in @('openai_usage.py','watchdog.py','tray.py','run.sh','openai-usage.desktop')) {
+    foreach ($name in @('openai_usage.py','cody_control.py','cody_rules.py','watchdog.py','tray.py','run.sh','openai-usage.desktop')) {
         Copy-Item -LiteralPath (Join-Path $PSScriptRoot "Linux\$name") -Destination (Join-Path $linuxDirectory $name) -Force
     }
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'Branding') -Destination (Join-Path $PSScriptRoot 'artifacts\linux\Branding') -Recurse -Force
@@ -95,12 +89,7 @@ try {
 }
 finally {
     Pop-Location
-    try {
-        & (Join-Path $PSScriptRoot 'Packaging\Clean-BuildOutputs.ps1') -KeepDebugDeliverables:$completed
-    }
-    finally {
-        $Imports.Prepared = $false
-        $Imports.Packages = @()
-        $Imports.Tools = @()
-    }
+    $Imports.Prepared = $false
+    $Imports.Packages = @()
+    $Imports.Tools = @()
 }

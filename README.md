@@ -45,15 +45,6 @@ so those decisions stay with the people who use it. You can inspect and change
 the firmware and plugin, flash your own build onto the ESP32, adapt the
 integrations to your tools, or reuse the board for a project of your own.
 
-## Early prototypes
-
-Some earlier versions of the project, photographed on my desk.
-
-| | |
-| :---: | :---: |
-| <img src="docs/cody/assets/prototype-cloud-start.png" alt="Cloud character on the round display" width="280"><br>Cloud character | <img src="docs/cody/assets/prototype-cloud-animation.png" alt="Cloud character with animation controls and performance figures" width="280"><br>Animation view |
-| <img src="docs/cody/assets/prototype-hardware.png" alt="Hardware status screen on the round display" width="280"><br>Hardware status | <img src="docs/cody/assets/prototype-audio.png" alt="Microphone diagnostics screen on the round display" width="280"><br>Audio diagnostics |
-
 ## The little round thing
 
 The default target is the **Waveshare ESP32-S3-Touch-AMOLED-1.75 GPS** with
@@ -76,7 +67,7 @@ Standby, wake and battery behavior are described in the
 ## Pick a door
 
 - **Use Cody:** [setup and navigation](docs/cody/navigation.md), the
-  [A4 route map](docs/cody/device-navigation-map-a4.pdf), the [PC plugin](cody-desktop/plugins/cody-codex-plugin/README.md)
+  [Navigation Atlas](docs/cody/cody-navigation-atlas-v1.pdf), the [PC plugin](cody-desktop/plugins/cody-codex-plugin/README.md)
   and [Linux plugin installation](cody-desktop/plugins/cody-codex-plugin/README.md#install-on-linux).
 - **Desktop widget:** [OpenAI Usage](cody-desktop/widgets/codex-status/README.md), a standalone
   Windows/Linux widget for Codex allowance, tokens, credits and reset countdown.

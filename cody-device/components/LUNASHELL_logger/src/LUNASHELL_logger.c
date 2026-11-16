@@ -50,7 +50,14 @@
 
 #define LUNASHELL_LOG_RING_LINES LUNASHELL_LOGGER_SNAPSHOT_MAX_LINES
 #define LUNASHELL_LOG_LINE_BYTES 256
+#if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
 #define LUNASHELL_LOG_QUEUE_LINES 48
+#else
+// This board has no removable-storage owner. Keep a minimal queue so the
+// existing writer's stop/boot-archive protocol stays valid without reserving
+// the SD mirror's 48-line buffer in scarce internal, cache-off-safe RAM.
+#define LUNASHELL_LOG_QUEUE_LINES 1
+#endif
 #define LUNASHELL_LOG_FORMAT_SLOTS 4
 #if CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
 #define LUNASHELL_BOOT_LOG_LINES 128U
@@ -1550,6 +1557,12 @@ esp_err_t LUNASHELL_logger_enable_sd(const char *mount_point)
         record_sd_failure("enable arguments", ESP_ERR_INVALID_ARG, 0);
         return ESP_ERR_INVALID_ARG;
     }
+#if !CONFIG_LUNASHELL_BUILD_ENABLE_REMOVABLE_STORAGE
+    // The reduced queue is never admitted as an SD sink on a build that has
+    // no removable-storage owner. USB and the in-memory ring are unchanged.
+    ESP_LOGW(TAG, "SD mirror unavailable: removable storage disabled");
+    return ESP_ERR_NOT_SUPPORTED;
+#endif
 
     const esp_err_t stop_result = stop_sd_writer();
     if (stop_result != ESP_OK) {

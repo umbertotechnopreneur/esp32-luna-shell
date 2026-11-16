@@ -55,7 +55,7 @@ class StatusTray:
 
     def get_property(self, connection, sender, path, interface, name):
         if interface == "org.kde.StatusNotifierItem":
-            properties = {"Category": ("s", "ApplicationStatus"), "Id": ("s", "openai-usage"),
+            properties = {"Category": ("s", "ApplicationStatus"), "Id": ("s", "cody-companion"),
                           "Title": ("s", "OpenAI Usage"), "Status": ("s", "Active"),
                           "IconName": ("s", "biz.umbertogiacobbi.OpenAIUsage"), "IconPixmap": ("a(iiay)", []),
                           "Menu": ("o", "/MenuBar"), "ItemIsMenu": ("b", False),
@@ -67,7 +67,7 @@ class StatusTray:
 
     @staticmethod
     def items():
-        return {1: "Open", 3: "About OpenAI Usage", 4: "Settings", 5: "Website", 6: "VibeWare manifesto", 7: "Exit"}
+        return {1: "Open", 3: "About OpenAI Usage", 4: "Settings", 8: "Cody Setup", 9: "About Cody", 10: "Cody onboarding", 11: "PC Alerts", 5: "Website", 6: "VibeWare manifesto", 7: "Exit"}
 
     @property
     def available(self):
@@ -79,7 +79,7 @@ class StatusTray:
         return {"label": GLib.Variant("s", self.items()[item]), "enabled": GLib.Variant("b", True), "visible": GLib.Variant("b", True)}
 
     def activate(self, item):
-        key = {1: "open", 3: "about", 4: "settings", 5: "website", 6: "manifesto", 7: "exit"}.get(item)
+        key = {1: "open", 3: "about", 4: "settings", 8: "cody_setup", 9: "cody_about", 10: "cody_onboarding", 11: "cody_rules", 5: "website", 6: "manifesto", 7: "exit"}.get(item)
         if key:
             GLib.idle_add(lambda: (self.callbacks[key](), False)[1])
 

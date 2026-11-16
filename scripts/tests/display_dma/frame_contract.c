@@ -281,6 +281,7 @@ static void *borrow(void)
 }
 // fragmented: Force the actual allocator to obtain two disjoint internal blocks.
 // tight_second: Reproduce the device's 12.8-KiB second block and require shorter dual slots.
+// Exception: Assertions reject mutated DMA payloads or a false frame-deadline report.
 static void normal_pipeline(bool fragmented, bool tight_second)
 {
     reset_fixture();
@@ -310,6 +311,7 @@ static void normal_pipeline(bool fragmented, bool tight_second)
     assert(now_us - end_started == 2400 && !dma_active && !payload_changed);
     assert(result.buffer_count == 2 && result.transfer_rows == available_rows && result.rectangles == 3);
     assert(result.completion_wait_us == 4800 && result.completion_error == ESP_OK);
+    assert(!result.deadline_expired);
     assert(result.retained_dma_bytes == 0 && releases == (tight_second ? 4U : (fragmented ? 2U : 1U)) && lock_depth == 0);
     puts(tight_second ? "PASS 12.8-KiB second block keeps two 12-row slots, overlap and safe final drain" :
          fragmented ? "PASS fragmented heap: two disjoint slots, overlap, immutable payload, final drain" :
@@ -331,19 +333,57 @@ static void single_slot(void)
     assert(result.buffer_count == 1 && result.transfer_rows == 4 && releases == 1);
     puts("PASS one-slot reduced-row degradation waits before reuse");
 }
-// No parameters: a render failure still drains submitted pixels while keeping its original error.
-static void renderer_failure(void)
+// No parameters: force the reserved emergency lease with no allocatable DMA rows.
+// Exception: Assertions reject insufficient Cody capacity or an emergency lease retained after drain.
+static void emergency_pipeline(void)
+{
+    reset_fixture();
+    available_slots = 1;
+    available_rows = 0;
+    assert(!display_dma_emergency_in_use);
+    assert(bsp_display_frame_begin(500) == ESP_OK);
+    assert(display_dma_emergency_in_use && display_frame.lease.emergency);
+    assert(display_frame.lease.buffer_count == 1 && !display_frame.lease.heap_owned);
+    void *pixels = NULL;
+    size_t capacity = 0;
+    assert(bsp_display_frame_buffer(&pixels, &capacity) == ESP_OK);
+    assert(pixels == display_dma_emergency_buffer);
+    assert(capacity == BSP_DISPLAY_DMA_ROW_BYTES * BSP_DISPLAY_DMA_EMERGENCY_ROWS);
+#if CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION
+    assert(BSP_DISPLAY_DMA_EMERGENCY_ROWS >= 2U);
+    assert(((capacity / BSP_DISPLAY_DMA_ROW_BYTES) & ~(size_t)1U) >= 2U);
+#endif
+    memset(pixels, 0x5A, capacity);
+    assert(bsp_display_frame_submit_rgb565(0, 0, 466,
+        (int)BSP_DISPLAY_DMA_EMERGENCY_ROWS, pixels) == ESP_OK);
+    assert(dma_active && display_dma_emergency_in_use);
+    bsp_display_frame_result_t result;
+    assert(bsp_display_frame_end(ESP_OK, &result) == ESP_OK);
+    assert(!dma_active && !payload_changed && !display_dma_emergency_in_use);
+    assert(result.buffer_count == 1 && result.transfer_rows == BSP_DISPLAY_DMA_EMERGENCY_ROWS);
+    assert(result.completion_error == ESP_OK && !result.deadline_expired);
+    assert(result.retained_dma_bytes == 0 && releases == 0 && lock_depth == 0);
+    assert(bsp_display_frame_begin(500) == ESP_OK && display_dma_emergency_in_use);
+    assert(bsp_display_frame_end(ESP_OK, &result) == ESP_OK);
+    assert(!display_dma_emergency_in_use && lock_depth == 0);
+    puts("PASS profile emergency capacity supports safe DMA drain and subsequent admission");
+}
+// renderer_error: Original non-deadline raster error, including an unrelated timeout.
+// Exception: Assertions reject changed error provenance or released active DMA.
+static void renderer_failure(esp_err_t renderer_error)
 {
     reset_fixture();
     assert(bsp_display_frame_begin(500) == ESP_OK);
     assert(bsp_display_frame_submit_rgb565(20, 40, 120, 42, borrow()) == ESP_OK);
     bsp_display_frame_result_t result;
-    assert(bsp_display_frame_end(ESP_FAIL, &result) == ESP_FAIL);
-    assert(result.error == ESP_FAIL && result.completion_error == ESP_OK);
+    assert(bsp_display_frame_end(renderer_error, &result) == renderer_error);
+    assert(result.error == renderer_error && result.completion_error == ESP_OK);
+    assert(!result.deadline_expired);
     assert(!dma_active && releases == 1 && lock_depth == 0);
     puts("PASS renderer failure drains queued pixels and preserves original error");
 }
 // queue_error: When true, submission fails after an uncertain enqueue; otherwise completion is lost.
+// Exception: Assertions reject freed active DMA or a changed open-deadline wait budget.
 static void quarantined_failure(bool queue_error)
 {
     reset_fixture();
@@ -354,10 +394,21 @@ static void quarantined_failure(bool queue_error)
     else { drop_completion = true; }
     esp_err_t submitted = bsp_display_frame_submit_rgb565(0, 0, 466, 16, first);
     assert(submitted == (queue_error ? ESP_FAIL : ESP_OK));
+    if (!queue_error) {
+        // Submission used 25 us; another 975 us leaves exactly 9 ms to retire.
+        advance_time(975);
+        assert(display_frame.deadline_us - now_us == 9000);
+    }
+    const int64_t drain_started_at_us = now_us;
     bsp_display_frame_result_t result;
     esp_err_t expected = queue_error ? ESP_FAIL : ESP_ERR_TIMEOUT;
     assert(bsp_display_frame_end(ESP_OK, &result) == expected);
+    if (!queue_error) {
+        assert(now_us - drain_started_at_us == 9000);
+        assert(result.completion_wait_us == 9000);
+    }
     assert(result.completion_error == expected && display_dma_faulted && dma_active);
+    assert(!result.deadline_expired);
     assert(result.retained_dma_bytes == 29824 && display_dma_fault_lease.data == pool);
     assert(display_dma_fault_lease.second_data == second_pool && first_used && second_used);
     assert(display_frame.lease.data == NULL && releases == 0 && lock_depth == 0);
@@ -365,7 +416,46 @@ static void quarantined_failure(bool queue_error)
     puts(queue_error ? "PASS uncertain SDK submission retains both slots until reset" :
                        "PASS lost completion retains both slots until reset");
 }
+// completion_arrives: Whether the pending peripheral transfer finishes during final drain.
+// frame_error: Original renderer result passed unchanged into final frame retirement.
+// Exception: Assertions reject false success, premature release, or an unbounded final wait.
+static void expired_deadline_pending_dma(bool completion_arrives, esp_err_t frame_error)
+{
+    reset_fixture();
+    assert(bsp_display_frame_begin(10) == ESP_OK);
+    assert(bsp_display_frame_submit_rgb565(0, 0, 466, 16, borrow()) == ESP_OK);
+    dma_completes_at_us = display_frame.deadline_us + 2000;
+    drop_completion = !completion_arrives;
+    advance_time(11000);
+    assert(now_us > display_frame.deadline_us && dma_active && !token);
+    const int64_t drain_started_at_us = now_us;
+    bsp_display_frame_result_t result;
+    const esp_err_t expected = frame_error == ESP_OK ? ESP_ERR_TIMEOUT : frame_error;
+    assert(bsp_display_frame_end(frame_error, &result) == expected);
+    assert(result.error == expected && lock_depth == 0 && !payload_changed);
+    assert(result.deadline_expired);
+    assert(display_frame.lease.data == NULL && !token);
+    if (completion_arrives) {
+        assert(now_us == dma_completes_at_us && now_us > drain_started_at_us);
+        assert(now_us - drain_started_at_us < 100000);
+        assert(result.completion_wait_us == (uint32_t)(now_us - drain_started_at_us));
+        assert(result.completion_error == ESP_OK && result.retained_dma_bytes == 0);
+        assert(!dma_active && !display_dma_faulted && releases == 1 && !first_used);
+        assert(bsp_display_frame_begin(500) == ESP_OK);
+        assert(bsp_display_frame_end(ESP_OK, &result) == ESP_OK && lock_depth == 0);
+        puts(frame_error == ESP_OK ? "PASS late DMA retires safely without hiding the expired frame deadline" :
+                                    "PASS late DMA preserves the original renderer failure after its deadline");
+    } else {
+        assert(now_us - drain_started_at_us == 100000 && result.completion_wait_us == 100000);
+        assert(result.completion_error == ESP_ERR_TIMEOUT && display_dma_faulted && dma_active);
+        assert(result.retained_dma_bytes == 29824 && display_dma_fault_lease.data == pool);
+        assert(first_used && releases == 0);
+        assert(bsp_display_frame_begin(500) == ESP_ERR_INVALID_STATE);
+        puts("PASS expired frame with missing DMA completion retains its lease after bounded drain");
+    }
+}
 // No parameters: finished DMA may be retired after a missed deadline without retaining idle memory.
+// Exception: Assertions reject missing deadline provenance or a disguised IRQ failure.
 static void deadline_and_irq_fault(void)
 {
     reset_fixture();
@@ -375,6 +465,7 @@ static void deadline_and_irq_fault(void)
     bsp_display_frame_result_t result;
     assert(bsp_display_frame_end(ESP_OK, &result) == ESP_ERR_TIMEOUT);
     assert(result.completion_error == ESP_OK && releases == 1 && !display_dma_faulted);
+    assert(result.deadline_expired);
     reset_fixture();
     assert(bsp_display_frame_begin(500) == ESP_OK);
     assert(bsp_display_frame_submit_rgb565(0, 0, 466, 16, borrow()) == ESP_OK);
@@ -382,6 +473,7 @@ static void deadline_and_irq_fault(void)
     bsp_display_color_transfer_done(NULL, NULL, display_completion);
     assert(bsp_display_frame_end(ESP_OK, &result) == ESP_ERR_INVALID_STATE);
     assert(result.completion_error == ESP_ERR_INVALID_STATE && releases == 0);
+    assert(!result.deadline_expired);
     puts("PASS deadline failure differs from uncertain DMA; duplicate IRQ stays a real failure");
 }
 // No parameters: reject foreign/interior/active slots and invalid geometry without an enqueue.
@@ -439,15 +531,21 @@ static void partial_allocation(void)
     puts("PASS failed second allocation frees partial ownership before single-slot admission");
 }
 // No parameters: run the actual driver lifetime contracts without a device or fabricated sensors.
+// Exception: An assertion failure stops the fixture at the first violated ownership contract.
 int main(void)
 {
     normal_pipeline(false, false);
     normal_pipeline(true, false);
     normal_pipeline(true, true);
     single_slot();
-    renderer_failure();
+    emergency_pipeline();
+    renderer_failure(ESP_FAIL);
+    renderer_failure(ESP_ERR_TIMEOUT);
     quarantined_failure(false);
     quarantined_failure(true);
+    expired_deadline_pending_dma(true, ESP_OK);
+    expired_deadline_pending_dma(false, ESP_OK);
+    expired_deadline_pending_dma(true, ESP_FAIL);
     deadline_and_irq_fault();
     invalid_inputs();
     synchronous_interleave();

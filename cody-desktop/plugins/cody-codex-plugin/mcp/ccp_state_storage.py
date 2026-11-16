@@ -15,6 +15,7 @@ from typing import Any
 _PURPOSES = {
     "registry": (b"CODY-REGISTRY/1\n", b"Cody broker registry checkpoint v1\0"),
     "questions": (b"CODY-QUESTIONS/1\n", b"Cody broker semantic question ledger v1\0"),
+    "notifications": (b"CODY-NOTIFICATIONS/1\n", b"Cody broker unread notification ledger v1\0"),
 }
 _MAX_DOCUMENT_BYTES = 1024 * 1024
 

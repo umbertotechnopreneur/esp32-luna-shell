@@ -62,6 +62,39 @@ public static class Analytics
         return new(average, duration, complete.Length, Duration(duration), detail);
     }
 
+    public static Forecast PredictObserved(double remaining, IEnumerable<Sample> source, string plan, long? reset, DateTimeOffset now)
+    {
+        var samples = source.Where(s => s.At >= now.ToUnixTimeSeconds() - 7 * 86400 && s.At <= now.ToUnixTimeSeconds())
+            .OrderBy(s => s.At).DistinctBy(s => s.At).ToArray();
+        double seconds = 0, used = 0;
+        for (int i = 1; i < samples.Length; i++)
+        {
+            var a = samples[i - 1]; var b = samples[i];
+            long elapsed = b.At - a.At;
+            if (elapsed <= 0 || elapsed > MaximumSampleGapSeconds || a.Reset is null || a.Reset != b.Reset ||
+                a.Plan != plan || b.Plan != plan || b.Used < a.Used || b.At > a.Reset) continue;
+            seconds += elapsed;
+            used += b.Used - a.Used;
+        }
+        if (remaining <= 0) return new(null, 0, 0, "Allowance exhausted", "Wait for the reset or check available credits in Codex.");
+        if (reset is { } expired && expired <= now.ToUnixTimeSeconds())
+            return new(null, null, 0, "Waiting for reset data", "Refresh to confirm the new allowance.");
+        if (seconds < 3600) return new(null, null, 0, "Collecting quota history", "Sampling quota usage automatically. At least one hour of valid observations is needed; keep the widget running.");
+        if (used <= 0) return new(0, null, 0, "No observed consumption", "No consumption was observed during the sampled periods, so an exhaustion time cannot be estimated.");
+        double average = used * 86400 / seconds;
+        double days = remaining / average;
+        return new(average, days, 0, Duration(days), $"Estimate based on {seconds / 3600:0.#} hours of observed activity in the last 7 days. Unobserved periods and reset crossings are excluded; actual usage may differ and the allowance may reset first.");
+    }
+
+    public static string CompactDuration(double days)
+    {
+        if (!double.IsFinite(days) || days >= 36500) return ">100y";
+        long minutes = Math.Max(0, (long)Math.Floor(days * 1440));
+        if (minutes < 60) return $"{minutes}m";
+        if (minutes < 1440) return $"{minutes / 60}h {minutes % 60}m";
+        return $"{minutes / 1440}d {minutes % 1440 / 60}h";
+    }
+
     public static string Duration(double days)
     {
         if (!double.IsFinite(days) || days > 36500) return "Over 100 years at this pace";

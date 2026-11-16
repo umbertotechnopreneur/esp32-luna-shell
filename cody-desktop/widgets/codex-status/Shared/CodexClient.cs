@@ -133,7 +133,31 @@ public sealed class CodexClient : IAsyncDisposable
         // Conflicting duplicate dates are unknown, not double counted.
         days = days.GroupBy(d => d.Date).Select(g => new TokenDay(g.Key,
             g.Select(d => d.Tokens).Distinct().Count() == 1 ? g.First().Tokens : null)).OrderBy(d => d.Date).ToList();
-        return new(identity, plan, windows, credits, unlimited, Flag(limits, "ordinaryUsageAllowed"), blocked, days, tokenError);
+        return new(identity, plan, windows, credits, unlimited, Flag(limits, "ordinaryUsageAllowed"), blocked, days, tokenError)
+        {
+            ResetVouchers = ReadResetVouchers(limits)
+        };
+    }
+
+    private static ResetVoucherBalance? ReadResetVouchers(JsonElement limits)
+    {
+        if (!limits.TryGetProperty("rateLimitResetCredits", out var balance) || balance.ValueKind != JsonValueKind.Object ||
+            !balance.TryGetProperty("availableCount", out var count) || count.ValueKind != JsonValueKind.Number ||
+            !count.TryGetInt32(out int available) || available < 0)
+            return null;
+
+        var expirations = new List<long?>();
+        if (available > 0 && balance.TryGetProperty("credits", out var credits) && credits.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var credit in credits.EnumerateArray())
+            {
+                if (credit.ValueKind != JsonValueKind.Object || Text(credit, "status") != "available") continue;
+                long? expiry = credit.TryGetProperty("expiresAt", out var date) && date.ValueKind == JsonValueKind.Number &&
+                    date.TryGetInt64(out long seconds) && seconds > 0 && seconds <= 253402300799 ? seconds : null;
+                expirations.Add(expiry);
+            }
+        }
+        return new(available, expirations.OrderBy(expiry => expiry ?? long.MaxValue).Take(available).ToArray());
     }
 
     private static string? Text(JsonElement e, string name) => e.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.String ? p.GetString() : null;

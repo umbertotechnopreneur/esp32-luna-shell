@@ -6,6 +6,11 @@ Create a branch, worktree or PR only when explicitly requested.
 
 ## Scope, validation and delivery
 
+- Queue new owner requests while implementation is in progress. Finish the
+  active work before starting the queued request, unless the owner explicitly
+  changes priority or asks to stop. A request to pause or stop takes effect
+  immediately; leave an in-progress device write in a safe state before stopping.
+
 - Implementation includes static source review. An owner request to implement or
   fix work authorizes the relevant configure/build/size, tests and simulator
   runs needed for that work without separate approval for each command. Announce
@@ -84,6 +89,8 @@ Treat their geometry, routes and interaction behavior as contracts.
 
 ## Code and data
 
+- Backward compatibility is not required. Do not add compatibility adapters,
+  aliases or migrations for retired models; keep only current target contracts.
 - Use English for docs, comments, UI, logs and commits, including PDFs. Chat may
   be Italian. Keep Cody text printable ASCII; preserve screen IDs and evidence.
 - Use descriptive names, focused helpers, typed enums and unique IDs stable
@@ -114,10 +121,21 @@ Treat their geometry, routes and interaction behavior as contracts.
 
 ## Records and documentation
 
+- When the owner requests printable annotation films ("lucidi"), follow the
+  [annotation-film standard](docs/cody/annotation-overlays.md). Adapt Treeview,
+  Table and Text guides to the actual target document and select the required
+  page count and variants. Deliver only the films in a horizontally mirrored,
+  print-ready PDF; show aligned source-page previews and specify 100% printing
+  without additional mirroring. Include the physical-page central cross,
+  pale dashed vertical centreline and six exterior color swatches on every film,
+  using the standard's geometry and colors. Generate films only when requested.
 - `TODO.md` owns active work and open gates; `planned-todo.md` owns deferred
   work, stable IDs and activation conditions (retain its existing history for
   now). `done.md` holds only the latest validation summary. Read `lessons.md`
   before boot, startup or Brookesia changes.
+- In active work, distinguish implemented source, successful builds or flashes,
+  executed host checks and physical acceptance. Do not mark behavior verified
+  merely because it compiled or was written to the device.
 - Document current behavior, settings, limits and open work. Keep one queue per
   purpose and leave unverified work pending. Do not retain validation journals,
   old attempts, superseded results or CI/PR history, or move deleted history

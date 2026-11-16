@@ -2,7 +2,10 @@
 """Native GTK 4 / libadwaita presentation for the shared C# account reader."""
 from __future__ import annotations
 
+import ctypes
+import ctypes.util
 import datetime as dt
+import fcntl
 import json
 import math
 import os
@@ -12,6 +15,7 @@ import subprocess
 import sys
 import threading
 import time
+from zoneinfo import available_timezones
 from watchdog import start as start_watchdog, record as log_event, state_dir
 GUARD = None
 
@@ -28,7 +32,49 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Adw, Gdk, GdkPixbuf, GLib, Gtk, Pango, PangoCairo, Gio
 from tray import StatusTray
+from cody_control import CodyControlWindow
+from cody_rules import CodyRulesWindow
 import cairo
+
+try:
+    gi.require_version("GdkX11", "4.0")
+    from gi.repository import GdkX11
+except (ImportError, ValueError):
+    GdkX11 = None
+
+class XClientMessage(ctypes.Structure):
+    _fields_ = [("type", ctypes.c_int), ("serial", ctypes.c_ulong), ("send_event", ctypes.c_int),
+                ("display", ctypes.c_void_p), ("window", ctypes.c_ulong), ("message_type", ctypes.c_ulong),
+                ("format", ctypes.c_int), ("data", ctypes.c_long * 5)]
+
+class XEvent(ctypes.Union):
+    _fields_ = [("client", XClientMessage), ("pad", ctypes.c_long * 24)]
+
+def request_x11_above(surface, enabled):
+    library = ctypes.util.find_library("X11")
+    if not library:
+        raise RuntimeError("X11 library is unavailable.")
+    x11 = ctypes.CDLL(library)
+    x11.XOpenDisplay.argtypes, x11.XOpenDisplay.restype = [ctypes.c_char_p], ctypes.c_void_p
+    x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+    x11.XDefaultRootWindow.argtypes, x11.XDefaultRootWindow.restype = [ctypes.c_void_p], ctypes.c_ulong
+    x11.XInternAtom.argtypes, x11.XInternAtom.restype = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_int], ctypes.c_ulong
+    x11.XSendEvent.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_int, ctypes.c_long, ctypes.POINTER(XEvent)]
+    x11.XFlush.argtypes = [ctypes.c_void_p]
+    display = x11.XOpenDisplay(None)
+    if not display:
+        raise RuntimeError("Cannot connect to the X11 display.")
+    try:
+        event = XEvent()
+        event.client.type, event.client.display, event.client.window = 33, display, surface.get_xid()
+        event.client.message_type = x11.XInternAtom(display, b"_NET_WM_STATE", False)
+        event.client.format = 32
+        event.client.data[0], event.client.data[1], event.client.data[3] = (1 if enabled else 0), x11.XInternAtom(display, b"_NET_WM_STATE_ABOVE", False), 1
+        if not x11.XSendEvent(display, x11.XDefaultRootWindow(display), False, (1 << 19) | (1 << 20), ctypes.byref(event)):
+            raise RuntimeError("Could not request the X11 window state.")
+        x11.XFlush(display)
+    finally:
+        x11.XCloseDisplay(display)
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_BACKEND = ROOT / "backend/OpenAIUsage.Backend.dll"
@@ -71,6 +117,11 @@ notebook > header > tabs > tab:checked { box-shadow: inset 0 -3px @accent_bg_col
 .forecast { font-family: monospace; font-size: 32px; font-weight: 700; }
 .metric { font-family: monospace; font-size: 30px; font-weight: 650; }
 .summary .quota-low { font-weight: 800; }
+.reset-green { color: #689b78; }
+.reset-yellow { color: #c0ad38; }
+.reset-amber { color: #ca891e; }
+.reset-orange { color: #be5216; }
+.reset-red { color: #da4141; }
 .learning { font-size: 24px; opacity: .75; color: @window_fg_color; }
 .placeholder { font-size: 18px; opacity: .7; color: @window_fg_color; }
 .mono-detail { font-family: monospace; font-size: 12px; }
@@ -86,6 +137,12 @@ window.micro:backdrop { border-color: transparent; box-shadow: none; }
 .micro .summary .metric { font-size: 16px; }
 .micro .summary .dim { font-size: 12px; opacity: .85; }
 .micro .day { font-size: 11px; }
+.micro.big .summary .huge { font-size: 25px; }
+.micro.big .summary .metric { font-size: 20px; }
+.micro.big .summary .dim { font-size: 15px; }
+.micro.big .day { font-size: 14px; }
+.micro.big button.icon-action { padding: 6px; min-width: 23px; min-height: 23px; }
+.micro.big button.icon-action image { -gtk-icon-size: 20px; }
 .micro button.icon-action { padding: 5px; min-width: 18px; min-height: 18px; }
 .micro button.icon-action image { -gtk-icon-size: 16px; }
 .heading { font-size: 15px; }
@@ -103,6 +160,7 @@ button.icon-action { background: transparent; border: none; box-shadow: none; pa
 button.icon-action:hover, button.icon-action:active { color: @window_fg_color; }
 button.icon-action:hover { background: alpha(@window_fg_color, .07); }
 button.icon-action:active { background: alpha(@accent_bg_color, .15); }
+button.icon-action:checked { color: @accent_bg_color; background: alpha(@accent_bg_color, .15); }
 window.widget-about, .widget-about .about-body { background-color: #fff4dc; color: #232a2f; }
 .widget-about .about-body { font-family: monospace; font-size: 15px; }
 .widget-about .about-body label { color: #232a2f; }
@@ -248,8 +306,15 @@ class UsageWindow(Gtk.ApplicationWindow):
         super().__init__(application=app, title="OpenAI Usage", default_height=62,
                          icon_name="biz.umbertogiacobbi.OpenAIUsage")
         self.state = {}
+        self.rotation_start = time.monotonic()
         self.settings = {}
+        self.settings_ready = False
+        self.notified_thresholds = set()
+        self.alert_window = None
         self.busy = False
+        self.refresh_pending = False
+        self.settings_revision = 0
+        self.saving = False
         self.closed = False
         self.last_reset_refresh = 0.0
         self.allow_close = False
@@ -263,6 +328,7 @@ class UsageWindow(Gtk.ApplicationWindow):
         self.connect("close-request", self.on_close)
 
         strip=box(12,True)
+        self.strip=strip
         for setter in (strip.set_margin_start,strip.set_margin_end):
             setter(10)
         for setter in (strip.set_margin_top,strip.set_margin_bottom):
@@ -276,17 +342,52 @@ class UsageWindow(Gtk.ApplicationWindow):
         summary=Gtk.Grid(column_spacing=16, valign=Gtk.Align.CENTER)
         summary.add_css_class("summary")
         quota=box(4)
-        quota.append(self.label("allowanceLabel","Weekly limit","dim"))
-        quota.append(self.label("remaining","—","huge"))
+        quota.append(self.label("allowanceLabel","Allowance remaining","dim"))
+        quota_row=box(5, True)
+        quota_row.append(self.label("remaining","—","metric"))
+        quota_info=self.label("quotaInfo", "ⓘ", "dim")
+        quota_info.set_opacity(0)
+        quota_row.append(quota_info)
+        quota.append(quota_row)
+        quota_motion=Gtk.EventControllerMotion()
+        quota_motion.connect("enter", lambda *_: quota_info.set_opacity(1))
+        quota_motion.connect("leave", lambda *_: quota_info.set_opacity(0))
+        quota.add_controller(quota_motion)
         summary.attach(quota,0,0,1,1)
-        summary.attach(metric("Tokens today",self.label("todayTokensLabel","—","metric")),1,0,1,1)
-        summary.attach(metric("Credits left",self.label("creditsLabel","—","metric")),2,0,1,1)
-        for i in range(3):
+        estimate = box(4)
+        estimate.append(text("Estimated time remaining", "dim"))
+        estimate_value = box(5, True)
+        estimate_value.append(self.label("forecastLabel", "—", "metric"))
+        estimate_value.append(self.label("forecastInfo", "ⓘ", "dim"))
+        estimate.append(estimate_value)
+        summary.attach(estimate,1,0,1,1)
+        credit = box(4)
+        credit.append(text("Credits left", "dim"))
+        credit_row = box(5, True)
+        credit_row.append(self.label("creditsLabel", "—", "metric"))
+        credit_info = self.label("creditInfo", "ⓘ", "dim")
+        credit_info.set_opacity(0)
+        credit_row.append(credit_info)
+        credit.append(credit_row)
+        motion = Gtk.EventControllerMotion()
+        motion.connect("enter", lambda *_: credit_info.set_opacity(1))
+        motion.connect("leave", lambda *_: credit_info.set_opacity(0))
+        credit.add_controller(motion)
+        summary.attach(credit,2,0,1,1)
+        resets_panel = box(4)
+        resets_panel.append(self.label("rotationHeading", "First reset", "dim"))
+        reset_row = box(5, True)
+        reset_row.append(self.label("resetValue", "—", "metric"))
+        reset_row.append(self.label("resetInfo", "ⓘ", "dim"))
+        resets_panel.append(reset_row)
+        summary.attach(resets_panel,3,0,1,1)
+        for i in range(4):
             heading=summary.get_child_at(i,0).get_first_child()
             heading.set_wrap(False)
         strip.append(summary)
 
         tile_row=box(5,True)
+        self.tile_row=tile_row
         tile_row.set_homogeneous(True)
         self.tiles = [FlipTile(name, caption) for name, caption in
                       (("Days", "DAYS"), ("Hours", "HRS"), ("Minutes", "MIN"), ("Seconds", "SEC"))]
@@ -300,6 +401,14 @@ class UsageWindow(Gtk.ApplicationWindow):
         self.problem.connect("clicked",self.show_settings)
         self.problem.set_visible(False)
         actions.append(self.problem)
+        self.pin = Gtk.ToggleButton(icon_name="view-pin-symbolic")
+        self.pin.add_css_class("icon-action")
+        self.pin.set_sensitive(False)
+        self.pin.set_tooltip_text("Always on top is available on X11 with a compatible window manager")
+        self.syncing_pin = False
+        self.pin.connect("toggled", self.on_pin_toggled)
+        actions.append(self.pin)
+        self.connect("map", self.on_window_mapped)
         for icon,title,callback in [("emblem-system-symbolic","Settings",self.show_settings),
                                     ("help-about-symbolic","About OpenAI Usage",self.show_about),
                                     ("window-close-symbolic","Close",self.close)]:
@@ -318,6 +427,8 @@ class UsageWindow(Gtk.ApplicationWindow):
         log_event("window.compact","Compact-only native widget; no full-mode or caption sizing controls.")
         try:
             self.tray=StatusTray({"open":self.present,"about":self.show_about,"settings":self.show_settings,
+                                 "cody_setup":self.show_cody_setup,"cody_about":self.show_cody_about,
+                                 "cody_onboarding":self.show_cody_onboarding,"cody_rules":self.show_cody_rules,
                                  "website":lambda:Gio.AppInfo.launch_default_for_uri("https://umbertogiacobbi.biz",None),
                                  "manifesto":lambda:Gio.AppInfo.launch_default_for_uri("https://umbertogiacobbi.biz/vibeware/manifesto",None),
                                  "exit":self.exit_application})
@@ -337,20 +448,79 @@ class UsageWindow(Gtk.ApplicationWindow):
         if self.closed:
             return False
         if self.busy:
+            self.refresh_pending=True
             return True
         self.busy=True
+        revision=self.settings_revision
         self.brand.set_tooltip_text("Refreshing Codex account…")
         def worker():
             try:
                 settings=invoke("settings")
+                GLib.idle_add(self.settings_loaded, settings, revision)
                 state=invoke()
             except (OSError,RuntimeError) as exc:
                 settings,state={}, {"connected":False,"status":str(exc)}
-            GLib.idle_add(self.received,settings,state)
+            GLib.idle_add(self.received,settings,state,revision)
         threading.Thread(target=worker,daemon=True).start()
         return True
 
-    def received(self,settings,state):
+    def settings_loaded(self, settings, revision):
+        if not self.closed and revision == self.settings_revision and not self.saving:
+            self.settings = settings
+            self.settings_ready = True
+            self.sync_pin()
+            self.apply_size()
+        return False
+
+    def x11_surface(self):
+        surface = self.get_surface()
+        return surface if GdkX11 is not None and isinstance(surface, GdkX11.X11Surface) else None
+
+    def on_window_mapped(self, *_):
+        self.sync_pin()
+
+    def sync_pin(self):
+        surface = self.x11_surface()
+        self.pin.set_sensitive(surface is not None and self.settings_ready)
+        if surface is None:
+            self.pin.set_tooltip_text("Always on top is unavailable on this display; use your desktop's window controls")
+            return
+        if not self.settings_ready:
+            return
+        enabled = self.settings.get("alwaysOnTop", False)
+        self.syncing_pin = True
+        self.pin.set_active(enabled)
+        self.syncing_pin = False
+        self.pin.set_tooltip_text("Always on top: " + ("on" if enabled else "off") + " (window manager permitting)")
+        try:
+            request_x11_above(surface, enabled)
+        except (OSError, RuntimeError) as error:
+            self.pin.set_sensitive(False)
+            self.pin.set_tooltip_text(str(error))
+            log_event("window.topmost.failed", str(error))
+
+    def on_pin_toggled(self, button):
+        if self.syncing_pin or not self.settings_ready:
+            return
+        surface = self.x11_surface()
+        if surface is None:
+            return
+        enabled = button.get_active()
+        try:
+            request_x11_above(surface, enabled)
+        except (OSError, RuntimeError) as error:
+            self.syncing_pin = True
+            button.set_active(not enabled)
+            self.syncing_pin = False
+            button.set_tooltip_text(str(error))
+            log_event("window.topmost.failed", str(error))
+            return
+        button.set_tooltip_text("Always on top: " + ("on" if enabled else "off") + " (window manager permitting)")
+        self.settings["alwaysOnTop"] = enabled
+        self.settings_revision += 1
+        self.save_async()
+
+    def received(self,settings,state,revision):
         self.busy=False
         if self.closed:
             return False
@@ -360,22 +530,70 @@ class UsageWindow(Gtk.ApplicationWindow):
                 notification=Gio.Notification.new("OpenAI Usage connection error")
                 notification.set_body(state.get("status","Connection unavailable"))
                 self.get_application().send_notification("connection-error",notification)
-        self.settings,self.state=settings,state
+        self.state=state
+        if self.refresh_pending:
+            self.refresh_pending=False
+            self.refresh()
         self.labels["remaining"].set_text(f"{state['remaining']:g}%" if state.get("remaining") is not None else "—")
-        selected=next((w for w in state.get("windows",[]) if w["key"]==state.get("selectedWindow")),{})
-        self.labels["allowanceLabel"].set_text("Weekly limit" if selected.get("minutes")==10080 else "Allowance limit")
-        self.labels["todayTokensLabel"].set_text(state.get("todayTokensLabel","—"))
-        self.labels["todayTokensLabel"].set_tooltip_text(state.get("todayTokensNote",""))
+        self.labels["allowanceLabel"].set_text("Allowance remaining")
+        self.labels["forecastLabel"].set_text(state.get("forecastCompact", "—") if state.get("forecastAvailable", False) else "—")
+        estimate_detail = ("Estimated time until the displayed allowance is exhausted at the observed usage rate; the allowance may reset first. "
+                           + state.get("forecastDetail", "Collecting quota history."))
+        self.labels["forecastLabel"].set_tooltip_text(estimate_detail)
+        self.labels["forecastInfo"].set_tooltip_text(estimate_detail)
+        self.check_alerts()
         self.labels["creditsLabel"].set_text(state.get("creditsLabel","—"))
-        self.labels["remaining"].set_tooltip_text(state.get("resetLabel","") + "\n" + state.get("forecastDetail",""))
-        low=state.get("remaining") is not None and state["remaining"]<=10
-        (self.labels["remaining"].add_css_class if low else self.labels["remaining"].remove_css_class)("quota-low")
+        credit_detail = "Credits remaining as reported by Codex: " + state.get("creditsLabel", "Unavailable") + ". The displayed balance is rounded to a whole number."
+        self.labels["creditsLabel"].set_tooltip_text(credit_detail)
+        self.labels["creditInfo"].set_tooltip_text(credit_detail)
+        quota_detail="Percentage remaining for the selected Codex allowance. " + state.get("resetLabel", "Reset unavailable")
+        self.labels["remaining"].set_tooltip_text(quota_detail)
+        self.labels["quotaInfo"].set_tooltip_text(quota_detail)
+
         self.tick()
         return False
+
+    def check_alerts(self):
+        remaining = self.state.get("remaining")
+        window = self.state.get("selectedWindow")
+        if not self.state.get("connected") or remaining is None or window is None:
+            return
+        if self.alert_window != window:
+            self.alert_window = window
+            self.notified_thresholds.clear()
+        enabled = {50: self.settings.get("alert50", False), 20: self.settings.get("alert20", False), 5: self.settings.get("alert5", False)}
+        for threshold, active in enabled.items():
+            if not active or remaining > threshold:
+                self.notified_thresholds.discard(threshold)
+        crossed = [threshold for threshold, active in enabled.items()
+                   if active and remaining <= threshold and threshold not in self.notified_thresholds]
+        if crossed:
+            threshold = min(crossed)
+            notification = Gio.Notification.new("OpenAI Usage · Allowance alert")
+            notification.set_body(f"{self.state.get('allowanceLabel', 'Allowance remaining')}: {remaining:g}% remaining (at or below {threshold}%).")
+            self.get_application().send_notification("allowance-alert", notification)
+            self.notified_thresholds.update(crossed)
 
     def tick(self):
         if self.closed:
             return False
+        resets = self.state.get("resetDisplays", [])
+        reset_index = (int(time.monotonic() - self.rotation_start) // 10) % max(2, len(resets))
+        if reset_index < len(resets):
+            reset = resets[reset_index]
+            heading, value, detail = reset["heading"], reset["value"], reset["detail"]
+            hours = (reset["resetsAt"] - time.time()) / 3600
+            color = "reset-red" if hours <= 6 else "reset-orange" if hours <= 24 else "reset-amber" if hours <= 72 else "reset-yellow" if hours <= 168 else "reset-green"
+        else:
+            heading = "Second reset" if reset_index == 1 else f"Reset {reset_index + 1}"
+            value, detail, color = "—", "Codex did not provide a reset time for this window.", None
+        for style in ("reset-green", "reset-yellow", "reset-amber", "reset-orange", "reset-red"):
+            (self.labels["resetValue"].add_css_class if style == color else self.labels["resetValue"].remove_css_class)(style)
+        self.labels["rotationHeading"].set_text(heading)
+        self.labels["resetValue"].set_text(value)
+        if self.labels["resetInfo"].get_tooltip_text() != detail:
+            self.labels["resetValue"].set_tooltip_text(detail)
+            self.labels["resetInfo"].set_tooltip_text(detail)
         if GUARD is not None and GUARD.poll() is not None:
             log_event("guard.failure","Separate guard exited unexpectedly; closing the widget.")
             self.get_application().quit()
@@ -403,7 +621,27 @@ class UsageWindow(Gtk.ApplicationWindow):
             self.refresh()
         return True
 
-    def save_async(self, settings, dialog=None, error_label=None):
+    def apply_size(self):
+        big = self.settings.get("bigSize", False)
+        (self.add_css_class if big else self.remove_css_class)("big")
+        self.brand.set_pixel_size(31 if big else 25)
+        self.strip.set_spacing(15 if big else 12)
+        for setter in (self.strip.set_margin_start, self.strip.set_margin_end):
+            setter(12 if big else 10)
+        for setter in (self.strip.set_margin_top, self.strip.set_margin_bottom):
+            setter(9 if big else 7)
+        self.tile_row.set_spacing(6 if big else 5)
+        for tile in self.tiles:
+            tile.face.set_content_width(45 if big else 36)
+            tile.face.set_content_height(40 if big else 32)
+        self.set_default_size(-1, 78 if big else 62)
+
+    def save_async(self, error_label=None):
+        if self.saving:
+            return
+        self.saving = True
+        settings = dict(self.settings)
+        revision = self.settings_revision
         def worker():
             try:
                 invoke("save-settings", settings)
@@ -411,6 +649,7 @@ class UsageWindow(Gtk.ApplicationWindow):
             except (OSError, RuntimeError) as exc:
                 error = str(exc)
             def done():
+                self.saving = False
                 if self.closed:
                     return False
                 if error:
@@ -418,40 +657,130 @@ class UsageWindow(Gtk.ApplicationWindow):
                         error_label.set_text(error)
                     self.problem.set_visible(True)
                     self.problem.set_tooltip_text(error)
-                    log_event("settings.failed",error)
-                else:
-                    self.settings = settings
-                    if dialog:
-                        dialog.close()
+                    log_event("settings.failed", error)
+                elif revision == self.settings_revision:
+                    if error_label is not None:
+                        error_label.set_text("")
                     self.refresh()
+                if revision != self.settings_revision:
+                    self.save_async(error_label)
                 return False
             GLib.idle_add(done)
         threading.Thread(target=worker, daemon=True).start()
 
+    # arguments: GTK signal arguments, ignored for this explicit user action.
+    def show_cody_setup(self, *_):
+        self.present()
+        CodyControlWindow(self, invoke, self.refresh).present()
+
+    # arguments: GTK signal arguments, ignored for this explicit user action.
+    def show_cody_rules(self, *_):
+        self.present()
+        CodyRulesWindow(self, lambda operation, arguments: invoke("cody-control", {"operation": operation, "arguments": arguments})).present()
+
+    # arguments: GTK signal arguments, ignored for this explicit user action.
+    def show_cody_about(self, *_):
+        self.present()
+        dialog = Gtk.Window(title="About Cody", transient_for=self, modal=True, default_width=460)
+        content = box(14)
+        for setter in (content.set_margin_start, content.set_margin_end, content.set_margin_top, content.set_margin_bottom):
+            setter(24)
+        content.append(text("Cody Companion", "title"))
+        content.append(text("Created by Umberto Giacobbi · VibeWare"))
+        content.append(text("Cody Companion connects your device to Codex sessions and the OpenAI usage widget."))
+        content.append(text("PC notifications and system alerts are planned features."))
+        close = Gtk.Button(label="Close")
+        close.connect("clicked", lambda *_: dialog.close())
+        content.append(close)
+        dialog.set_child(content)
+        dialog.present()
+
+    # arguments: GTK signal arguments, ignored for this explicit user action.
+    def show_cody_onboarding(self, *_):
+        self.present()
+        dialog = Gtk.Window(title="Cody onboarding", transient_for=self, modal=True, default_width=500)
+        content = box(14)
+        for setter in (content.set_margin_start, content.set_margin_end, content.set_margin_top, content.set_margin_bottom):
+            setter(24)
+        content.append(text("Welcome to Cody", "title"))
+        content.append(text("Choose your Codex executable in Settings, then use Cody Setup to configure the companion service and discover your Cody."))
+        content.append(text("Codex status: " + self.state.get("status", "Not yet observed")))
+        content.append(text("PC notifications and system alerts are planned features."))
+        actions = box(8, True)
+        setup = Gtk.Button(label="Cody Setup")
+        setup.connect("clicked", lambda *_: (dialog.close(), self.show_cody_setup()))
+        settings = Gtk.Button(label="Codex Settings")
+        settings.connect("clicked", lambda *_: (dialog.close(), self.show_settings()))
+        close = Gtk.Button(label="Close")
+        close.connect("clicked", lambda *_: dialog.close())
+        for button in (setup, settings, close):
+            actions.append(button)
+        content.append(actions)
+        dialog.set_child(content)
+        dialog.present()
+
     def show_settings(self, *_):
         self.present()
+        if not self.settings_ready:
+            self.problem.set_visible(True)
+            self.problem.set_tooltip_text("Settings are not available yet; retry after the account reader starts.")
+            self.refresh()
+            return
         dialog = Gtk.Window(title="Settings", transient_for=self, modal=True, default_width=460, icon_name="biz.umbertogiacobbi.OpenAIUsage")
         content = box(12)
         for setter in (content.set_margin_start, content.set_margin_end, content.set_margin_top, content.set_margin_bottom):
             setter(24)
         executable = Gtk.Entry(text=self.settings.get("codexPath", "codex"))
-        timezone = Gtk.Entry(text=self.settings.get("timeZoneId", "UTC"))
+        zones = sorted(available_timezones())
+        current = self.settings.get("timeZoneId", "UTC")
+        if current not in zones:
+            zones.insert(0, current)
+        timezone = Gtk.DropDown.new_from_strings(zones)
+        timezone.set_selected(zones.index(current))
+        timezone.set_enable_search(True)
         content.append(text("Codex executable", "dim"))
         content.append(executable)
         content.append(text("Time zone", "dim"))
         content.append(timezone)
         content.append(text("Uses your existing Codex ChatGPT sign-in.", "dim"))
+        big_size = Gtk.Switch(active=self.settings.get("bigSize", False), halign=Gtk.Align.END)
+        big_row = box(12, True)
+        big_label = text("Big size (+25%)")
+        big_label.set_hexpand(True)
+        big_row.append(big_label)
+        big_row.append(big_size)
+        content.append(big_row)
+        alerts = {}
+        for threshold in (50, 20, 5):
+            check = Gtk.CheckButton(label=f"Notify at {threshold}% remaining", active=self.settings.get(f"alert{threshold}", False))
+            alerts[threshold] = check
+            content.append(check)
         error = text("", "warning")
         content.append(error)
-        buttons = box(12, True)
-        cancel = Gtk.Button(label="Cancel"); cancel.connect("clicked", lambda *_: dialog.close()); buttons.append(cancel)
-        save = Gtk.Button(label="Save"); save.add_css_class("suggested-action"); buttons.append(save)
-        def submit(*_):
-            settings = dict(self.settings, codexPath=executable.get_text().strip(),
-                            timeZoneId=timezone.get_text().strip())
-            self.save_async(settings, dialog, error)
-        save.connect("clicked", submit)
-        content.append(buttons)
+        def apply(*_):
+            path = executable.get_text().strip()
+            if not path:
+                error.set_text("Choose a Codex executable.")
+                path = self.settings.get("codexPath", "codex")
+            selected = timezone.get_selected()
+            if selected >= len(zones):
+                return
+            updated = dict(self.settings, codexPath=path, timeZoneId=zones[selected], bigSize=big_size.get_active(),
+                           **{f"alert{threshold}": check.get_active() for threshold, check in alerts.items()})
+            if updated != self.settings:
+                self.settings = updated
+                self.settings_revision += 1
+                self.apply_size()
+                self.check_alerts()
+                self.save_async(error)
+        executable.connect("changed", apply)
+        timezone.connect("notify::selected", apply)
+        big_size.connect("notify::active", apply)
+        for check in alerts.values():
+            check.connect("toggled", apply)
+        close = Gtk.Button(label="Close")
+        close.connect("clicked", lambda *_: dialog.close())
+        content.append(close)
         dialog.set_child(content)
         dialog.present()
 
@@ -466,7 +795,7 @@ class UsageWindow(Gtk.ApplicationWindow):
                             default_width=640, default_height=620, icon_name="biz.umbertogiacobbi.OpenAIUsage")
         self.about_dialog = dialog
         dialog.add_css_class("widget-about")
-        content = box(24)
+        content = box(12)
         content.add_css_class("about-body")
         content.set_halign(Gtk.Align.CENTER)
         for set_margin in (content.set_margin_start, content.set_margin_end, content.set_margin_top, content.set_margin_bottom):
@@ -483,7 +812,7 @@ class UsageWindow(Gtk.ApplicationWindow):
         content.append(about_mark("app-icon-512.png", 100))
         identity = box(5)
         identity.append(centered("OpenAI Usage", "about-heading"))
-        identity.append(centered("Version 0.4.1", "about-note"))
+        identity.append(centered("Version 0.4.2", "about-note"))
         content.append(identity)
         content.append(centered("I built OpenAI Usage to see my Codex allowance, tokens and credits at a glance."))
         content.append(centered("I provide this software independently and as-is, without warranty.", "about-note"))
@@ -513,9 +842,7 @@ class UsageWindow(Gtk.ApplicationWindow):
             links.append(link)
         content.append(links)
 
-        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vscrollbar_policy=Gtk.PolicyType.AUTOMATIC)
-        scroll.set_child(content)
-        dialog.set_child(scroll)
+        dialog.set_child(content)
 
         def forget_dialog(*_):
             self.about_dialog = None
@@ -590,7 +917,7 @@ class UsageWindow(Gtk.ApplicationWindow):
 
 class UsageApp(Adw.Application):
     def __init__(self):
-        super().__init__(application_id="biz.umbertogiacobbi.OpenAIUsage")
+        super().__init__(application_id="biz.umbertogiacobbi.CodyCompanion")
         self.window = None
 
     def do_activate(self):
@@ -611,5 +938,12 @@ class UsageApp(Adw.Application):
 
 
 if __name__ == "__main__":
-    GUARD = start_watchdog()
-    raise SystemExit(UsageApp().run(sys.argv))
+    lock_dir = Path.home() / ".cache" / "cody-companion"
+    lock_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with (lock_dir / "instance.lock").open("a") as instance_lock:
+        try:
+            fcntl.flock(instance_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise SystemExit(0) from None
+        GUARD = start_watchdog()
+        raise SystemExit(UsageApp().run(sys.argv))

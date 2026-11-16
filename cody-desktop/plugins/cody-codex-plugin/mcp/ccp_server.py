@@ -19,7 +19,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import hmac
 import ipaddress
@@ -72,6 +72,7 @@ VOUCHER_FIELDS = ("series", "available", "expiries", "age")
 PBKDF2_ITERATIONS = 50_000
 SERVER_VERSION = "0.7.0"
 LIVENESS_TIMEOUT_SECONDS = 10.0
+PC_ALERT_CAPABILITY_WAIT_SECONDS = 1.6
 MAX_PREVIOUS_AUDIO_NONCES = 8
 CHALLENGE_TIMEOUT_SECONDS = 2.0
 MAX_DISCOVERY_OFFERS = 16
@@ -138,6 +139,11 @@ class EventPeer:
     observed_at: float
     previous_audio_nonces: tuple[tuple[str, float], ...] = ()
     speech_enabled: bool = False
+    find_fields: dict[str, str] | None = None
+    pc_alert_capable: bool = False
+    pc_alert_status: str = ""
+    event_due: float = 0.0
+    event_sent: bool = False
 
     # self: Most recent confirmed endpoint for this active pairing.
     # nonce: Newly confirmed discovery challenge.
@@ -817,6 +823,7 @@ class CompanionResponder:
         while not self._stop.is_set():
             try:
                 self._state_wire.tick(time.monotonic())
+                self._flush_deferred_events()
             except (OSError, RuntimeError, ValueError) as error:
                 self._report_rejection("state transfer", str(error))
             try:
@@ -894,6 +901,9 @@ class CompanionResponder:
             return
         if kind == "INBOXCAP":
             self._accept_inbox_capability(fields, source)
+            return
+        if kind == "PCALERTCAP":
+            self._accept_pc_alert_capability(fields, source)
             return
         if kind in {"ALLOWANCECAP", "ALLOWANCECAP2", "ALLOWANCECAP3"}:
             self._accept_allowance_capability(fields, source, version=kind[-1] if kind != "ALLOWANCECAP" else "1")
@@ -1025,6 +1035,9 @@ class CompanionResponder:
         if with_events and retained.active is not None and hmac.compare_digest(link_key, retained.active):
             # The old active link remains usable during commissioning. A candidate
             # receives interactions only after COMMITTED proves durable promotion.
+            association = hashlib.sha256(link_key).hexdigest()
+            defer = self._requests.should_defer_pc_alert(fields["device"], association,
+                fields["current"], fields["state"], fields["event_select"])
             with self._event_lock:
                 self._event_peers = {identity: peer for identity, peer in self._event_peers.items()
                                      if 0 <= now - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS}
@@ -1036,34 +1049,16 @@ class CompanionResponder:
                         and hmac.compare_digest(previous.key, link_key)):
                     recent = previous.rotate_audio_nonce(fields["nonce"], now)
                 self._event_peers[fields["device"]] = EventPeer(fields["nonce"], link_key, source, now, recent,
-                                                               fields.get("speech") == "1")
+                    fields.get("speech") == "1", dict(fields), event_due=now + PC_ALERT_CAPABILITY_WAIT_SECONDS if defer else 0.0)
                 self._debug_peers = {identity: peer for identity, peer in self._debug_peers.items()
                                      if 0 <= now - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS}
-            association = hashlib.sha256(link_key).hexdigest()
             if fields.get("speech") != "1":
                 self._requests.clear_reply_speech(fields["device"], association)
             elif fields.get("speech_ack", "-") != "-":
                 reply_id, segment = fields["speech_ack"].split(":", 1)
                 self._requests.acknowledge_reply_speech(fields["device"], association, reply_id, int(segment))
-            request_id, state, ttl, data = self._requests.snapshot(
-                fields["device"], association, fields["current"], fields["state"], fields["event_select"])
-            sent_speech_index = None
-            if fields.get("speech") == "1":
-                reply = self._requests.reply_speech(fields["device"], association, request_id)
-                if reply:
-                    try:
-                        text, index, total = reply
-                        data = seal_reply_event(data, text, link_key, fields["device"], request_id, index, total)
-                        sent_speech_index = index
-                    except (ImportError, ValueError) as error:
-                        print(f"CCP encrypted reply speech unavailable: {type(error).__name__}", file=sys.stderr, flush=True)
-            values = [fields["device"], fields["pc"], fields["nonce"], request_id, state, ttl, data]
-            event_proof = make_proof(link_key, "event", *values)
-            payload = encode_datagram("EVENT", list(zip(
-                ("device", "pc", "nonce", "id", "state", "ttl", "data"), values)) + [("proof", event_proof)])
-            if sent_speech_index is not None:
-                self._requests.mark_reply_speech_sent(fields["device"], association, request_id, sent_speech_index)
-            self._socket.sendto(payload, source)
+            if not defer:
+                self._send_event_projection(fields["device"], supports_pc_alert=False)
             request = self._resets.claim(fields["device"], hashlib.sha256(link_key).hexdigest(),
                                          fields["nonce"], source)
             if request is not None:
@@ -1078,6 +1073,74 @@ class CompanionResponder:
                 except (OSError, ValueError, RuntimeError) as error:
                     self._resets.fail_send(request.request_id, error)
                     raise
+
+    # device_id: Confirmed recipient of exactly one EVENT for the current nonce.
+    # supports_pc_alert: This exact nonce has authenticated the v6 capability.
+    # Returns the ACK status and raises the original authentication, queue or transport failure.
+    def _send_event_projection(self, device_id: str, supports_pc_alert: bool) -> str:
+        with self._event_lock:
+            peer = self._event_peers.get(device_id)
+        if peer is None or peer.find_fields is None:
+            raise ValueError("EVENT peer is unavailable")
+        if peer.event_sent:
+            if not peer.pc_alert_status:
+                raise ValueError("EVENT publication failed for this heartbeat")
+            return peer.pc_alert_status
+        active = self._state.retained_keys(device_id).active
+        if (active is None or not hmac.compare_digest(active, peer.key) or
+                not 0 <= time.monotonic() - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS):
+            raise ValueError("EVENT peer is stale or its association changed")
+        fields = peer.find_fields
+        association = hashlib.sha256(active).hexdigest()
+        request_id, state, ttl, data = self._requests.snapshot(device_id, association, fields["current"],
+            fields["state"], fields["event_select"], supports_pc_alert=supports_pc_alert)
+        sent_speech_index = None
+        if peer.speech_enabled:
+            reply = self._requests.reply_speech(device_id, association, request_id)
+            if reply:
+                try:
+                    text, index, total = reply
+                    data = seal_reply_event(data, text, active, device_id, request_id, index, total)
+                    sent_speech_index = index
+                except (ImportError, ValueError) as error:
+                    print(f"CCP encrypted reply speech unavailable: {type(error).__name__}", file=sys.stderr, flush=True)
+        values = [device_id, fields["pc"], peer.nonce, request_id, state, ttl, data]
+        proof = make_proof(active, "event", *values)
+        packet = encode_datagram("EVENT", list(zip(("device", "pc", "nonce", "id", "state", "ttl", "data"), values))
+                                 + [("proof", proof)])
+        status = "sent" if data.startswith("06") else "none" if data == "-" and state == "none" else "ordinary"
+        if sent_speech_index is not None:
+            self._requests.mark_reply_speech_sent(device_id, association, request_id, sent_speech_index)
+        try:
+            self._socket.sendto(packet, peer.source)
+        except OSError:
+            # Do not replay an ambiguously admitted event during this nonce.
+            with self._event_lock:
+                if self._event_peers.get(device_id) == peer:
+                    self._event_peers[device_id] = replace(peer, event_sent=True, event_due=0.0, pc_alert_status="")
+            raise
+        with self._event_lock:
+            if self._event_peers.get(device_id) != peer:
+                raise ValueError("EVENT peer changed during publication")
+            self._event_peers[device_id] = replace(peer, event_sent=True, event_due=0.0, pc_alert_status=status)
+        return status
+
+    # self: Socket owner dispatching timed fallback for peers that do not advertise v6.
+    # Raises the original queue, authentication or socket failure for visible logging.
+    def _flush_deferred_events(self) -> None:
+        now = time.monotonic()
+        with self._event_lock:
+            due = [identity for identity, peer in self._event_peers.items()
+                   if not peer.event_sent and peer.event_due and now >= peer.event_due]
+        for identity in due:
+            try:
+                self._send_event_projection(identity, supports_pc_alert=False)
+            except (OSError, RuntimeError, ValueError) as error:
+                with self._event_lock:
+                    peer = self._event_peers.get(identity)
+                    if peer is not None and not peer.event_sent:
+                        self._event_peers[identity] = replace(peer, event_sent=True, event_due=0.0, pc_alert_status="")
+                self._report_rejection("deferred EVENT", str(error))
 
     # self: Responder admitting an explicit capability without changing FIND or chat ownership.
     # fields: Exact signed APPCAP envelope emitted after the current COMMITTED exchange.
@@ -1133,12 +1196,49 @@ class CompanionResponder:
                 or not hmac.compare_digest(make_proof(active, "inbox-cap-v1", *values), fields["proof"])):
             raise ValueError("CCP inbox capability authentication failed")
         data = self._requests.inbox_page(fields["device"], hashlib.sha256(active).hexdigest(),
-                                         int(fields["offset"]), fields["dismiss"])
+                                         int(fields["offset"]), fields["dismiss"], peer.pc_alert_capable)
         response_names = ("device", "pc", "nonce", "requested", "dismiss", "data")
         response_values = [*values, data]
         payload = encode_datagram("INBOX", list(zip(response_names, response_values))
                                   + [("proof", make_proof(active, "inbox-v1", *response_values))])
         self._socket.sendto(payload, source)
+
+    # self: Responder owning the current endpoint and active association.
+    # fields: Capability bound to this heartbeat's nonce and fixed version.
+    # source: Socket endpoint of the confirmed FIND/COMMITTED exchange.
+    # Raises ValueError for stale, malformed or unauthenticated capability advertisements.
+    def _accept_pc_alert_capability(self, fields: dict[str, str], source: tuple[str, int]) -> None:
+        names = ("device", "pc", "nonce", "cap")
+        if set(fields) != {*names, "proof"} or fields["cap"] != "1":
+            raise ValueError("PC alert capability fields are malformed")
+        for name in ("device", "pc", "nonce", "proof"):
+            if HEX_PATTERNS[name].fullmatch(fields[name]) is None:
+                raise ValueError("PC alert capability identity is malformed")
+        with self._event_lock:
+            peer = self._event_peers.get(fields["device"])
+            active = self._state.retained_keys(fields["device"]).active
+            if (peer is None or active is None or peer.find_fields is None or
+                    fields["pc"] != self._state.pc_id or source != peer.source or
+                    fields["nonce"] != peer.nonce or not 0 <= time.monotonic() - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS or
+                    not hmac.compare_digest(active, peer.key) or
+                    not hmac.compare_digest(make_proof(active, "pc-alert-cap-v1", *(fields[name] for name in names)), fields["proof"])):
+                raise ValueError("PC alert capability authentication failed")
+            duplicate = peer.pc_alert_capable
+        if duplicate:
+            status = peer.pc_alert_status
+        else:
+            status = self._send_event_projection(fields["device"], supports_pc_alert=True)
+            with self._event_lock:
+                current = self._event_peers.get(fields["device"])
+                if (current is None or current.nonce != peer.nonce or current.source != peer.source or
+                        not hmac.compare_digest(current.key, peer.key)):
+                    raise ValueError("PC alert capability peer changed during publication")
+                peer = replace(current, pc_alert_capable=True)
+                self._event_peers[fields["device"]] = peer
+        values = [fields["device"], fields["pc"], fields["nonce"], status]
+        proof = make_proof(active, "pc-alert-ack-v1", *values)
+        self._socket.sendto(encode_datagram("PCALERTACK", list(zip(("device", "pc", "nonce", "status"), values))
+                                            + [("proof", proof)]), source)
 
     # self: Existing responder supplying account metadata to authenticated physical Cody devices.
     # fields: Exact signed allowance capability envelope after COMMITTED for the same heartbeat.
@@ -1423,6 +1523,18 @@ class CompanionResponder:
             peer = self._event_peers.get(device_id)
             return peer is not None and 0 <= time.monotonic() - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS
 
+    # device_id: Exact retained recipient whose current authenticated heartbeat is inspected.
+    # Returns confirmed only for a fresh capability from the active pairing; otherwise unknown.
+    def pc_alert_capability(self, device_id: str) -> str:
+        with self._event_lock:
+            peer = self._event_peers.get(device_id)
+            if (peer is None or not peer.pc_alert_capable or
+                    not 0 <= time.monotonic() - peer.observed_at <= LIVENESS_TIMEOUT_SECONDS):
+                return "unknown"
+            key = peer.key
+        active = self._state.retained_keys(device_id).active
+        return "confirmed" if active is not None and hmac.compare_digest(active, key) else "unknown"
+
     # device_id: Exact paired recipient whose confirmed FIND carries the speech opt-in.
     # Returns true only for a fresh, active, non-simulated authenticated association.
     def supports_reply_speech(self, device_id: str) -> bool:
@@ -1528,11 +1640,13 @@ class CcpService:
     # subscriptions: Optional public subscription catalog owned by the same broker.
     # registry_storage: Optional durable registry supplied by the exclusive production broker.
     # question_storage: Separate authenticated checkpoint for semantic questions and attempts.
+    # notification_storage: Separate authenticated checkpoint for unread informational metadata.
     # Raises RuntimeError or OSError when state or the fixed UDP listener is unavailable.
     def __init__(self, pricing: PriceCache | None = None,
                  subscriptions: SubscriptionCatalog | None = None,
                  registry_storage: RegistryStorage | None = None,
-                 question_storage: RegistryStorage | None = None) -> None:
+                 question_storage: RegistryStorage | None = None,
+                 notification_storage: RegistryStorage | None = None) -> None:
         # Acquire ownership first: a second process must fail without creating,
         # reading or overwriting the first process's PC identity and records.
         listener = open_companion_listener()
@@ -1540,7 +1654,8 @@ class CcpService:
             self.state = StateStore()
             registry = StateRegistry(registry_storage, self.state.pc_id) if registry_storage is not None else None
             self.activity = ActivityStore(pricing, state_registry=registry)
-            self.interactions = interactions.InteractionStore(storage=question_storage, owner_id=self.state.pc_id)
+            self.interactions = interactions.InteractionStore(storage=question_storage, owner_id=self.state.pc_id,
+                                                             notification_storage=notification_storage)
             self.notifications_error: str | None = None
             self._hook_lock = threading.Lock()
             self._reply_stop = threading.Event()
@@ -1623,6 +1738,7 @@ class CcpService:
                 # invocation. A followed chat or a caller label cannot bind it.
                 self.activity.state_registry.associate_question(
                     observation.question_request_id, observation.session_id, observation.turn_id)
+                self.interactions.set_question_origin(observation.question_request_id, observation.title or "")
             if observation.state_only:
                 return {}
             result: dict[str, Any] = {}
@@ -1720,13 +1836,16 @@ class CcpService:
         if approval:
             fallback_body = "Chat title unavailable"
         body = observation.title or fallback_body
+        if not approval and len(body) > 63:
+            body = fallback_body
         for device_id in targets:
             active = self.state.retained_keys(device_id).active
             if active is None:
                 raise ValueError("Hook notice target lost its active association")
             speech_enabled = not approval and self.responder.supports_reply_speech(device_id)
-            notice_body = "Voice unavailable; open Codex" if speech_unavailable and speech_enabled else body
-            payload = interactions.EventPayload(kind, context, title, notice_body)
+            payload = interactions.EventPayload(kind, context, title, body,
+                origin_title=observation.title or "",
+                status="Voice unavailable; open Codex" if speech_unavailable and speech_enabled else "")
             self.interactions.enqueue(device_id, payload, "LAN",
                                       association_id=hashlib.sha256(active).hexdigest(),
                                       native_session=observation.session_id,
@@ -2187,7 +2306,7 @@ def call_tool(service: CcpService, name: str, arguments: dict[str, Any]) -> dict
                            is_error=not result["accepted"])
     if name in {"ccp_ask_question", "ccp_publish_notification"}:
         question = name == "ccp_ask_question"
-        allowed = {"device_id", "context", "title", "body", "ttl_seconds", "include_simulator"}
+        allowed = {"device_id", "context", "title", "body", "ttl_seconds", "include_simulator", "origin_title"}
         allowed |= {"choices"} if question else {"kind", "pr"}
         if set(arguments) - allowed:
             raise ValueError("Interaction arguments contain unexpected fields")

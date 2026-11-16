@@ -14,6 +14,64 @@ The source brings together the VibeWare startup, Cody's character, device settin
 
 The 1.75 GPS prototype supports removable microSD; the 1.75C does not. The boards have different capabilities, so a feature on one should not be assumed on the other. See the [hardware guide](../bsp/boards/purchased-amoled-comparison.md).
 
+## State ownership and onboarding commands
+
+The native display controller composes independent models. `DeviceModel` holds
+consumer projections from `DeviceSnapshotService` and domain owners, including
+source validity and errors. `DeviceUiModel` and `UiState` hold routes, gestures,
+viewports, drafts and retired presentation. `CharacterModel` holds poses,
+animation clocks, applied visual style and cue identities; pet facts remain in
+the pet domain service. `SettingsModel` is owned by `SettingsService`; the UI
+borrows confirmed values and retains command identities, never a separate
+persisted settings store.
+
+Lifecycle writes use the existing onboarding action worker. The display queues
+first-boot music consumption, birth completion and setup completion and observes
+an exact receipt. Storage and readback run outside the model mutex. Birth/setup
+failures keep their original error and retry after five seconds without stopping
+touch, rendering or power command handling. The shared status-caption slot shows
+`Settings not saved: retrying` until a successful receipt. A failed first-boot
+music write omits playback and shows `Boot sound settings not saved`; it does not
+silently consume or replay the cue. Music admission has its own three-second
+window after durable confirmation and a separate bounded storage wait.
+
+Settings presenters capture each required domain once and use pure projections
+for comparison with the last presented values. Quiet-hours edits retain a local
+draft while canonical values and constraints follow remote changes. Tour storage
+identities remain stable: 5 is completed/skipped and 6 is Thanks. Page metadata,
+guide presentation and Wi-Fi presentation are separate from action admission.
+On first run Welcome and Let's connect precede the Wi-Fi choices; Later records
+an explicit offline choice. A confirmed Wi-Fi connection presents a result page
+before the guide. The Project tour
+identity is the durable handoff to the optional Codex choice; a confirmed skip
+or connection reaches Thanks, while cancellation waits for the existing cleanup
+owner. Replaying from Thanks does not rewrite intermediate first-run progress;
+replay from Settings does not start provisioning. A firmware without wake word
+does not navigate through the Sofia page. The tutorial uses the shared Muse
+renderer and pet cue admission; sounds still follow the shared sound and quiet
+hours policy. Wi-Fi particles reflect an admitted local operation, not progress.
+The indexed-image renderer caches one 512-byte palette per owner and clips into
+existing DMA tiles; opaque full-panel artwork skips a redundant clear. Original
+Welcome and boot audio assets remain in the repository even where their unused
+firmware embeddings have been removed.
+
+## Startup connection window
+
+Saved setup opens one Connecting/Reconnecting window lasting at most 30 seconds.
+Its deadline never restarts for a Wi-Fi retry or a new PC discovery attempt.
+The display reads a coherent connectivity observation and reports the actual
+Wi-Fi/IP/PC phase. A fresh authenticated CCP READY ends the wait early; an
+optional capability error remains in the model without invalidating that READY.
+Missing credentials or pairing return to setup without an artificial wait.
+
+Cody uses the existing avatar buffer for waking, thinking, listening and waiting
+poses. These animations do not create events or claim successful connection.
+Use offline retires the window immediately; timeout returns to the existing
+offline/setup recovery. Radio owners continue their existing retry policy.
+Snapshot-read errors remain visible without using an old observation or stopping
+the display during this boot/recovery flow. Physical timing and rendering still
+require acceptance.
+
 ## Minimal character direction
 
 Cody can respond to observed activity with small expressions and movements. Some reactions require a current, matching chat and turn. They are artistic cues, not measurements of a person's feelings or proof that a task is complete. See [Meet Cody](behavior.md) and [expressions](personality-icons.md).
@@ -24,7 +82,7 @@ Cody can present connection changes, questions and other supported events. Sound
 
 ## Clock presentation
 
-Cody uses available time information for its clock and time-based presentation. Automatic network time and PC synchronization are separate options. The device stores UTC and uses the configured offset for local display; a cold boot without a usable clock source can show time as unavailable. See the [time service](../bsp/services/time.md).
+Cody uses available time information for its clock and time-based presentation. Auto time uses network time; **Sync time** requests a fresh network sample even when Auto time is off. Connecting a PC does not automatically set the clock or offset. The device stores UTC and uses the configured offset for local display; a cold boot without a usable clock source can show time as unavailable. See the [time service](../bsp/services/time.md).
 
 ## One-way voice input source increment
 

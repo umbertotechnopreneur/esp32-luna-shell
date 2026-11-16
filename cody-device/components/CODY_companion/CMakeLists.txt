@@ -101,6 +101,15 @@ if(NOT CMAKE_BUILD_EARLY_EXPANSION AND CONFIG_LUNASHELL_CODY_RELAY_PROBE)
     target_sources(${COMPONENT_LIB} PRIVATE "src/runtime/CODY_relay_probe.cpp")
 endif()
 
+if(NOT CMAKE_BUILD_EARLY_EXPANSION AND "$ENV{LUNASHELL_WHATSAPP_EXPERIMENT}" STREQUAL "1")
+    if(NOT CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION OR NOT CONFIG_LUNASHELL_BUILD_ENABLE_WIFI OR
+       NOT CONFIG_FREERTOS_TASK_CREATE_ALLOW_EXT_MEM OR NOT CONFIG_SPIRAM)
+        message(FATAL_ERROR "WhatsApp experiment requires Cody, Wi-Fi and PSRAM task stacks")
+    endif()
+    idf_component_optional_requires(PRIVATE whatsapp)
+    target_compile_definitions(${COMPONENT_LIB} PRIVATE CODY_WHATSAPP_EXPERIMENT=1)
+endif()
+
 target_compile_features(${COMPONENT_LIB} PUBLIC cxx_std_17)
 target_compile_definitions(${COMPONENT_LIB} PUBLIC
     CODY_DEVICE_UI_ONLY=1

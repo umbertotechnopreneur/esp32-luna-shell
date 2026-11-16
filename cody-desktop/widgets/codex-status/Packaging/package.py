@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 VERSION = ET.parse(ROOT / "Directory.Build.props").findtext(".//Version")
 EPOCH = int(os.environ.get("SOURCE_DATE_EPOCH", str(int(time.time()))))
 WIX = "http://wixtoolset.org/schemas/v4/wxs"
-NAMESPACE = uuid.UUID("34f37e7d-a149-49e7-9aec-fef01c53a769")
+NAMESPACE = uuid.UUID("6fa0d4e1-a9ea-41de-9fa5-325da66ca1b1")
 
 
 def identity(prefix, value):
@@ -28,7 +28,7 @@ def wix_source(payload, output):
     def child(parent, tag, **attrs):
         return ET.SubElement(parent, "{"+WIX+"}"+tag, attrs)
     root = ET.Element("{"+WIX+"}Wix")
-    package = child(root, "Package", Name="OpenAI Usage", Manufacturer="Umberto Giacobbi",
+    package = child(root, "Package", Name="Cody Companion", Manufacturer="Umberto Giacobbi",
                     Version=VERSION, Language="1033", UpgradeCode=str(NAMESPACE), Scope="perUser",
                     InstallerVersion="500", Compressed="yes")
     child(package, "MajorUpgrade", DowngradeErrorMessage="A newer version of OpenAI Usage is installed.")
@@ -47,7 +47,7 @@ def wix_source(payload, output):
     child(package, "Property", Id="ARPPRODUCTICON", Value="AppIcon")
     local = child(package, "StandardDirectory", Id="LocalAppDataFolder")
     programs = child(local, "Directory", Id="UserPrograms", Name="Programs")
-    install = child(programs, "Directory", Id="INSTALLFOLDER", Name="OpenAI Usage")
+    install = child(programs, "Directory", Id="INSTALLFOLDER", Name="Cody Companion")
     dirs = {".": install}
     files = sorted(p for p in payload.rglob("*") if p.is_file() and p.suffix.lower() != ".pdb")
     component_ids = []
@@ -67,7 +67,7 @@ def wix_source(payload, output):
                      Guid=str(uuid.uuid5(NAMESPACE, relative)), Bitness="always64")
         file_id = identity("F", relative)
         child(comp, "File", Id=file_id, Source=str(file), Name=file.name, KeyPath="no")
-        child(comp, "RegistryValue", Root="HKCU", Key="Software\\UmbertoGiacobbi\\OpenAIUsage\\Components",
+        child(comp, "RegistryValue", Root="HKCU", Key="Software\\UmbertoGiacobbi\\CodyCompanion\\Components",
               Name=comp_id, Type="integer", Value="1", KeyPath="yes")
         component_ids.append(comp_id)
         if relative == "OpenAIUsage.Windows.exe":
@@ -78,15 +78,15 @@ def wix_source(payload, output):
         comp_id = identity("R", key)
         comp = child(directory, "Component", Id=comp_id, Guid=str(uuid.uuid5(NAMESPACE, "directory:"+key)), Bitness="always64")
         child(comp, "RemoveFolder", Id=identity("Remove", key), On="uninstall")
-        child(comp, "RegistryValue", Root="HKCU", Key="Software\\UmbertoGiacobbi\\OpenAIUsage\\Directories",
+        child(comp, "RegistryValue", Root="HKCU", Key="Software\\UmbertoGiacobbi\\CodyCompanion\\Directories",
               Name=comp_id, Type="integer", Value="1", KeyPath="yes")
         component_ids.append(comp_id)
     menu = child(package, "StandardDirectory", Id="ProgramMenuFolder")
     comp = child(menu, "Component", Id="MenuShortcut", Guid=str(uuid.uuid5(NAMESPACE, "menu-shortcut")), Bitness="always64")
-    shortcut = child(comp, "Shortcut", Id="StartMenuShortcut", Name="OpenAI Usage", Target="[#"+exe_file+"]",
+    shortcut = child(comp, "Shortcut", Id="StartMenuShortcut", Name="Cody Companion", Target="[#"+exe_file+"]",
           WorkingDirectory="INSTALLFOLDER", Icon="AppIcon", Advertise="no")
-    child(shortcut,"ShortcutProperty",Key="System.AppUserModel.ID",Value="biz.umbertogiacobbi.OpenAIUsage")
-    child(comp, "RegistryValue", Root="HKCU", Key="Software\\UmbertoGiacobbi\\OpenAIUsage",
+    child(shortcut,"ShortcutProperty",Key="System.AppUserModel.ID",Value="biz.umbertogiacobbi.CodyCompanion")
+    child(comp, "RegistryValue", Root="HKCU", Key="Software\\UmbertoGiacobbi\\CodyCompanion",
           Name="StartMenuShortcut", Type="integer", Value="1", KeyPath="yes")
     component_ids.append("MenuShortcut")
     feature = child(package, "Feature", Id="Application", Title="OpenAI Usage", Level="1")
@@ -116,16 +116,16 @@ def deb_package(payload, output):
             continue
         relative = file.relative_to(payload).as_posix()
         mode = 0o755 if relative in ("backend/OpenAIUsage.Backend", "Linux/run.sh") else 0o644
-        files["usr/lib/openai-usage/"+relative] = (file.read_bytes(), mode)
-    launcher = b'#!/bin/sh\nexec /usr/bin/python3 /usr/lib/openai-usage/Linux/openai_usage.py "$@"\n'
-    files["usr/bin/openai-usage"] = (launcher, 0o755)
-    desktop = (ROOT / "Linux/openai-usage.desktop").read_text(encoding="utf-8").replace("Exec=openai-usage", "Exec=/usr/bin/openai-usage")
-    files["usr/share/applications/biz.umbertogiacobbi.OpenAIUsage.desktop"] = (desktop.encode(), 0o644)
-    files["usr/share/icons/hicolor/512x512/apps/biz.umbertogiacobbi.OpenAIUsage.png"] = ((ROOT/"Branding/app-icon-512.png").read_bytes(), 0o644)
-    files["usr/share/doc/openai-usage/README.md"] = ((ROOT / "README.md").read_bytes(), 0o644)
-    files["usr/share/doc/openai-usage/copyright"] = (b"Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/\nUpstream-Name: OpenAI Usage\n\nFiles: *\nCopyright: 2026 Umberto Giacobbi\nLicense: Proprietary\n Private local build. Third-party components retain their own licenses;\n see /usr/lib/openai-usage/licenses.\n", 0o644)
+        files["usr/lib/cody-companion/"+relative] = (file.read_bytes(), mode)
+    launcher = b'#!/bin/sh\nexec /usr/bin/python3 /usr/lib/cody-companion/Linux/openai_usage.py "$@"\n'
+    files["usr/bin/cody-companion"] = (launcher, 0o755)
+    desktop = (ROOT / "Linux/openai-usage.desktop").read_text(encoding="utf-8").replace("Exec=openai-usage", "Exec=/usr/bin/cody-companion").replace("Name=OpenAI Usage", "Name=Cody Companion").replace("Icon=biz.umbertogiacobbi.OpenAIUsage", "Icon=biz.umbertogiacobbi.CodyCompanion")
+    files["usr/share/applications/biz.umbertogiacobbi.CodyCompanion.desktop"] = (desktop.encode(), 0o644)
+    files["usr/share/icons/hicolor/512x512/apps/biz.umbertogiacobbi.CodyCompanion.png"] = ((ROOT/"Branding/app-icon-512.png").read_bytes(), 0o644)
+    files["usr/share/doc/cody-companion/README.md"] = ((ROOT / "README.md").read_bytes(), 0o644)
+    files["usr/share/doc/cody-companion/copyright"] = (b"Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/\nUpstream-Name: Cody Companion\n\nFiles: *\nCopyright: 2026 Umberto Giacobbi\nLicense: Proprietary\n Private local build. Third-party components retain their own licenses;\n see /usr/lib/cody-companion/licenses.\n", 0o644)
     installed_size = sum(len(data) for data, _ in files.values())//1024+1
-    control = f"""Package: openai-usage
+    control = f"""Package: cody-companion
 Version: {VERSION}-1
 Architecture: amd64
 Maintainer: OpenAI Usage local builds <noreply@example.invalid>
@@ -163,7 +163,6 @@ Description: Native OpenAI allowance and token-history widget
             out.write(header); out.write(content)
             if len(content)%2:
                 out.write(b"\n")
-    data_path.unlink()
     return len(files)
 
 
@@ -184,7 +183,7 @@ def verify_deb(path):
     with tarfile.open(fileobj=io.BytesIO(members["control.tar.gz"]), mode="r:gz") as control_tar:
         control = control_tar.extractfile("control").read().decode()
         sums = control_tar.extractfile("md5sums").read().decode().splitlines()
-    assert "Architecture: amd64" in control and "Package: openai-usage" in control
+    assert "Architecture: amd64" in control and "Package: cody-companion" in control
     with tarfile.open(fileobj=io.BytesIO(members["data.tar.xz"]), mode="r:xz") as data_tar:
         for line in sums:
             digest, name = line.split("  ", 1)
@@ -192,11 +191,11 @@ def verify_deb(path):
             item = data_tar.getmember(name)
             assert item.uid == item.gid == 0
             assert hashlib.md5(data_tar.extractfile(item).read()).hexdigest() == digest
-        apphost = data_tar.getmember("usr/lib/openai-usage/backend/OpenAIUsage.Backend")
+        apphost = data_tar.getmember("usr/lib/cody-companion/backend/OpenAIUsage.Backend")
         assert apphost.mode == 0o755
         elf = data_tar.extractfile(apphost).read(20)
         assert elf[:6] == b"\x7fELF\x02\x01" and elf[18:20] == b"\x3e\x00"
-        assert data_tar.getmember("usr/bin/openai-usage").mode == 0o755
+        assert data_tar.getmember("usr/bin/cody-companion").mode == 0o755
     return {"archive": "valid ar/deb 2.0", "filesVerified": len(sums), "backend": "ELF64 x86-64", "runtimeExecution": "not performed"}
 
 

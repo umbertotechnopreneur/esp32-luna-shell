@@ -29,6 +29,16 @@ create a second client. A rejected start retains its real error and may retry on
 a later event. DHCP is not Internet/time confirmation. Only a valid 2024–2099 SNTP
 callback confirms trusted system time. Builds with the RTC enabled also attempt
 trusted RTC write/readback.
+On Cody, **Sync time** requests a fresh SNTP sample over the current Wi-Fi
+connection, independently of the saved Auto time preference. Its canonical
+clock observation reports pending, applied or failed, including timeout; starting
+the request alone never claims synchronization. A time-owner task created on the
+first manual request handles completion and timeout independently of the full
+hardware snapshot cadence. A manual request with Auto time disabled stops its
+temporary SNTP client after completion. If a manual restart fails while Auto time
+is enabled, the owner attempts to restore periodic SNTP and retains both errors.
+Neither this action
+nor connecting a PC changes the configured timezone or fixed UTC offset.
 Optional initial full-snapshot refresh failure is logged with its actual error,
 not rewritten to success or used to create an RTC-unset boot loop; mandatory
 driver initialization failure still stops startup.

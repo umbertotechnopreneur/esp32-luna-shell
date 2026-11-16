@@ -44,6 +44,27 @@ command-line arguments or returned by status reads.
 | `device/read-name` / `device/set-name` | Read or change the actual preferred name through the existing ACK flow |
 | `device/read-clock` / `device/configure-clock` | Read or change the fixed UTC offset and quiet hours |
 | `device/normal` | Restore the retained route through the existing authenticated display control |
+| `device/notify-system` | Queue an allowlisted generic PC event for an explicitly selected physical Cody |
+
+`device/notify-system` accepts `device_id`, `event` and optional `severity`.
+Severity is `information`, `warning` or `critical`; OS app notifications
+default to information and monitor rules supply their configured level. Event categories
+are `notification`, `memory`, `disk`, `cpu`, `battery`, `temperature`, `usb_connected`,
+`usb_disconnected`, `network_connected` and `network_disconnected`. The caller
+must supply an observed event; the optional host monitor acquires configured PC
+metrics separately and supplies its rule severity to the control owner.
+The response reports queue admission, not display or acknowledgement. An
+ambiguous transport failure must not be automatically retried. This route uses
+fixed generic English captions because the existing EVENT payload is readable
+on the network: it accepts no application names, thresholds, message bodies,
+or other caller text. Event categories themselves remain visible on the LAN.
+Typed alerts retain their severity and are published only after Cody advertises
+the authenticated PC alert capability for the current heartbeat. Older firmware
+does not receive a downgraded alert. Source is not yet end-to-end verified.
+Both the admission response and `monitor/status` expose `pc_alert_capability`:
+`confirmed` means authenticated on the current heartbeat; `unknown` includes
+the short interval before capability delivery and old or unreachable firmware.
+The latter does not establish a permanent lack of support.
 
 `bridge/status` returns `bridge`, global `source`, and `devices`. Each device
 also carries `provider_source`; source identity is `codex` or `local`. A genuine

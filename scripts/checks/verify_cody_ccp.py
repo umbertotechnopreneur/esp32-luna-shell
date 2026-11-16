@@ -1249,7 +1249,8 @@ class HookRoutingTests(unittest.TestCase):
         self.title_read.assert_called_once()
         self.assertEqual(self.service.interactions.poll(notice.request_id, notice.capability)["state"], "pending")
         self.observe("UserPromptSubmit", "chat-a", "turn-a-next")
-        self.assertEqual(self.service.interactions.poll(notice.request_id, notice.capability)["state"], "cancelled")
+        self.assertEqual(self.service.interactions.poll(notice.request_id, notice.capability)["state"], "pending")
+        self.assertEqual(self.service.interactions._tickets[notice.request_id].payload.status, "Earlier reply")
         self.assertEqual(self.service.interactions.poll(created["request_id"], created["capability"])["state"], "pending")
 
     # self: Current and background completions with one historical native turn.
@@ -1300,6 +1301,8 @@ class HookRoutingTests(unittest.TestCase):
                     payload = self.enqueue.call_args.args[1]
                     self.assertEqual((payload.kind, payload.title, payload.body),
                                      (interactions.EventKind.REPLY_READY, "Chat waiting", expected))
+                    expected_origin = title.title if title.state == current and 55.0 < title.observed_at <= 100.0 else ""
+                    self.assertEqual(payload.origin_title, expected_origin)
                     self.assertEqual(payload.choices, ())
                     self.assertFalse(payload.progress_valid)
                     self.assertEqual([item["session_id"] for item in self.service.activity.list_sessions()
@@ -1467,7 +1470,8 @@ class HookRoutingTests(unittest.TestCase):
         question = self.service.interactions.enqueue(self.device, question_payload, "LAN", association_id=association)
         self.enqueue.reset_mock()
         self.observe("PostToolUse", tool_use_id="tool-a")
-        self.assertEqual(origin.state, "cancelled")
+        self.assertEqual(self.service.interactions._tickets[origin.request_id].state, "pending")
+        self.assertEqual(self.service.interactions._tickets[origin.request_id].payload.status, "No longer pending on PC")
         self.assertEqual(self.service.interactions._tickets[other["request_id"]].state, "pending")
         self.assertEqual(self.service.interactions._tickets[question["request_id"]].state, "pending")
         self.observe("PermissionRequest")
@@ -1966,13 +1970,13 @@ class InteractionTests(unittest.TestCase):
                          (first["request_id"], "cancelled"))
 
     # self: Two native completion notices and an independent caller-owned question.
-    # Raises AssertionError if explicit notice dismissal cannot release the FIFO or retires a question.
+    # Raises AssertionError if explicit notice dismissal cannot release the selected item or retires a question.
     def test_informational_dismissal_advances_notices_and_cannot_answer_questions(self) -> None:
         association = "a" * 64
         notice = interactions.EventPayload(interactions.EventKind.REPLY_READY, "", "Chat waiting", "Review the reply.")
         first = self.store.enqueue(self.device, notice, "LAN", association_id=association, native_session="chat-one")
         second = self.store.enqueue(self.device, notice, "LAN", association_id=association, native_session="chat-two")
-        self.assertEqual(self.store.snapshot(self.device, association)[0], first["request_id"])
+        self.assertEqual(self.store.snapshot(self.device, association, selection_request_id=first["request_id"])[0], first["request_id"])
         with self.assertRaises(ValueError):
             self.store.acknowledge_notice(self.device, first["request_id"], "b" * 64)
         self.store.acknowledge_notice(self.device, first["request_id"], association)
@@ -2210,18 +2214,91 @@ class InteractionTests(unittest.TestCase):
         self.assertEqual(restarted.answer(self.device, created["request_id"], "redis"), "unknown")
         self.assertEqual(restarted.snapshot(self.device)[1], "none")
 
-    # self: A newer informational snapshot whose shorter lifetime must not reveal its superseded predecessor.
-    # Raises AssertionError if old failure/progress content can return after a newer notification expires.
-    def test_new_notification_retires_previous_snapshot_without_pr_regression(self) -> None:
+    # self: Independent informational snapshots retained beyond their initial display windows.
+    # Raises AssertionError if a newer event or TTL silently deletes an unread notification.
+    def test_new_notification_preserves_unread_history_beyond_display_ttl(self) -> None:
         old = interactions.EventPayload(interactions.EventKind.CHECKS_FAILED, "", "Checks failed", "Old current result.", failures=("compile",))
         first = self.store.enqueue(self.device, old, "LAN", 180)
         current = interactions.EventPayload(interactions.EventKind.CHECKS_PASSED, "", "Checks passed", "New current result.",
                                             progress_valid=True, passed=1, total=1)
         second = self.store.enqueue(self.device, current, "LAN", 15)
         self.assertEqual(self.store.snapshot(self.device)[0], second["request_id"])
-        self.assertEqual(self.store.poll(first["request_id"], first["capability"])["state"], "cancelled")
+        self.assertEqual(self.store.poll(first["request_id"], first["capability"])["state"], "pending")
         self.now = 115.0
-        self.assertEqual(self.store.snapshot(self.device)[1], "none")
+        self.assertEqual(self.store.snapshot(self.device)[0], second["request_id"])
+        self.assertEqual(self.store.snapshot(self.device, selection_request_id=first["request_id"])[0], first["request_id"])
+
+    # self: Synthetic informational metadata beside an unanswered question and its exact source identity.
+    # Raises AssertionError if selecting a notice answers/discards the question or replaces its origin with context.
+    def test_notifications_include_event_label_origin_and_explicit_notice_selection(self) -> None:
+        association = "a" * 64
+        question = self.store.enqueue(self.device, replace(self.payload, origin_title="Question origin"), "LAN",
+                                      association_id=association)
+        self.store.snapshot(self.device, association)
+        payload = interactions.EventPayload(interactions.EventKind.NOTICE, "Project label", "Files updated",
+            "Review changes in Codex.", origin_title="Long originating chat " + "T" * 120, status="Voice unavailable")
+        notice = self.store.enqueue(self.device, payload, "LAN", 15, association_id=association)
+        self.now = 116.0
+        reader = interactions.PayloadReader(self.store.inbox_page(self.device, association, 0, "0" * 32))
+        self.assertEqual((reader.byte(), reader.byte(), reader.byte()), (2, 0, 2))
+        self.assertEqual(reader.byte(), int(interactions.EventKind.QUESTION))
+        self.assertEqual(reader.take(16).hex(), question["request_id"])
+        self.assertEqual((reader.text(24), reader.text(63), reader.text(63)),
+                         (self.payload.title, "Question origin", self.payload.body))
+        self.assertEqual(reader.byte(), int(interactions.EventKind.NOTICE))
+        self.assertEqual(reader.take(16).hex(), notice["request_id"])
+        self.assertEqual((reader.text(24), reader.text(63), reader.text(63, True)),
+                         ("Files updated", payload.origin_title[:60] + "...", ""))
+        self.assertEqual(reader.offset, len(reader.data))
+        selected = self.store.snapshot(self.device, association, question["request_id"], "pending", notice["request_id"])
+        self.assertEqual(selected[:3], (notice["request_id"], "pending", "180"))
+        self.assertEqual(interactions.decode_payload(selected[3]).origin_title, payload.origin_title)
+        self.assertEqual(self.store.poll(question["request_id"], question["capability"])["state"], "pending")
+        self.assertNotIn("answer", self.store.poll(question["request_id"], question["capability"]))
+
+    # self: Separate authenticated checkpoints represented in memory, plus an original question and native reply.
+    # Raises AssertionError if restart loses unread metadata/origin, revives a question deadline or restores speech.
+    def test_unread_notification_checkpoint_preserves_origin_without_restoring_speech(self) -> None:
+        questions, notifications = Mock(), Mock()
+        questions.load.return_value = notifications.load.return_value = None
+        association = "a" * 64
+        owner = interactions.InteractionStore(lambda: self.now, storage=questions, notification_storage=notifications,
+                                              owner_id="b" * 32)
+        question = owner.enqueue(self.device, self.payload, "LAN", association_id=association)
+        owner.associate_question(question["request_id"], "source-chat", "source-turn")
+        owner.set_question_origin(question["request_id"], "Known question origin")
+        payload = interactions.EventPayload(interactions.EventKind.REPLY_READY, "Project", "Chat waiting",
+            "Open Codex to read the reply", origin_title="Full origin " + "T" * 150)
+        notice = owner.enqueue(self.device, payload, "LAN", association_id=association,
+                               native_session="source-chat", reply_speech="Private final reply")
+        questions.load.return_value = json.loads(json.dumps(questions.save.call_args.args[0]))
+        notifications.load.return_value = json.loads(json.dumps(notifications.save.call_args.args[0]))
+        self.assertNotIn("Private final reply", json.dumps(notifications.load.return_value))
+        self.now = 10000.0
+        restored = interactions.InteractionStore(lambda: self.now, storage=questions, notification_storage=notifications,
+                                                 owner_id="b" * 32)
+        self.assertEqual(restored._tickets[notice["request_id"]].payload.origin_title, payload.origin_title)
+        self.assertEqual(restored._tickets[question["request_id"]].payload.origin_title, "Known question origin")
+        self.assertEqual(restored._tickets[question["request_id"]].state, "unavailable")
+        self.assertEqual(restored.snapshot(self.device, association)[0], notice["request_id"])
+        self.assertIsNone(restored.reply_speech(self.device, association, notice["request_id"]))
+        restored.acknowledge_notice(self.device, notice["request_id"], association)
+        self.assertEqual(notifications.save.call_args.args[0]["notifications"], [])
+
+    # self: Volatile native reply with an unread notice retained beyond its speech-delivery deadline.
+    # Raises AssertionError if metadata expires with speech or private speech remains available indefinitely.
+    def test_reply_speech_expires_independently_of_unread_metadata(self) -> None:
+        association = "a" * 64
+        payload = interactions.EventPayload(interactions.EventKind.REPLY_READY, "", "Chat waiting", "Read the reply",
+                                              origin_title="Original chat")
+        notice = self.store.enqueue(self.device, payload, "LAN", association_id=association,
+                                    native_session="source-chat", reply_speech="Private final reply")
+        self.store.snapshot(self.device, association)
+        self.assertIsNotNone(self.store.reply_speech(self.device, association, notice["request_id"]))
+        self.now += 3600.0
+        self.assertIsNone(self.store.reply_speech(self.device, association, notice["request_id"]))
+        self.assertEqual(self.store.poll(notice["request_id"], notice["capability"])["state"], "pending")
+        self.assertEqual(self.store._tickets[notice["request_id"]].payload.origin_title, "Original chat")
 
     # self: One active association replaced before a reply reaches the host.
     # Raises AssertionError if a new key can answer an old ticket, even before its first snapshot publication.

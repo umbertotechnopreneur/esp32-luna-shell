@@ -48,6 +48,12 @@ set(
     COMPONENT_DIRS
     "$ENV{IDF_PATH}/components;$ENV{LUNASHELL_PROFILE_COMPONENT_DIRS}"
 )
+# The optional experiment is discovered before Kconfig and reuses the same
+# build, compiler and sdkconfig. Normal firmware does not acquire Rust tooling.
+if("$ENV{LUNASHELL_WHATSAPP_EXPERIMENT}" STREQUAL "1")
+    list(APPEND COMPONENTS whatsapp)
+    list(APPEND COMPONENT_DIRS "${CMAKE_CURRENT_LIST_DIR}/experimental")
+endif()
 if(NOT DEFINED LUNASHELL_BUILD_FEATURE OR
    NOT LUNASHELL_BUILD_FEATURE MATCHES "^(none|distance|wake-word|tts-sd|tts-flash)$")
     message(FATAL_ERROR "Explicit firmware feature is missing; use scripts/device.ps1")
@@ -172,6 +178,18 @@ endif()
 if(NOT CONFIG_PARTITION_TABLE_CUSTOM OR
    NOT CONFIG_PARTITION_TABLE_CUSTOM_FILENAME STREQUAL _feature_partition_table)
     message(FATAL_ERROR "Selected feature requires its reviewed partition table: ${_feature_partition_table}")
+endif()
+# The WhatsApp experiment uses only the previously unassigned gap. Reject any
+# future layout that would silently move it over another existing partition.
+partition_table_get_partition_info(_whatsapp_offset "--partition-name wa_store" "offset")
+partition_table_get_partition_info(_whatsapp_size "--partition-name wa_store" "size")
+if(NOT _whatsapp_offset OR NOT _whatsapp_size)
+    message(FATAL_ERROR "The WhatsApp state partition is missing")
+endif()
+math(EXPR _whatsapp_offset_value "${_whatsapp_offset}")
+math(EXPR _whatsapp_size_value "${_whatsapp_size}")
+if(NOT _whatsapp_offset_value EQUAL 73728 OR NOT _whatsapp_size_value EQUAL 57344)
+    message(FATAL_ERROR "WhatsApp state must remain in the reviewed 0x12000..0x20000 gap")
 endif()
 partition_table_get_partition_info(_wake_model_size "--partition-name model" "size")
 if(CONFIG_LUNASHELL_BUILD_BOARD_PROFILE_WAVESHARE_ESP32S3_TOUCH_AMOLED_1_75C)

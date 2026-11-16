@@ -1,0 +1,142 @@
+[package]
+name = "whatsapp-esp32"
+version = "0.1.0"
+edition = "2021"
+# Tracks whatsapp-rust 0.7.0's declared MSRV (its workspace pins 1.95 and the
+# crates are edition 2024). The Xtensa `esp` toolchain must be at least this new.
+rust-version = "1.95"
+authors = ["João Lucas <jlucaso@hotmail.com>"]
+license = "MIT"
+description = "A full, end-to-end-encrypted WhatsApp client running on ESP32-S3, ESP32-C5 and ESP32-C3 microcontrollers, built on whatsapp-rust."
+repository = "https://github.com/oxidezap/whatsapp-rust-esp32"
+keywords = ["whatsapp", "esp32", "embedded", "esp-idf", "iot"]
+categories = ["embedded"]
+readme = "README.md"
+
+[lib]
+name = "whatsapp_esp32"
+path = "src/lib.rs"
+
+[[bin]]
+name = "whatsapp-esp32"
+path = "src/main.rs"
+
+[dependencies]
+# `critical-section`: edge-executor 0.5 guards its run-queue with embassy-sync's
+# CriticalSectionRawMutex, which links against a `critical-section` provider.
+# esp-idf-hal's is an ESP-IDF spinlock, correct across both cores and ISRs.
+esp-idf-svc = { version = "0.53", default-features = false, features = ["std", "critical-section"] }
+# `Headers` for the admin server's POST handlers (Content-Length / Content-Type);
+# the `Request` type esp-idf-svc re-exports implements it but does not re-export it.
+embedded-svc = { version = "0.29", default-features = false, optional = true }
+
+# `release_max_level_info` compiles out every `debug!`/`trace!` call site AND its
+# format string in release builds: measured at 83,456 bytes of the app image (see
+# docs/app-image-size.md). Debug builds are unaffected, so the protocol-level
+# tracing is still one `cargo build` away. Every marker the QEMU end-to-end suite
+# waits on is `info!`, so the release image still logs its way through pairing.
+log = { version = "0.4", features = ["release_max_level_info"] }
+# anyhow stays a direct dependency: esp-idf-svc errors are converted with `?`,
+# which needs anyhow's `std` feature. whatsapp-rust pulls anyhow with
+# default-features = false, so relying on its re-export alone would lose that.
+anyhow = "1"
+async-lock = "3"
+# `futures::executor::block_on` lives behind the `executor` feature, which
+# whatsapp-rust does not enable, so this one is also declared directly.
+futures = "0.3"
+# NVS record names are 15 characters at most; src/storage.rs names each record by
+# a truncated SHA-256 of its logical key. Already in the tree through whatsapp-rust.
+sha2 = { version = "0.11", default-features = false }
+
+# Lightweight async executor for ESP32. Since 0.5 the run-queue is always a
+# growable queue (the old `unbounded` feature is gone), so more than 64 runnable
+# tasks at once can no longer panic the firmware on a full fixed-size queue.
+edge-executor = "0.5"
+enumset = "1"
+
+# The WebSocket client is the crate's own (`src/ws.rs`): it hands each frame
+# over with a single owner, which is what the ESP32-C3 needs to decode a 28 KB
+# server frame without a second full-size copy. These two are its only
+# dependencies, and both are already in the tree through whatsapp-rust at these
+# exact versions, so nothing new is compiled.
+base64 = { version = "0.23", default-features = false, features = ["alloc"] }
+sha1 = { version = "0.11", default-features = false }
+# `ws.rs` names `bytes` directly rather than through `whatsapp_rust::bytes` so
+# the module has no dependency on whatsapp-rust at all: that is what lets its
+# tests run on a host. Same crate, same version, as the re-export.
+bytes = "1.12"
+
+# WhatsApp protocol. Single dependency: since 0.7.0 the crate re-exports
+# everything a consumer needs (`whatsapp_rust::{wacore, waproto, buffa,
+# async_trait, async_channel, bytes, serde_json, ...}`), so wacore/waproto are no
+# longer listed separately and can never drift to a different version than the
+# one whatsapp-rust was built against.
+#
+# default-features = false drops tokio/sqlite/ureq/simd so the crate builds for ESP32.
+# Pinned main revision includes the merged receive-queue memory fix (#1862).
+whatsapp-rust = { git = "https://github.com/oxidezap/whatsapp-rust", rev = "7e5c198e1a25ea405faa7a69a47bc727ea15484c", default-features = false }
+
+# Optimize for size even in debug: cuts binary from 9MB to ~3MB,
+# massively speeds up linking and flashing
+[profile.dev]
+opt-level = "z"
+debug = false
+lto = "fat"
+codegen-units = 1
+strip = false
+# build-std already uses panic_abort; matching the crate lets LTO GC unwind landing
+# pads and the dead backtrace/gimli symbolizer (firmware reboots on panic anyway).
+panic = "abort"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = false
+panic = "abort"
+
+[lints.rust]
+# ldproxy announces itself on stderr ("[ldproxy] Running ldproxy"); rustc's
+# `linker_messages` lint would otherwise report that on every link.
+linker_messages = "allow"
+# `esp_idf_spiram` is one of the cfgs esp-idf-sys derives from the sdkconfig
+# (CONFIG_SPIRAM), and the firmware reads it to decide where stacks and the heap
+# live. The build script only *declares* it on a board that has PSRAM, so on the
+# ESP32-C3 -- the build where its absence is the entire point -- rustc would
+# otherwise report it as an unexpected cfg name.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(esp_idf_spiram)', 'cfg(esp_idf_freertos_unicore)'] }
+
+[features]
+# The dashboard only. `mock-server` is deliberately not a default: a consumer
+# that forgets `default-features = false` must still get a verified connection.
+default = ["admin"]
+# The HTTP dashboard and API (`admin` module): status, send, pairing code,
+# maintenance. The demo firmware serves it; a library consumer can leave it out.
+admin = ["dep:embedded-svc"]
+# Everything the demo needs to talk to the local mock server, none of which may
+# reach the real gateway: the demo accepts any TLS certificate (the mock mints a
+# fresh self-signed one per start), auto-scans its own pairing QR, and
+# the mock client selects an explicit per-client Noise policy to skip
+# server-certificate (XEdDSA) verification, since its certificate is not signed
+# by WhatsApp's production key; off, the firmware verifies both layers.
+mock-server = []
+# Run inside Espressif's QEMU instead of on a board: brings the network up over the
+# emulated OpenCores Ethernet MAC instead of WiFi, and points the default server URL
+# at the QEMU host (10.0.2.2). Build with `scripts/qemu.sh build`, which also layers
+# `sdkconfig.qemu` on top of `sdkconfig.defaults`; the feature alone is not enough,
+# because `peripherals.mac` only exists once `CONFIG_ETH_USE_OPENETH=y` is set.
+qemu = ["mock-server"]
+
+[build-dependencies]
+embuild = "0.33"
+dotenvy = "0.15"
+
+# Pull in espressif/mdns component (moved out of ESP-IDF since v5.0)
+[[package.metadata.esp-idf-sys.extra_components]]
+remote_component = { name = "espressif/mdns", version = "1.15.1" }
+
+[[package.metadata.esp-idf-sys.extra_components]]
+component_dirs = ["components/openeth_rx_backoff"]
+bindings_header = "components/openeth_rx_backoff/bindings.h"
+
+[workspace]

@@ -21,9 +21,23 @@ try
         Console.WriteLine(JsonSerializer.Serialize(state, JsonOptions.Compact));
         if (!state.Connected) Environment.ExitCode = 2;
     }
+    else if (command == "cody-status")
+    {
+        var status = await CodyBridgeClient.ReadStatusAsync(storage.LoadSettings().CodyBridge);
+        Console.WriteLine(JsonSerializer.Serialize(status, JsonOptions.Compact));
+    }
+    else if (command == "cody-control")
+    {
+        using var request = JsonDocument.Parse(await Console.In.ReadToEndAsync());
+        string operation = request.RootElement.GetProperty("operation").GetString()
+            ?? throw new ArgumentException("Cody operation is required.");
+        var arguments = request.RootElement.GetProperty("arguments");
+        var result = await CodyBridgeClient.CallAsync(storage.LoadSettings().CodyBridge, operation, arguments);
+        Console.WriteLine(JsonSerializer.Serialize(result, JsonOptions.Compact));
+    }
     else throw new ArgumentException("Commands: snapshot, settings, save-settings");
 }
-catch (Exception ex) when (ex is IOException or ArgumentException or JsonException or UnauthorizedAccessException or TimeZoneNotFoundException)
+catch (Exception ex) when (ex is IOException or InvalidDataException or ArgumentException or InvalidOperationException or KeyNotFoundException or JsonException or UnauthorizedAccessException or TimeZoneNotFoundException or InvalidTimeZoneException)
 {
     Console.WriteLine(JsonSerializer.Serialize(new { error = ex.Message }, JsonOptions.Compact));
     Environment.ExitCode = 1;

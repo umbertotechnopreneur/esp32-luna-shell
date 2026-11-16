@@ -65,10 +65,12 @@ network or signal observations in Studio.
 
 ## Setup, QR and device information
 
-During initial setup the violet perimeter animation indicates that setup has
-not yet completed. It clears when both Wi-Fi and the Codex connection are
-observed connected; later disconnects do not turn it back into a first-run
-indicator. Factory reset restores first-run behavior.
+First-run, guide, waiting and character-led error views use a fixed multicolor
+perimeter as decoration, not a measure of progress. QR pages reveal that
+perimeter only with the temporary chrome. Elsewhere the violet setup animation
+indicates setup has not yet completed; it clears when both Wi-Fi and the Codex
+connection are observed connected. Later disconnects do not restore the
+first-run indicator. Factory reset restores first-run behavior.
 
 QR screens prioritize a title and a readable code with its complete quiet zone.
 A tap temporarily reveals status and perimeter chrome; a right swipe returns

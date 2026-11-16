@@ -13,7 +13,7 @@ public partial class App : Application
             Diagnostics.Record("ui.unhandled", error.Exception.GetType().Name + ": " + error.Exception.Message);
             try
             {
-                var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenAIUsage");
+                var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodyCompanion");
                 Directory.CreateDirectory(directory);
                 File.WriteAllText(Path.Combine(directory, "startup-error.log"), error.Exception.ToString());
             }

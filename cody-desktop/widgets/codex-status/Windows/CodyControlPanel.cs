@@ -13,6 +13,10 @@ public sealed class CodyControlPanel : UserControl
     private readonly Storage storage;
     private readonly WidgetSettings settings;
     private readonly CancellationTokenSource lifetime;
+    private readonly Func<WindowsNotificationForwarder> notificationOwner;
+    private readonly StackPanel notificationApplications = new() { Spacing = 5 };
+    private readonly CheckBox notificationEnabled = new() { Content = "Forward selected Windows notifications" };
+    private readonly TextBlock notificationStatus = Label("Windows notification forwarding is disabled.");
     private readonly DispatcherTimer poll = new() { Interval = TimeSpan.FromSeconds(5) };
     private readonly List<Button> commands = [];
     private readonly TextBlock source = Label("Source unavailable", 22);
@@ -37,10 +41,11 @@ public sealed class CodyControlPanel : UserControl
     // storage: Existing local settings owner; account observations remain independent.
     // settings: Shared widget settings, updated only after an explicit save.
     // cancellationToken: Widget lifetime; closing the panel cancels only its control requests.
-    public CodyControlPanel(Storage storage, WidgetSettings settings, CancellationToken cancellationToken)
+    public CodyControlPanel(Storage storage, WidgetSettings settings, CancellationToken cancellationToken, Func<WindowsNotificationForwarder> notificationOwner)
     {
         this.storage = storage;
         this.settings = settings;
+        this.notificationOwner = notificationOwner;
         lifetime = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         Content = layout;
         interpreter = new() { Header = "Python executable", Text = settings.CodyBridge.PythonExecutable };
@@ -74,10 +79,79 @@ public sealed class CodyControlPanel : UserControl
         Children.Add(quietEnd);
         Children.Add(Command("Save clock preferences", SaveClockAsync));
 
+        Children.Add(Label("Windows notifications", 18));
+        Children.Add(Label("Notification listening requires a Windows package with the notification listener capability. Unpackaged or MSI installs may not provide it."));
+        Children.Add(Label("Windows asks for access to all notifications. Only selected applications are used; Cody receives a generic alert without notification content."));
+        Children.Add(Label("Select a physical Cody above. Applications appear after Windows has shown one of their notifications."));
+        notificationEnabled.IsChecked = settings.WindowsNotificationsEnabled;
+        Children.Add(notificationEnabled);
+        Children.Add(Row(Command("Allow Windows access", RequestNotificationAccessAsync), Command("Refresh applications", RefreshNotificationApplicationsAsync)));
+        Children.Add(notificationApplications);
+        Children.Add(Command("Save notification selection", SaveNotificationSelectionAsync));
+        Children.Add(notificationStatus);
+
         Children.Add(result);
         poll.Tick += async (_, _) => { RenderSourceStatus(); await RunAsync(RefreshStatusAsync); };
         Loaded += async (_, _) => { poll.Start(); await RunAsync(RefreshStatusAsync); };
         Unloaded += (_, _) => { disposed = true; poll.Stop(); lifetime.Cancel(); lifetime.Dispose(); };
+    }
+
+    // No parameters: request user-granted Windows notification access and populate the selection.
+    // Exception: Windows capability or consent errors remain visible in the panel.
+    private async Task RequestNotificationAccessAsync()
+    {
+        var owner = notificationOwner();
+        var access = await owner.RequestAccessAsync();
+        if (access != global::Windows.UI.Notifications.Management.UserNotificationListenerAccessStatus.Allowed)
+            throw new InvalidOperationException("Windows notification access was not granted.");
+        await RefreshNotificationApplicationsAsync();
+    }
+
+    // No parameters: merge current notification applications with previously selected identities.
+    // Exception: Displays listener errors without changing the saved selection.
+    private async Task RefreshNotificationApplicationsAsync()
+    {
+        var applications = await notificationOwner().AvailableApplicationsAsync();
+        var selected = notificationApplications.Children.OfType<CheckBox>().Any()
+            ? notificationApplications.Children.OfType<CheckBox>().Where(item => item.IsChecked == true).Select(item => (string)item.Tag).ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : settings.WindowsNotificationApplicationIds.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        notificationApplications.Children.Clear();
+        foreach (var app in applications)
+            notificationApplications.Children.Add(new CheckBox { Content = app.Name, Tag = app.Id, IsChecked = selected.Remove(app.Id) });
+        foreach (var id in selected)
+            notificationApplications.Children.Add(new CheckBox { Content = id + " (previously selected)", Tag = id, IsChecked = true });
+        notificationStatus.Text = applications.Count == 0 ? "No applications have current notifications. Send a notification and refresh." : "Select the applications to forward.";
+    }
+
+    // No parameters: save the explicit target and application choices and update the widget owner.
+    // Exception: Reports absent selections, persistence failures and listener access failures.
+    private Task SaveNotificationSelectionAsync()
+    {
+        bool enable = notificationEnabled.IsChecked == true;
+        var applications = notificationApplications.Children.OfType<CheckBox>().Where(item => item.IsChecked == true)
+            .Select(item => (string)item.Tag).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (enable && notificationApplications.Children.Count == 0)
+            throw new ArgumentException("Allow Windows access and refresh applications before saving.");
+        var target = enable ? SelectedDevice() : settings.WindowsNotificationDeviceId;
+        if (enable && applications.Count == 0) throw new ArgumentException("Select at least one application.");
+        var owner = notificationOwner();
+        bool oldEnabled = settings.WindowsNotificationsEnabled;
+        string oldTarget = settings.WindowsNotificationDeviceId;
+        var oldApplications = settings.WindowsNotificationApplicationIds;
+        settings.WindowsNotificationsEnabled = enable;
+        settings.WindowsNotificationDeviceId = target;
+        settings.WindowsNotificationApplicationIds = applications;
+        try { owner.Apply(settings); storage.SaveSettings(settings); }
+        catch
+        {
+            settings.WindowsNotificationsEnabled = oldEnabled;
+            settings.WindowsNotificationDeviceId = oldTarget;
+            settings.WindowsNotificationApplicationIds = oldApplications;
+            try { owner.Apply(settings); } catch { /* Original error remains authoritative. */ }
+            throw;
+        }
+        notificationStatus.Text = enable ? "Forwarding active while this widget is running. Cody receives a generic notification." : "Forwarding disabled.";
+        return Task.CompletedTask;
     }
 
     // text: Visible native caption.
@@ -112,8 +186,7 @@ public sealed class CodyControlPanel : UserControl
         foreach (var button in commands) button.IsEnabled = false;
         try { await action(); }
         catch (OperationCanceledException) { if (!disposed) result.Text = "Operation interrupted; refresh before repeating a change."; }
-        catch (Exception error) when (error is IOException or ArgumentException or JsonException or InvalidOperationException or
-            KeyNotFoundException or UnauthorizedAccessException or FormatException or OverflowException or System.ComponentModel.Win32Exception)
+        catch (Exception error)
         {
             if (!disposed) result.Text = error.Message;
         }
@@ -181,8 +254,17 @@ public sealed class CodyControlPanel : UserControl
         next.Validate();
         var previous = settings.CodyBridge;
         settings.CodyBridge = next;
-        try { storage.SaveSettings(settings); }
-        catch { settings.CodyBridge = previous; throw; }
+        try
+        {
+            if (settings.WindowsNotificationsEnabled) notificationOwner().Apply(settings);
+            storage.SaveSettings(settings);
+        }
+        catch
+        {
+            settings.CodyBridge = previous;
+            if (settings.WindowsNotificationsEnabled) { try { notificationOwner().Apply(settings); } catch { } }
+            throw;
+        }
         result.Text = "Companion launcher saved.";
         await RefreshStatusAsync();
     }

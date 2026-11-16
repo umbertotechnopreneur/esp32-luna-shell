@@ -15,7 +15,8 @@ formats stay in their canonical guides.
 | Build, generate assets, capture logs or run an authorized check | [Public console](../scripts/README.md) |
 | Install CCP and review its hooks | [CCP installation and operation](../cody-desktop/plugins/cody-codex-plugin/README.md) |
 | Understand the Cody relay, Dot reachability and publication boundaries | [Cody remote integration](cody/runtime.md#remote-connections) |
-| Preview the interface on Windows | [Simulator](../cody-device/simulator/windows/README.md) |
+| Preview Cody on Windows or Linux, or use the Luna preview | [Desktop simulators](../cody-device/simulator/windows/README.md) |
+| Understand simulator modules, scenario formats and evidence boundaries | [Simulator architecture](../cody-device/simulator/windows/architecture.md) |
 
 ## Three documentation areas
 
@@ -51,7 +52,6 @@ mode. The shared BSP supports the Waveshare 1.75 GPS (16 MB) and 1.75C
 | [Planning Atlas](cody/cody-planning-atlas-v1.pdf) | Screen inventory, layout and product boundaries |
 | [Pairing Quickstart](cody/cody-ccp-pairing-quickstart-a5-v1.pdf) | Exactly four A5 instructional pages for local pairing; no added cover, contents or appendix |
 | [CCP Communication Atlas](cody/cody-ccp-connection-atlas-v1.pdf) | Current local pairing and events, private relay persistence on mounted SMB/Samba storage, and separate orchestration and integration limits |
-| [A4 navigation map](cody/device-navigation-map-a4.pdf) | One-page device-first dashboard, Options and event routes |
 
 Use screen IDs to match atlas pages to the firmware. The console guide covers
 PDF generation, front matter and the Obsidian mirror. [Console guide](../scripts/README.md)

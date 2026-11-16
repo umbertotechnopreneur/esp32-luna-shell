@@ -5,7 +5,7 @@ description: Personalize a paired Cody with the user's preferred name, UTC offse
 
 Use `ccp_connection_status` to select the intended currently connected Cody. A retained pairing alone is not current presence. Do not pair again to work around missing clock capability. Use `include_simulator: true` only when the user explicitly requests SIMULATED Cody.
 
-Cody requests the paired PC's actual UTC time and current offset on a new authenticated connection or through its Sync time action. The offset is a fixed number of minutes, not a named zone or daylight-saving rule. A later synchronization is needed after the PC's offset changes. Inspect device status for the actual outcome; sending is not proof that the device applied it.
+Cody's Auto time and Sync time action use network time over Wi-Fi; connecting a PC does not automatically change the clock or offset. A manually configured offset is a fixed number of minutes, not a named zone or daylight-saving rule. Inspect device status for the actual outcome; sending is not proof that the device applied it.
 
 Use `ccp_read_clock` for the device's current durable preferences. Use `ccp_configure_clock` for changes requested in chat; this reversible preference change does not require a reset or confirmation code. Supply `utc_offset_minutes` as an integer from -840 to 840, including half-hour and quarter-hour offsets. Do not infer an offset or daylight-saving rule from a city name; ask for the desired offset when it is not known.
 

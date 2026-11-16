@@ -18,7 +18,8 @@
   bounds. Keep native pixel byte order.
 - CO5300 bounce strips need contiguous internal DMA memory. Measure the largest
   block and actual overlap of slots, commands and deferred touch.
-- Reserve BLE before SD/display startup. Park and drain DMA before radio init or
+- For the Cody startup and pairing path, reserve BLE before SD/display startup.
+  Park and drain DMA before radio init or
   pairing telemetry teardown. Record parked frames under the gate lock. Retain
   reservations through standby/errors. Rearm only after SDK closure. Report closure
   and re-reservation failures separately. Assembly offsets cannot size allocations.
@@ -27,7 +28,8 @@
 
 ## Power, wake and acquisition
 
-- Paired LAN may require software standby. Keep routes, pose, active clocks, scene
+- For a paired device that must maintain LAN presence, software standby may be
+  required. Keep routes, pose, active clocks, scene
   timeouts and pairing dim override. Rebuild RAM owners after Deep-sleep.
 - Finish Sleep before closing display writes. Restore consumers before producers
   while dark. Lock rotation/brightness before settings, await fresh orientation and
@@ -51,7 +53,9 @@
 
 - Separate AFE fetch from TX waits. Await pause ACK before route close. Convert
   boot PCM in bounded chunks with identical speaker/AEC samples.
-- Cue typewriter audio from visible text in retired frames. Re-prime silently
+- Where a title or other explicitly animated text uses typewriter audio, cue it
+  from visible text in retired frames. Ordinary captions have no typewriter audio.
+  Re-prime silently
   after cancel, replacement or resume. Share ticket/audio generation and
   propagate playback/codec errors.
 - Wait for authenticated EVENTACK before replacing a terminal question. Complete
@@ -62,7 +66,8 @@
 
 ## Builds and diagnosis
 
-- Keep OTA images and ESP-SR models within the lower 16 MiB of 32 MB quad flash.
+- On the 32 MB quad-flash configuration with 24-bit mapping, keep OTA images and
+  ESP-SR models within the lower 16 MiB.
   Writes can verify above the 24-bit mapping limit and fail at boot.
 - IDF discovers components before Kconfig. Supply roots/defaults, check build-local
   locks, gate optional headers and isolate assets/stamps. Codec support and boot WAV

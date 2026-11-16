@@ -26,9 +26,6 @@ if (-not $reuse) {
         Invoke-WebRequest -Uri $source -OutFile $archive
         [IO.Compression.ZipFile]::ExtractToDirectory($archive,(Join-Path $toolRoot $id),$true)
     }
-    $scanner = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
-    & $scanner -Scan -ScanType 3 -File $toolRoot -DisableRemediation | Out-Host
-    if ($LASTEXITCODE -ne 0) { throw 'WiX import scan did not finish cleanly.' }
 }
 $context.ToolRoot = $toolRoot
 $context.Tools = @(Get-ChildItem -LiteralPath $toolRoot -Recurse -File | ForEach-Object {

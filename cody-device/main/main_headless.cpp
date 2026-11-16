@@ -307,6 +307,10 @@ extern "C" void app_main(void)
         LUNASHELL_logger_finish_boot_capture_wait(2000)
     );
     ESP_ERROR_CHECK(CODY_companion_boot_completed());
+#if CONFIG_LUNASHELL_BUILD_ENABLE_POWER_INPUTS
+    // Early PWR intents must not enter dark-frame recovery while Cody still rejects Wake.
+    ESP_ERROR_CHECK(LUNASHELL_power_manager_complete_display_startup());
+#endif
 #endif
 #if CONFIG_LUNASHELL_BUILD_ENABLE_TTS
     // Mandatory display, power and radio owners receive their memory first.

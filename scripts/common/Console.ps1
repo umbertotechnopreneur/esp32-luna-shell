@@ -35,6 +35,7 @@ function Get-DeviceFirmwarePresentation {
         'sd-log' = @{ Emoji = '📥'; Description = 'Download a stored SD log over USB with checked blocks; close the monitor first.' }
         'endurance-read' = @{ Emoji = '📥'; Description = 'Read canonical current/previous endurance records over USB, including Release builds; no reset.' }
         flash = @{ Emoji = '⚡'; Description = 'Build and write the selected firmware to the device, then reset it.' }
+        'inspect-flash' = @{ Emoji = '🔎'; Description = 'Inspect the partition table, OTA selection and WhatsApp gap without writing flash.' }
         reset = @{ Emoji = '🔄'; Description = 'Reset the device through serial control lines without writing firmware.' }
         combo = @{ Emoji = '🚀'; Description = 'Build, flash and attach the live monitor without an additional startup reset.' }
         recover = @{ Emoji = '🛟'; Description = 'Build and flash using the bounded USB reconnect and port-owner recovery flow.' }

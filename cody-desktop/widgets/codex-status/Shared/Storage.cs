@@ -8,26 +8,68 @@ public sealed class Storage
 {
     public string DirectoryPath { get; }
     public string SettingsPath => Path.Combine(DirectoryPath, "settings.json");
+    public Exception? SettingsReadFailure { get; private set; }
     public Storage(string? directory = null)
     {
         DirectoryPath = directory ?? (OperatingSystem.IsWindows()
-            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "OpenAIUsage")
-            : Path.Combine(Environment.GetEnvironmentVariable("XDG_STATE_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "state"), "openai-usage"));
+            ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodyCompanion")
+            : Path.Combine(Environment.GetEnvironmentVariable("XDG_STATE_HOME") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "state"), "cody-companion"));
         Directory.CreateDirectory(DirectoryPath);
         if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(DirectoryPath, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
     }
 
+    // No parameters: load the current configuration; defaults represent only an absent file.
+    // Exception: Retains and propagates read, JSON and validation failures without repairing the file.
     public WidgetSettings LoadSettings()
     {
-        if (!File.Exists(SettingsPath)) return new();
-        var settings = JsonSerializer.Deserialize<WidgetSettings>(File.ReadAllText(SettingsPath), JsonOptions.Default) ?? new();
-        settings.Validate();
-        return settings;
+        try
+        {
+            RejectSettingsLink();
+            WidgetSettings settings;
+            try
+            {
+                settings = JsonSerializer.Deserialize<WidgetSettings>(File.ReadAllText(SettingsPath), JsonOptions.Default)
+                    ?? throw new InvalidDataException("Widget settings must be a JSON object, not null.");
+            }
+            catch (FileNotFoundException)
+            {
+                // A link with an absent target is an invalid existing entry, not first use.
+                RejectSettingsLink();
+                if (!Directory.Exists(DirectoryPath))
+                    throw new DirectoryNotFoundException("The widget settings directory is unavailable.");
+                settings = new();
+            }
+            settings.Validate();
+            SettingsReadFailure = null;
+            return settings;
+        }
+        catch (Exception error) when (error is IOException or InvalidDataException or UnauthorizedAccessException or JsonException or
+            ArgumentException or TimeZoneNotFoundException or InvalidTimeZoneException)
+        {
+            SettingsReadFailure = error;
+            throw;
+        }
     }
 
+    // No parameters: inspect the settings directory entry without resolving a symbolic-link target.
+    // Exception: Rejects links, including dangling links, before any read or replacement.
+    private void RejectSettingsLink()
+    {
+        if (new FileInfo(SettingsPath).LinkTarget is not null)
+            throw new IOException("Widget settings must be a regular file, not a symbolic link.");
+    }
+
+    // settings: Complete user-selected configuration; no invalid value is repaired implicitly.
+    // Exception: Refuses writes after a failed read and propagates validation or atomic-write failures.
     public void SaveSettings(WidgetSettings settings)
     {
+        if (SettingsReadFailure is { } failure)
+            throw new IOException("Settings could not be loaded. Restore settings.json and reload before saving changes.", failure);
+        // Short-lived backend callers must also validate the existing file before replacing it.
+        _ = LoadSettings();
+        ArgumentNullException.ThrowIfNull(settings);
         settings.Validate();
+        RejectSettingsLink();
         AtomicWrite(SettingsPath, settings);
     }
 

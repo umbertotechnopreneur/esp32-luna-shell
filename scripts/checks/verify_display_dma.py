@@ -14,7 +14,7 @@
 #
 # VBWR E
 
-"""Run actual standalone BSP frame functions against a deterministic host DMA transport."""
+"""Run production BSP ownership and UI timeout policy against deterministic host boundaries."""
 from __future__ import annotations
 
 import argparse
@@ -109,6 +109,22 @@ def prepare_source(output: Path) -> dict:
     if end.index("bsp_display_frame_end(") >= end.index("LUNASHELL_liveness_watch_end("):
         raise ValueError("Display watchdog ends before the final DMA retires")
     cody = (ROOT / "cody-device/components/CODY_companion/src/runtime/CODY_device_ui.cpp").read_text(encoding="utf-8")
+    snapshot = (ROOT / "cody-device/components/LUNASHELL_platform/include/LUNASHELL_device_snapshot.hpp").read_text(encoding="utf-8")
+    budget = re.search(r"constexpr\s+uint32_t\s+kFrameBudgetMs\s*=\s*\d+\s*;", cody)
+    if not budget:
+        raise ValueError("Missing production frame budget")
+    retry_signature = "bool can_defer_frame_timeout("
+    retry_predicate = function_text(cody, retry_signature)
+    admission_type = re.search(r"enum class RenderAdmission\s*:\s*uint8_t\s*\{[^{}]*\};", cody)
+    if not admission_type:
+        raise ValueError("Missing production render admission policy")
+    backoff_signature = "bool frame_retry_pending("
+    backoff_predicate = function_text(cody, backoff_signature)
+    snapshot_type = function_text(snapshot, "struct DisplayFrameSnapshot") + ";"
+    (output / "retry_under_test.inc").write_text(
+        "namespace LUNASHELL {\n" + snapshot_type + "\n}\n" +
+        budget.group() + "\n" + retry_predicate + "\n" +
+        admission_type.group() + "\n" + backoff_predicate + "\n", encoding="utf-8")
     draw = function_text(cody, "esp_err_t render(")
     loop = draw[draw.index("for (uint16_t row = top;"):]
     borrow = loop.index("LUNASHELL_display_frame_buffer(")
@@ -118,15 +134,40 @@ def prepare_source(output: Path) -> dict:
     commit = loop.index("old = {frame.layer")
     if not borrow < raster < submit < retire < commit:
         raise ValueError("Renderer must borrow, rasterize, submit, then retire DMA before committing")
-    if not re.match(r"error = LUNASHELL_display_frame_end\(error\);\s*"
-                    r"if \(error != ESP_OK\) \{\s*old\.valid = false;\s*return error;\s*\}",
-                    loop[retire:commit]):
-        raise ValueError("Renderer must invalidate and return a retirement error before committing")
+    failed_retirement = function_text(loop[retire:commit], "if (error != ESP_OK)")
+    failed_retirement_end = loop.index(failed_retirement, retire) + len(failed_retirement)
+    if not re.match(r"if \(error != ESP_OK\)\s*\{\s*old\.valid = false;", failed_retirement):
+        raise ValueError("Renderer must invalidate before handling a retirement error")
+    certified_deferral = function_text(failed_retirement,
+        "if (observation_error == ESP_OK && can_defer_frame_timeout(")
+    returns = [value.strip() for value in re.findall(r"\breturn\s+([^;]+);", failed_retirement)]
+    if (set(returns) != {"error", "ESP_ERR_NOT_FINISHED"} or
+            returns.count("ESP_ERR_NOT_FINISHED") != 1 or
+            not re.search(r"\breturn\s+error\s*;\s*}$", failed_retirement) or
+            "return ESP_ERR_NOT_FINISHED;" not in certified_deferral):
+        raise ValueError("Only certified deferral may replace a retirement failure; no failure may commit")
+    if ("if (frame_retry_pending(admission, esp_timer_get_time(), frame_retry_at_us)) return ESP_ERR_NOT_FINISHED;" not in draw or
+            "RenderAdmission admission = RenderAdmission::Scheduled" not in draw or
+            "frame_retry_at_us = 0;" not in loop[failed_retirement_end:commit]):
+        raise ValueError("Retry backoff must be independent from full redraw and reset after successful retirement")
+    command = function_text(cody, "esp_err_t apply_command(")
+    lifecycle_render = "render(frame, true, RenderAdmission::LifecycleHandoff)"
+    if command.count(lifecycle_render) != 2 or cody.count(lifecycle_render) != 2:
+        raise ValueError("Only explicit lifecycle commands may bypass scheduled render backoff")
+    for signature in ("esp_err_t advance_branding(", "esp_err_t advance_birth_intro("):
+        animation = function_text(cody, signature)
+        if "render(frame, true)" not in animation or "RenderAdmission::LifecycleHandoff" in animation:
+            raise ValueError("Full redraw animations must retain scheduled retry admission")
+    if "ESP_ERR_NOT_FINISHED" in command or "if (error == ESP_OK) ui.state.asleep = true;" not in command:
+        raise ValueError("Power handoffs must preserve deferral and only sleep after a retired frame")
     return {"production_source_sha256": hashlib.sha256(bsp.encode()).hexdigest(),
             "production_allocator_sha256": hashlib.sha256(dma.encode()).hexdigest(),
-            "executed_functions": list(signatures),
+            "retry_policy_source_sha256": hashlib.sha256((retry_predicate + backoff_predicate).encode()).hexdigest(),
+            "executed_functions": list(signatures) + [retry_signature, backoff_signature],
             "integration": ["watchdog spans DMA drain", "idle slot reborrow before raster",
-                            "presentation state committed only after successful frame retirement"]}
+                            "presentation state committed only after successful frame retirement",
+                            "only fresh certified deadlines defer; power handoffs preserve deferral",
+                            "full redraw animations respect backoff; only lifecycle handoffs bypass it"]}
 
 
 # argv: Literal options supplied through device.ps1 check -Check display-dma.
@@ -137,25 +178,35 @@ def main(argv=None) -> None:
     args = parser.parse_args(argv)
     output = ROOT / "artifacts/checks/display-dma"
     output.mkdir(parents=True, exist_ok=True)
-    report = {"status": "failed", "scope": "actual BSP control flow with host transport; physical behavior unverified"}
+    report = {"status": "failed", "scope": "production BSP control flow and UI deadline predicate; physical behavior unverified"}
     try:
         report.update(prepare_source(output))
         compiler = resolve_compiler(args.compiler)
-        executable = output / "display-dma-contract.exe"
         includes = (output, output / "stubs", ROOT / "cody-device/components/esp32_s3_touch_amoled_1_75")
-        source = ROOT / "scripts/tests/display_dma/frame_contract.c"
-        if Path(compiler).stem.lower() in ("cl", "cl.exe"):
-            command = [compiler, "/nologo", "/TC", "/std:c11", "/O2", "/W4"]
-            command += [f"/I{directory}" for directory in includes]
-            command += [str(source), f"/Fo{output}/", f"/Fe{executable}"]
-        else:
-            command = [compiler, "-x", "c", "-std=c11", "-O2", "-Wall", "-Wextra"]
-            command += [f"-I{directory}" for directory in includes]
-            command += [str(source), "-o", str(executable)]
         report["compiler"] = compiler
-        run_stage(command, output, "compile")
-        executed = run_stage([str(executable)], output, "contract")
-        report["contracts"] = executed.stdout.splitlines()
+        report["contracts"] = []
+        for source_name, suffix, language, standard, definitions in (
+            ("frame_contract.c", "dma", "c", "c11", ()),
+            ("frame_contract.c", "dma-cody", "c", "c11",
+             ("CONFIG_LUNASHELL_BUILD_PROFILE_CODY_COMPANION=1",)),
+            ("retry_contract.cpp", "retry", "c++", "c++17", ()),
+        ):
+            source = ROOT / "scripts/tests/display_dma" / source_name
+            executable = output / f"display-{suffix}-contract.exe"
+            if Path(compiler).stem.lower() in ("cl", "cl.exe"):
+                command = [compiler, "/nologo", "/TC" if language == "c" else "/TP",
+                           f"/std:{standard}", "/O2", "/W4"]
+                command += [f"/D{definition}" for definition in definitions]
+                command += [f"/I{directory}" for directory in includes]
+                command += [str(source), f"/Fo{output}/", f"/Fe{executable}"]
+            else:
+                command = [compiler, "-x", language, f"-std={standard}", "-O2", "-Wall", "-Wextra"]
+                command += [f"-D{definition}" for definition in definitions]
+                command += [f"-I{directory}" for directory in includes]
+                command += [str(source), "-o", str(executable)]
+            run_stage(command, output, f"compile-{suffix}")
+            executed = run_stage([str(executable)], output, f"contract-{suffix}")
+            report["contracts"].extend(executed.stdout.splitlines())
         report["status"] = "passed"
     except Exception as error:
         report["error"] = f"{type(error).__name__}: {error}"

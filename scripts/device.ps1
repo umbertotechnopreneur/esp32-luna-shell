@@ -26,7 +26,7 @@ param(
     [Parameter(Position = 0)]
     [ValidateSet('menu','help','list','simulator','simulator-luna','boot-screens',
         'check','generate','banner','package-simulator','clean-artifacts','codex-audio','preflight','relay',
-        'build','clean','fullclean','flash','reset','monitor','capture','sd-log','endurance-read','erase',
+        'build','clean','fullclean','flash','inspect-flash','reset','monitor','capture','sd-log','endurance-read','erase',
         'reconfigure','set-target','update-lock','size','combo','ports','discovery','port-status','recover')]
     [string]$Action = 'menu',
     [string]$Port,
@@ -126,7 +126,14 @@ try {
             $dispatch[$key] = $PSBoundParameters[$key]
         }
         $dispatch.Action = $Action
-        $resolvedLog = Resolve-ArtifactPath $LogPath "artifacts/logs/$Action.log"
+        $defaultLog = if ($Action -eq 'inspect-flash') {
+            "artifacts/logs/inspect-flash-$([Guid]::NewGuid().ToString('N')).log"
+        } else { "artifacts/logs/$Action.log" }
+        $resolvedLog = Resolve-ArtifactPath $LogPath $defaultLog
+        if ($Action -eq 'inspect-flash' -and (Test-Path -LiteralPath $resolvedLog)) {
+            $resolvedLog = $null
+            throw 'The inspection log already exists; choose an unused LogPath.'
+        }
         if ($BuildDir) {
             $dispatch.BuildDir = Resolve-ArtifactPath $BuildDir ''
         }
@@ -172,7 +179,7 @@ try {
         }
 
         $failureStage = 'selecting serial port'
-        if ($Action -in @('flash','reset','monitor','capture','sd-log','endurance-read','erase','combo','port-status','recover')) {
+        if ($Action -in @('flash','inspect-flash','reset','monitor','capture','sd-log','endurance-read','erase','combo','port-status','recover')) {
             if ($PSBoundParameters.ContainsKey('Port')) {
                 $dispatch.Port = Normalize-PortName -RequestedPort $Port
             } else {

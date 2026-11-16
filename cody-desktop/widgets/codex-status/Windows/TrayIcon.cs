@@ -12,13 +12,13 @@ public sealed class TrayIcon : IDisposable
     private readonly nint window;
     private readonly nint icon;
     private readonly uint taskbarCreated;
-    private readonly Action show, about, settings, website, manifesto, exit;
+    private readonly Action show, about, settings, codySetup, codyAbout, codyOnboarding, codyRules, website, manifesto, exit;
     private bool disposed;
     public bool IsAvailable { get; private set; }
 
-    public TrayIcon(string iconPath, Action show, Action about, Action settings, Action website, Action manifesto, Action exit)
+    public TrayIcon(string iconPath, Action show, Action about, Action settings, Action codySetup, Action codyAbout, Action codyOnboarding, Action codyRules, Action website, Action manifesto, Action exit)
     {
-        this.show=show; this.about=about; this.settings=settings; this.website=website; this.manifesto=manifesto; this.exit=exit;
+        this.show=show; this.about=about; this.settings=settings; this.codySetup=codySetup; this.codyAbout=codyAbout; this.codyOnboarding=codyOnboarding; this.codyRules=codyRules; this.website=website; this.manifesto=manifesto; this.exit=exit;
         procedure = OnMessage;
         var type = new WindowClass { Size=(uint)Marshal.SizeOf<WindowClass>(), Procedure=Marshal.GetFunctionPointerForDelegate(procedure),
             Instance=GetModuleHandle(null), ClassName=className };
@@ -41,6 +41,13 @@ public sealed class TrayIcon : IDisposable
         data.Info=message.Length>250?message[..250]:message; data.InfoFlags=2;
         ShellNotifyIcon(1,ref data);
     }
+    public bool NotifyQuota(string message)
+    {
+        if (disposed || !IsAvailable) return false;
+        var data=Data(); data.Flags=0x10; data.InfoTitle="OpenAI Usage · Allowance alert";
+        data.Info=message.Length>250?message[..250]:message; data.InfoFlags=1;
+        return ShellNotifyIcon(1,ref data);
+    }
     private nint OnMessage(nint hwnd,uint message,nint wParam,nint lParam)
     {
         if(message==taskbarCreated && taskbarCreated!=0) { if(!Add())show(); return 0; }
@@ -60,12 +67,15 @@ public sealed class TrayIcon : IDisposable
         {
             AppendMenu(menu,0,1,"Open"); AppendMenu(menu,0x800,0,null);
             AppendMenu(menu,0,3,"About OpenAI Usage"); AppendMenu(menu,0,4,"Settings");
+            AppendMenu(menu,0,8,"Cody Setup"); AppendMenu(menu,0,9,"About Cody");
+            AppendMenu(menu,0,10,"Cody onboarding");
+            AppendMenu(menu,0,11,"PC Alerts");
             AppendMenu(menu,0,5,"Website"); AppendMenu(menu,0,6,"VibeWare manifesto");
             AppendMenu(menu,0x800,0,null); AppendMenu(menu,0,7,"Exit");
             GetCursorPos(out var point); SetForegroundWindow(window);
             uint command=TrackPopupMenuEx(menu,0x100|2,point.X,point.Y,window,0);
             PostMessage(window,0,0,0);
-            switch(command) { case 1:show();break; case 3:about();break; case 4:settings();break; case 5:website();break; case 6:manifesto();break; case 7:exit();break; }
+            switch(command) { case 1:show();break; case 3:about();break; case 4:settings();break; case 5:website();break; case 6:manifesto();break; case 7:exit();break; case 8:codySetup();break; case 9:codyAbout();break; case 10:codyOnboarding();break; case 11:codyRules();break; }
         }
         catch(Exception error) { Diagnostics.Record("tray.command.failed",error.GetType().Name+": "+error.Message); }
         finally { DestroyMenu(menu); }
