@@ -15,7 +15,7 @@ from PIL import Image, ImageChops
 from cody_native_runtime import ROOT
 from cody_studio_atlas import ATLAS_ROOT, AtlasJob, load_atlas
 from cody_studio_catalog import entry_for, load_catalog, pilot_entries
-from cody_studio_pdf import export_atlas
+from cody_studio_pdf import concise_reason, export_atlas
 from cody_studio_runner import load_capture
 
 
@@ -50,7 +50,7 @@ class AtlasPdfTests(unittest.TestCase):
         cls.unsupported = unsupported
 
     # self: Active PDF acceptance case, without generating another document.
-    # reader: The complete published PDF, including cover, overflow and register pages.
+    # reader: Every page of the compact illustrated native atlas.
     # Raises AssertionError for missing/extra rules, cramped writing rows or content in the reserved band.
     def assert_handwriting_space(self, reader):
         from pypdf.generic import ContentStream
@@ -103,17 +103,16 @@ class AtlasPdfTests(unittest.TestCase):
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
         captured = sum(case["acquisition"] == "captured" for case in self.manifest["cases"])
         self.assertEqual(captured, len(pilot_entries()) + 2)
-        self.assertIn(f"{captured} acquired native frames / {len(self.manifest['cases'])} selected cases", text)
+        self.assertEqual(len(reader.pages), (len(self.manifest["cases"]) + 4) // 5)
         self.assertIn(self.family["inventory_family_id"] + " (family)", text)
-        self.assertIn(f"catalog contains {len(self.catalog)} entries", text)
-        self.assertIn(self.manifest["inventory"]["revision"], text)
-        self.assertIn(self.manifest["inventory"]["sha256"], text.replace("\n", ""))
+        self.assertIn(self.manifest["inventory"]["revision"], reader.metadata.subject)
+        self.assertIn(self.manifest["inventory"]["sha256"], reader.metadata.subject)
         self.assertIn("FRAME UNAVAILABLE", text)
         self.assertIn(self.unsupported["id"], text)
-        self.assertIn("".join(self.unsupported["reason"].split()), "".join(text.split()))
-        self.assertIn("INCOMPLETE", text)
-        self.assertIn("Corrections register", text)
-        self.assertIn("Three blank handwriting lines spaced 7 mm apart", text.replace("\n", " "))
+        self.assertIn("".join(concise_reason(self.unsupported["reason"]).split()), "".join(text.split()))
+        for unwanted in ("Evidence details", "Coverage and absences", "Outside this suite",
+                         "Corrections register", "runtime-full"):
+            self.assertNotIn(unwanted, text)
         self.assert_handwriting_space(reader)
         expected_images = []
         for case in self.manifest["cases"]:
@@ -121,9 +120,10 @@ class AtlasPdfTests(unittest.TestCase):
                 continue
             metadata = load_capture(ROOT / case["capture"]).metadata
             self.assertIn(case["inventory_id"] or case["inventory_family_id"], text)
-            self.assertIn(case["rendering_mode"], text)
+            if case["rendering_mode"] == "presenter-isolated":
+                self.assertIn("Isolated", text)
             self.assertIn(case["symbol"], text)
-            self.assertIn(case["source"], text.replace("\n", ""))
+            self.assertIn(Path(case["source"]).name, text.replace("\n", ""))
             with Image.open((ROOT / case["capture"]).parent / metadata["png"]) as frame:
                 expected_images.append(frame.convert("RGB").copy())
         embedded_images = [image.image.convert("RGB") for page in reader.pages for image in page.images]
@@ -140,11 +140,12 @@ class AtlasPdfTests(unittest.TestCase):
         self.assertEqual(event_case["rendering_mode"], "presenter-isolated")
         event_record = load_capture(ROOT / event_case["capture"])
         self.assertEqual(event_record.metadata["frame_identity"]["target"], "cody.event.check-failures")
-        event_pages = [page for page in reader.pages if event_case["id"] in (page.extract_text() or "")]
-        self.assertEqual(len(event_pages), 1, "Event source identity must identify one PDF case page")
+        event_pages = [page for page in reader.pages
+                       if event_case["id"] in (page.extract_text() or "") and page.images]
+        self.assertEqual(len(event_pages), 1, "Event source identity must identify one illustrated PDF case page")
         event_text = event_pages[0].extract_text() or ""
         self.assertIn("N10", event_text)
-        self.assertIn("presenter-isolated", event_text)
+        self.assertIn("Isolated", event_text)
         with Image.open(event_record.image_path) as image:
             native_event = image.convert("RGB").copy()
         self.assertTrue(any(embedded.image.size == native_event.size and
