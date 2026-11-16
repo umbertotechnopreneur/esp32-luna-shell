@@ -10418,7 +10418,7 @@
         "Static inspection does not replay navigation, authenticated transport, replies or device approval",
         "Touch and event actions are disabled; no real account, network or device operation is submitted",
         "Synthetic Wi-Fi must remain connected; physical-device acceptance is separate",
-        "Current shared notification detail, not the retired ActivityPage reply view; no actual reply or inbox route is replayed"
+        "Current shared notification detail; no actual reply or inbox route is replayed"
       ],
       "controls": [],
       "suite": "extension",

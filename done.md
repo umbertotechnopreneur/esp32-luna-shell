@@ -3,8 +3,8 @@
 ## 2026-11-16 · Cody Studio native atlas
 
 The latest isolated native atlas captured **104 of 104 selected cases**: 73
-full-runtime and 31 isolated presenters. The 130-entry source catalog also
-contains eight unsupported and 18 not-applicable entries. Acquisitions map to
+full-runtime and 31 isolated presenters. The 125-entry source catalog also
+contains eight unsupported and 13 not-applicable entries. Acquisitions map to
 90 inventory-local IDs, eleven secondary family states and three source
 identities without an inventory mapping.
 

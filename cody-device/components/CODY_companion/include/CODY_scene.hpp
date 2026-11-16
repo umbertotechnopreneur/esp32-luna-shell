@@ -38,7 +38,7 @@ enum class HomeTokenMetric : uint8_t;
 // Explicit IDs do not change if authoring declarations are reordered.
 enum class SceneId : uint16_t {
     AnimationDemo = 0, Greeting = 1, PairInvitation = 2, InstallApp = 3,
-    ScanToPair = 4, Pairing = 5, PairingFailed = 6, Online = 7, CodyLook = 8,
+    ScanToPair = 4, Pairing = 5, PairingFailed = 6, Online = 7,
     DebugText = 9, MakeItYours = 10, Settings = 11, ConnectCodex = 12,
     SetupComplete = 13, LookingForPc = 14, Connected = 15,
     CodexChoice = 16, SetupMenu = 17, NetworkWait = 18,

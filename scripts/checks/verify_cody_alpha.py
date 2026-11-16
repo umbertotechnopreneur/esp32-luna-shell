@@ -94,7 +94,7 @@ class RigContractTests(unittest.TestCase):
     # self: Host context; the named Happy atlas scenes must keep awake eyes between blinks.
     def test_happy_scene_eyes_are_open(self):
         scenes = ScenePainter(ROOT, self.rig)
-        for identity in ("greeting", "pair-invitation", "online", "cody-look"):
+        for identity in ("greeting", "pair-invitation", "online"):
             self.assertEqual(scenes.face(identity)[FaceChannel.EYE_LEFT], 1)
             self.assertEqual(scenes.face(identity)[FaceChannel.EYE_RIGHT], 1)
 

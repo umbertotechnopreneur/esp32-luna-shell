@@ -11,8 +11,8 @@ This file tracks open implementation and acceptance. See [planned-todo.md](plann
    direct entry, atomic frame identity, comparison, immutable baselines, timeline
    inspection, firmware PCM, isolated atlas jobs and inventory-linked PDF export.
    Phase G now captures 104 source identities: 73 full-runtime cases and 31
-   isolated presenters. The 130-entry source catalog also declares eight
-   unsupported and 18 not applicable entries. Acquisitions map to 90 distinct
+   isolated presenters. The 125-entry source catalog also declares eight
+   unsupported and 13 not applicable entries. Acquisitions map to 90 distinct
    document-local IDs, eleven secondary family states and three unmapped sources. The original PDF's 100 local IDs are a separate count.
    Direct Home/Muse, isolated screensaver, carousel About and four Codex-link
    observations extend Settings, guide, Wi-Fi, saved-PC, statistics and browsers.
@@ -51,7 +51,7 @@ This file tracks open implementation and acceptance. See [planned-todo.md](plann
    Reply-ready detail, checks-passed, Debug provisioning and three static voice
    presenters have Linux captures and focused host checks. They do not replay
    audio capture, event actions or transport; touch and device acceptance remain
-   open. The retired ActivityPage reply identity is not reused.
+   open.
 
 ## First-run tour
 

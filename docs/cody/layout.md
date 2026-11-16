@@ -56,7 +56,6 @@ no typewriter timing or character audio.
 | Options menu | Swipe between pages; page marks show the current position |
 | Restart / factory reset confirmation | Cancel at (93,250,280,56), confirmation at (93,310,280,56); both use icon-and-separator rows |
 | Ordinary single action | (113,352,240,72) |
-| Compact Skin footer | (123,390,220,44) |
 | Numbered reply / pending-question rows | (73,256,320,60) and (73,328,320,60) |
 | Question-list hint | (99,394,268,25), separate from the wide content slot |
 
@@ -161,7 +160,7 @@ label takes precedence over the progress description until that tool returns.
 The display does not retain a completed call as active or infer its outcome.
 A hosted web search without a native hook remains unavailable.
 
-## Setup, QR and Skin
+## Setup and QR
 
 The mascot Home does not automatically show Wi-Fi or pairing prompts. A tap
 interacts with Cody and reveals the status layer; hold BOOT to open Options and
@@ -198,7 +197,6 @@ Both QR screens keep their white area within the square code tile.
 | 10 / Options | Title at y=82, up to four compact rows, swipe paging, and Back to the opening route |
 | 12 / Pair Codex | Title at y=88, link glyph at (205,148,56,56), and the six-character code at y=236 when ready |
 | 14 / Waiting for PC | Same heading and glyph slot as Pair Codex, with two status lines and Later |
-| 11 / Skin | Preview (233,172,44), title y=78, viewport (117,226,232,126), OK (123,386,220,48) |
 | 42 / Wi-Fi offline | Amber offline glyph, title at y=180, Set up Wi-Fi at (93,272,280,58), and Later at (153,350,160,50) |
 
 During passive reconnect, the 72-pixel signal glyph animates above Wi-Fi
@@ -208,10 +206,6 @@ Between attempts, the offline page shows the configured name even if the last
 association failed. The waiting page has no touch action. A usable Wi-Fi
 connection describes local network access. Codex link and relay availability
 are independent.
-
-Skin rows are 220 x 38 with 44-pixel steps. Only complete rows are drawn and
-interactive; scrolling admits three visible rows. Stable look IDs and save gates
-are described in [navigation](navigation.md).
 
 Session QR storage supports version 10: at most 57 x 57 modules, 407 bytes.
 Use integer modules and four white quiet modules. Payload/modules belong to the

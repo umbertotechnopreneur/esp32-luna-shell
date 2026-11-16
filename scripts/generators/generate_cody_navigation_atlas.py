@@ -20,7 +20,7 @@ from reportlab.graphics import renderPDF
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts/common"))
-from cody_pdf_revision_register import RevisionRecord, register_fonts, plain_paragraph, render_current_reference, ACCENTS
+from cody_pdf_revision_register import RevisionRecord, register_fonts, plain_paragraph, ACCENTS
 from generate_cody_security_atlases import latest_records, security_records
 
 DESTINATION = ROOT / "docs/cody/cody-navigation-atlas-v1.pdf"
@@ -31,24 +31,6 @@ INK = colors.HexColor("#142938")
 MUTED = colors.HexColor("#536C7B")
 LINE = colors.HexColor("#CBDCE6")
 SPRITES = []
-
-VISIBLE_SCREENS_TOPICS = (
-    ("Visible screens",
-     "Open Options > Visible screens. This page stores your preferences on Cody. Keep at least one of the eight main screens enabled."),
-    ("Cody and its panels",
-     "Cody is the main companion screen. Tokens, Model & Context, Device and Chat & Activity have their own switches. Hiding Cody also hides its panels and preserves their switches for when Cody is shown again."),
-    ("Navigation",
-     "The account carousel skips hidden screens. If Cody is hidden, navigation opens the first enabled statistics screen. Previous on that screen returns to Options. If all statistics screens are hidden, Codex stats opens Visible screens."),
-    ("Physical controls and dictation",
-     "Short PWR toggles standby and wake. Short BOOT while active opens Options. Home double tap starts dictation when Dictation is on and Cody has the authenticated LAN link to its paired PC."),
-)
-
-
-def visible_screens_reference():
-    return render_current_reference((WIDTH, HEIGHT), "Cody / Navigation Atlas", "Visible screens on Cody",
-                                    "Source reference for Options and on-device preferences. Physical verification is pending.",
-                                    VISIBLE_SCREENS_TOPICS)
-
 
 # Route IDs remain stable, independently of the document's physical pages.
 PAGES = [
@@ -406,8 +388,6 @@ def main():
         surface.showPage()
     surface.save()
     document = pymupdf.open(stream=output.getvalue(), filetype="pdf")
-    with pymupdf.open(stream=visible_screens_reference(), filetype="pdf") as reference:
-        document.insert_pdf(reference)
     history = compact_register(history_records(original), start_page=len(document) + 1)
     with pymupdf.open(stream=history, filetype="pdf") as register:
         document.insert_pdf(register)

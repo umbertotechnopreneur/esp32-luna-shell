@@ -167,23 +167,19 @@ not a dependency of the first Codex delivery or of phase 12.
 
 ### CODY-NEXT-00 - Preserve the baseline and reusable screens
 
-**Outcome:** a recoverable implementation baseline and an unambiguous inventory.
+**Outcome:** an unambiguous inventory of maintained screens.
 
 - [x] 🟢 **CODY-NEXT-00.01** Read current repository instructions, worktree status,
   source/docs differences and outstanding acceptance gates. Identify local work
   that must be preserved; do not reset, clean, move or overwrite it.
-- [x] 🟢 **CODY-NEXT-00.02** Inventory every retained screen: original code, stable
+- [x] 🟢 **CODY-NEXT-00.02** Inventory each maintained screen: source code, stable
   symbolic key, title, source presenter/assets, entry/return routes, data owner,
   dependencies, active/inactive status and evidence type. Separate source,
   editorial preview and actual hardware observations.
-- [x] 🟢 **CODY-NEXT-00.03** Reconcile 16/Muse Home and 10/Tools with the atlas and
-  older IDs. Preserve historical codes in a versioned namespace when necessary;
-  no ambiguous numeric lookup and no reuse of retired codes for unrelated screens.
-- [x] 🟢 **CODY-NEXT-00.04** Retain original reusable screen sources/assets with
-  explicit catalog references. Prefer retaining them in place and removing only
-  navigation exposure. If a physical move is necessary, preserve dependencies
-  and imports before changing routes. An archive must remain useful source,
-  not screenshots alone or an unmaintained copy of the application.
+- [x] 🟢 **CODY-NEXT-00.03** Keep current inventory, source and scene identities
+  distinct and reject ambiguous numeric lookups.
+- [x] 🟢 **CODY-NEXT-00.04** Keep maintained screen sources and assets connected
+  to their actual owners and catalog entries.
 - [x] 🟢 **CODY-NEXT-00.05** Map owners for network ingress, canonical observations,
   domain mutation, display, touch, settings, persistence and audio. Record lock,
   buffer and callback lifetimes before extending snapshots.
@@ -625,7 +621,7 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   browser views, direct Home/Muse and carousel About, isolated screensaver and
   Connected, and four explicit Codex link observations. All use the production
   C/C++ renderers and real host owners.
-  The source catalog contains 130 entries: 104 executable, eight unsupported and 18
+  The source catalog contains 125 entries: 104 executable, eight unsupported and 13
   not applicable. Acquired cases map to 90 distinct document-local IDs plus eleven
   explicit secondary family states and three unmapped sources; primary aliases remain unambiguous. The
   reference PDF's 100 local inventory IDs are a separate verified count.
@@ -666,8 +662,8 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   A compact PDF uses three frames per page with brief adjacent references and no
   text appendices; immutable capture evidence remains in the manifest. The
   reply-ready detail, checks-passed, profile-conditional Debug provisioning and
-  three static voice fixtures have Linux capture and focused checks. The retired
-  Activity reply ID is not reused; audio input and transport are not replayed.
+  three static voice fixtures have Linux capture and focused checks. Audio input
+  and transport are not replayed.
   Next prioritize event/question detail and replies, operation, maintenance,
   voice and sleep/wake lifecycles through their actual owners.
   Windows and physical acceptance stay open. General worker/timer precision
@@ -1160,7 +1156,7 @@ cloud, hardware and voice work is not automatically activated or marked complete
   (three presets) or retain four; preserve response/QR clearance.
 - [ ] **UI-05 - Font generation and raster.** Committed glyphs are 2bpp. Generate
   4bpp only when requested; then inspect coverage, tiles, byte order, compiled cost,
-  native parity, legibility and Options/Look scrolling.
+  native parity, legibility and Options/theme scrolling.
 
 ## Physical power, activity and fault evidence
 
@@ -1269,8 +1265,6 @@ The four-panel Home contract is in [Cody layout](docs/cody/layout.md).
   completed-text reveal, visible-only touch, contrast/chords/quiet zones and real
   QR scans at all rotations. Reconcile 05/06/07's suppressed lateral Back with
   the previous-route rule; Home retains its explicit no-Back contract.
-- [ ] **UI-06 - Look persistence.** Observe save/readback retry, busy Back/Done,
-  reset-during-write, rotated touch, stable IDs and repeated-entry leak/race behavior.
 - [ ] **UI-07 - Diagnostics/Memory.**
   Observe the measured overview and heap bars in Debug and Release. Cover
   unavailable states, Back/Normal restoration, standby, allocation errors and

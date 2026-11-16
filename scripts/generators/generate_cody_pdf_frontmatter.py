@@ -149,7 +149,7 @@ def publish(path):
     count = len(content)
     size = tuple(content[0].rect)[2:]
     sections = resolve_sections(content, path.name)
-    for label in ("Buttons and Codex statistics", "Visible screens on Cody",
+    for label in ("Buttons and Codex statistics",
                   "Current controls and Codex statistics", "Revision register", "Security"):
         for index, page in enumerate(content):
             if any(line == label or line.endswith(" / " + label) for line in page.get_text().splitlines()[:5]):

@@ -29,7 +29,7 @@ SCENE_IDENTITIES = {
     "greeting": (1, "Greeting"), "pair-invitation": (2, "PairInvitation"),
     "install-app": (3, "InstallApp"), "scan-to-pair": (4, "ScanToPair"),
     "pairing": (5, "Pairing"), "pairing-failed": (6, "PairingFailed"),
-    "online": (7, "Online"), "cody-look": (8, "CodyLook"),
+    "online": (7, "Online"),
     "debug-text": (9, "DebugText"),
     "make-it-yours": (10, "MakeItYours"), "settings": (11, "Settings"),
     "connect-codex": (12, "ConnectCodex"), "setup-complete": (13, "SetupComplete"),

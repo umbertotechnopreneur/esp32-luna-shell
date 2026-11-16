@@ -6,9 +6,9 @@
 
 **Author:** Umberto Giacobbi · **Created:** 2026-11-10 · **Updated:** 2026-11-16 · **Revision:** 1.3
 
-This is the `CODY-NEXT-00` source inventory. Retain implementations in place,
-including inactive presenters and versioned assets. This catalog is their reuse
-index, not a second application or a claim that every illustrated route runs.
+This is the `CODY-NEXT-00` source inventory of current screens and maintained
+references. It is not a second application or a claim that every illustrated
+route runs.
 The recoverable baseline is Git commit `5a177578` on `feat/cody-vNext`.
 Current navigation remains described in [navigation.md](navigation.md).
 
@@ -61,7 +61,6 @@ identify the owning journey; exact current controls remain in navigation.md.
 | atlas-v1:08 / provisioning-error | Pairing failed | ON + SC; provisioning error | Failed stage -> Retry/cancel through owner | Active; S |
 | atlas-v1:09 / wifi-result | You're online / Wi-Fi result | ON + SC; valid network/IP | Provisioning -> continue setup | Active; S |
 | atlas-v1:10 / options | Make it yours / Options | ON + SC; settings | BOOT tap opens the menu -> Settings; hold BOOT 2 s opens Options without voice input or requests voice input when included | Active; S; distinct from next-v1:10 |
-| atlas-v1:11 / skin | Cody's look | ON + SC; legacy character settings | Legacy personalization -> caller | Retained; S; not a Muse skin picker |
 | atlas-v1:12 / pair-pc | Pair Codex | ON + SC; CCP pairing transaction | Explicit connect/replace -> confirmed 13; Cancel retains old association | Active; S |
 | atlas-v1:13 / pairing-complete | You're all set | ON + SC; committed pairing | Two-sided confirmation -> saved-PC discovery | Active; S |
 | atlas-v1:14 / discover-pc | Finding your PC | ON + SC; CCP link | Retained association -> authenticated presence | Active; S |
@@ -77,7 +76,6 @@ identify the owning journey; exact current controls remain in navigation.md.
 | atlas-v1:22 / checks-running | Checks running/passed | ON + SC; check evidence | Same PR head -> status | Conditional event route; S |
 | atlas-v1:23 / checks-failed | Checks failed | ON + SC; check evidence | Failure -> detail 24 | Conditional event route; S |
 | atlas-v1:24 / check-failures | Failure details | ON + SC; check names | View failures -> Back to 23 | Conditional event route; S |
-| atlas-v1:25 / check-log | Former log route | AT | No current entry | Retired design; E; never reuse code |
 | atlas-v1:26 / question-notice | Codex needs you | ON + SC; event/inbox owner | Question -> queue/choices; Back retains question | Active when admitted; S |
 | atlas-v1:27 / question-choice | Choose / Review reply | ON + SC; stable choice identity | Choice -> full detail -> explicit Send; Back reverses selection | Active when admitted; S |
 | atlas-v1:28 / voice-capture | Preparing / Listening | UI + DV; voice owner | Record voice/double tap/wake -> Send or Cancel | Included in Cody wake-word variant; physical validation pending; S |
@@ -128,14 +126,11 @@ identify the owning journey; exact current controls remain in navigation.md.
 | widget-v1:Credits=6, Account=7 | `CODY_account_dashboard.cpp` | Carousel; voucher scroll/neighbor; account data | Active source |
 | widget-v1:Context=8, About=9 | `CODY_home_dashboard.cpp`, `CODY_system_info.cpp` | Carousel or Options > Device > About -> child info/previous page | Active source |
 | ui-v1:info-system, info-memory, info-firmware, vibeware, project-qr | `CODY_system_info.cpp`, `InfoPage` | About -> next/Back; diagnostics, build metadata, branding and repository QR | Active source |
-| ui-v1:visible-screens | Retired | Pages are selected automatically according to available data | Retired; identity preserved |
-| ui-v1:timer | Retired | Local countdown screen removed from Options and runtime | Retired; identity preserved |
 | ui-v1:diagnostics, memory-detail | `CODY_debug_views.cpp`, UI diagnostics layer | Debug/Release entry -> overview -> retained route | Active source |
 | ui-v1:audio | `CODY_audio_view.cpp`, UI audio layer | Options Audio levels -> retained Options caller; canonical microphone/playback observations | Active source; unavailable channel levels remain unavailable rather than synthetic microphone measurements |
 | ui-v1:screensaver | `CODY_screensaver.cpp` | Enabled idle policy -> first-touch dismissal | Active source, setting initially disabled |
 | ui-v1:activity-events, current-turn, statistics | CP; UI `ActivityPage` | Activity navigation -> event/detail/statistics | Active source, canonical selected-chat projection only |
-| ui-v1:reply | CP; former ActivityPage reply view | Former Activity navigation | Retired; current ActivityPage no longer has a reply view |
-| ui-v1:reply-ready-detail | ON; shared Codex event detail presenter | Reply-ready notification -> shared detail | Active reply-ready detail; separate from the retired ActivityPage reply view |
+| ui-v1:reply-ready-detail | ON; shared Codex event detail presenter | Reply-ready notification -> shared detail | Active reply-ready detail |
 | next-v1:101 / codex | Native Codex browser hub | Options -> Chats, Active calls, Questions, Events, Statistics or Saved when its bookmarked chat is available | Source |
 | next-v1:102 / chats | Canonical chat page | Codex -> selected chat / Turns; Back -> Codex | Source |
 | next-v1:103 / turns | Exact chat and its turns | Chats or Saved -> Tool calls or PC chat activity; Back -> caller | Source |
@@ -148,7 +143,7 @@ identify the owning journey; exact current controls remain in navigation.md.
 `SceneId` is a third, independent namespace. The full `scene-v1` source map is
 the retained enum plus `scenes/scenes.json`: 0 AnimationDemo; 1 Greeting;
 2 PairInvitation; 3 InstallApp; 4 ScanToPair; 5 Pairing; 6 PairingFailed;
-7 Online; 8 CodyLook; 9 DebugText; 10 MakeItYours; 11 Settings; 12 ConnectCodex;
+7 Online; 9 DebugText; 10 MakeItYours; 11 Settings; 12 ConnectCodex;
 13 SetupComplete; 14 LookingForPc; 15 Connected; 16 CodexChoice; 17 SetupMenu;
 18 NetworkWait; 19 ProjectActive; 20 Working; 21 ResponseReady; 22 SessionPaused;
 23 SessionEnded; 24 ConnectionLost; 25 CompanionIdle; 26 ActivityUnavailable;
@@ -217,9 +212,8 @@ the display owner. Static inspection blocks actions and updates; it does not
 replay authenticated transport, a reply, an inbox journey or event audio.
 Question choice and review have separate static fixtures. The reply-ready
 fixture uses the current shared notification detail with a synthetic chat
-origin; it does not restore the retired ActivityPage reply view. Declared
-source-family links do not create new inventory IDs. Acquisition and physical
-evidence remain separate.
+origin. Declared source-family links do not create new inventory IDs.
+Acquisition and physical evidence remain separate.
 
 Catalog availability describes the declared rendering path: full runtime,
 isolated presenter, profile conditional, unsupported or not applicable. It is

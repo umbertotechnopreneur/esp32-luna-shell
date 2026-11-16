@@ -85,7 +85,7 @@ class EventContractTests(unittest.TestCase):
         self.assertNotIn("request_id", unavailable)
 
     # self: The reply-ready fixture is a current shared event detail with its own origin.
-    # Raises AssertionError if the retired ActivityPage reply or a different origin is advertised.
+    # Raises AssertionError if the event kind, route or origin differs.
     def test_reply_ready_uses_current_event_detail_with_its_own_origin(self):
         entry = entry_for("ui-v1:reply-ready-detail")
         fixture = entry["fixed_dependencies"]["codex_event"]
@@ -93,8 +93,6 @@ class EventContractTests(unittest.TestCase):
                          ("ReplyReady", "Pending", "CodexNotice"))
         self.assertEqual((fixture["origin_title"], fixture["body"]),
                          ("Studio chat", "A reply is available."))
-        self.assertTrue(any("retired ActivityPage" in text for text in entry["limitations"]))
-        self.assertEqual(entry_for("ui-v1:reply")["availability"], "not-applicable")
 
     # self: Catalog and scenario contracts, without loading a native library.
     # Raises AssertionError for a guessed inventory alias or incoherent fixture.

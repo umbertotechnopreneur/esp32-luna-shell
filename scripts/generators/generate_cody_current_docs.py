@@ -610,10 +610,6 @@ def main(argv=None):
         "A synthetic localAudio item entered and left the public experimental queue, while Desktop reported that audio content was omitted because audio input was unsupported. Queue acceptance is not transcription or successful recipient audio delivery.",
         "Communication audio delivery / original voice screens 28-30.",
         "Observed synthetic queue/Desktop result. Physical-device voice submission was not performed."))
-    routes.append(record(DATE, "Errata", "Local timer retired",
-        "The local countdown screen, its Options entry, alarm and standby wake are removed. Other timekeeping and activity timers remain independent.",
-        "Navigation Options and standby; original ui-v1:timer.",
-        "Source review only; build, simulator and device verification remain pending."))
     routes.append(current_revision)
     communication_records.append(current_revision)
     outputs = {
