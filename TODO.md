@@ -52,6 +52,8 @@ This file tracks open implementation and acceptance. See [planned-todo.md](plann
    Reply-ready detail and Debug provisioning inspection are implemented in source;
    their native build, captures and acceptance remain pending. The retired
    ActivityPage reply identity is not reused for the new detail.
+   Checks-passed and three static voice presenters are also added in source;
+   audio capture, touch blocking and transport remain unverified at runtime.
 
 ## First-run tour
 

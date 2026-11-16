@@ -667,6 +667,8 @@ rotation. Auto rotation can be edited with gravity explicitly unavailable.
   text appendices; immutable capture evidence remains in the manifest. New
   reply-ready detail and profile-conditional Debug provisioning fixtures await
   host build and validation; the retired Activity reply ID is not reused.
+  Checks-passed and three voice phases also have static synthetic presenter
+  fixtures awaiting host validation; audio input and transport are not replayed.
   Next prioritize event/question detail and replies, operation, maintenance,
   voice and sleep/wake lifecycles through their actual owners.
   Windows and physical acceptance stay open. General worker/timer precision
