@@ -190,7 +190,13 @@ def check_assets(settings):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--compiler")
+    parser.add_argument("--storage", action="store_true",
+                        help="Run only the native SD observation freshness contract")
     args = parser.parse_args(argv)
+    if args.storage:
+        from scripts.checks.cody_storage_contract import check_storage_observation
+        check_storage_observation(args.compiler)
+        return
     output = ROOT / "artifacts/checks/cody-runtime"
     output.mkdir(parents=True, exist_ok=True)
     report = {"status": "failed", "hardware": "NOT ACCESSED", "firmware": "NOT BUILT"}

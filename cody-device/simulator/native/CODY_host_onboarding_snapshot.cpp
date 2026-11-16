@@ -749,8 +749,20 @@ esp_err_t DeviceSnapshotService::readDiagnosticsObservation(DiagnosticsObservati
     const auto ttl = measured_sample_ttl_us(s_snapshot);
     age_measured_sample(copy.memory, now, ttl);
     age_measured_sample(copy.processor, now, ttl);
-    age_measured_sample(copy.storage, now, 90LL * 1000000LL);
+    age_storage_sample(copy.storage, now);
     observation = copy;
+    return ESP_OK;
+}
+
+// storage: Bounded scenario SD observation with the same freshness policy as firmware.
+// Exception: An unseeded owner leaves the destination untouched.
+esp_err_t DeviceSnapshotService::readStorageObservation(StorageSnapshot &storage) const
+{
+    std::lock_guard<std::mutex> lock(s_mutex);
+    if (!s_seeded) return ESP_ERR_NOT_FOUND;
+    StorageSnapshot copy = s_snapshot.storage;
+    age_storage_sample(copy, esp_timer_get_time());
+    storage = copy;
     return ESP_OK;
 }
 

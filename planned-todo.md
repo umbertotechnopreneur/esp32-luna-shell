@@ -1135,7 +1135,7 @@ cloud, hardware and voice work is not automatically activated or marked complete
 ## Implementation and product decisions
 
 - [ ] **CLARITY-01 - Split route/frame responsibilities.** Extract coherent
-  presenters from `CODY_onboarding.cpp` and stages from `draw_companion_frame()`;
+  presenters from `CODY_onboarding.cpp` and display-owner stages from `CODY_device_ui.cpp`;
   keep orchestration, lifetime, lock ownership and errors explicit.
 - [ ] **CLARITY-02 - Share bounded marquee calculations.** The activity and approval
   headers still duplicate first-glyph/offset/capacity/centering math. Share only

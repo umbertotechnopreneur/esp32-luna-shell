@@ -24,6 +24,10 @@ namespace LUNASHELL {
 // ttl_us: Maximum age admitted by the caller's acquisition policy.
 void age_measured_sample(ComponentSnapshot &component, int64_t now_us, int64_t ttl_us);
 
+// storage: Original SD-owner observation; capacity and timestamps remain unchanged.
+// now_us: Explicit monotonic observation time, independent of sensor cadence.
+void age_storage_sample(StorageSnapshot &storage, int64_t now_us);
+
 // snapshot: Canonical cadence and validity used by full and bounded projections.
 int64_t measured_sample_ttl_us(const DeviceSnapshot &snapshot);
 // wifi: Original acquired signal and connectivity facts; timestamp stays unchanged.

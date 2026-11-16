@@ -45,6 +45,16 @@ void age_measured_sample(
     }
 }
 
+// storage: Original SD-owner observation; failure and capacity remain untouched.
+// now_us: Explicit monotonic observation time, never a new acquisition timestamp.
+void age_storage_sample(StorageSnapshot &storage, int64_t now_us)
+{
+    // FAT space is acquired every 60 seconds, independently of the sensor cadence.
+    // Match the existing diagnostics allowance while retaining real SD failures.
+    constexpr int64_t kStorageSampleTtlUs = 90LL * 1000000LL;
+    age_measured_sample(storage, now_us, kStorageSampleTtlUs);
+}
+
 // snapshot: Owner cadence and validity used to select a conservative TTL.
 int64_t measured_sample_ttl_us(const LUNASHELL::DeviceSnapshot &snapshot)
 {

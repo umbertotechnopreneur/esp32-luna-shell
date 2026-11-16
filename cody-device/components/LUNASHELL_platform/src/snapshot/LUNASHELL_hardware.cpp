@@ -3560,9 +3560,23 @@ esp_err_t DeviceSnapshotService::readDiagnosticsObservation(
     age_measured_sample(copy.memory, now_us, ttl_us);
     age_measured_sample(copy.processor, now_us, ttl_us);
     // Wi-Fi is event-owned rather than a periodically acquired numeric sample.
-    // FAT space is acquired every 60 seconds, independently of sensor cadence.
-    age_measured_sample(copy.storage, now_us, 90LL * 1000000LL);
+    age_storage_sample(copy.storage, now_us);
     observation = copy;
+    return ESP_OK;
+}
+
+// storage: Bounded canonical SD state; no driver read or complete snapshot copy.
+// Exception: Returns original lock/release errors without changing the destination.
+esp_err_t DeviceSnapshotService::readStorageObservation(StorageSnapshot &storage) const
+{
+    constexpr char operation[] = "storage observation read";
+    const auto error = take_snapshot_mutex(kSnapshotMutexTimeoutTicks, operation);
+    if (error != ESP_OK) return error;
+    StorageSnapshot copy = s_snapshot.storage;
+    const auto release_error = give_snapshot_mutex(operation);
+    if (release_error != ESP_OK) return release_error;
+    age_storage_sample(copy, esp_timer_get_time());
+    storage = copy;
     return ESP_OK;
 }
 
@@ -4901,8 +4915,9 @@ esp_err_t LUNASHELL::DeviceSnapshotService::readSpeechObservation(SpeechObservat
     const int64_t ttl_us = measured_sample_ttl_us(s_snapshot);
     error = give_snapshot_mutex("speech policy read");
     if (error != ESP_OK) return error;
-    age_measured_sample(copy.clock, esp_timer_get_time(), ttl_us);
-    age_measured_sample(copy.storage, esp_timer_get_time(), ttl_us);
+    const int64_t now_us = esp_timer_get_time();
+    age_measured_sample(copy.clock, now_us, ttl_us);
+    age_storage_sample(copy.storage, now_us);
     observation = copy;
     return ESP_OK;
 }

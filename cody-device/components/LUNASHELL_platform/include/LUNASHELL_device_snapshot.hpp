@@ -1527,6 +1527,9 @@ public:
     // No renderer-side hardware reads or independent telemetry cache are introduced.
     // Exception: Returns the original snapshot lock or release error without publishing a partial copy.
     esp_err_t readDiagnosticsObservation(DiagnosticsObservation &observation) const;
+    // storage: Bounded canonical SD observation, aged independently of sensor cadence.
+    // Exception: Returns original lock/release errors without changing the destination.
+    esp_err_t readStorageObservation(StorageSnapshot &storage) const;
     // frame: Last completed operation, including its timestamp and measured/error flags.
     // This projection never asks the display driver to acquire another measurement.
     esp_err_t readDisplayFrameObservation(DisplayFrameSnapshot &frame) const;

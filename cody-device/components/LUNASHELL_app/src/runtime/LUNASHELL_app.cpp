@@ -9838,6 +9838,8 @@ std::expected<void, std::string> App::request_log_search(AppContext &context)
     return {};
 }
 
+// context: Active application context used for the current Storage document's dialogs.
+// Exception: Returns original observation, dialog or admission failures without formatting.
 std::expected<void, std::string> App::request_sd_format(AppContext &context)
 {
     if (alert_service_.dialog_visible()) {
@@ -9852,7 +9854,16 @@ std::expected<void, std::string> App::request_sd_format(AppContext &context)
     const auto document_id = *active_screen_document_id_;
     const uint32_t generation = screen_document_generation_;
 
-    const StorageSnapshot storage = DeviceSnapshotService::instance().snapshot().storage;
+    StorageSnapshot storage;
+    const auto storage_error = DeviceSnapshotService::instance().readStorageObservation(storage);
+    if (storage_error != ESP_OK) {
+        const std::string details = "SD format status read failed: " +
+            std::string(esp_err_to_name(storage_error));
+        if (auto dialog_result = show_error_dialog(context, "SD format is not available", details); !dialog_result) {
+            return std::unexpected(details + "; error dialog failed: " + dialog_result.error());
+        }
+        return std::unexpected(details);
+    }
     if (!storage_format_required(storage)) {
         std::array<char, 192> informative_text{};
         if (storage_cleanup_failed(storage)) {
