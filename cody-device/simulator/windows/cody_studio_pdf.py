@@ -110,7 +110,7 @@ def concise_reason(reason):
 # manifest: Validated immutable suite identity and acquired build provenance.
 # records: Cases with snapshotted native PNG bytes or explicit absences.
 # catalog: Validated shared source catalog; not duplicated as a text appendix.
-# Returns a compact story with five fixed native-frame slots per page.
+# Returns a compact story with three fixed native-frame slots per page.
 # Raises ReportLab errors for invalid content; full evidence stays in the manifest.
 def pdf_story(manifest, records, catalog):
     from reportlab.lib import colors
@@ -127,7 +127,7 @@ def pdf_story(manifest, records, catalog):
     story = []
     # The same slots on each page preserve the picture-to-note relationship.
     for index, (case, metadata, pixels) in enumerate(records):
-        if index and index % 5 == 0:
+        if index and index % 3 == 0:
             story.append(PageBreak())
         title = f"{pdf_text(inventory_label(case))} / {pdf_text(case['title'])}"
         source = Path(case.get("source") or "").name or "Source unavailable"
@@ -136,7 +136,7 @@ def pdf_story(manifest, records, catalog):
             source_text += " / " + pdf_text(case["symbol"])
         lines = [pdf_text(case["id"]), source_text]
         if metadata is not None:
-            frame = Image(BytesIO(pixels), width=104, height=104)
+            frame = Image(BytesIO(pixels), width=140, height=140)
             frame.hAlign = "LEFT"
             if case["rendering_mode"] == "presenter-isolated":
                 lines.append("Isolated")
@@ -149,11 +149,11 @@ def pdf_story(manifest, records, catalog):
             lines.append(pdf_text(case["acquisition"]))
             lines.append(pdf_text(concise_reason(case.get("reason"))))
         text = [Paragraph(title, heading), Paragraph("<br/>".join(lines), detail)]
-        row = Table([[frame, text]], colWidths=[120, 407], rowHeights=[108], hAlign="LEFT")
+        row = Table([[frame, text]], colWidths=[160, 367], rowHeights=[145], hAlign="LEFT")
         row.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"),
             ("LEFTPADDING", (0, 0), (-1, -1), 0), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
             ("TOPPADDING", (0, 0), (-1, -1), 0), ("BOTTOMPADDING", (0, 0), (-1, -1), 0)]))
-        story.extend((row, Spacer(1, 10)))
+        story.extend((row, Spacer(1, 52)))
     return story
 
 

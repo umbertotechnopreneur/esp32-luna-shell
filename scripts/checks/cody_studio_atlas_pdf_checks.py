@@ -103,7 +103,7 @@ class AtlasPdfTests(unittest.TestCase):
         text = "\n".join(page.extract_text() or "" for page in reader.pages)
         captured = sum(case["acquisition"] == "captured" for case in self.manifest["cases"])
         self.assertEqual(captured, len(pilot_entries()) + 2)
-        self.assertEqual(len(reader.pages), (len(self.manifest["cases"]) + 4) // 5)
+        self.assertEqual(len(reader.pages), (len(self.manifest["cases"]) + 2) // 3)
         self.assertIn(self.family["inventory_family_id"] + " (family)", text)
         self.assertIn(self.manifest["inventory"]["revision"], reader.metadata.subject)
         self.assertIn(self.manifest["inventory"]["sha256"], reader.metadata.subject)

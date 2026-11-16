@@ -6,17 +6,24 @@ Create a branch, worktree or PR only when explicitly requested.
 
 ## Scope, validation and delivery
 
-- Implementation includes static source review. Obtain separate authorization
-  for scans, simulator runs, configure/build/size, installation and device
-  operations (serial, flash, erase, recovery, capture or monitoring). Announce
-  the exact command and obtain fresh approval for each test or suite.
+- Implementation includes static source review. An owner request to implement or
+  fix work authorizes the relevant configure/build/size, tests and simulator
+  runs needed for that work without separate approval for each command. Announce
+  exact commands before running them; avoid unnecessary or repeated checks.
+  Obtain separate authorization for scans, installation and physical device
+  operations (serial, flash, erase, recovery, capture or monitoring).
 - Complete integration and static review before final validation. Avoid interim
   configure/build/size passes. Allow at least 240 seconds and up to eight jobs
   per build. After cancellation confirm Ninja and Xtensa have stopped. Fix
   compiler/linker causes without globally suppressing warnings.
+- Reserve full test suites for substantial refactoring, explicit owner request
+  or cases that need them for verification. Run focused simulator checks when
+  relevant. Do not run or repeat full suites automatically for each build;
+  routine iterations use source review and the validation needed for the work.
 - A complete final package requires clean and incremental builds, size,
-  simulator checks, `git diff --check` and dependency/legacy scans. Narrower
-  requests cover named operations only. Before an authorized GitHub push, scan
+  `git diff --check` and dependency/legacy scans; apply the test policy above.
+  Narrower requests cover only relevant validation and separately authorized
+  operations. Before an authorized GitHub push, scan
   changed source for secrets, excluding firmware images. Report pending checks
   and distinguish build, host, flash and physical evidence.
 - Make focused local code checkpoints; push only when authorized. For requested

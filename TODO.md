@@ -1,6 +1,6 @@
 # Active work
 
-This file tracks open implementation and acceptance. See [planned-todo.md](planned-todo.md) for deferred work and development history. Apply [AGENTS.md](AGENTS.md) to each operation. Activating work does not authorize builds, tests, simulator runs, asset generation or device operations.
+This file tracks open implementation and acceptance. See [planned-todo.md](planned-todo.md) for deferred work and development history. Apply [AGENTS.md](AGENTS.md) to each operation. An owner request authorizes relevant validation; physical device operations require separate authorization.
 
 ## Current owner queue
 
@@ -48,7 +48,7 @@ This file tracks open implementation and acceptance. See [planned-todo.md](plann
    reply, Retry, populated notification paging or live PC activity. The separate
    PDF suite passed with bundled Python; see `done.md`. Lost32 remains deferred
    because the current dashboard can mask its connection-lost scene.
-   A compact five-frame PDF removes text appendices and retains handwriting space.
+   A compact three-frame PDF removes text appendices and retains handwriting space.
    Reply-ready detail and Debug provisioning inspection are implemented in source;
    their native build, captures and acceptance remain pending. The retired
    ActivityPage reply identity is not reused for the new detail.
