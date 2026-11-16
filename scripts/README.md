@@ -320,12 +320,20 @@ dispatcher. Bundled MenuManager has no runtime dependency on `E:\tools`.
 Disposable output belongs under this checkout's `artifacts/`, including explicit
 `-BuildDir`, `-LogPath`, `-OutputPath` and `-SizeOutputFile`. Relative public paths
 resolve from the checkout; simple Python capture names go to `artifacts/simulator/`.
-Before authorized build/flash/combo/recover, shared cleanup removes transient
-logs, serial captures, reports, previews, check output and temporary files.
+Build, flash, combo and recovery retain generated artifacts. Cleanup is manual:
+only an explicitly requested `clean-artifacts` removes eligible transient logs,
+serial captures, reports, check output and temporary files.
 It preserves firmware builds, locks, board configuration/overlays, Python caches
-and simulator protected state. `fullclean` affects only the selected firmware
-build. Writers hold exclusive artifact locks; cleanup bounds targets and rejects
-reparse points. Close active simulators/monitors before another writer.
+and the entire `artifacts/simulator/` and `artifacts/docs/` trees. Saved scenarios,
+baselines, notes and referenced captures are durable user data; remove unwanted
+simulator files explicitly. `fullclean` affects only the selected firmware build.
+Cody's interactive window releases the build writer after preparation, allowing
+new native builds while it remains open. Its session and output paths stay
+reserved; cleanup requires closing the window. Other operations retain the
+writer lock. Cleanup bounds targets and rejects reparse points.
+
+Tool discovery exposes public `verify_*` and `generate_*` entrypoints plus the
+explicitly registered standalone tools. Import-only helpers are not commands.
 
 Versioned `assets/**/generated` and downloaded `managed_components/` are inputs.
 Default outputs are `artifacts/logs/<action>.log`, `artifacts/serial/capture.log`

@@ -111,10 +111,13 @@ function Clear-DeviceArtifacts {
     $root = Get-DeviceArtifactsRoot
     $preserved = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     # Generated feature overlays remain CMake inputs across incremental builds.
-    # The isolated simulator identity is durable user state, not a disposable capture.
+    # Simulator paths can contain user-authored scenarios anywhere below their root.
+    # Keep captures, reviews, baselines and imported document inputs together: their
+    # references must survive even when a manifest is missing or unreadable.
     $persistentDirectories = @(
         'sdkconfig', 'board-config', 'feature-config', 'python', 'models',
-        'managed_components', 'cody-simulator-state', 'cody-simulator-state-linux', '.device.lock'
+        'managed_components', 'cody-simulator-state', 'cody-simulator-state-linux',
+        'simulator', 'docs', '.device.lock', '.simulator.lock', '.output-locks'
     )
     foreach ($name in $persistentDirectories) {
         $null = $preserved.Add($name)
@@ -154,14 +157,15 @@ function Clear-DeviceArtifacts {
     }
 }
 
-# No parameters: acquire the exclusive command-output lock until the caller disposes the stream.
+# Name selects the build/output writer gate or the interactive simulator lifetime.
 # Throws when the artifact directory cannot be created or the operation lock cannot be acquired.
 function Open-DeviceArtifactLock {
+    param([ValidateSet('device', 'simulator')][string]$Name = 'device')
     $root = Get-DeviceArtifactsRoot
     if (-not (Test-Path -LiteralPath $root -ErrorAction Stop)) {
         $null = New-Item -ItemType Directory -Path $root -ErrorAction Stop
     }
-    $lockPath = Resolve-ArtifactPath -RequestedPath (Join-Path $root '.device.lock')
+    $lockPath = Resolve-ArtifactPath -RequestedPath (Join-Path $root ".$Name.lock")
     try {
         return [System.IO.File]::Open($lockPath, [System.IO.FileMode]::OpenOrCreate,
             [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
@@ -169,5 +173,31 @@ function Open-DeviceArtifactLock {
         throw [System.IO.IOException]::new(
             "Cannot acquire the exclusive artifact operation lock '$lockPath': $($_.Exception.Message)",
             $_.Exception)
+    }
+}
+
+# Destination is the resolved log owned for the whole command, including live UI time.
+# Throws on invalid paths or conflicting writers, without opening the log itself.
+function Open-DeviceOutputLock([string]$Destination) {
+    $resolved = Resolve-ArtifactPath -RequestedPath $Destination
+    $key = if ($IsWindows) { $resolved.ToUpperInvariant() } else { $resolved }
+    $hash = [Convert]::ToHexString([Security.Cryptography.SHA256]::HashData([Text.Encoding]::UTF8.GetBytes($key)))
+    $directory = Resolve-ArtifactPath '' 'artifacts/.output-locks'
+    $null = New-Item -ItemType Directory -Path $directory -Force
+    $path = Resolve-ArtifactPath -RequestedPath (Join-Path $directory "$hash.lock")
+    try {
+        return [IO.File]::Open($path, [IO.FileMode]::OpenOrCreate,
+            [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+    } catch {
+        throw [IO.IOException]::new("Output is already owned or unavailable: $resolved. $($_.Exception.Message)", $_.Exception)
+    }
+}
+
+# Lease holds the mutable Writer stream; other lifetime/output locks remain owned.
+# Throws a disposal error instead of launching a UI with uncertain writer ownership.
+function Release-DeviceWriter([hashtable]$Lease) {
+    if ($null -ne $Lease.Writer) {
+        $Lease.Writer.Dispose()
+        $Lease.Writer = $null
     }
 }

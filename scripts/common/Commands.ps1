@@ -116,9 +116,19 @@ function Assert-DeviceActionParameters($RequestedAction, $BoundParameters, $Cont
 }
 
 # Group selects the checks or generators directory, never a caller-provided path.
+# Only public entrypoints are discoverable; imported helpers never become commands.
+# Throws the directory inspection error if the owned tool directory is unreadable.
 function Get-DeviceTools([ValidateSet('checks','generators')][string]$Group) {
+    $prefix = if ($Group -eq 'checks') { '^verify_' } else { '^generate[_-]' }
+    $explicitTools = if ($Group -eq 'checks') {
+        @('check_resource_budgets', 'test_resource_budgets', 'decode_core_dump',
+          'cody_studio_activity_checks', 'cody_studio_coverage_checks', 'cody_studio_event_checks',
+          'cody_studio_inspection_checks', 'cody_studio_maintenance_checks',
+          'cody_studio_statistics_checks', 'cody_studio_voice_checks')
+    } else { @('minify_json_tree', 'package_cody_boot') }
     Get-ChildItem -LiteralPath (Join-Path $ProjectRoot "scripts/$Group") -File |
-        Where-Object { $_.Extension -in @('.py','.ps1') -and $_.BaseName -ne '__init__' } |
+        Where-Object { $_.Extension -in @('.py','.ps1') -and
+            ($_.BaseName -cmatch $prefix -or $_.BaseName -cin $explicitTools) } |
         ForEach-Object {
             $name = $_.BaseName -replace '^(verify_|generate_|generate-)', '' -replace '_','-'
             [pscustomobject]@{ Name = $name; Path = $_.FullName; Extension = $_.Extension }
@@ -166,8 +176,9 @@ function Invoke-HostTool([string]$Path, [string[]]$Arguments, [string]$PythonExe
 
 # RequestedAction names the already-validated public route.
 # Options carries explicit parameters plus resolved output paths.
+# BeforeInteractiveLaunch releases the build writer after preparation, retaining UI/log ownership.
 # Throws the underlying command error; a failed operation never becomes success.
-function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
+function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options, [scriptblock]$BeforeInteractiveLaunch) {
     # Native firmware and host previews share this source-generated palette.
     # Synchronize before either compiler or the host cache fingerprints headers.
     if ($RequestedAction -in @('build','combo','recover','simulator','package-simulator','check') -or
@@ -217,6 +228,7 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
                 if ($Options.StudioCase) { $arguments += @('--studio-case',$Options.StudioCase) }
                 if ($Options.StudioScenario) { $arguments += @('--studio-scenario',$Options.StudioScenario) }
                 if ($Options.StudioCapture) { $arguments += '--studio-capture' }
+                if (-not $Options.StudioCapture -and $BeforeInteractiveLaunch) { & $BeforeInteractiveLaunch }
                 Invoke-HostTool (Join-Path $ProjectRoot 'cody-device/simulator/windows/cody_simulator.py') `
                     $arguments $Options.PythonExecutable
                 break
@@ -229,6 +241,7 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
                 }
                 $graphicsTool = Find-DeviceTool 'generators' 'cody-simulator-graphics'
                 Invoke-HostTool $graphicsTool.Path @('--device-runtime') $Options.PythonExecutable
+                if ($BeforeInteractiveLaunch) { & $BeforeInteractiveLaunch }
                 Invoke-HostTool (Join-Path $ProjectRoot 'cody-device/simulator/windows/cody_simulator.py') `
                     @('--device-runtime','--device-scenario',$scenario) $Options.PythonExecutable
                 break
@@ -256,6 +269,9 @@ function Invoke-DeviceCommand([string]$RequestedAction, [hashtable]$Options) {
                     Resolve-ArtifactPath '' "artifacts/simulator/$screenName.png"
                 } else { $Options.OutputPath }
                 if ($capture) { $arguments += @('--capture',$capture) }
+                if ($RequestedAction -eq 'simulator' -and -not $capture -and $BeforeInteractiveLaunch) {
+                    & $BeforeInteractiveLaunch
+                }
                 Invoke-HostTool (Join-Path $ProjectRoot 'cody-device/simulator/windows/cody_simulator.py') $arguments $Options.PythonExecutable
             }
         }

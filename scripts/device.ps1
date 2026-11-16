@@ -86,7 +86,10 @@ $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 . (Join-Path $PSScriptRoot 'common/Errors.ps1')
 
-$operationLock = $null
+$operationLease = @{ Writer = $null }
+$simulatorLock = $null
+$outputLock = $null
+$dataOutputLocks = [System.Collections.Generic.List[object]]::new()
 $resolvedLog = $null
 $operationFailure = $null
 $failureStage = 'loading command helpers'
@@ -177,9 +180,23 @@ try {
             }
         }
 
-        # Serialize output writers so concurrent commands do not overwrite active logs.
+        # Serialize preparation/build writers; interactive Cody releases this gate
+        # before its event loop while keeping its session and log reservations.
         $failureStage = 'acquiring artifact operation lock'
-        $operationLock = Open-DeviceArtifactLock
+        $operationLease.Writer = Open-DeviceArtifactLock
+        $interactiveCody = $Action -eq 'simulator' -and -not $OutputPath -and -not $StudioCapture
+        if ($interactiveCody -or $Action -eq 'clean-artifacts') {
+            $failureStage = 'acquiring simulator lifetime lock'
+            $simulatorLock = Open-DeviceArtifactLock -Name simulator
+        }
+        $failureStage = 'reserving command log'
+        $outputLock = Open-DeviceOutputLock -Destination $resolvedLog
+        $failureStage = 'reserving command outputs'
+        $dataDestinations = @($dispatch.OutputPath, $dispatch.SizeOutputFile)
+        if ($Action -eq 'endurance-read') { $dataDestinations += ($dispatch.OutputPath + '.wire') }
+        foreach ($destination in $dataDestinations | Where-Object { $_ } | Select-Object -Unique) {
+            $dataOutputLocks.Add((Open-DeviceOutputLock -Destination $destination))
+        }
         if ($Action -eq 'clean-artifacts') {
             $failureStage = 'cleaning transient artifacts'
             $protected = @()
@@ -221,7 +238,9 @@ try {
                 foreach ($message in $cleanupMessages) {
                     Write-Output ([string]$message)
                 }
-                Invoke-DeviceCommand -RequestedAction $Action -Options $dispatch
+                Invoke-DeviceCommand -RequestedAction $Action -Options $dispatch -BeforeInteractiveLaunch {
+                    Release-DeviceWriter -Lease $operationLease
+                }
             } *>&1 |
                 Tee-Object -FilePath $resolvedLog
         } finally {
@@ -232,10 +251,10 @@ try {
 } catch {
     $operationFailure = $_
     $loggingUnavailable = if ($Action -eq 'relay') { 'Private relay diagnostics remain in the console.' } else { '' }
-    if ($Action -ne 'relay' -and $null -eq $operationLock -and $failureStage -ne 'acquiring artifact operation lock') {
+    if ($Action -ne 'relay' -and $null -eq $operationLease.Writer -and $null -eq $outputLock -and $failureStage -ne 'acquiring artifact operation lock') {
         try {
             # Preflight can fail before the command logger. Acquire ownership solely for diagnostics.
-            $operationLock = Open-DeviceArtifactLock
+            $operationLease.Writer = Open-DeviceArtifactLock
         } catch {
             $loggingUnavailable = $_.Exception.Message
         }
@@ -243,7 +262,7 @@ try {
     $logConflictsWithOutput = $null -ne $dispatch -and (
         ($dispatch.OutputPath -and $dispatch.OutputPath -eq $resolvedLog) -or
         ($dispatch.SizeOutputFile -and $dispatch.SizeOutputFile -eq $resolvedLog))
-    if ($null -ne $operationLock -and ([string]::IsNullOrWhiteSpace($resolvedLog) -or $logConflictsWithOutput)) {
+    if ($null -ne $operationLease.Writer -and ([string]::IsNullOrWhiteSpace($resolvedLog) -or $logConflictsWithOutput)) {
         try {
             # A rejected or conflicting LogPath must not become an unsafe destination or change an output file.
             $failureLogName = "$Action-failure-$([Guid]::NewGuid().ToString('N')).log"
@@ -255,12 +274,17 @@ try {
     if ($failureStage -eq 'acquiring artifact operation lock') {
         $loggingUnavailable = 'The artifact operation lock was not acquired; another operation log will not be changed.'
     }
+    if ($null -ne $operationLease.Writer -and $null -eq $outputLock -and
+            $failureStage -notin @('reserving command log', 'acquiring simulator lifetime lock')) {
+        try { $outputLock = Open-DeviceOutputLock -Destination $resolvedLog }
+        catch { $loggingUnavailable = $_.Exception.Message }
+    }
     $failureOptions = @{
         FailureRecord = $operationFailure
         Operation = $Action
         Stage = $failureStage
         LogPath = $resolvedLog
-        LogDetails = ($null -ne $operationLock -and -not [string]::IsNullOrWhiteSpace($resolvedLog))
+        LogDetails = ($null -ne $outputLock -and -not [string]::IsNullOrWhiteSpace($resolvedLog))
         LogUnavailableReason = $loggingUnavailable
     }
     Write-DeviceFailure @failureOptions
@@ -275,12 +299,20 @@ try {
             }
             Write-DeviceFailure -FailureRecord $cleanupFailure -Operation $Action `
                 -Stage "restoring environment variable $name" -LogPath $resolvedLog `
-                -LogDetails:($null -ne $operationLock -and -not [string]::IsNullOrWhiteSpace($resolvedLog))
+                -LogDetails:($null -ne $outputLock -and -not [string]::IsNullOrWhiteSpace($resolvedLog))
         }
     }
-    if ($null -ne $operationLock) {
+    foreach ($lease in @($outputLock, $simulatorLock) + $dataOutputLocks.ToArray()) {
+        if ($null -ne $lease) {
+            try { $lease.Dispose() } catch {
+                if ($null -eq $operationFailure) { $operationFailure = $_ }
+                Write-Warning "Could not release command reservation: $($_.Exception.Message)"
+            }
+        }
+    }
+    if ($null -ne $operationLease.Writer) {
         try {
-            $operationLock.Dispose()
+            Release-DeviceWriter -Lease $operationLease
         } catch {
             $cleanupFailure = $_
             if ($null -eq $operationFailure) {

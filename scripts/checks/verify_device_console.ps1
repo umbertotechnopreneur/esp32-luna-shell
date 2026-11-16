@@ -127,26 +127,86 @@ try {
         Assert-ConsoleRejection { Resolve-ArtifactPath '' '' } 'requires an explicit path'
     }
 
-    Invoke-ConsoleCheck 'Cleanup retains build/config/Python caches, simulator identity and protected outputs' {
+    Invoke-ConsoleCheck 'Cleanup retains builds, simulator data, document inputs and protected outputs' {
         $persistentDirectories = @(
             'build-cody-companion', 'sdkconfig', 'board-config', 'feature-config',
-            'python', 'models', 'managed_components', 'cody-simulator-state', 'cody-simulator-state-linux', 'custom-build'
+            'python', 'models', 'managed_components', 'cody-simulator-state', 'cody-simulator-state-linux',
+            'simulator', 'docs', 'custom-build'
         )
         foreach ($directory in $persistentDirectories) {
             New-ConsoleFixtureFile (Join-Path $fixtureArtifacts "$directory/keep.txt")
         }
         New-ConsoleFixtureFile (Join-Path $fixtureArtifacts '.device.lock')
         New-ConsoleFixtureFile (Join-Path $fixtureArtifacts 'logs/remove.txt')
-        New-ConsoleFixtureFile (Join-Path $fixtureArtifacts 'simulator/remove.png')
+        $savedStudioFiles = @('simulator/studio/baselines/example/capture.json',
+            'simulator/studio/reviews/example/review.json', 'simulator/studio/ui-state.json',
+            'simulator/studio/captures/example/frame.png', 'simulator/custom/scenario.json',
+            'docs/studio/Cody-screen-inventory.pdf')
+        foreach ($path in $savedStudioFiles) {
+            New-ConsoleFixtureFile (Join-Path $fixtureArtifacts $path) 'retained user data'
+        }
         New-ConsoleFixtureFile (Join-Path $fixtureArtifacts 'capture.log')
         Clear-DeviceArtifacts -ProtectedPaths @((Join-Path $fixtureArtifacts 'custom-build/subtree'))
         foreach ($directory in $persistentDirectories) {
             Assert-ConsoleCondition (Test-Path -LiteralPath (Join-Path $fixtureArtifacts "$directory/keep.txt")) "Cleanup removed protected $directory."
         }
         Assert-ConsoleCondition (Test-Path -LiteralPath (Join-Path $fixtureArtifacts '.device.lock')) 'Cleanup removed the operation lock.'
-        foreach ($removed in @('logs', 'simulator', 'capture.log')) {
+        foreach ($path in $savedStudioFiles) {
+            Assert-ConsoleCondition ((Get-Content -LiteralPath (Join-Path $fixtureArtifacts $path) -Raw).Trim() -ceq 'retained user data') "Cleanup changed saved Studio data: $path."
+        }
+        foreach ($removed in @('logs', 'capture.log')) {
             Assert-ConsoleCondition (-not (Test-Path -LiteralPath (Join-Path $fixtureArtifacts $removed))) "Cleanup retained transient $removed."
         }
+    }
+
+    Invoke-ConsoleCheck 'Public tool discovery excludes import-only helpers' {
+        New-ConsoleFixtureFile (Join-Path $ProjectRoot 'scripts/checks/cody_ccp_event_vectors.py') 'def event_vectors(): pass'
+        New-ConsoleFixtureFile (Join-Path $ProjectRoot 'scripts/checks/cody_studio_atlas_checks.py') 'class Tests: pass'
+        New-ConsoleFixtureFile (Join-Path $ProjectRoot 'scripts/generators/cody_host_device_assets.py') 'def helper(): pass'
+        New-ConsoleFixtureFile (Join-Path $ProjectRoot 'scripts/generators/minify_json_tree.py') '# public entrypoint'
+        New-ConsoleFixtureFile (Join-Path $ProjectRoot 'scripts/generators/package_cody_boot.py') '# public entrypoint'
+        Assert-ConsoleCondition ((Find-DeviceTool 'checks' 'example').Name -eq 'example') 'Public verifier disappeared.'
+        Assert-ConsoleCondition ((Find-DeviceTool 'generators' 'example').Name -eq 'example') 'Public generator disappeared.'
+        Assert-ConsoleCondition ((Find-DeviceTool 'generators' 'minify-json-tree').Name -eq 'minify-json-tree') 'Public minifier disappeared.'
+        Assert-ConsoleCondition ((Find-DeviceTool 'generators' 'package-cody-boot').Name -eq 'package-cody-boot') 'Public boot packer disappeared.'
+        Assert-ConsoleRejection { Find-DeviceTool 'checks' 'cody-ccp-event-vectors' } 'Unknown or ambiguous'
+        Assert-ConsoleRejection { Find-DeviceTool 'checks' 'cody-studio-atlas-checks' } 'Unknown or ambiguous'
+        Assert-ConsoleRejection { Find-DeviceTool 'generators' 'cody-host-device-assets' } 'Unknown or ambiguous'
+    }
+
+    Invoke-ConsoleCheck 'A live simulator releases the writer but preserves session and log ownership' {
+        $lease = @{ Writer = Open-DeviceArtifactLock }
+        $session = $log = $writer = $null
+        try {
+            $session = Open-DeviceArtifactLock -Name simulator
+            $destination = Resolve-ArtifactPath '' 'artifacts/logs/simulator.log'
+            $log = Open-DeviceOutputLock -Destination $destination
+            $script:hostCalls.Clear()
+            Invoke-DeviceCommand 'simulator' @{ StudioCase = 'P04' } -BeforeInteractiveLaunch {
+                Assert-ConsoleCondition ($script:hostCalls.Count -eq 1) 'Writer released before theme preparation or after launch.'
+                Release-DeviceWriter -Lease $lease
+            }
+            Assert-ConsoleCondition ($null -eq $lease.Writer) 'Interactive Studio retained the build writer.'
+            $writer = Open-DeviceArtifactLock
+            Assert-ConsoleRejection { Open-DeviceArtifactLock -Name simulator } 'Cannot acquire'
+            Assert-ConsoleRejection { Open-DeviceOutputLock -Destination $destination } 'already owned or unavailable'
+            $otherLog = Open-DeviceOutputLock -Destination (Resolve-ArtifactPath '' 'artifacts/logs/generate.log')
+            $otherLog.Dispose()
+        } finally {
+            foreach ($item in @($log, $session, $writer, $lease.Writer)) {
+                if ($null -ne $item) { $item.Dispose() }
+            }
+        }
+        $nextSession = Open-DeviceArtifactLock -Name simulator
+        $nextSession.Dispose()
+    }
+
+    Invoke-ConsoleCheck 'Headless Studio retains the writer throughout capture' {
+        $state = @{ Called = $false }
+        Invoke-DeviceCommand 'simulator' @{ StudioCase = 'P04'; StudioCapture = $true } -BeforeInteractiveLaunch {
+            $state.Called = $true
+        }
+        Assert-ConsoleCondition (-not $state.Called) 'A headless capture released its writer.'
     }
 
     Invoke-ConsoleCheck 'Unsafe protected paths reject cleanup before any removal' {

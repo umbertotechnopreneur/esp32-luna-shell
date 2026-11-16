@@ -18,13 +18,49 @@
 from __future__ import annotations
 
 import ctypes
+import errno
 import hashlib
 import json
+import os
 from pathlib import Path
+import uuid
 from runtime_paths import simulator_library_path
 
 ROOT = Path(__file__).resolve().parents[3]
 _RUNTIME_LIBRARIES = {}
+
+
+# library: Mutable build output supplying only the platform-specific filename.
+# driver: Validated runtime identity with independent native state.
+# payload: Exact library bytes already verified against the build manifest.
+# expected_digest: SHA-256 of payload, used as the immutable generation identity.
+# Raises OSError on publication failure or ValueError for an existing damaged generation.
+def immutable_runtime_copy(library, driver, payload, expected_digest):
+    generations = ROOT / "artifacts/simulator/runtime-libraries" / driver
+    generations.mkdir(parents=True, exist_ok=True)
+    directory = generations / expected_digest
+    destination = directory / library.name
+    if not directory.exists():
+        staging = generations / f".{expected_digest}.{uuid.uuid4().hex}.tmp"
+        staging.mkdir()
+        staged_library = staging / library.name
+        try:
+            with staged_library.open("xb") as stream:
+                stream.write(payload)
+            try:
+                # Rename a complete nonempty directory without a hardlink dependency.
+                # An already published nonempty generation cannot be replaced.
+                os.rename(staging, directory)
+            except OSError as error:
+                if error.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                    raise
+        finally:
+            staged_library.unlink(missing_ok=True)
+            if staging.exists():
+                staging.rmdir()
+    if hashlib.sha256(destination.read_bytes()).hexdigest() != expected_digest:
+        raise ValueError("Immutable native runtime copy hash mismatch")
+    return destination
 
 
 # driver: Selects the existing graphics bridge or the separate full-device runtime.
@@ -55,14 +91,17 @@ def load_runtime_library(driver="graphics"):
         path = (ROOT / source).resolve()
         if not path.is_relative_to(ROOT) or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
             raise ValueError(f"Stale native runtime input {source}; regenerate cody-simulator-graphics")
-    if hashlib.sha256(library.read_bytes()).hexdigest() != manifest.get("library_sha256"):
+    payload = library.read_bytes()
+    library_digest = hashlib.sha256(payload).hexdigest()
+    if library_digest != manifest.get("library_sha256"):
         raise ValueError("Native runtime library hash mismatch")
     loaded = _RUNTIME_LIBRARIES.get(driver)
     if loaded is not None:
         if loaded._cody_library_sha256 != manifest["library_sha256"]:
             raise ValueError("Native runtime was rebuilt while loaded; restart this simulator process")
         return loaded
-    api = ctypes.CDLL(str(library))
+    isolated_library = immutable_runtime_copy(library, driver, payload, library_digest)
+    api = ctypes.CDLL(str(isolated_library))
     api.cody_host_runtime_abi.argtypes = ()
     api.cody_host_runtime_abi.restype = ctypes.c_uint32
     if api.cody_host_runtime_abi() != 2:

@@ -18,6 +18,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -272,6 +273,23 @@ def qr_compile_command(compiler, output):
             f"-I{include}", source, "-o", str(output)]
 
 
+# staged_library: Successfully linked output owned by this unique build directory.
+# library: Public mutable driver path; readers copy bytes before loading native code.
+# manifest_path: Public provenance document, replaced only after complete serialization.
+# inputs: Source hashes collected before compilation and checked again before publication.
+# commands: Stable command descriptions independent of this build's staging directory.
+# Raises original filesystem errors; incomplete publication is rejected by loader hashes.
+def publish_runtime_build(staged_library, library, manifest_path, inputs, commands):
+    manifest = {"schema": "cody.host-graphics.v1", "inputs": inputs,
+                "command": commands, "library_sha256": digest(staged_library)}
+    staged_manifest = staged_library.parent / "manifest.json"
+    staged_manifest.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    # A reader between these two replacements rejects the mismatched pair.
+    # Both files are complete; no reader can observe a partially written JSON file.
+    os.replace(staged_library, library)
+    os.replace(staged_manifest, manifest_path)
+
+
 # argv: Optional existing compiler selection and explicit cache rebuild request.
 # Raises original compiler, file, timeout or build errors; no simulator is executed.
 def main(argv=None):
@@ -330,30 +348,37 @@ def main(argv=None):
                 previous.get("library_sha256") == digest(library)):
             print(f"Cody C++ graphics driver already current: {library}")
             return
-    # Keep the previous manifest. Its source and library hashes make the loader
-    # reject a stale or partially rewritten driver after a failed compilation.
-    result = subprocess.run(muse_command, cwd=ROOT, capture_output=True, text=True, timeout=240)
+    # Compile into a unique directory. Failed or interrupted tools cannot truncate
+    # the previous driver, overwrite another build's objects or replace provenance.
+    staging = output / "staging" / uuid.uuid4().hex
+    staging.mkdir(parents=True)
+    # original: Stable command whose artifact-owned paths are scoped to this build.
+    def staged_command(original):
+        return [part.replace(str(output), str(staging)) for part in original]
+
+    result = subprocess.run(staged_command(muse_command), cwd=ROOT, capture_output=True, text=True, timeout=240)
     if result.returncode != 0:
         raise RuntimeError(f"Muse C compilation failed ({result.returncode}):\n{result.stdout}{result.stderr}")
     command = list(template_command)
     if args.device_runtime:
-        pet_assembly = output / f"cody_host_pet_{uuid.uuid4().hex}.S"
-        image_assembly = output / f"cody_host_images_{uuid.uuid4().hex}.S"
+        pet_assembly = staging / "cody_host_pet.S"
+        image_assembly = staging / "cody_host_images.S"
         pet_object = pet_assembly.with_suffix(".obj")
         image_object = image_assembly.with_suffix(".obj")
-        command = [part.replace(str(pet_object_template), str(pet_object)).replace(str(image_object_template), str(image_object))
-                   for part in command]
+        # Substitute canonical placeholders before remapping the remaining output paths.
+        command = [part.replace(str(pet_object_template), str(output / pet_object.name)).replace(
+                       str(image_object_template), str(output / image_object.name)) for part in command]
         write_pet_assembler(pet_assembly)
         write_device_image_assembler(image_assembly)
-        result = subprocess.run(qr_command, cwd=ROOT, capture_output=True, text=True, timeout=240)
+        result = subprocess.run(staged_command(qr_command), cwd=ROOT, capture_output=True, text=True, timeout=240)
         if result.returncode != 0:
             raise RuntimeError(f"QR C compilation failed ({result.returncode}):\n{result.stdout}{result.stderr}")
-        run_stage([compiler, "-x", "assembler", "-c", str(pet_assembly), "-o", str(pet_object)], output, "pet-assembly")
-        run_stage([compiler, "-x", "assembler", "-c", str(image_assembly), "-o", str(image_object)], output, "image-assembly")
-    run_stage(command, output, "compile")
-    manifest = {"schema": "cody.host-graphics.v1", "inputs": inputs,
-                "command": commands, "library_sha256": digest(library)}
-    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        run_stage([compiler, "-x", "assembler", "-c", str(pet_assembly), "-o", str(pet_object)], staging, "pet-assembly")
+        run_stage([compiler, "-x", "assembler", "-c", str(image_assembly), "-o", str(image_object)], staging, "image-assembly")
+    run_stage(staged_command(command), staging, "compile")
+    if source_provenance(args.device_runtime) != inputs:
+        raise ValueError("Native runtime inputs changed during compilation; previous build retained")
+    publish_runtime_build(staging / library.name, library, manifest_path, inputs, commands)
     print(f"Cody C++ graphics driver compiled: {library}")
 
 
