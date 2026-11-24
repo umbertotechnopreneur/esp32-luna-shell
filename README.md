@@ -82,10 +82,14 @@ entry point; [AGENTS.md](AGENTS.md) has the working agreements.
 
 ## Checkout layout
 
-- [cody-device/](cody-device/) contains the ESP32 firmware project, hardware references, assets and host simulator.
+- [cody-device/](cody-device/) contains the ESP32 firmware, hardware references, assets and host simulator.
 - [cody-desktop/](cody-desktop/) contains the Cody Codex plugin and the OpenAI Usage widget.
-- [docs/](docs/) contains the public documentation. Run device operations through [scripts/device.ps1](scripts/device.ps1) from the repository root. Generated output belongs in artifacts/.
-- Cody Cloud is a separate private Git checkout. Keep it beside this repository as cody-cloud.
+- [docs/](docs/README.md) contains the project documentation and atlases.
+- [scripts/](scripts/README.md) contains the device console and development tools; run device operations through `scripts/device.ps1` from the repository root.
+- `artifacts/` holds generated local output.
+- `.agents/` contains repository agent plugin configuration, and `.github/` contains GitHub rulesets.
+
+Cody Cloud is a separate private Git checkout, kept beside this repository as `cody-cloud`.
 
 ## The small print, kept small
 
