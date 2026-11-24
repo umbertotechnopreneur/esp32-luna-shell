@@ -1,9 +1,41 @@
+> **File name** `notifications.md`<br>
+> **Full path** `E:\Cody\esp32-luna-shell\docs\cody\notifications.md`<br>
+> **Path relative to the repository root** `docs/cody/notifications.md`
+
 # Device notifications
 
 Notifications use semantic types independent of their provider: `Message`,
 `Information`, `Question`, `Success`, `Warning` and `Error`. The type selects an
 existing semantic icon and color. A source label identifies the integration or
 originating chat separately from the notification title and detail.
+
+```mermaid
+flowchart TB
+  accTitle: Local and remote notification ownership
+  accDescr: Local records and authenticated broker events retain their original owner when the display merges and reads them.
+  producer["Local integration<br/>Semantic type, source and bounded text"]
+  broker["Authenticated PC broker<br/>Owns remote events and acknowledgements"]
+  local["CODY_notifications<br/>Owns local IDs, unread state and 32 retained records"]
+  inbox["Cody inbox presenter<br/>Combines available pages and retains origin plus exact ID"]
+  user["User opens a detail or confirms a read"]
+  sound["Audio owner<br/>Optional cue on the original announcement"]
+
+  producer -->|"Publish a local record"| local
+  producer -->|"Announce once when policy permits"| sound
+  local -->|"Coherent local records"| inbox
+  broker -->|"Authenticated remote rows"| inbox
+  inbox -->|"Current detail and read action"| user
+  user -->|"Confirmed action for the visible item"| inbox
+  inbox -->|"Local ID"| local
+  inbox -->|"Remote owner and exact event ID"| broker
+
+  classDef external fill:#fff0d8,stroke:#9b6218,color:#51330e
+  classDef owner fill:#dcf0e9,stroke:#20766a,color:#143e38
+  classDef view fill:#e6effb,stroke:#315a92,color:#18334f
+  class producer,user external
+  class broker,local,sound owner
+  class inbox view
+```
 
 `CODY_notifications` owns local device notifications. Producers supply a type,
 printable ASCII source, title, detail and positive monotonic arrival time. The
@@ -43,3 +75,7 @@ provider-specific list or notification type.
 
 This is a source contract. Firmware integration, memory headroom, display,
 touch, sound and delivery behavior require separately authorized verification.
+
+> **File name** `notifications.md`<br>
+> **Full path** `E:\Cody\esp32-luna-shell\docs\cody\notifications.md`<br>
+> **Path relative to the repository root** `docs/cody/notifications.md`

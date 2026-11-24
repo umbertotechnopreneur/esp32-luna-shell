@@ -1,3 +1,7 @@
+> **File name** `architecture.md`<br>
+> **Full path** `E:\Cody\esp32-luna-shell\cody-device\simulator\windows\architecture.md`<br>
+> **Path relative to the repository root** `cody-device/simulator/windows/architecture.md`
+
 [Desktop simulators](README.md) / Architecture
 
 # Simulator architecture
@@ -7,6 +11,46 @@ C/C++ renderers. Python supplies host controls, explicit synthetic inputs,
 orchestration and inspection. The separate legacy preview also composes host
 pages around shared native bindings; its UI behavior is not interchangeable
 with the firmware runtime.
+
+## Host orchestration and native rendering
+
+```mermaid
+flowchart TB
+  accTitle: Studio host and native renderer boundaries
+  accDescr: Python prepares explicit scenarios and requests a capture. Native production code owns completed display frames.
+  subgraph python["Studio host · Python"]
+    shell["device.ps1<br/>Public command and arguments"]
+    window["Studio window<br/>Controls and result adoption"]
+    contract["Catalog and scenario loader<br/>Stable screen IDs and validated inputs"]
+    runner["Studio runner and native bindings<br/>Provenance, preparation and capture"]
+  end
+  subgraph native["Native device library"]
+    adapter["Host service adapters<br/>Supply explicitly simulated state and input"]
+    display["Production Cody display owner and CODY2D<br/>Apply route and draw pixels"]
+  end
+  subgraph outputs["Capture artifacts"]
+    capture["Completed frame, receipt and provenance"]
+    compare["Comparison<br/>Check compatibility before comparing pixels"]
+  end
+
+  shell -->|"Open Studio"| window
+  shell -->|"Controlled CLI capture"| runner
+  window -->|"Capture request"| runner
+  contract -->|"Validated case and scenario revision"| runner
+  runner -->|"Declared time and synthetic inputs"| adapter
+  adapter -->|"Native service boundary"| display
+  display -->|"Completed pixels and matching identity"| runner
+  runner -->|"Persist frame and receipt together"| capture
+  runner -->|"Job result through the UI queue"| window
+  capture -->|"Candidate and explicit baseline"| compare
+
+  classDef host fill:#e6effb,stroke:#315a92,color:#18334f
+  classDef native fill:#dcf0e9,stroke:#20766a,color:#143e38
+  classDef artifact fill:#ece8f7,stroke:#69518f,color:#302347
+  class shell,window,contract,runner host
+  class adapter,display native
+  class capture,compare artifact
+```
 
 ## Follow a controlled capture
 
@@ -25,6 +69,35 @@ with the firmware runtime.
    from a delay or reconstruct the device page.
 6. `cody_studio_comparison.py` checks compatibility before comparing captures.
    A pixel difference and a human review are separate observations.
+
+```mermaid
+sequenceDiagram
+  accTitle: Controlled capture and comparison
+  actor User
+  participant Studio as Studio
+  participant Runner as Runner
+  participant Native as Native display
+  participant Output as Artifact store
+
+  User->>Studio: Choose case and time
+  Studio->>Runner: Queue capture
+  Runner->>Runner: Validate scenario<br/>and build provenance
+  Runner->>Native: Prepare case and capture
+  Native-->>Runner: Return pixels and matching receipt
+  alt Receipt matches the case and requested scope
+    Runner->>Output: Persist frame, receipt and provenance
+    Runner-->>Studio: Return result to UI thread
+  else Receipt is missing or inconsistent
+    Runner-->>Studio: Surface the failure
+  end
+  opt User requests comparison
+    Studio->>Output: Request comparison to explicit baseline
+    Output-->>Studio: Return compatibility<br/>and pixel difference
+  end
+```
+
+The scenario's requested time and the completed-frame time are both recorded
+in milliseconds. The native receipt identifies which frame was captured.
 
 ## Module responsibilities
 
@@ -100,3 +173,7 @@ sharing the entire window state.
 Use the [check guide](checks.md) and [Studio verification scope](studio.md#verification-scope)
 to select focused validation. [TODO.md](../../../TODO.md) owns pending fixes and
 acceptance; [done.md](../../../done.md) owns only the latest executed validation.
+
+> **File name** `architecture.md`<br>
+> **Full path** `E:\Cody\esp32-luna-shell\cody-device\simulator\windows\architecture.md`<br>
+> **Path relative to the repository root** `cody-device/simulator/windows/architecture.md`

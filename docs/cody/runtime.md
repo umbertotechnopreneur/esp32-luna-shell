@@ -1,10 +1,14 @@
+> **File name** `runtime.md`<br>
+> **Full path** `E:\Cody\esp32-luna-shell\docs\cody\runtime.md`<br>
+> **Path relative to the repository root** `docs/cody/runtime.md`
+
 <img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
 
 # Cody behind the experience
 
 **VibeWare · Cody Companion**
 
-**Author:** Umberto Giacobbi · **Created:** 2026-10-04 · **Updated:** 2026-11-12 · **Revision:** 1.0
+**Author:** Umberto Giacobbi · **Created:** 2026-10-04 · **Updated:** 2026-11-20 · **Revision:** 1.0
 
 A friendly face is only part of the story. This guide brings together the product's main boundaries, future ideas and pointers for anyone who wants to explore the source.
 
@@ -13,6 +17,54 @@ A friendly face is only part of the story. This guide brings together the produc
 The source brings together the VibeWare startup, Cody's character, device settings and a local Codex connection. Supported behavior depends on the selected board and build. The physical experience, timing, audio and other outstanding checks remain in [TODO.md](../../TODO.md).
 
 The 1.75 GPS prototype supports removable microSD; the 1.75C does not. The boards have different capabilities, so a feature on one should not be assumed on the other. See the [hardware guide](../bsp/boards/purchased-amoled-comparison.md).
+
+## Runtime at a glance
+
+Blue identifies the display owner. Green identifies state owners, and amber
+identifies devices and clients outside the display's ownership.
+
+```mermaid
+flowchart TB
+  accTitle: Cody runtime ownership and data flow
+  accDescr: Service owners publish canonical observations and domain state. The native display composes its models and passes a scene to the CODY2D renderer.
+  subgraph sources["Device and integration inputs"]
+    bsp["Board peripherals<br/>BSP and hardware adapters"]
+    ccp["Paired PC<br/>Authenticated CCP events"]
+    input["Local touch and buttons"]
+  end
+  subgraph state["Acquisition and domain owners"]
+    sensors["LUNASHELL_platform<br/>Acquisition and subsystem reports"]
+    snapshot["DeviceSnapshotService<br/>Coherent generations, freshness and errors"]
+    domains["Settings, pet and notification owners<br/>Confirmed state and command outcomes"]
+  end
+  subgraph display["CODY_companion native display owner"]
+    models["DeviceModel, DeviceUiModel and CharacterModel<br/>Projections, route state and animation clocks"]
+    scene["SceneFrame<br/>Layout, text, controls and artwork"]
+    renderer["CODY2D<br/>Native pixels and hit targets"]
+  end
+
+  bsp -->|"Physical samples"| sensors
+  sensors -->|"Timed samples and reports"| snapshot
+  ccp -->|"Link and event observations"| sensors
+  ccp -->|"Supported domain commands"| domains
+  snapshot -->|"Current immutable observation"| models
+  domains -->|"Confirmed values and receipts"| models
+  input -->|"Gestures and route commands"| models
+  models -->|"Admitted domain commands"| domains
+  models -->|"Present the current scene"| scene
+  scene -->|"Draw and bind controls"| renderer
+
+  classDef source fill:#fff0d8,stroke:#9b6218,color:#51330e
+  classDef owner fill:#dcf0e9,stroke:#20766a,color:#143e38
+  classDef native fill:#e6effb,stroke:#315a92,color:#18334f
+  class bsp,ccp,input source
+  class sensors,snapshot,domains owner
+  class models,scene,renderer native
+```
+
+[Device snapshot ownership and refresh](../bsp/core/device-snapshot.md) ·
+[Local PC pairing and replies](../../cody-desktop/plugins/cody-codex-plugin/protocol/CCP1.md) ·
+[Controlled captures in Studio](../../cody-device/simulator/windows/architecture.md)
 
 ## State ownership and onboarding commands
 
@@ -55,6 +107,30 @@ existing DMA tiles; opaque full-panel artwork skips a redundant clear. Original
 Welcome and boot audio assets remain in the repository even where their unused
 firmware embeddings have been removed.
 
+The display handles setup persistence through an existing worker. The receipt
+is tied to the exact requested action.
+
+```mermaid
+sequenceDiagram
+  accTitle: Onboarding persistence and visible receipt
+  participant UI as Native display
+  participant Worker as Onboarding worker
+  participant Store as Settings storage
+
+  UI->>Worker: Queue action with its ID
+  Worker->>Store: Write and read back<br/>outside the model mutex
+  alt Durable write confirmed
+    Store-->>Worker: Confirm the stored value
+    Worker-->>UI: Publish success for the same ID
+    UI->>UI: Advance the matching decision
+  else Write or readback fails
+    Store-->>Worker: Return the original error
+    Worker-->>UI: Publish error for the same ID
+    UI->>UI: Show error<br/>Keep input and rendering live
+    Note over UI,Worker: Birth and setup retry after five seconds.<br/>An unsuccessful music write omits the cue.
+  end
+```
+
 ## Startup connection window
 
 Saved setup opens one Connecting/Reconnecting window lasting at most 30 seconds.
@@ -71,6 +147,31 @@ offline/setup recovery. Radio owners continue their existing retry policy.
 Snapshot-read errors remain visible without using an old observation or stopping
 the display during this boot/recovery flow. Physical timing and rendering still
 require acceptance.
+
+```mermaid
+stateDiagram-v2
+  accTitle: Returning device startup connection window
+  [*] --> Observe
+  state "Read coherent connectivity" as Observe
+  state "Connecting or reconnecting" as Waiting
+  state "Use normal startup route" as Ready
+  state "Continue setup" as Setup
+  state "Use offline or show recovery" as Offline
+
+  Observe --> Setup: Missing credentials or pairing needs attention
+  Observe --> Ready: Required connections already ready
+  Observe --> Waiting: A required connection is still pending
+  Waiting --> Waiting: Wi-Fi or PC retry under the same deadline
+  Waiting --> Setup: A setup requirement becomes known
+  Waiting --> Ready: Current ready observation
+  Waiting --> Offline: Use offline or original 30 s window expires
+  Setup --> [*]
+  Ready --> [*]
+  Offline --> [*]
+```
+
+The short Wi-Fi-ready reaction uses the original deadline. Its visual feedback
+reports Wi-Fi separately from authenticated PC readiness.
 
 ## Minimal character direction
 
@@ -111,3 +212,7 @@ Cody uses a native 2D interface. The [companion source](../../cody-device/compon
 ---
 
 **VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)
+
+> **File name** `runtime.md`<br>
+> **Full path** `E:\Cody\esp32-luna-shell\docs\cody\runtime.md`<br>
+> **Path relative to the repository root** `docs/cody/runtime.md`

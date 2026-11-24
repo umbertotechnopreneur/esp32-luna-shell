@@ -1,3 +1,7 @@
+> **File name** `README.md`<br>
+> **Full path** `E:\Cody\esp32-luna-shell\cody-device\experimental\whatsapp\README.md`<br>
+> **Path relative to the repository root** `cody-device/experimental/whatsapp/README.md`
+
 # Experimental WhatsApp client
 
 This opt-in source integration uses the MIT-licensed
@@ -14,6 +18,47 @@ the page. After restart, the owner attempts to resume a registered session once
 Wi-Fi and valid time are available, without initiating a new pairing. A message
 notification uses a short original two-note cue through Cody's shared audio
 owner, subject to its existing sound and quiet-hours settings.
+
+## Experimental runtime boundaries
+
+```mermaid
+flowchart TB
+  accTitle: Experimental Rust WhatsApp client and notification boundary
+  accDescr: Rust owns the protocol session and filters incoming messages. A C callback passes a generic arrival notice to Cody, while protocol keys remain in separate storage.
+  network["WhatsApp gateway"]
+  subgraph rust["Rust · opt-in ESP32 client"]
+    transport["ESP32 transport and protocol engine<br/>TLS verification and session state"]
+    filter["Message filter and 64-entry recent-identity cache<br/>Admit new text or media"]
+    callback["C ABI callback<br/>Connection events, transient QR or generic arrival"]
+  end
+  subgraph cody["C++ · Cody Companion"]
+    service["WhatsApp service<br/>Validate and copy bounded observations"]
+    views["Connections page<br/>Current link state and pairing QR"]
+    notifications["Device notification owner<br/>Retain a generic New message record"]
+  end
+  keys["wa_store<br/>Pairing credentials and protocol keys"]
+
+  network <-->|"Verified transport"| transport
+  transport <-->|"Protocol persistence"| keys
+  transport -->|"Message events"| filter
+  transport -->|"Session state and pairing"| callback
+  filter -->|"Admitted arrival"| callback
+  callback -->|"Borrowed event view"| service
+  service -->|"Status and valid QR"| views
+  service -->|"Type, source and generic text"| notifications
+
+  classDef external fill:#fff0d8,stroke:#9b6218,color:#51330e
+  classDef model fill:#dcf0e9,stroke:#20766a,color:#143e38
+  classDef native fill:#e6effb,stroke:#315a92,color:#18334f
+  classDef storage fill:#ece8f7,stroke:#69518f,color:#302347
+  class network external
+  class transport,filter,callback model
+  class service,views,notifications native
+  class keys storage
+```
+
+The C callback borrows the QR only for the duration of the call. Generic
+arrival notices reach the notification owner without sender or message text.
 
 The owner forwards neither sender nor message content to the UI. It excludes
 self-sent messages, edits, status and newsletter traffic, and admits only text
@@ -70,3 +115,7 @@ Cargo lockfile, compilation, linking, memory-budget measurement, hardware
 pairing or message delivery verification has been performed. The lifetime,
 network reconnect and sleep/power behavior also require device validation.
 Do not log pairing payloads, keys, messages or contact identifiers.
+
+> **File name** `README.md`<br>
+> **Full path** `E:\Cody\esp32-luna-shell\cody-device\experimental\whatsapp\README.md`<br>
+> **Path relative to the repository root** `cody-device/experimental/whatsapp/README.md`

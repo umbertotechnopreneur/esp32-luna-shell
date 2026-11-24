@@ -1,3 +1,7 @@
+> **File name** `device-snapshot.md`<br>
+> **Full path** `E:\Cody\esp32-luna-shell\docs\bsp\core\device-snapshot.md`<br>
+> **Path relative to the repository root** `docs/bsp/core/device-snapshot.md`
+
 <img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
 
 # Canonical device snapshot
@@ -5,6 +9,47 @@
 `LUNASHELL::DeviceSnapshotService` is the application boundary between physical
 drivers and consumers such as diagnostics, UI, telemetry, and future sensor
 fusion.
+
+## Acquisition and presentation boundary
+
+```mermaid
+flowchart TB
+  accTitle: Acquisition, publication and snapshot readers
+  accDescr: Acquisition owners and subsystem reports feed the snapshot service. Device views consume coherent copies and respect validity and freshness.
+  subgraph acquire["Physical acquisition and subsystem owners"]
+    board["Drivers and BSP<br/>Read the hardware"]
+    full["Full Snapshot worker<br/>Serialized refresh at the configured cadence"]
+    diagnostic["Diagnostic Stream<br/>Opt-in IMU or microphone observations"]
+    report["Display, SD, speaker and radio owners<br/>Publish their own component state"]
+  end
+  subgraph publish["DeviceSnapshotService"]
+    staging["Stage samples<br/>Keep attempt time, success time and real errors"]
+    canonical["Canonical generation<br/>Protected by the snapshot mutex"]
+  end
+  subgraph consumers["Snapshot consumers"]
+    cody["Cody display and diagnostics"]
+    luna["Luna UI and telemetry"]
+  end
+
+  board -->|"Bounded reads"| full
+  board -->|"Admitted live samples"| diagnostic
+  full -->|"Full sample set"| staging
+  diagnostic -->|"One stream's observations"| staging
+  staging -->|"Commit coherent updates"| canonical
+  report -->|"Independent component reports"| canonical
+  canonical -->|"Snapshot copy with validity and age"| cody
+  canonical -->|"Snapshot copy with validity and age"| luna
+
+  classDef acquisition fill:#fff0d8,stroke:#9b6218,color:#51330e
+  classDef model fill:#dcf0e9,stroke:#20766a,color:#143e38
+  classDef display fill:#e6effb,stroke:#315a92,color:#18334f
+  class board,full,diagnostic,report acquisition
+  class staging,canonical model
+  class cody,luna display
+```
+
+The touch activity sequence and timestamp use a separate lock-free latch.
+The service folds the latch into each returned copy.
 
 ## Contract
 
@@ -57,6 +102,34 @@ result. Boot, pre-UI, BLE-command, headless, and manual refreshes use a zero
 reuse limit. UI refresh binds the latest immutable snapshot at 1 Hz while
 active, 0.2 Hz while dimmed, and stops while the display is off; it never
 initiates hardware sampling.
+
+## One periodic refresh
+
+```mermaid
+sequenceDiagram
+  accTitle: Diagnostic sample reuse and generation commit
+  participant Worker as Full worker
+  participant Snapshot as Snapshot service
+  participant Source as Acquisition
+  participant View as UI or diagnostics
+
+  Worker->>Snapshot: Request full refresh<br/>with reuse limit
+  alt Eligible unused and current Diagnostic sample
+    Snapshot->>Snapshot: Stage with original<br/>hardware timestamps
+  else Zero reuse limit or sample fails eligibility
+    Snapshot->>Source: Acquire a physical observation
+    Source-->>Snapshot: Return sample or actual error
+  end
+  Snapshot->>Snapshot: Commit generation<br/>Mark adopted sample consumed
+  Snapshot-->>Worker: Return refresh result
+  View->>Snapshot: Read the latest immutable copy
+  Snapshot-->>View: Return health, validity and age
+  View->>View: Apply freshness<br/>Show usable values
+```
+
+The consumed marker changes only after a successful commit. On subsequent
+reads, an expired component keeps its diagnostic timestamps and presents
+as stale.
 
 ## Snapshot content
 
@@ -188,3 +261,7 @@ requiring hardware.
 ---
 
 **VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)
+
+> **File name** `device-snapshot.md`<br>
+> **Full path** `E:\Cody\esp32-luna-shell\docs\bsp\core\device-snapshot.md`<br>
+> **Path relative to the repository root** `docs/bsp/core/device-snapshot.md`

@@ -1,3 +1,7 @@
+> **File name** `CCP1.md`<br>
+> **Full path** `E:\Cody\esp32-luna-shell\cody-desktop\plugins\cody-codex-plugin\protocol\CCP1.md`<br>
+> **Path relative to the repository root** `cody-desktop/plugins/cody-codex-plugin/protocol/CCP1.md`
+
 <img src="https://raw.githubusercontent.com/umbertotechnopreneur/VibeWare/main/Branding/vibeware-logo.png" alt="VibeWare floppy logo" width="72">
 
 # CCP1 local pairing protocol
@@ -346,6 +350,28 @@ Unknown, duplicated or missing fields are rejected. Senders use the canonical
 field order shown below for reproducible proofs and diagnostics.
 
 ## Pairing
+
+```mermaid
+sequenceDiagram
+  accTitle: Local commissioning with durable candidates
+  actor User
+  participant Cody as Cody pairing owner
+  participant PC as CCP plugin
+
+  User->>Cody: Open pairing and read the displayed code
+  User->>PC: Enter the visible code
+  PC->>Cody: DISCOVER
+  Cody-->>PC: OFFER for the active window
+  PC->>PC: Verify the offer and persist the pending candidate
+  PC->>Cody: PAIR with proof
+  Cody->>Cody: Validate and persist its separate pending candidate
+  Cody-->>PC: PAIRED confirms durable pending storage
+  PC->>Cody: CONFIRM with proof backed by PC storage
+  Cody->>Cody: Promote the candidate and clear pending storage
+  Cody-->>PC: ACTIVE confirms device activation
+  PC->>PC: Promote its candidate and complete commissioning
+  Note over Cody,PC: Interrupted commissioning has a separate recovery path.<br/>Fresh authenticated READY and COMMITTED establish recovery.
+```
 
 CCP broadcasts:
 
@@ -723,6 +749,33 @@ enabling the plugin alone does not establish trusted live hook delivery.
 
 ## Event transport and reply lifecycle
 
+```mermaid
+sequenceDiagram
+  accTitle: From Cody selection to confirmed recipient delivery
+  actor User
+  participant Cody as Cody
+  participant Broker as CCP broker
+  participant Recipient as MCP client
+
+  Recipient->>Broker: Create an explicit question
+  Broker->>Cody: Authenticated EVENT pending
+  User->>Cody: Review the choice and press Send
+  Cody->>Broker: REPLY with exact ticket and choice
+  Broker->>Broker: Commit choice and answer ID
+  Broker-->>Cody: REPLYACK received
+  Recipient->>Broker: Poll the question
+  Broker-->>Recipient: Return choice and answer ID
+  Recipient->>Broker: Acknowledge the exact answer ID
+  Broker->>Broker: Mark recipient delivery
+  Broker-->>Cody: Publish delivered state
+  Cody->>Broker: EVENTACK after local closure
+  Broker->>Broker: Release next eligible question
+```
+
+Cody presents a recorded answer as received while the recipient's exact
+acknowledgement is outstanding. Cody's terminal acknowledgement separately
+releases the next question.
+
 Automatic chat metadata and explicit MCP requests have separate ownership.
 An MCP request creates a random 128-bit ticket and 256-bit capability, disclosed
 only to its creator. `context` is caller-declared, without establishing chat identity
@@ -1045,6 +1098,41 @@ TLS, SPAKE2 or a production security audit. Stable device and PC identities can
 be retained when that coordinated future protocol is designed.
 ## One-way encrypted audio channel (plugin 0.6.5 source increment)
 
+```mermaid
+sequenceDiagram
+  accTitle: Optional voice capture transport and queue outcome
+  actor User
+  participant Cody as Cody
+  participant Receiver as PC audio receiver
+  participant Queue as Native Codex queue
+
+  User->>Cody: Start voice input
+  Cody->>Receiver: START for followed chat
+  Receiver-->>Cody: Accept if peer and chat are current
+  loop Bounded PCM window
+    Cody->>Receiver: Encrypted PCM block
+    Receiver-->>Cody: ACK contiguous prefix
+  end
+  alt User discards before submission
+    User->>Cody: Discard the recording
+    Cody->>Receiver: CANCEL
+  else User completes Send
+    User->>Cody: Confirm Send
+    Cody->>Receiver: END
+    Receiver-->>Cody: ACK complete audio
+    Receiver->>Queue: Submit WAV once<br/>to the same followed chat
+    alt Matching native receipt
+      Queue-->>Receiver: Confirm queue acceptance
+      Receiver-->>Cody: Report queue accepted
+    else Missing or mismatched receipt
+      Receiver-->>Cody: Report unconfirmed submission
+    end
+  end
+```
+
+The diagram ends at the queue outcome. Audio reception, native queue
+acceptance and model consumption are separate milestones.
+
 UDP port 42119 carries a separate one-way enhanced PCM16 mono 16 kHz stream.
 An utterance is at most 60 seconds, or 1,920,000 real PCM bytes. The device has a
 separate ten-second acknowledgement ring, not a sixty-second recording buffer.
@@ -1194,3 +1282,7 @@ This is a visual preview, never a synthetic hardware observation or Codex state.
 ---
 
 **VibeWare** · Created by Umberto Giacobbi · [Cody on GitHub](https://github.com/umbertotechnopreneur/esp32-luna-shell) · [VibeWare](https://github.com/umbertotechnopreneur/VibeWare)
+
+> **File name** `CCP1.md`<br>
+> **Full path** `E:\Cody\esp32-luna-shell\cody-desktop\plugins\cody-codex-plugin\protocol\CCP1.md`<br>
+> **Path relative to the repository root** `cody-desktop/plugins/cody-codex-plugin/protocol/CCP1.md`
