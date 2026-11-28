@@ -1,7 +1,13 @@
 # Repository working agreements
 
-These project rules complement the global agreements and apply to all agents,
-including Copilot. Use the current checkout and branch; preserve unrelated work.
+## Virtual machines, test runs, and bulk reads
+
+- Before starting, opening, connecting to, or using any virtual machine on Umberto Giacobbi's computer, tell him which VM and why, ask for permission, and wait for his explicit approval. This includes Windows Sandbox.
+- Tell Umberto before starting any test or test suite, including tests triggered by scripts or CI. Say what will run and where. Follow any additional approval requirements in this repository.
+- Tell Umberto before reading ten or more files in a task. Count files across all reads and batches. If the scope grows during the task, notify him before reading the tenth file.
+
+These project rules apply to all agents. Use the current checkout and branch.
+Preserve unrelated work.
 Create a branch, worktree or PR only when explicitly requested.
 
 ## Scope, validation and delivery
